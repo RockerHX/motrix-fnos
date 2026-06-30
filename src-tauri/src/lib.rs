@@ -9,7 +9,10 @@ pub mod tasks;
 use crate::config::aria2::Aria2Config;
 use std::io;
 use std::time::Duration;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
+use tauri::WindowEvent;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -22,22 +25,38 @@ pub fn run() {
             let (database, restored_tasks, next_task_id) = tauri::async_runtime::block_on(async {
                 let path = database::database_path(&app_handle)?;
                 let database = database::connect_database(path).await?;
-                let restored_tasks =
-                    database::tasks::list_download_tasks(&database.pool).await?;
-                let max_task_id =
-                    database::tasks::max_download_task_id(&database.pool).await?;
+                let restored_tasks = database::tasks::list_download_tasks(&database.pool).await?;
+                let max_task_id = database::tasks::max_download_task_id(&database.pool).await?;
                 Ok::<_, String>((database, restored_tasks, max_task_id.saturating_add(1)))
             })
             .map_err(io::Error::other)?;
-            app.manage(app::AppState::new(
-                database,
-                restored_tasks,
-                next_task_id,
-            ));
+            app.manage(app::AppState::new(database, restored_tasks, next_task_id));
             tauri::async_runtime::spawn(async move {
                 start_aria2_after_app_launch(app_handle).await;
             });
+            setup_tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                if let Err(error) = window.hide() {
+                    let state = window.app_handle().state::<app::AppState>();
+                    state
+                        .debug_logs
+                        .error("runtime.window", format!("隐藏主窗口失败：{}", error));
+                    return;
+                }
+
+                let state = window.app_handle().state::<app::AppState>();
+                state
+                    .debug_logs
+                    .info("runtime.window", "主窗口已隐藏到后台，下载任务将继续运行");
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
@@ -63,6 +82,73 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let open = MenuItem::with_id(app, "open-main-window", "打开主界面", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "hide-main-window", "隐藏主界面", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit-app", "退出 Motrix FNOS", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &hide, &quit])?;
+
+    TrayIconBuilder::with_id("main-tray")
+        .tooltip("Motrix FNOS")
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open-main-window" => {
+                show_main_window(app);
+            }
+            "hide-main-window" => {
+                hide_main_window(app);
+            }
+            "quit-app" => {
+                let state = app.state::<app::AppState>();
+                state
+                    .debug_logs
+                    .info("runtime.tray", "用户通过托盘退出应用");
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = window.show() {
+            let state = app.state::<app::AppState>();
+            state
+                .debug_logs
+                .error("runtime.tray", format!("显示主窗口失败：{}", error));
+            return;
+        }
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+
+        let state = app.state::<app::AppState>();
+        state
+            .debug_logs
+            .info("runtime.tray", "已通过托盘打开主界面");
+    }
+}
+
+fn hide_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = window.hide() {
+            let state = app.state::<app::AppState>();
+            state
+                .debug_logs
+                .error("runtime.tray", format!("隐藏主窗口失败：{}", error));
+            return;
+        }
+
+        let state = app.state::<app::AppState>();
+        state
+            .debug_logs
+            .info("runtime.tray", "已通过托盘隐藏主界面");
+    }
+}
+
 async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
@@ -73,9 +159,12 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
         state
             .debug_logs
             .info("aria2", "应用启动后自动启动 Aria2 Next");
-        if let Err(error) =
-            aria2::start_process(&app_handle, &state.aria2_process, &config, &state.debug_logs)
-        {
+        if let Err(error) = aria2::start_process(
+            &app_handle,
+            &state.aria2_process,
+            &config,
+            &state.debug_logs,
+        ) {
             state.debug_logs.error(
                 "aria2",
                 format!("应用启动时启动 Aria2 Next 失败：{}", error),
@@ -94,12 +183,12 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                 format!("应用启动后 Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
             );
             drop(state);
-            if let Err(error) = refresh_persisted_tasks_after_rpc_ready(&app_handle, &config).await {
+            if let Err(error) = refresh_persisted_tasks_after_rpc_ready(&app_handle, &config).await
+            {
                 let state = app_handle.state::<app::AppState>();
-                state.debug_logs.error(
-                    "tasks.restore",
-                    format!("恢复任务状态同步失败：{}", error),
-                );
+                state
+                    .debug_logs
+                    .error("tasks.restore", format!("恢复任务状态同步失败：{}", error));
             }
             return;
         }
@@ -125,12 +214,9 @@ async fn refresh_persisted_tasks_after_rpc_ready(
     config: &Aria2Config,
 ) -> Result<(), String> {
     let state = app_handle.state::<app::AppState>();
-    let tasks = tasks::refresh_tasks_from_aria2(
-        &state.download_tasks,
-        config,
-        Some(&state.debug_logs),
-    )
-    .await?;
+    let tasks =
+        tasks::refresh_tasks_from_aria2(&state.download_tasks, config, Some(&state.debug_logs))
+            .await?;
 
     for task in &tasks {
         database::tasks::upsert_download_task(&state.database.pool, task).await?;
