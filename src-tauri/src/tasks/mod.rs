@@ -343,6 +343,67 @@ pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>,
         .map_err(|_| "无法读取下载任务列表".to_string())
 }
 
+pub fn task_gid(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<String, String> {
+    let guard = tasks
+        .lock()
+        .map_err(|_| "无法读取下载任务列表".to_string())?;
+    let task = guard
+        .iter()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+
+    if task.status == DownloadTaskStatus::Removed {
+        return Err("已删除任务不能继续操作".to_string());
+    }
+
+    task.gid
+        .clone()
+        .filter(|gid| !gid.trim().is_empty())
+        .ok_or_else(|| "下载任务缺少 Aria2 GID，无法控制".to_string())
+}
+
+pub fn mark_task_paused(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        task.status = DownloadTaskStatus::Paused;
+        task.download_speed = 0;
+        task.error_code = None;
+        task.error_message = None;
+        Ok(())
+    })
+}
+
+pub fn mark_task_resumed(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        task.status = DownloadTaskStatus::Active;
+        task.error_code = None;
+        task.error_message = None;
+        Ok(())
+    })
+}
+
+pub fn mark_task_removed(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+    delete_files: bool,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        if delete_files {
+            delete_task_file(task)?;
+        }
+        task.status = DownloadTaskStatus::Removed;
+        task.download_speed = 0;
+        task.error_code = None;
+        task.error_message = None;
+        Ok(())
+    })
+}
+
 async fn tell_status(
     client: &reqwest::Client,
     config: &Aria2Config,
@@ -429,6 +490,49 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
         .map(|file| file.path.clone())
         .filter(|path| !path.is_empty())
         .or_else(|| Some(Path::new(&task.save_dir).join(&task.file_name).display().to_string()));
+}
+
+fn update_task(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+    update: impl FnOnce(&mut DownloadTask) -> Result<(), String>,
+) -> Result<DownloadTask, String> {
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let task = guard
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+
+    update(task)?;
+    Ok(task.clone())
+}
+
+fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
+    let Some(file_path) = task.file_path.as_deref().filter(|path| !path.trim().is_empty()) else {
+        return Ok(());
+    };
+    let path = Path::new(file_path);
+    if !path.exists() {
+        return Ok(());
+    }
+    if !path.is_file() {
+        return Err(format!("当前仅支持删除单文件：{}", path.display()));
+    }
+
+    let save_dir = Path::new(&task.save_dir)
+        .canonicalize()
+        .map_err(|error| format!("校验保存目录失败：{}（{}）", task.save_dir, error))?;
+    let file = path
+        .canonicalize()
+        .map_err(|error| format!("校验本地文件失败：{}（{}）", path.display(), error))?;
+
+    if !file.starts_with(&save_dir) {
+        return Err("拒绝删除保存目录外的文件".to_string());
+    }
+
+    fs::remove_file(&file).map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -753,6 +857,24 @@ mod tests {
         dir.display().to_string()
     }
 
+    fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
+        DownloadTask {
+            id: 1,
+            url: "https://example.com/file.zip".to_string(),
+            file_name: "file.zip".to_string(),
+            save_dir,
+            gid: Some("abc123".to_string()),
+            status: DownloadTaskStatus::Active,
+            total_length: 100,
+            completed_length: 40,
+            download_speed: 20,
+            error_code: Some("old".to_string()),
+            error_message: Some("old".to_string()),
+            file_path,
+            created_at: 1,
+        }
+    }
+
     #[test]
     fn prepare_task_accepts_https_url() {
         let task = prepare_task(CreateDownloadTaskRequest {
@@ -801,6 +923,75 @@ mod tests {
             list_tasks(&tasks).expect("tasks should be readable").len(),
             1
         );
+    }
+
+    #[test]
+    fn task_gid_rejects_removed_task() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Removed;
+        let tasks = Mutex::new(vec![task]);
+
+        let error = task_gid(&tasks, 1).expect_err("removed task should be rejected");
+
+        assert!(error.contains("已删除"));
+    }
+
+    #[test]
+    fn mark_task_paused_updates_status_and_speed() {
+        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+
+        let task = mark_task_paused(&tasks, 1).expect("task should be paused");
+
+        assert_eq!(task.status, DownloadTaskStatus::Paused);
+        assert_eq!(task.download_speed, 0);
+        assert_eq!(task.error_message, None);
+    }
+
+    #[test]
+    fn mark_task_resumed_updates_status() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Paused;
+        let tasks = Mutex::new(vec![task]);
+
+        let task = mark_task_resumed(&tasks, 1).expect("task should be resumed");
+
+        assert_eq!(task.status, DownloadTaskStatus::Active);
+    }
+
+    #[test]
+    fn mark_task_removed_deletes_file_under_save_dir() {
+        let save_dir = PathBuf::from(temp_download_dir("delete-file"));
+        fs::create_dir_all(&save_dir).expect("save dir should be created");
+        let file_path = save_dir.join("file.zip");
+        fs::write(&file_path, b"test").expect("file should be written");
+        let tasks = Mutex::new(vec![sample_task(
+            Some(file_path.display().to_string()),
+            save_dir.display().to_string(),
+        )]);
+
+        let task = mark_task_removed(&tasks, 1, true).expect("task should be removed");
+
+        assert_eq!(task.status, DownloadTaskStatus::Removed);
+        assert!(!file_path.exists());
+    }
+
+    #[test]
+    fn mark_task_removed_refuses_file_outside_save_dir() {
+        let save_dir = PathBuf::from(temp_download_dir("safe-delete-save"));
+        let outside_dir = PathBuf::from(temp_download_dir("safe-delete-outside"));
+        fs::create_dir_all(&save_dir).expect("save dir should be created");
+        fs::create_dir_all(&outside_dir).expect("outside dir should be created");
+        let file_path = outside_dir.join("file.zip");
+        fs::write(&file_path, b"test").expect("file should be written");
+        let tasks = Mutex::new(vec![sample_task(
+            Some(file_path.display().to_string()),
+            save_dir.display().to_string(),
+        )]);
+
+        let error = mark_task_removed(&tasks, 1, true).expect_err("outside file should be rejected");
+
+        assert!(error.contains("保存目录外"));
+        assert!(file_path.exists());
     }
 
     #[test]

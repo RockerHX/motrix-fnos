@@ -34,7 +34,10 @@ pub fn run() {
             commands::aria2::stop_aria2,
             commands::aria2::ping_aria2_rpc,
             commands::tasks::create_download_task,
-            commands::tasks::list_download_tasks
+            commands::tasks::list_download_tasks,
+            commands::tasks::pause_download_task,
+            commands::tasks::resume_download_task,
+            commands::tasks::delete_download_task
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,8 +2,9 @@ use crate::app::AppState;
 use crate::aria2::{ping_rpc, process_status, start_process};
 use crate::config::aria2::Aria2Config;
 use crate::tasks::{
-    add_uri_to_aria2, prepare_task_with_logs, refresh_tasks_from_aria2, store_created_task,
-    CreateDownloadTaskRequest, DownloadTask,
+    add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
+    prepare_task_with_logs, refresh_tasks_from_aria2, remove_task, store_created_task, task_gid,
+    unpause_task, CreateDownloadTaskRequest, DownloadTask,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -112,4 +113,62 @@ pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<Downl
         Some(&state.debug_logs),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn pause_download_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: u64,
+) -> Result<DownloadTask, String> {
+    let config = Aria2Config::from_env();
+    ensure_aria2_ready(&app, &state, &config).await?;
+    let gid = task_gid(&state.download_tasks, task_id)?;
+    pause_task(&config, &gid, Some(&state.debug_logs)).await?;
+    let task = mark_task_paused(&state.download_tasks, task_id)?;
+    state
+        .debug_logs
+        .info("tasks.control", format!("任务已暂停，ID {}，GID {}", task_id, gid));
+    Ok(task)
+}
+
+#[tauri::command]
+pub async fn resume_download_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: u64,
+) -> Result<DownloadTask, String> {
+    let config = Aria2Config::from_env();
+    ensure_aria2_ready(&app, &state, &config).await?;
+    let gid = task_gid(&state.download_tasks, task_id)?;
+    unpause_task(&config, &gid, Some(&state.debug_logs)).await?;
+    let task = mark_task_resumed(&state.download_tasks, task_id)?;
+    state
+        .debug_logs
+        .info("tasks.control", format!("任务已恢复，ID {}，GID {}", task_id, gid));
+    Ok(task)
+}
+
+#[tauri::command]
+pub async fn delete_download_task(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    task_id: u64,
+    delete_files: bool,
+) -> Result<DownloadTask, String> {
+    let config = Aria2Config::from_env();
+    ensure_aria2_ready(&app, &state, &config).await?;
+    let gid = task_gid(&state.download_tasks, task_id)?;
+    remove_task(&config, &gid, Some(&state.debug_logs)).await?;
+    let task = mark_task_removed(&state.download_tasks, task_id, delete_files)?;
+    state.debug_logs.info(
+        "tasks.control",
+        format!(
+            "任务已删除，ID {}，GID {}，删除本地文件 {}",
+            task_id,
+            gid,
+            if delete_files { "是" } else { "否" }
+        ),
+    );
+    Ok(task)
 }
