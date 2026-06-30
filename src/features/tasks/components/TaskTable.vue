@@ -79,11 +79,11 @@ const columns: DataTableColumns<DownloadTask> = [
   {
     key: "actions",
     title: "操作",
-    width: 140,
-    minWidth: 120,
+    width: 220,
+    minWidth: 200,
     resizable: false,
     fixed: "right",
-    render: () => h(TaskActions),
+    render: (task) => h(TaskActions, { task }),
   },
 ];
 
