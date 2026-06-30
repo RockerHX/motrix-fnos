@@ -58,6 +58,12 @@ struct AddUriResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct GidResponse {
+    result: Option<String>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TellStatusResponse {
     result: Option<Aria2TaskStatus>,
@@ -189,6 +195,73 @@ pub async fn add_uri_to_aria2(
         format!("Aria2 下载任务创建成功，GID {}", gid),
     );
     Ok(gid)
+}
+
+pub async fn pause_task(
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    send_gid_control_request(
+        config,
+        gid,
+        "aria2.pause",
+        "motrix-fnos-pause",
+        "暂停任务",
+        debug_logs,
+    )
+    .await
+}
+
+pub async fn unpause_task(
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    send_gid_control_request(
+        config,
+        gid,
+        "aria2.unpause",
+        "motrix-fnos-unpause",
+        "恢复任务",
+        debug_logs,
+    )
+    .await
+}
+
+pub async fn remove_task(
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    match send_gid_control_request(
+        config,
+        gid,
+        "aria2.remove",
+        "motrix-fnos-remove",
+        "删除任务",
+        debug_logs,
+    )
+    .await
+    {
+        Ok(result_gid) => Ok(result_gid),
+        Err(error) => {
+            log_info(
+                debug_logs,
+                "aria2.removeDownloadResult",
+                format!("aria2.remove 未完成，尝试清理已停止任务结果，GID {}：{}", gid, error),
+            );
+            send_gid_control_request(
+                config,
+                gid,
+                "aria2.removeDownloadResult",
+                "motrix-fnos-remove-result",
+                "删除任务结果",
+                debug_logs,
+            )
+            .await
+        }
+    }
 }
 
 pub fn store_created_task(
@@ -424,6 +497,82 @@ fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Val
         "jsonrpc": "2.0",
         "id": "motrix-fnos-tell-status",
         "method": "aria2.tellStatus",
+        "params": params,
+    })
+}
+
+async fn send_gid_control_request(
+    config: &Aria2Config,
+    gid: &str,
+    method: &str,
+    request_id: &str,
+    action_label: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    let module = method;
+    log_info(
+        debug_logs,
+        module,
+        format!("开始{}，GID {}", action_label, gid),
+    );
+    let request_body = build_gid_control_request(config, gid, method, request_id);
+    let response = match reqwest::Client::new()
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => {
+            let error = format!("{}失败：无法连接 Aria2 RPC", action_label);
+            log_error(debug_logs, module, format!("GID {} {}", gid, error));
+            return Err(error);
+        }
+    };
+
+    let rpc_response = match response.json::<GidResponse>().await {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("{}失败，响应解析失败：{}", action_label, error);
+            log_error(debug_logs, module, format!("GID {} {}", gid, error));
+            return Err(error);
+        }
+    };
+
+    if let Some(error) = rpc_response.error {
+        let error = format!("{}失败：{}", action_label, error.message);
+        log_error(debug_logs, module, format!("GID {} {}", gid, error));
+        return Err(error);
+    }
+
+    let result_gid = rpc_response
+        .result
+        .filter(|gid| !gid.trim().is_empty())
+        .ok_or_else(|| format!("{}失败：响应缺少 GID", action_label))?;
+    log_info(
+        debug_logs,
+        module,
+        format!("{}成功，GID {}", action_label, result_gid),
+    );
+    Ok(result_gid)
+}
+
+fn build_gid_control_request(
+    config: &Aria2Config,
+    gid: &str,
+    method: &str,
+    request_id: &str,
+) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+    params.push(serde_json::json!(gid));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
         "params": params,
     })
 }
@@ -824,5 +973,27 @@ mod tests {
         assert_eq!(request["params"][0][0], "https://example.com/file.zip");
         assert_eq!(request["params"][1]["dir"], "/downloads");
         assert_eq!(request["params"][1]["out"], "custom.zip");
+    }
+
+    #[test]
+    fn gid_control_request_contains_method_and_gid() {
+        let request =
+            build_gid_control_request(&test_config(), "abc123", "aria2.pause", "pause-test");
+
+        assert_eq!(request["method"], "aria2.pause");
+        assert_eq!(request["id"], "pause-test");
+        assert_eq!(request["params"][0], "abc123");
+    }
+
+    #[test]
+    fn gid_control_request_includes_token_when_configured() {
+        let mut config = test_config();
+        config.rpc_secret = "secret".to_string();
+
+        let request =
+            build_gid_control_request(&config, "abc123", "aria2.unpause", "unpause-test");
+
+        assert_eq!(request["params"][0], "token:secret");
+        assert_eq!(request["params"][1], "abc123");
     }
 }
