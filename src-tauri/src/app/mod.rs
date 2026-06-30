@@ -1,3 +1,4 @@
+use crate::database::AppDatabase;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
 use std::process::Child;
@@ -33,19 +34,25 @@ impl ManagedAria2Process {
 pub struct AppState {
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub download_tasks: Mutex<Vec<DownloadTask>>,
+    pub database: AppDatabase,
     pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
 }
 
-impl Default for AppState {
-    fn default() -> Self {
+impl AppState {
+    pub fn new(database: AppDatabase) -> Self {
         let state = Self {
             aria2_process: Mutex::new(None),
             download_tasks: Mutex::new(Vec::new()),
+            database,
             debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(1),
         };
         state.debug_logs.info("app", "应用启动，调试日志队列已初始化");
+        state.debug_logs.info(
+            "database",
+            format!("SQLite 数据库已初始化：{}", state.database.path.display()),
+        );
         state
     }
 }

@@ -7,18 +7,24 @@ pub mod debug_logs;
 pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
+use std::io;
 use std::time::Duration;
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(app::AppState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
+            let database = tauri::async_runtime::block_on(async {
+                let path = database::database_path(&app_handle)?;
+                database::connect_database(path).await
+            })
+            .map_err(io::Error::other)?;
+            app.manage(app::AppState::new(database));
             tauri::async_runtime::spawn(async move {
                 start_aria2_after_app_launch(app_handle).await;
             });
