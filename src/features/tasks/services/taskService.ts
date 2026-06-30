@@ -10,6 +10,18 @@ export function listDownloadTasks(): Promise<DownloadTask[]> {
   return invoke<DownloadTask[]>("list_download_tasks");
 }
 
+export function pauseDownloadTask(taskId: number): Promise<DownloadTask> {
+  return invoke<DownloadTask>("pause_download_task", { taskId });
+}
+
+export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
+  return invoke<DownloadTask>("resume_download_task", { taskId });
+}
+
+export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
+  return invoke<DownloadTask>("delete_download_task", { taskId, deleteFiles });
+}
+
 export async function selectDownloadDirectory(): Promise<string | null> {
   const selected = await open({
     directory: true,

@@ -1,6 +1,12 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { createDownloadTask, listDownloadTasks } from "../services/taskService";
+import {
+  createDownloadTask,
+  deleteDownloadTask,
+  listDownloadTasks,
+  pauseDownloadTask,
+  resumeDownloadTask,
+} from "../services/taskService";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
 interface RefreshTasksOptions {
@@ -16,6 +22,7 @@ export const useTaskStore = defineStore("tasks", () => {
   const tasks = ref<DownloadTask[]>([]);
   const isCreating = ref(false);
   const isRefreshing = ref(false);
+  const operatingTaskIds = ref<number[]>([]);
   const lastRefreshErrorAt = ref(0);
   const notifiedErrorTaskKeys = new Set<string>();
 
@@ -51,6 +58,51 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
+  async function pauseTask(taskId: number): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => pauseDownloadTask(taskId));
+  }
+
+  async function resumeTask(taskId: number): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => resumeDownloadTask(taskId));
+  }
+
+  async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => deleteDownloadTask(taskId, deleteFiles));
+  }
+
+  async function runTaskOperation(
+    taskId: number,
+    operation: () => Promise<DownloadTask>,
+  ): Promise<DownloadTask> {
+    beginTaskOperation(taskId);
+    try {
+      const task = await operation();
+      upsertTask(task);
+      await refreshTasks({ showError: true });
+      return task;
+    } finally {
+      endTaskOperation(taskId);
+    }
+  }
+
+  function isTaskOperating(taskId: number) {
+    return operatingTaskIds.value.includes(taskId);
+  }
+
+  function beginTaskOperation(taskId: number) {
+    if (!operatingTaskIds.value.includes(taskId)) {
+      operatingTaskIds.value = [...operatingTaskIds.value, taskId];
+    }
+  }
+
+  function endTaskOperation(taskId: number) {
+    operatingTaskIds.value = operatingTaskIds.value.filter((id) => id !== taskId);
+  }
+
+  function upsertTask(task: DownloadTask) {
+    tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+  }
+
   function collectNewTaskErrorMessages(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
     const previousStatus = new Map(previousTasks.map((task) => [taskKey(task), task.status]));
     const messages: string[] = [];
@@ -74,8 +126,13 @@ export const useTaskStore = defineStore("tasks", () => {
     tasks,
     isCreating,
     isRefreshing,
+    operatingTaskIds,
     createTask,
+    pauseTask,
+    resumeTask,
+    deleteTask,
     refreshTasks,
+    isTaskOperating,
   };
 });
 
