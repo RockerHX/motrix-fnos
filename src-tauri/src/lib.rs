@@ -14,7 +14,8 @@ pub fn run() {
             commands::aria2::get_aria2_config_status,
             commands::aria2::get_aria2_process_status,
             commands::aria2::start_aria2,
-            commands::aria2::stop_aria2
+            commands::aria2::stop_aria2,
+            commands::aria2::ping_aria2_rpc
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

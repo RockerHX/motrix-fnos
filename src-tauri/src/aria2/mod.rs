@@ -23,6 +23,31 @@ pub struct Aria2ProcessStatus {
     pub message: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Aria2RpcStatus {
+    pub connected: bool,
+    pub version: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct JsonRpcResponse {
+    result: Option<Aria2VersionResult>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2VersionResult {
+    version: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct JsonRpcError {
+    message: String,
+}
+
 impl Aria2ConfigStatus {
     pub fn from_config(config: &Aria2Config) -> Self {
         let path_exists = config
@@ -133,6 +158,68 @@ pub fn stop_process(process: &Mutex<Option<Child>>) -> Result<Aria2ProcessStatus
     })
 }
 
+pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(format!("token:{}", config.rpc_secret));
+    }
+
+    let request_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-version-check",
+        "method": "aria2.getVersion",
+        "params": params,
+    });
+
+    let response = match reqwest::Client::new()
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            return Aria2RpcStatus {
+                connected: false,
+                version: None,
+                message: format!("Aria2 RPC 连接失败：{}", error),
+            };
+        }
+    };
+
+    let rpc_response = match response.json::<JsonRpcResponse>().await {
+        Ok(body) => body,
+        Err(error) => {
+            return Aria2RpcStatus {
+                connected: false,
+                version: None,
+                message: format!("Aria2 RPC 响应解析失败：{}", error),
+            };
+        }
+    };
+
+    if let Some(error) = rpc_response.error {
+        return Aria2RpcStatus {
+            connected: false,
+            version: None,
+            message: format!("Aria2 RPC 返回错误：{}", error.message),
+        };
+    }
+
+    match rpc_response.result {
+        Some(result) => Aria2RpcStatus {
+            connected: true,
+            version: Some(result.version.clone()),
+            message: format!("Aria2 RPC 连接正常，版本 {}", result.version),
+        },
+        None => Aria2RpcStatus {
+            connected: false,
+            version: None,
+            message: "Aria2 RPC 响应缺少版本信息".to_string(),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +249,17 @@ mod tests {
             .expect_err("invalid path should fail");
 
         assert!(error.contains("路径不存在"));
+    }
+
+    #[test]
+    fn ping_rpc_returns_failure_when_server_is_unavailable() {
+        let mut config = test_config(None);
+        config.rpc_port = 9;
+
+        let status = tauri::async_runtime::block_on(ping_rpc(&config));
+
+        assert!(!status.connected);
+        assert!(status.version.is_none());
+        assert!(status.message.contains("RPC"));
     }
 }
