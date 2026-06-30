@@ -19,12 +19,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
-            let database = tauri::async_runtime::block_on(async {
+            let (database, restored_tasks, next_task_id) = tauri::async_runtime::block_on(async {
                 let path = database::database_path(&app_handle)?;
-                database::connect_database(path).await
+                let database = database::connect_database(path).await?;
+                let restored_tasks =
+                    database::tasks::list_download_tasks(&database.pool).await?;
+                let max_task_id =
+                    database::tasks::max_download_task_id(&database.pool).await?;
+                Ok::<_, String>((database, restored_tasks, max_task_id.saturating_add(1)))
             })
             .map_err(io::Error::other)?;
-            app.manage(app::AppState::new(database));
+            app.manage(app::AppState::new(
+                database,
+                restored_tasks,
+                next_task_id,
+            ));
             tauri::async_runtime::spawn(async move {
                 start_aria2_after_app_launch(app_handle).await;
             });
@@ -84,6 +93,14 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                 "aria2.rpc",
                 format!("应用启动后 Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
             );
+            drop(state);
+            if let Err(error) = refresh_persisted_tasks_after_rpc_ready(&app_handle, &config).await {
+                let state = app_handle.state::<app::AppState>();
+                state.debug_logs.error(
+                    "tasks.restore",
+                    format!("恢复任务状态同步失败：{}", error),
+                );
+            }
             return;
         }
 
@@ -101,6 +118,46 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
             normalize_startup_rpc_message(&last_message)
         ),
     );
+}
+
+async fn refresh_persisted_tasks_after_rpc_ready(
+    app_handle: &tauri::AppHandle,
+    config: &Aria2Config,
+) -> Result<(), String> {
+    let state = app_handle.state::<app::AppState>();
+    let tasks = tasks::refresh_tasks_from_aria2(
+        &state.download_tasks,
+        config,
+        Some(&state.debug_logs),
+    )
+    .await?;
+
+    for task in &tasks {
+        database::tasks::upsert_download_task(&state.database.pool, task).await?;
+        match task.status {
+            tasks::DownloadTaskStatus::Complete
+            | tasks::DownloadTaskStatus::Paused
+            | tasks::DownloadTaskStatus::Error
+            | tasks::DownloadTaskStatus::Removed => {
+                database::tasks::record_task_history(
+                    &state.database.pool,
+                    task,
+                    task.error_message.as_deref(),
+                )
+                .await?;
+            }
+            tasks::DownloadTaskStatus::Pending | tasks::DownloadTaskStatus::Active => {}
+        }
+        if task.status == tasks::DownloadTaskStatus::Error {
+            database::tasks::record_task_error(&state.database.pool, task).await?;
+        }
+    }
+
+    state.debug_logs.info(
+        "tasks.restore",
+        format!("应用启动后已同步 {} 个恢复任务状态", tasks.len()),
+    );
+    Ok(())
 }
 
 fn normalize_startup_rpc_message(message: &str) -> &str {

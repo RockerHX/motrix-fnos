@@ -334,6 +334,7 @@ pub async fn refresh_tasks_from_aria2(
     let snapshot = list_tasks(tasks)?;
     let gids: Vec<String> = snapshot
         .iter()
+        .filter(|task| task.status != DownloadTaskStatus::Removed)
         .filter_map(|task| task.gid.clone())
         .collect();
 

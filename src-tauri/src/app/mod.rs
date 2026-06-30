@@ -40,18 +40,26 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(database: AppDatabase) -> Self {
+    pub fn new(database: AppDatabase, download_tasks: Vec<DownloadTask>, next_task_id: u64) -> Self {
+        let restored_count = download_tasks.len();
         let state = Self {
             aria2_process: Mutex::new(None),
-            download_tasks: Mutex::new(Vec::new()),
+            download_tasks: Mutex::new(download_tasks),
             database,
             debug_logs: DebugLogStore::default(),
-            next_task_id: AtomicU64::new(1),
+            next_task_id: AtomicU64::new(next_task_id),
         };
         state.debug_logs.info("app", "应用启动，调试日志队列已初始化");
         state.debug_logs.info(
             "database",
             format!("SQLite 数据库已初始化：{}", state.database.path.display()),
+        );
+        state.debug_logs.info(
+            "tasks.restore",
+            format!(
+                "已从 SQLite 恢复 {} 个任务，下一个任务 ID {}",
+                restored_count, next_task_id
+            ),
         );
         state
     }
