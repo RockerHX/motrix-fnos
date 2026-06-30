@@ -2,6 +2,7 @@ pub mod app;
 pub mod aria2;
 pub mod commands;
 pub mod config;
+pub mod database;
 pub mod debug_logs;
 pub mod tasks;
 
