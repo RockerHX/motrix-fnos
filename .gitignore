@@ -2,7 +2,7 @@
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon?
+/Icon?
 ._*
 .Spotlight-V100
 .Trashes
@@ -13,6 +13,10 @@ Icon?
 .idea/
 *.swp
 *.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 *.tmp
 *.temp
 
@@ -24,26 +28,33 @@ Icon?
 
 # Logs
 logs/
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
 # Node / frontend dependencies and build output
 node_modules/
+node_modules
 dist/
+dist
 dist-ssr/
+dist-ssr
 .vite/
 .cache/
 coverage/
 
 # Rust / Cargo build output
 /target/
+target
 **/target/
 
 # Tauri generated/runtime artifacts
 src-tauri/target/
+src-tauri/target
 src-tauri/gen/
 src-tauri/.tauri/
 
@@ -77,9 +88,3 @@ temp/
 
 # CodeGraph local index, if generated later
 .codegraph/
-
-# Directory names without trailing slash for check-ignore compatibility
-node_modules
-dist
-target
-src-tauri/target
