@@ -9,16 +9,21 @@ defineProps<{
 
 const emit = defineEmits<{
   openDiagnostics: [];
+  openSettings: [];
 }>();
 
 function openDiagnostics() {
   emit("openDiagnostics");
 }
+
+function openSettings() {
+  emit("openSettings");
+}
 </script>
 
 <template>
   <div class="window-shell">
-    <SidebarNav :app-info="appInfo" />
+    <SidebarNav :app-info="appInfo" @open-settings="openSettings" />
 
     <section class="main-area">
       <Topbar @open-diagnostics="openDiagnostics" />

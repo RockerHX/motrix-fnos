@@ -4,6 +4,14 @@ import type { AppInfo } from "../types/app";
 defineProps<{
   appInfo: AppInfo | null;
 }>();
+
+const emit = defineEmits<{
+  openSettings: [];
+}>();
+
+function openSettings() {
+  emit("openSettings");
+}
 </script>
 
 <template>
@@ -40,7 +48,7 @@ defineProps<{
     </nav>
 
     <div class="sidebar-footer">
-      <button type="button">
+      <button type="button" @click="openSettings">
         <span class="nav-icon">⚙</span>
         <span>Settings</span>
       </button>

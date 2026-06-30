@@ -18,6 +18,10 @@ pub struct AppConfig {
     pub max_concurrent_downloads: u32,
     pub download_limit: u64,
     pub upload_limit: u64,
+    #[serde(default)]
+    pub auto_start_enabled: bool,
+    #[serde(default)]
+    pub notifications_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -80,6 +84,8 @@ fn default_app_config() -> Result<AppConfig, String> {
         max_concurrent_downloads: 5,
         download_limit: 0,
         upload_limit: 0,
+        auto_start_enabled: false,
+        notifications_enabled: false,
     })
 }
 
@@ -92,9 +98,11 @@ fn normalize_app_config(config: AppConfig) -> Result<AppConfig, String> {
 
     Ok(AppConfig {
         default_download_dir,
-        max_concurrent_downloads: config.max_concurrent_downloads.max(1),
+        max_concurrent_downloads: config.max_concurrent_downloads.clamp(1, 64),
         download_limit: config.download_limit,
         upload_limit: config.upload_limit,
+        auto_start_enabled: config.auto_start_enabled,
+        notifications_enabled: config.notifications_enabled,
     })
 }
 
@@ -127,6 +135,8 @@ mod tests {
                 max_concurrent_downloads: 0,
                 download_limit: 1024,
                 upload_limit: 2048,
+                auto_start_enabled: true,
+                notifications_enabled: true,
             })
             .expect("config should normalize");
             set_app_config_value(&database.pool, APP_CONFIG_KEY, &saved)
@@ -140,6 +150,46 @@ mod tests {
             assert_eq!(loaded.max_concurrent_downloads, 1);
             assert_eq!(loaded.download_limit, 1024);
             assert_eq!(loaded.upload_limit, 2048);
+            assert!(loaded.auto_start_enabled);
+            assert!(loaded.notifications_enabled);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+    }
+
+    #[test]
+    fn app_config_accepts_legacy_saved_values() {
+        tauri::async_runtime::block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-legacy-app-config-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_millis()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+
+            sqlx::query(
+                r#"
+                INSERT INTO app_config (key, value, updated_at)
+                VALUES ('download', '{"defaultDownloadDir":"/tmp/downloads","maxConcurrentDownloads":128,"downloadLimit":0,"uploadLimit":0}', 1)
+                "#,
+            )
+            .execute(&database.pool)
+            .await
+            .expect("legacy config should insert");
+
+            let loaded = load_app_config_from_pool(&database.pool)
+                .await
+                .expect("legacy config should load");
+
+            assert_eq!(loaded.default_download_dir, "/tmp/downloads");
+            assert_eq!(loaded.max_concurrent_downloads, 64);
+            assert!(!loaded.auto_start_enabled);
+            assert!(!loaded.notifications_enabled);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);

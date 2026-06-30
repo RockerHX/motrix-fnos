@@ -3,6 +3,8 @@ export interface AppConfig {
   maxConcurrentDownloads: number;
   downloadLimit: number;
   uploadLimit: number;
+  autoStartEnabled: boolean;
+  notificationsEnabled: boolean;
 }
 
 export interface UiPreferences {

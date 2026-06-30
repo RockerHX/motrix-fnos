@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
+import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
@@ -26,6 +27,7 @@ const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
+const showSettings = ref(false);
 
 const { refresh: refreshTasks } = useTaskPolling({
   onRefreshError: (errorMessage) => message.error(errorMessage),
@@ -63,7 +65,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppShell :app-info="appInfo" @open-diagnostics="showDiagnostics = true">
+  <AppShell :app-info="appInfo" @open-diagnostics="showDiagnostics = true" @open-settings="showSettings = true">
     <TaskEmptyState v-if="tasks.length === 0" @create="openCreateDialog" />
     <TaskTable v-else :tasks="tasks" />
 
@@ -71,6 +73,7 @@ onMounted(() => {
       <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>
 
       <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
+      <SettingsDialog v-model:show="showSettings" />
       <DiagnosticsDialog
         v-model:show="showDiagnostics"
         :app-info="appInfo"
