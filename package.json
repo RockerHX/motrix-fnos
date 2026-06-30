@@ -11,6 +11,8 @@
     "tauri:dev": "node scripts/tauri-dev.mjs",
     "tauri:build": "tauri build",
     "typecheck": "vue-tsc --noEmit",
+    "verify": "node scripts/verify.mjs",
+    "verify:pre-commit": "node scripts/verify.mjs --quick",
     "tauri:dev:raw": "tauri dev"
   },
   "dependencies": {

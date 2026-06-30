@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm run verify
+else
+  npm run verify
+fi
