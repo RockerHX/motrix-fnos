@@ -1,3 +1,4 @@
+use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
 use std::process::Child;
 use std::sync::atomic::AtomicU64;
@@ -32,16 +33,20 @@ impl ManagedAria2Process {
 pub struct AppState {
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub download_tasks: Mutex<Vec<DownloadTask>>,
+    pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
 }
 
 impl Default for AppState {
     fn default() -> Self {
-        Self {
+        let state = Self {
             aria2_process: Mutex::new(None),
             download_tasks: Mutex::new(Vec::new()),
+            debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(1),
-        }
+        };
+        state.debug_logs.info("app", "应用启动，调试日志队列已初始化");
+        state
     }
 }
 
