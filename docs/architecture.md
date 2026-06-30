@@ -31,8 +31,6 @@
 - 日志与诊断：**tracing + 应用内调试日志队列**
 - 远程 API：**Axum 后期引入**，第一版不加入
 
-> 当前代码并未完全落实上述路线。例如 `package.json` 暂未引入 Naive UI 和 Pinia，`MainWindow.vue` 仍承担了过多 UI 和状态逻辑。这些属于待治理的架构债务。
-
 ## 3. 分层职责
 
 ### 3.1 Rust 核心层
@@ -185,6 +183,7 @@ src/
       types.ts
     diagnostics/
       components/
+        DiagnosticsDialog.vue
         DebugLogDialog.vue
       stores/
         debugLogStore.ts
@@ -229,7 +228,7 @@ src/
 - 直接写大量 CSS 模拟组件库能力
 - 直接调用 Tauri command 绕过 feature service / store
 
-当前 `MainWindow.vue` 中的任务列表、创建弹窗、Toast、轮询和横向拖拽逻辑都应逐步拆出。
+任务列表、创建弹窗、Toast、轮询、诊断弹窗和复杂交互应拆入对应 layout / feature；后续不得重新堆回 `MainWindow.vue`。
 
 ## 5. UI 组件策略
 
@@ -461,27 +460,14 @@ src-tauri/src/
 - 消息
 - 可选上下文
 
-## 10. 当前架构债务
+## 10. 长期演进关注点
 
-当前已识别的架构债务：
+本节只记录持续性架构关注点；一次性阶段任务和完成状态应放入 `docs/development-plan.md`。
 
-1. `package.json` 暂未引入 Naive UI。
-2. `package.json` 暂未引入 Pinia。
-3. `MainWindow.vue` 承担了任务表、弹窗、Toast、轮询和样式。
-4. 任务表使用 CSS Grid 自研实现，无法自然支持列宽拖动。
-5. 整个任务表容器绑定左右拖动为横向滚动，与列宽拖动目标冲突。
-6. 任务状态仍主要保存在 view 局部状态中。
-7. 任务和配置尚未持久化到 SQLite。
-8. 应用内日志系统尚未建立。
-
-治理顺序：
-
-1. 先建立本文档和任务计划边界。
-2. 引入 Naive UI 和 Pinia。
-3. 拆分 `MainWindow.vue`。
-4. 将任务表迁移到 `NDataTable`。
-5. 建立任务 store 和轮询 composable。
-6. 再继续日志、控制、持久化等功能。
+- **任务控制**：暂停、恢复、删除等能力必须通过 Rust command -> Rust service -> Aria2 RPC 的链路实现，前端只通过任务 store / service 调用。
+- **SQLite 持久化**：任务、配置、历史、错误记录和需要长期保存的 UI 偏好都应规划 SQLite 表或配置项，不把长期状态只留在内存中。
+- **诊断日志**：生产环境排障必须依赖应用内日志入口，不依赖开发终端；日志不得泄漏 RPC secret 或完整私密下载链接 query。
+- **前端边界**：新增任务相关代码进入 `features/tasks`，新增诊断/日志相关代码进入 `features/diagnostics`，页面入口只做组合。
 
 ## 11. 开发约束
 
@@ -491,7 +477,7 @@ src-tauri/src/
 - 新任务相关 UI 必须进入 `features/tasks`。
 - 新诊断相关 UI 必须进入 `features/diagnostics`。
 - 前端调用后端必须经过 service / store 封装。
-- 任务表不得继续扩展自研 Grid 方案，应迁移到 DataTable。
+- 任务表必须使用 Naive UI `NDataTable`，不得回退或继续扩展自研 Grid 方案。
 - 复杂 UI 交互优先使用 Naive UI 能力。
 - 如果 Naive UI 无法满足需求，应先评估现成轮子；确需自研时必须按页面、逻辑、状态和组件拆分。
 - 后端新增 command 时必须明确属于哪个模块。

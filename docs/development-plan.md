@@ -64,23 +64,22 @@
 - 系统 CA 证书探测。
 - 默认下载目录 `~/Downloads`，目录不存在时自动创建。
 - 单任务自定义保存目录和系统目录选择。
-- 错误 Toast、任务行失败原因展示和任务表横向滚动。
+- Naive UI Message 错误提示、任务行失败原因展示和 `NDataTable` 横向滚动。
+- 已引入 Naive UI 和 Pinia。
+- 任务状态、创建弹窗、轮询和任务表已迁入 `src/features/tasks/`。
+- 主窗口布局已拆入 `src/layouts/`，诊断弹窗已迁入 `src/features/diagnostics/`。
 
 当前问题：
 
-- 前端实现偏离架构预期，`MainWindow.vue` 承担过多职责。
-- 尚未引入 Naive UI，任务表仍是自研 CSS Grid。
-- 尚未引入 Pinia，任务状态仍主要在 view 局部维护。
-- 任务表左右拖动当前被实现为横向滚动，无法满足表头右拖调整列宽。
 - 任务暂停、恢复、删除尚未完成。
 - SQLite 持久化尚未完成。
 - 应用内日志调试系统尚未完成。
 
 当前处理原则：
 
-- 先完成架构文档和任务计划边界。
-- 先治理前端架构和任务表组件化，再继续堆新功能。
-- 后续实现必须遵守 `docs/architecture.md`。
+- 前端新增任务能力继续进入 `src/features/tasks/`。
+- 诊断/日志能力继续进入 `src/features/diagnostics/`。
+- 后续实现必须遵守 `docs/architecture.md`，不得重新向 `MainWindow.vue` 堆叠复杂 UI 或业务逻辑。
 
 ## 4. 阶段 0：工程骨架搭建（已完成）
 
@@ -184,9 +183,9 @@
 
 ### 5.4 当前遗留问题
 
-- 任务表实现为自研 CSS Grid，不符合架构文档中“任务表使用 Naive UI DataTable”的目标。
-- 表格容器绑定了左右拖动横向滚动，与列宽拖动需求冲突。
-- 任务表、弹窗、Toast、轮询逻辑集中在 `MainWindow.vue`，需要在阶段 2 拆分。
+- 任务暂停、恢复、删除尚未完成，后移到阶段 4。
+- 任务和配置尚未持久化到 SQLite。
+- 应用内日志调试系统尚未完成。
 
 ### 5.5 完成标准
 
@@ -195,15 +194,15 @@
 - 下载失败时能看到明确失败原因。
 - 默认下载目录可用，且支持用户自定义目录。
 
-状态：核心闭环已完成；任务控制和架构治理未完成。
+状态：核心闭环和前端架构治理已完成；任务控制未完成。
 
-## 6. 阶段 2：架构治理与前端组件化（当前优先级）
+## 6. 阶段 2：架构治理与前端组件化（已完成）
 
 ### 6.1 目标
 
 在继续添加功能之前，先把前端架构拉回可维护状态，避免继续在 `MainWindow.vue` 堆叠 UI 和业务逻辑。
 
-### 6.2 开发任务
+### 6.2 已完成任务
 
 #### 6.2.1 文档治理
 
@@ -240,8 +239,11 @@
 - `features/tasks/components/TaskStatusBadge.vue`
 - `features/tasks/components/TaskProgressCell.vue`
 - `features/tasks/components/TaskActions.vue`
+- `features/tasks/components/TaskEmptyState.vue`
 - `features/tasks/composables/useTaskPolling.ts`
 - `features/tasks/stores/taskStore.ts`
+- `features/tasks/services/taskService.ts`
+- `features/diagnostics/components/DiagnosticsDialog.vue`
 
 拆分后 `MainWindow.vue` 只负责页面编排。
 
@@ -282,7 +284,7 @@
 - 横向滚动和列宽拖动不互相冲突。
 - 原有 HTTP / HTTPS 下载闭环不回退。
 
-状态：未开始。
+状态：已完成。
 
 ## 7. 阶段 3：日志调试系统
 
@@ -491,27 +493,22 @@ Axum 在此阶段或更后引入，前提是明确需要：
 
 ### 第一优先级
 
-1. 阅读并确认 `docs/architecture.md`。
-2. 引入 Naive UI。
-3. 引入 Pinia。
-4. 拆分 `MainWindow.vue`。
-5. 任务表迁移到 Naive UI `NDataTable`。
-6. 实现表头右侧拖动调整列宽。
-7. 保持现有下载闭环不回退。
-
-### 第二优先级
-
 1. 非 dev 环境日志调试窗口。
 2. 关键错误链路日志记录。
 3. 日志复制、清空和后续落盘预留。
 4. 任务暂停 / 恢复 / 删除。
 
-### 第三优先级
+### 第二优先级
 
 1. SQLite 基础持久化。
 2. 任务恢复。
-3. 后台运行。
-4. 飞牛系统体验优化。
+3. 表格列宽等 UI 偏好持久化。
+
+### 第三优先级
+
+1. 后台运行。
+2. 飞牛系统体验优化。
+3. 托盘、自启动和通知。
 
 ### 第四优先级
 
