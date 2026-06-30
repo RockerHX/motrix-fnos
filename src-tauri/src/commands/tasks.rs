@@ -1,6 +1,7 @@
 use crate::app::AppState;
 use crate::aria2::{ping_rpc, process_status, start_process};
 use crate::config::aria2::Aria2Config;
+use crate::database::tasks::upsert_download_task;
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, refresh_tasks_from_aria2, remove_task, store_created_task, task_gid,
@@ -20,10 +21,11 @@ pub async fn create_download_task(
     ensure_aria2_ready(&app, &state, &config).await?;
     let gid = add_uri_to_aria2(&config, &prepared, Some(&state.debug_logs)).await?;
     let task = store_created_task(&state.download_tasks, &state.next_task_id, prepared, gid)?;
+    upsert_download_task(&state.database.pool, &task).await?;
     state.debug_logs.info(
         "tasks.create",
         format!(
-            "下载任务已写入内存列表，ID {}，GID {}",
+            "下载任务已写入内存列表和 SQLite，ID {}，GID {}",
             task.id,
             task.gid.as_deref().unwrap_or("-")
         ),
