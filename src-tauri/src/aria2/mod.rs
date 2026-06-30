@@ -1,8 +1,11 @@
-use crate::config::aria2::Aria2Config;
+use crate::app::ManagedAria2Process;
+use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use serde::Serialize;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use tauri::AppHandle;
+use tauri_plugin_shell::ShellExt;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +13,9 @@ pub struct Aria2ConfigStatus {
     pub configured: bool,
     pub path: Option<String>,
     pub path_exists: bool,
+    pub binary_source: Aria2BinarySource,
+    pub sidecar_name: String,
+    pub target_triple: String,
     pub rpc_host: String,
     pub rpc_port: u16,
     pub rpc_secret_configured: bool,
@@ -20,6 +26,7 @@ pub struct Aria2ConfigStatus {
 pub struct Aria2ProcessStatus {
     pub running: bool,
     pub pid: Option<u32>,
+    pub binary_source: Option<Aria2BinarySource>,
     pub message: String,
 }
 
@@ -57,9 +64,13 @@ impl Aria2ConfigStatus {
             .unwrap_or(false);
 
         Self {
-            configured: config.aria2_path.is_some(),
+            configured: config.aria2_path.is_some()
+                || config.binary_source == Aria2BinarySource::Sidecar,
             path: config.aria2_path.clone(),
             path_exists,
+            binary_source: config.binary_source.clone(),
+            sidecar_name: config.sidecar_name.clone(),
+            target_triple: config.target_triple.clone(),
             rpc_host: config.rpc_host.clone(),
             rpc_port: config.rpc_port,
             rpc_secret_configured: !config.rpc_secret.is_empty(),
@@ -67,7 +78,9 @@ impl Aria2ConfigStatus {
     }
 }
 
-pub fn process_status(process: &Mutex<Option<Child>>) -> Result<Aria2ProcessStatus, String> {
+pub fn process_status(
+    process: &Mutex<Option<ManagedAria2Process>>,
+) -> Result<Aria2ProcessStatus, String> {
     let guard = process
         .lock()
         .map_err(|_| "无法读取 Aria2 进程状态".to_string())?;
@@ -76,18 +89,24 @@ pub fn process_status(process: &Mutex<Option<Child>>) -> Result<Aria2ProcessStat
         Some(child) => Aria2ProcessStatus {
             running: true,
             pid: Some(child.id()),
+            binary_source: Some(match child {
+                ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
+                ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
+            }),
             message: "Aria2 进程已启动".to_string(),
         },
         None => Aria2ProcessStatus {
             running: false,
             pid: None,
+            binary_source: None,
             message: "Aria2 进程未启动".to_string(),
         },
     })
 }
 
 pub fn start_process(
-    process: &Mutex<Option<Child>>,
+    app: &AppHandle,
+    process: &Mutex<Option<ManagedAria2Process>>,
     config: &Aria2Config,
 ) -> Result<Aria2ProcessStatus, String> {
     let mut guard = process
@@ -98,10 +117,59 @@ pub fn start_process(
         return Ok(Aria2ProcessStatus {
             running: true,
             pid: Some(child.id()),
+            binary_source: Some(match child {
+                ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
+                ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
+            }),
             message: "Aria2 进程已在运行".to_string(),
         });
     }
 
+    let args = process_args(config);
+    let managed = match config.binary_source {
+        Aria2BinarySource::ExternalPath => start_external_process(config, &args)?,
+        Aria2BinarySource::Sidecar => start_sidecar_process(app, config, &args)?,
+    };
+    let pid = managed.id();
+    let source = match &managed {
+        ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
+        ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
+    };
+    *guard = Some(managed);
+
+    Ok(Aria2ProcessStatus {
+        running: true,
+        pid: Some(pid),
+        binary_source: Some(source.clone()),
+        message: format!("Aria2 进程启动成功（{}）", source_label(&source)),
+    })
+}
+
+pub fn stop_process(
+    process: &Mutex<Option<ManagedAria2Process>>,
+) -> Result<Aria2ProcessStatus, String> {
+    let mut guard = process
+        .lock()
+        .map_err(|_| "无法写入 Aria2 进程状态".to_string())?;
+
+    if let Some(child) = guard.take() {
+        child
+            .kill()
+            .map_err(|error| format!("停止 Aria2 进程失败：{}", error))?;
+    }
+
+    Ok(Aria2ProcessStatus {
+        running: false,
+        pid: None,
+        binary_source: None,
+        message: "Aria2 进程已停止".to_string(),
+    })
+}
+
+fn start_external_process(
+    config: &Aria2Config,
+    args: &[String],
+) -> Result<ManagedAria2Process, String> {
     let aria2_path = config
         .aria2_path
         .as_deref()
@@ -111,51 +179,57 @@ pub fn start_process(
         return Err(format!("Aria2 Next 路径不存在或不是文件：{}", aria2_path));
     }
 
-    let mut command = Command::new(aria2_path);
-    command
-        .arg("--enable-rpc=true")
-        .arg(format!("--rpc-listen-port={}", config.rpc_port))
-        .arg(format!("--rpc-listen-all=false"))
-        .arg("--continue=true")
-        .arg("--console-log-level=warn")
+    let child = Command::new(aria2_path)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    if !config.rpc_secret.is_empty() {
-        command.arg(format!("--rpc-secret={}", config.rpc_secret));
-    }
-
-    let child = command
+        .stderr(Stdio::null())
         .spawn()
-        .map_err(|error| format!("启动 Aria2 Next 失败：{}", error))?;
-    let pid = child.id();
-    *guard = Some(child);
+        .map_err(|error| format!("启动外部 Aria2 Next 失败：{}", error))?;
 
-    Ok(Aria2ProcessStatus {
-        running: true,
-        pid: Some(pid),
-        message: "Aria2 进程启动成功".to_string(),
-    })
+    Ok(ManagedAria2Process::External(child))
 }
 
-pub fn stop_process(process: &Mutex<Option<Child>>) -> Result<Aria2ProcessStatus, String> {
-    let mut guard = process
-        .lock()
-        .map_err(|_| "无法写入 Aria2 进程状态".to_string())?;
+fn start_sidecar_process(
+    app: &AppHandle,
+    config: &Aria2Config,
+    args: &[String],
+) -> Result<ManagedAria2Process, String> {
+    let command = app
+        .shell()
+        .sidecar(&config.sidecar_name)
+        .map_err(|error| format!("加载内置 Aria2 Next sidecar 失败：{}", error))?;
+    let (mut rx, child) = command
+        .args(args)
+        .spawn()
+        .map_err(|error| format!("启动内置 Aria2 Next sidecar 失败：{}", error))?;
 
-    if let Some(mut child) = guard.take() {
-        child
-            .kill()
-            .map_err(|error| format!("停止 Aria2 进程失败：{}", error))?;
-        let _ = child.wait();
+    tauri::async_runtime::spawn(async move { while rx.recv().await.is_some() {} });
+
+    Ok(ManagedAria2Process::Sidecar(child))
+}
+
+fn process_args(config: &Aria2Config) -> Vec<String> {
+    let mut args = vec![
+        "--enable-rpc=true".to_string(),
+        format!("--rpc-listen-port={}", config.rpc_port),
+        "--rpc-listen-all=false".to_string(),
+        "--continue=true".to_string(),
+        "--console-log-level=warn".to_string(),
+    ];
+
+    if !config.rpc_secret.is_empty() {
+        args.push(format!("--rpc-secret={}", config.rpc_secret));
     }
 
-    Ok(Aria2ProcessStatus {
-        running: false,
-        pid: None,
-        message: "Aria2 进程已停止".to_string(),
-    })
+    args
+}
+
+fn source_label(source: &Aria2BinarySource) -> &'static str {
+    match source {
+        Aria2BinarySource::ExternalPath => "外部路径",
+        Aria2BinarySource::Sidecar => "内置 sidecar",
+    }
 }
 
 pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
@@ -227,6 +301,13 @@ mod tests {
     fn test_config(path: Option<&str>) -> Aria2Config {
         Aria2Config {
             aria2_path: path.map(ToOwned::to_owned),
+            binary_source: if path.is_some() {
+                Aria2BinarySource::ExternalPath
+            } else {
+                Aria2BinarySource::Sidecar
+            },
+            sidecar_name: "aria2-next".to_string(),
+            target_triple: "test-target".to_string(),
             rpc_host: "127.0.0.1".to_string(),
             rpc_port: 6800,
             rpc_secret: String::new(),
@@ -234,21 +315,58 @@ mod tests {
     }
 
     #[test]
-    fn start_process_returns_clear_error_without_path() {
-        let process = Mutex::new(None);
-        let error =
-            start_process(&process, &test_config(None)).expect_err("missing path should fail");
+    fn config_status_uses_sidecar_when_external_path_is_missing() {
+        let status = Aria2ConfigStatus::from_config(&test_config(None));
 
-        assert!(error.contains("MOTRIX_FNOS_ARIA2_PATH"));
+        assert!(status.configured);
+        assert_eq!(status.binary_source, Aria2BinarySource::Sidecar);
+        assert_eq!(status.sidecar_name, "aria2-next");
     }
 
     #[test]
-    fn start_process_returns_clear_error_for_invalid_path() {
+    fn start_external_process_returns_clear_error_for_invalid_path() {
         let process = Mutex::new(None);
-        let error = start_process(&process, &test_config(Some("/definitely/missing/aria2")))
-            .expect_err("invalid path should fail");
+        let error = start_process_without_sidecar_for_test(
+            &process,
+            &test_config(Some("/definitely/missing/aria2")),
+        )
+        .expect_err("invalid path should fail");
 
         assert!(error.contains("路径不存在"));
+    }
+
+    fn start_process_without_sidecar_for_test(
+        process: &Mutex<Option<ManagedAria2Process>>,
+        config: &Aria2Config,
+    ) -> Result<Aria2ProcessStatus, String> {
+        let mut guard = process.lock().map_err(|_| "lock failed".to_string())?;
+        if guard.is_some() {
+            return Ok(Aria2ProcessStatus {
+                running: true,
+                pid: None,
+                binary_source: Some(Aria2BinarySource::ExternalPath),
+                message: "Aria2 进程已在运行".to_string(),
+            });
+        }
+        let args = process_args(config);
+        let managed = start_external_process(config, &args)?;
+        let pid = managed.id();
+        *guard = Some(managed);
+        Ok(Aria2ProcessStatus {
+            running: true,
+            pid: Some(pid),
+            binary_source: Some(Aria2BinarySource::ExternalPath),
+            message: "Aria2 进程启动成功".to_string(),
+        })
+    }
+
+    #[test]
+    fn process_args_include_rpc_defaults() {
+        let args = process_args(&test_config(None));
+
+        assert!(args.contains(&"--enable-rpc=true".to_string()));
+        assert!(args.contains(&"--rpc-listen-port=6800".to_string()));
+        assert!(args.contains(&"--rpc-listen-all=false".to_string()));
     }
 
     #[test]

@@ -63,16 +63,16 @@ onMounted(() => {
     <div class="engine-grid">
       <div class="engine-card">
         <span class="label">路径配置</span>
-        <strong>{{ configStatus?.configured ? "已配置" : "未配置" }}</strong>
-        <p>{{ configStatus?.path ?? "请设置 MOTRIX_FNOS_ARIA2_PATH" }}</p>
-        <small>{{ configStatus?.pathExists ? "路径可用" : "路径未验证通过" }}</small>
+        <strong>{{ configStatus?.binarySource === "sidecar" ? "内置 sidecar" : "外部路径" }}</strong>
+        <p>{{ configStatus?.path ?? configStatus?.sidecarName ?? "aria2-next" }}</p>
+        <small>{{ configStatus?.binarySource === "sidecar" ? configStatus?.targetTriple : configStatus?.pathExists ? "路径可用" : "路径未验证通过" }}</small>
       </div>
 
       <div class="engine-card">
         <span class="label">进程状态</span>
         <strong>{{ processStatus?.running ? "运行中" : "未运行" }}</strong>
         <p>{{ processStatus?.message ?? "等待检查" }}</p>
-        <small>PID：{{ processStatus?.pid ?? "-" }}</small>
+        <small>PID：{{ processStatus?.pid ?? "-" }} / {{ processStatus?.binarySource ?? "-" }}</small>
       </div>
 
       <div class="engine-card">

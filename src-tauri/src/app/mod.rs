@@ -2,9 +2,35 @@ use crate::tasks::DownloadTask;
 use std::process::Child;
 use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
+use tauri_plugin_shell::process::CommandChild;
+
+pub enum ManagedAria2Process {
+    External(Child),
+    Sidecar(CommandChild),
+}
+
+impl ManagedAria2Process {
+    pub fn id(&self) -> u32 {
+        match self {
+            Self::External(child) => child.id(),
+            Self::Sidecar(child) => child.pid(),
+        }
+    }
+
+    pub fn kill(self) -> Result<(), String> {
+        match self {
+            Self::External(mut child) => {
+                child.kill().map_err(|error| error.to_string())?;
+                let _ = child.wait();
+                Ok(())
+            }
+            Self::Sidecar(child) => child.kill().map_err(|error| error.to_string()),
+        }
+    }
+}
 
 pub struct AppState {
-    pub aria2_process: Mutex<Option<Child>>,
+    pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub download_tasks: Mutex<Vec<DownloadTask>>,
     pub next_task_id: AtomicU64,
 }
@@ -22,9 +48,8 @@ impl Default for AppState {
 impl Drop for AppState {
     fn drop(&mut self) {
         if let Ok(process) = self.aria2_process.get_mut() {
-            if let Some(mut child) = process.take() {
+            if let Some(child) = process.take() {
                 let _ = child.kill();
-                let _ = child.wait();
             }
         }
     }

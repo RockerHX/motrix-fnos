@@ -9,6 +9,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app::AppState::default())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
             commands::app::ping_backend,
