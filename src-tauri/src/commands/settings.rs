@@ -1,4 +1,6 @@
 use crate::app::AppState;
+use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
+use crate::config::aria2::Aria2Config;
 use crate::database::settings::{
     get_app_config_value, get_ui_preference_value, set_app_config_value, set_ui_preference_value,
 };
@@ -45,6 +47,7 @@ pub async fn save_app_config(
     let config = normalize_app_config(payload)?;
     set_app_config_value(&state.database.pool, APP_CONFIG_KEY, &config).await?;
     state.debug_logs.info("settings", "应用配置已保存");
+    apply_runtime_download_config(&state, &config).await;
     Ok(config)
 }
 
@@ -104,6 +107,33 @@ fn normalize_app_config(config: AppConfig) -> Result<AppConfig, String> {
         auto_start_enabled: config.auto_start_enabled,
         notifications_enabled: config.notifications_enabled,
     })
+}
+
+async fn apply_runtime_download_config(state: &State<'_, AppState>, config: &AppConfig) {
+    let aria2_config = Aria2Config::from_env();
+    let status = ping_rpc(&aria2_config, None).await;
+    if !status.connected {
+        state.debug_logs.warn(
+            "settings",
+            format!(
+                "Aria2 RPC 未就绪，下载配置将在下次启动后生效：{}",
+                status.message
+            ),
+        );
+        return;
+    }
+
+    let options = global_options_from_values(
+        config.max_concurrent_downloads,
+        config.download_limit,
+        config.upload_limit,
+    );
+    if let Err(error) = apply_global_options(&aria2_config, &options, Some(&state.debug_logs)).await
+    {
+        state
+            .debug_logs
+            .warn("settings", format!("即时应用下载配置失败：{}", error));
+    }
 }
 
 #[cfg(test)]

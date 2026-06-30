@@ -40,9 +40,21 @@ pub struct Aria2RpcStatus {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Aria2GlobalOptions {
+    pub max_concurrent_downloads: u32,
+    pub download_limit: u64,
+    pub upload_limit: u64,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct JsonRpcResponse {
     result: Option<Aria2VersionResult>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct EmptyJsonRpcResponse {
     error: Option<JsonRpcError>,
 }
 
@@ -76,7 +88,8 @@ impl Aria2ConfigStatus {
             rpc_host: config.rpc_host.clone(),
             rpc_port: config.rpc_port,
             rpc_secret_configured: !config.rpc_secret.is_empty(),
-            ca_certificate_path: detect_ca_certificate_path().map(|path| path.display().to_string()),
+            ca_certificate_path: detect_ca_certificate_path()
+                .map(|path| path.display().to_string()),
         }
     }
 }
@@ -122,10 +135,7 @@ pub fn start_process(
     };
 
     if let Some(child) = guard.as_ref() {
-        debug_logs.info(
-            "aria2",
-            format!("Aria2 进程已在运行，PID {}", child.id()),
-        );
+        debug_logs.info("aria2", format!("Aria2 进程已在运行，PID {}", child.id()));
         return Ok(Aria2ProcessStatus {
             running: true,
             pid: Some(child.id()),
@@ -150,7 +160,10 @@ pub fn start_process(
         Aria2BinarySource::Sidecar => match start_sidecar_process(app, config, &args) {
             Ok(process) => process,
             Err(error) => {
-                debug_logs.error("aria2", format!("启动内置 Aria2 Next sidecar 失败：{}", error));
+                debug_logs.error(
+                    "aria2",
+                    format!("启动内置 Aria2 Next sidecar 失败：{}", error),
+                );
                 return Err(error);
             }
         },
@@ -163,7 +176,11 @@ pub fn start_process(
     *guard = Some(managed);
     debug_logs.info(
         "aria2",
-        format!("Aria2 进程启动成功，来源 {}，PID {}", source_label(&source), pid),
+        format!(
+            "Aria2 进程启动成功，来源 {}，PID {}",
+            source_label(&source),
+            pid
+        ),
     );
 
     Ok(Aria2ProcessStatus {
@@ -345,7 +362,10 @@ pub async fn ping_rpc(config: &Aria2Config, debug_logs: Option<&DebugLogStore>) 
 
     if let Some(error) = rpc_response.error {
         if let Some(debug_logs) = debug_logs {
-            debug_logs.error("aria2.rpc", format!("Aria2 RPC 返回错误：{}", error.message));
+            debug_logs.error(
+                "aria2.rpc",
+                format!("Aria2 RPC 返回错误：{}", error.message),
+            );
         }
         return Aria2RpcStatus {
             connected: false,
@@ -357,7 +377,10 @@ pub async fn ping_rpc(config: &Aria2Config, debug_logs: Option<&DebugLogStore>) 
     match rpc_response.result {
         Some(result) => {
             if let Some(debug_logs) = debug_logs {
-                debug_logs.info("aria2.rpc", format!("Aria2 RPC ready，版本 {}", result.version));
+                debug_logs.info(
+                    "aria2.rpc",
+                    format!("Aria2 RPC ready，版本 {}", result.version),
+                );
             }
             Aria2RpcStatus {
                 connected: true,
@@ -376,6 +399,76 @@ pub async fn ping_rpc(config: &Aria2Config, debug_logs: Option<&DebugLogStore>) 
             }
         }
     }
+}
+
+pub async fn apply_global_options(
+    config: &Aria2Config,
+    options: &Aria2GlobalOptions,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<(), String> {
+    let request_body = build_change_global_option_request(config, options);
+    let response = reqwest::Client::new()
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| format!("应用 Aria2 下载配置失败：无法连接 RPC（{}）", error))?;
+
+    let rpc_response = response
+        .json::<EmptyJsonRpcResponse>()
+        .await
+        .map_err(|error| format!("应用 Aria2 下载配置失败：响应解析失败（{}）", error))?;
+
+    if let Some(error) = rpc_response.error {
+        return Err(format!("应用 Aria2 下载配置失败：{}", error.message));
+    }
+
+    if let Some(debug_logs) = debug_logs {
+        debug_logs.info(
+            "aria2.options",
+            format!(
+                "已应用 Aria2 下载配置：最大并发 {}，下载限速 {} B/s，上传限速 {} B/s",
+                options.max_concurrent_downloads, options.download_limit, options.upload_limit
+            ),
+        );
+    }
+
+    Ok(())
+}
+
+pub fn global_options_from_values(
+    max_concurrent_downloads: u32,
+    download_limit: u64,
+    upload_limit: u64,
+) -> Aria2GlobalOptions {
+    Aria2GlobalOptions {
+        max_concurrent_downloads: max_concurrent_downloads.clamp(1, 64),
+        download_limit,
+        upload_limit,
+    }
+}
+
+fn build_change_global_option_request(
+    config: &Aria2Config,
+    options: &Aria2GlobalOptions,
+) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+
+    params.push(serde_json::json!({
+        "max-concurrent-downloads": options.max_concurrent_downloads.to_string(),
+        "max-overall-download-limit": options.download_limit.to_string(),
+        "max-overall-upload-limit": options.upload_limit.to_string(),
+    }));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-change-global-option",
+        "method": "aria2.changeGlobalOption",
+        "params": params,
+    })
 }
 
 fn log_start_summary(debug_logs: &DebugLogStore, config: &Aria2Config, args: &[String]) {
@@ -494,7 +587,10 @@ mod tests {
         let candidates = ca_certificate_candidates();
 
         if cfg!(target_os = "macos") {
-            assert_eq!(candidates.first(), Some(&PathBuf::from("/etc/ssl/cert.pem")));
+            assert_eq!(
+                candidates.first(),
+                Some(&PathBuf::from("/etc/ssl/cert.pem"))
+            );
         }
         assert!(candidates.contains(&PathBuf::from("/etc/ssl/certs/ca-certificates.crt")));
     }
@@ -517,5 +613,21 @@ mod tests {
         assert!(!status.connected);
         assert!(status.version.is_none());
         assert!(status.message.contains("RPC"));
+    }
+
+    #[test]
+    fn global_options_are_clamped_and_serialized_for_aria2() {
+        let mut config = test_config(None);
+        config.rpc_secret = "secret".to_string();
+        let options = global_options_from_values(128, 1024, 2048);
+
+        let request = build_change_global_option_request(&config, &options);
+
+        assert_eq!(options.max_concurrent_downloads, 64);
+        assert_eq!(request["method"], "aria2.changeGlobalOption");
+        assert_eq!(request["params"][0], "token:secret");
+        assert_eq!(request["params"][1]["max-concurrent-downloads"], "64");
+        assert_eq!(request["params"][1]["max-overall-download-limit"], "1024");
+        assert_eq!(request["params"][1]["max-overall-upload-limit"], "2048");
     }
 }

@@ -197,6 +197,13 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                     .debug_logs
                     .error("tasks.restore", format!("恢复任务状态同步失败：{}", error));
             }
+            if let Err(error) = apply_saved_download_config_after_rpc_ready(&app_handle, &config).await
+            {
+                let state = app_handle.state::<app::AppState>();
+                state
+                    .debug_logs
+                    .warn("settings", format!("应用启动后应用下载配置失败：{}", error));
+            }
             return;
         }
 
@@ -234,6 +241,20 @@ async fn refresh_persisted_tasks_after_rpc_ready(
         format!("应用启动后已同步 {} 个恢复任务状态", tasks.len()),
     );
     Ok(())
+}
+
+async fn apply_saved_download_config_after_rpc_ready(
+    app_handle: &tauri::AppHandle,
+    config: &Aria2Config,
+) -> Result<(), String> {
+    let state = app_handle.state::<app::AppState>();
+    let app_config = commands::settings::load_app_config_from_pool(&state.database.pool).await?;
+    let options = aria2::global_options_from_values(
+        app_config.max_concurrent_downloads,
+        app_config.download_limit,
+        app_config.upload_limit,
+    );
+    aria2::apply_global_options(config, &options, Some(&state.debug_logs)).await
 }
 
 fn normalize_startup_rpc_message(message: &str) -> &str {
