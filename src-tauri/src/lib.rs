@@ -5,6 +5,10 @@ pub mod config;
 pub mod debug_logs;
 pub mod tasks;
 
+use crate::config::aria2::Aria2Config;
+use std::time::Duration;
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -12,6 +16,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                start_aria2_after_app_launch(app_handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
             commands::app::ping_backend,
@@ -27,4 +38,66 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
+    const MAX_ATTEMPTS: usize = 10;
+    const RETRY_INTERVAL_MS: u64 = 300;
+
+    let config = Aria2Config::from_env();
+    {
+        let state = app_handle.state::<app::AppState>();
+        state
+            .debug_logs
+            .info("aria2", "应用启动后自动启动 Aria2 Next");
+        if let Err(error) =
+            aria2::start_process(&app_handle, &state.aria2_process, &config, &state.debug_logs)
+        {
+            state.debug_logs.error(
+                "aria2",
+                format!("应用启动时启动 Aria2 Next 失败：{}", error),
+            );
+            return;
+        }
+    }
+
+    let mut last_message = String::new();
+    for attempt in 0..MAX_ATTEMPTS {
+        let status = aria2::ping_rpc(&config, None).await;
+        if status.connected {
+            let state = app_handle.state::<app::AppState>();
+            state.debug_logs.info(
+                "aria2.rpc",
+                format!("应用启动后 Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
+            );
+            return;
+        }
+
+        last_message = status.message;
+        if attempt + 1 < MAX_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(RETRY_INTERVAL_MS)).await;
+        }
+    }
+
+    let state = app_handle.state::<app::AppState>();
+    state.debug_logs.error(
+        "aria2.rpc",
+        format!(
+            "应用启动后 Aria2 RPC ready timeout：{}",
+            normalize_startup_rpc_message(&last_message)
+        ),
+    );
+}
+
+fn normalize_startup_rpc_message(message: &str) -> &str {
+    if message.contains("error sending request")
+        || message.contains("Connection refused")
+        || message.contains("连接失败")
+    {
+        "无法连接本地 RPC"
+    } else if message.is_empty() {
+        "未知错误"
+    } else {
+        message
+    }
 }

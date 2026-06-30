@@ -319,7 +319,7 @@ pub async fn ping_rpc(config: &Aria2Config, debug_logs: Option<&DebugLogStore>) 
         Ok(response) => response,
         Err(error) => {
             if let Some(debug_logs) = debug_logs {
-                debug_logs.error("aria2.rpc", format!("Aria2 RPC 连接失败：{}", error));
+                debug_logs.warn("aria2.rpc", format!("Aria2 RPC 暂不可用：{}", error));
             }
             return Aria2RpcStatus {
                 connected: false,

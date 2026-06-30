@@ -60,7 +60,7 @@
 - HTTP / HTTPS 下载任务创建。
 - `aria2.addUri` 创建真实下载任务。
 - `aria2.tellStatus` 同步状态、进度、速度、大小、保存目录和错误原因。
-- 创建任务前自动启动 Aria2 Next，并等待 RPC ready。
+- 应用启动后异步自动启动 Aria2 Next，并等待 RPC ready；创建任务前仍保留兜底启动。
 - 系统 CA 证书探测。
 - 默认下载目录 `~/Downloads`，目录不存在时自动创建。
 - 单任务自定义保存目录和系统目录选择。
