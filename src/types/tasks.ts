@@ -10,6 +10,7 @@ export interface DownloadTask {
   totalLength: number;
   completedLength: number;
   downloadSpeed: number;
+  errorMessage?: string | null;
   createdAt: number;
 }
 

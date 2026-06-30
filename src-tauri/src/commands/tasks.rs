@@ -1,13 +1,19 @@
 use crate::app::AppState;
-use crate::tasks::{create_task, list_tasks, CreateDownloadTaskRequest, DownloadTask};
+use crate::config::aria2::Aria2Config;
+use crate::tasks::{
+    add_uri_to_aria2, list_tasks, prepare_task, store_created_task, CreateDownloadTaskRequest,
+    DownloadTask,
+};
 use tauri::State;
 
 #[tauri::command]
-pub fn create_download_task(
+pub async fn create_download_task(
     state: State<'_, AppState>,
     payload: CreateDownloadTaskRequest,
 ) -> Result<DownloadTask, String> {
-    create_task(&state.download_tasks, &state.next_task_id, payload)
+    let prepared = prepare_task(payload)?;
+    let gid = add_uri_to_aria2(&Aria2Config::from_env(), &prepared).await?;
+    store_created_task(&state.download_tasks, &state.next_task_id, prepared, gid)
 }
 
 #[tauri::command]
