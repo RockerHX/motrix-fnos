@@ -4,13 +4,15 @@ export interface DownloadTask {
   id: number;
   url: string;
   fileName: string;
-  saveDir?: string | null;
+  saveDir: string;
   gid?: string | null;
   status: DownloadTaskStatus;
   totalLength: number;
   completedLength: number;
   downloadSpeed: number;
+  errorCode?: string | null;
   errorMessage?: string | null;
+  filePath?: string | null;
   createdAt: number;
 }
 

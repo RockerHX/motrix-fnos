@@ -10,6 +10,7 @@ pub fn run() {
         .manage(app::AppState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
             commands::app::ping_backend,

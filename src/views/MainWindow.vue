@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { open } from "@tauri-apps/plugin-dialog";
 import EngineStatusPanel from "../components/EngineStatusPanel.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import { createDownloadTask, listDownloadTasks } from "../services/tasks";
@@ -26,11 +27,16 @@ const startMode = ref<"now" | "paused">("now");
 const note = ref("");
 const formErrorMessage = ref("");
 const toasts = ref<ToastMessage[]>([]);
+const tableScroll = ref<HTMLElement | null>(null);
 const activeInputType = ref("URL 下载");
 const showAdvanced = ref(false);
 let taskRefreshTimer: number | undefined;
 let nextToastId = 1;
 let lastRefreshErrorAt = 0;
+let isDraggingTable = false;
+let tableDragStartX = 0;
+let tableDragStartScrollLeft = 0;
+const notifiedErrorTaskKeys = new Set<string>();
 
 type ToastType = "success" | "error" | "info";
 
@@ -52,7 +58,9 @@ async function refreshPhaseStatus() {
 
 async function refreshTasks(showError = false) {
   try {
-    tasks.value = await listDownloadTasks();
+    const nextTasks = await listDownloadTasks();
+    notifyNewTaskErrors(tasks.value, nextTasks);
+    tasks.value = nextTasks;
   } catch (error) {
     const now = Date.now();
     if (showError || now - lastRefreshErrorAt > 10000) {
@@ -60,6 +68,26 @@ async function refreshTasks(showError = false) {
       lastRefreshErrorAt = now;
     }
   }
+}
+
+function notifyNewTaskErrors(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
+  const previousStatus = new Map(previousTasks.map((task) => [taskKey(task), task.status]));
+
+  for (const task of nextTasks) {
+    const key = taskKey(task);
+    if (
+      task.status === "error" &&
+      previousStatus.get(key) !== "error" &&
+      !notifiedErrorTaskKeys.has(key)
+    ) {
+      notifiedErrorTaskKeys.add(key);
+      notify("error", `任务下载失败：${formatTaskError(task)}`);
+    }
+  }
+}
+
+function taskKey(task: DownloadTask) {
+  return task.gid || String(task.id);
 }
 
 function openCreateDialog() {
@@ -73,6 +101,18 @@ function closeCreateDialog() {
   }
 
   showCreateDialog.value = false;
+}
+
+async function selectSaveDir() {
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: "选择下载目录",
+  });
+
+  if (typeof selected === "string") {
+    newTaskSaveDir.value = selected;
+  }
 }
 
 async function submitCreateTask() {
@@ -142,6 +182,47 @@ function resetCreateForm() {
   formErrorMessage.value = "";
 }
 
+function formatTaskError(task: DownloadTask) {
+  const code = task.errorCode ? `错误码 ${task.errorCode}：` : "";
+  return `${code}${task.errorMessage || "未知错误"}`;
+}
+
+function formatSizePair(task: DownloadTask) {
+  if (task.totalLength <= 0) {
+    return `${formatSize(task.completedLength)} / 未知`;
+  }
+
+  return `${formatSize(task.completedLength)} / ${formatSize(task.totalLength)}`;
+}
+
+function startTableDrag(event: PointerEvent) {
+  if (!tableScroll.value || event.button !== 0) {
+    return;
+  }
+
+  isDraggingTable = true;
+  tableDragStartX = event.clientX;
+  tableDragStartScrollLeft = tableScroll.value.scrollLeft;
+  tableScroll.value.setPointerCapture(event.pointerId);
+}
+
+function moveTableDrag(event: PointerEvent) {
+  if (!isDraggingTable || !tableScroll.value) {
+    return;
+  }
+
+  tableScroll.value.scrollLeft = tableDragStartScrollLeft - (event.clientX - tableDragStartX);
+}
+
+function stopTableDrag(event: PointerEvent) {
+  if (!isDraggingTable) {
+    return;
+  }
+
+  isDraggingTable = false;
+  tableScroll.value?.releasePointerCapture(event.pointerId);
+}
+
 function formatStatus(status: DownloadTask["status"]) {
   const labels: Record<DownloadTask["status"], string> = {
     pending: "排队",
@@ -180,7 +261,7 @@ function formatEta(task: DownloadTask) {
 
 function formatSize(size: number) {
   if (size <= 0) {
-    return "0 B / 未知";
+    return "0 B";
   }
 
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -298,33 +379,46 @@ onBeforeUnmount(() => {
         </section>
 
         <section v-else class="task-table-shell">
-          <div class="task-table-head">
-            <span>任务名称</span>
-            <span>状态</span>
-            <span>进度</span>
-            <span>已下载 / 总大小</span>
-            <span>速度</span>
-            <span>剩余时间</span>
-            <span>保存路径</span>
-            <span>操作</span>
-          </div>
-          <div class="task-list-scroll">
-            <article v-for="task in tasks" :key="task.id" class="task-row">
-              <div class="task-title">
-                <strong>{{ task.fileName }}</strong>
-                <small>{{ task.url }}</small>
+          <div
+            ref="tableScroll"
+            class="task-table-scroll"
+            @pointerdown="startTableDrag"
+            @pointermove="moveTableDrag"
+            @pointerup="stopTableDrag"
+            @pointerleave="stopTableDrag"
+            @pointercancel="stopTableDrag"
+          >
+            <div class="task-table-inner">
+              <div class="task-table-head task-table-grid">
+                <span>任务名称</span>
+                <span>状态</span>
+                <span>进度</span>
+                <span>已下载 / 总大小</span>
+                <span>速度</span>
+                <span>剩余时间</span>
+                <span>保存路径</span>
+                <span>操作</span>
               </div>
-              <span :class="['status-badge', `status-${task.status}`]">{{ formatStatus(task.status) }}</span>
-              <div class="progress-cell">
-                <div class="progress-bar"><span :style="{ width: `${taskProgress(task)}%` }" /></div>
-                <small>{{ taskProgress(task) }}%</small>
+              <div class="task-list-scroll">
+                <article v-for="task in tasks" :key="task.id" class="task-row task-table-grid">
+                  <div class="task-title">
+                    <strong>{{ task.fileName }}</strong>
+                    <small>{{ task.url }}</small>
+                    <small v-if="task.status === 'error'" class="task-error-detail">{{ formatTaskError(task) }}</small>
+                  </div>
+                  <span :class="['status-badge', `status-${task.status}`]">{{ formatStatus(task.status) }}</span>
+                  <div class="progress-cell">
+                    <div class="progress-bar"><span :style="{ width: `${taskProgress(task)}%` }" /></div>
+                    <small>{{ taskProgress(task) }}%</small>
+                  </div>
+                  <span>{{ formatSizePair(task) }}</span>
+                  <span>{{ formatSize(task.downloadSpeed) }}/s</span>
+                  <span>{{ formatEta(task) }}</span>
+                  <span class="task-path" :title="task.filePath || task.saveDir">{{ task.saveDir }}</span>
+                  <button type="button" class="row-action" disabled>更多</button>
+                </article>
               </div>
-              <span>{{ formatSize(task.completedLength) }} / {{ formatSize(task.totalLength) }}</span>
-              <span>{{ formatSize(task.downloadSpeed) }}/s</span>
-              <span>{{ formatEta(task) }}</span>
-              <span class="task-path">{{ task.saveDir ?? "默认目录待设置" }}</span>
-              <button type="button" class="row-action" disabled>更多</button>
-            </article>
+            </div>
           </div>
         </section>
       </main>
@@ -374,7 +468,10 @@ onBeforeUnmount(() => {
         </label>
         <label>
           <span>保存路径</span>
-          <input v-model="newTaskSaveDir" type="text" placeholder="例如 /vol1/Downloads" />
+          <div class="path-input-row">
+            <input v-model="newTaskSaveDir" type="text" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
+            <button type="button" class="secondary path-select-button" :disabled="taskLoading" @click="selectSaveDir">选择目录</button>
+          </div>
         </label>
 
         <div class="segmented-field">
@@ -688,16 +785,33 @@ input {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
   background: #151515;
 }
 
-.task-table-head,
-.task-row {
+.task-table-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: grab;
+}
+
+.task-table-scroll:active {
+  cursor: grabbing;
+}
+
+.task-table-inner {
+  min-width: 1420px;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 84px minmax(130px, 0.8fr) 130px 90px 90px minmax(150px, 0.8fr) 70px;
-  gap: 14px;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.task-table-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.4fr) 90px 160px 160px 120px 110px minmax(260px, 0.8fr) 70px;
+  gap: 18px;
   align-items: center;
 }
 
@@ -711,7 +825,8 @@ input {
 
 .task-list-scroll {
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .task-row {
@@ -735,6 +850,11 @@ input {
 .task-path,
 .progress-cell small {
   color: #84968f;
+}
+
+.task-error-detail {
+  margin-top: 4px;
+  color: #ff8d8d !important;
 }
 
 .status-badge {
@@ -962,6 +1082,17 @@ input {
   padding: 12px 13px;
   color: #e7f1ec;
   background: rgba(255, 255, 255, 0.055);
+}
+
+.path-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.path-select-button {
+  min-width: 96px;
+  white-space: nowrap;
 }
 
 .field-error {
