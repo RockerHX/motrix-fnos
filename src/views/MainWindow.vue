@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import EngineStatusPanel from "../components/EngineStatusPanel.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import { createDownloadTask, listDownloadTasks } from "../services/tasks";
@@ -7,7 +7,7 @@ import type { AppInfo, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { DownloadTask } from "../types/tasks";
 
-defineProps<{
+const props = defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
   errorMessage: string;
@@ -16,7 +16,6 @@ defineProps<{
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const tasks = ref<DownloadTask[]>([]);
-const taskErrorMessage = ref("");
 const taskLoading = ref(false);
 const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
@@ -25,9 +24,21 @@ const newTaskFileName = ref("");
 const newTaskSaveDir = ref("");
 const startMode = ref<"now" | "paused">("now");
 const note = ref("");
+const formErrorMessage = ref("");
+const toasts = ref<ToastMessage[]>([]);
 const activeInputType = ref("URL 下载");
 const showAdvanced = ref(false);
 let taskRefreshTimer: number | undefined;
+let nextToastId = 1;
+let lastRefreshErrorAt = 0;
+
+type ToastType = "success" | "error" | "info";
+
+interface ToastMessage {
+  id: number;
+  type: ToastType;
+  message: string;
+}
 
 const inputTypes = ["URL 下载", "批量 URL", "种子文件（后期）", "磁力链接（后期）"];
 
@@ -39,13 +50,20 @@ async function refreshPhaseStatus() {
   aria2Rpc.value = rpc;
 }
 
-async function refreshTasks() {
-  taskErrorMessage.value = "";
-  tasks.value = await listDownloadTasks();
+async function refreshTasks(showError = false) {
+  try {
+    tasks.value = await listDownloadTasks();
+  } catch (error) {
+    const now = Date.now();
+    if (showError || now - lastRefreshErrorAt > 10000) {
+      notify("error", getErrorMessage(error));
+      lastRefreshErrorAt = now;
+    }
+  }
 }
 
 function openCreateDialog() {
-  taskErrorMessage.value = "";
+  formErrorMessage.value = "";
   showCreateDialog.value = true;
 }
 
@@ -59,12 +77,12 @@ function closeCreateDialog() {
 
 async function submitCreateTask() {
   if (!isUrlValid.value) {
-    taskErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
+    formErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
     return;
   }
 
   taskLoading.value = true;
-  taskErrorMessage.value = "";
+  formErrorMessage.value = "";
 
   try {
     const task = await createDownloadTask({
@@ -73,19 +91,55 @@ async function submitCreateTask() {
       saveDir: newTaskSaveDir.value || null,
     });
     tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+    notify("success", "任务已添加");
+    void refreshPhaseStatus();
     void refreshTasks();
-    newTaskUrl.value = "";
-    newTaskFileName.value = "";
-    newTaskSaveDir.value = "";
-    startMode.value = "now";
-    note.value = "";
-    showAdvanced.value = false;
+    resetCreateForm();
     showCreateDialog.value = false;
   } catch (error) {
-    taskErrorMessage.value = error instanceof Error ? error.message : String(error);
+    notify("error", getErrorMessage(error));
   } finally {
     taskLoading.value = false;
   }
+}
+
+function notify(type: ToastType, message: string) {
+  const toast: ToastMessage = {
+    id: nextToastId++,
+    type,
+    message,
+  };
+  toasts.value = [...toasts.value, toast];
+
+  window.setTimeout(
+    () => {
+      dismissToast(toast.id);
+    },
+    type === "error" ? 6200 : 3200,
+  );
+}
+
+function dismissToast(id: number) {
+  toasts.value = toasts.value.filter((toast) => toast.id !== id);
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  const message = String(error);
+  return message || "操作失败，请稍后重试";
+}
+
+function resetCreateForm() {
+  newTaskUrl.value = "";
+  newTaskFileName.value = "";
+  newTaskSaveDir.value = "";
+  startMode.value = "now";
+  note.value = "";
+  showAdvanced.value = false;
+  formErrorMessage.value = "";
 }
 
 function formatStatus(status: DownloadTask["status"]) {
@@ -140,6 +194,15 @@ function formatSize(size: number) {
 
   return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
+
+watch(
+  () => props.errorMessage,
+  (message) => {
+    if (message) {
+      notify("error", message);
+    }
+  },
+);
 
 onMounted(() => {
   void refreshPhaseStatus();
@@ -264,13 +327,18 @@ onBeforeUnmount(() => {
             </article>
           </div>
         </section>
-
-        <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
-        <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
       </main>
     </section>
 
     <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>
+
+    <div class="toast-stack" aria-live="polite" aria-atomic="true">
+      <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
+        <span class="toast-dot" aria-hidden="true" />
+        <p>{{ toast.message }}</p>
+        <button type="button" aria-label="关闭通知" @click="dismissToast(toast.id)">×</button>
+      </div>
+    </div>
 
     <div v-if="showCreateDialog" class="dialog-backdrop" @click.self="closeCreateDialog">
       <form class="create-dialog" @submit.prevent="submitCreateTask">
@@ -332,7 +400,7 @@ onBeforeUnmount(() => {
           <label><span>代理</span><input type="text" placeholder="后期支持" disabled /></label>
         </div>
 
-        <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
+        <p v-if="formErrorMessage" class="dialog-error">{{ formErrorMessage }}</p>
 
         <div class="dialog-actions">
           <button type="button" :disabled="taskLoading" @click="closeCreateDialog">取消</button>
@@ -720,12 +788,85 @@ input {
   font-size: 12px;
 }
 
-.error-message {
-  position: absolute;
-  left: 24px;
-  bottom: 18px;
+.toast-stack {
+  position: fixed;
+  right: 24px;
+  top: 70px;
+  z-index: 30;
+  width: min(360px, calc(100vw - 48px));
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-left-color: #66e39a;
+  border-radius: 12px;
+  padding: 12px 12px 12px 14px;
+  color: #e7f1ec;
+  background: rgba(21, 29, 26, 0.96);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+}
+
+.toast-error {
+  border-left-color: #ff8d8d;
+}
+
+.toast-info {
+  border-left-color: #8db8ff;
+}
+
+.toast-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #66e39a;
+}
+
+.toast-error .toast-dot {
+  background: #ff8d8d;
+}
+
+.toast-info .toast-dot {
+  background: #8db8ff;
+}
+
+.toast p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.toast button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  color: #9dafaa;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast button:hover {
+  color: #e7f1ec;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dialog-error {
   margin: 0;
   color: #ff8d8d;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .dialog-backdrop {
