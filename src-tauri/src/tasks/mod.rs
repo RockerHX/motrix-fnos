@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::{env, fs};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, fs};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -275,7 +275,10 @@ pub async fn remove_task(
             log_info(
                 debug_logs,
                 "aria2.removeDownloadResult",
-                format!("aria2.remove 未完成，尝试清理已停止任务结果，GID {}：{}", gid, error),
+                format!(
+                    "aria2.remove 未完成，尝试清理已停止任务结果，GID {}：{}",
+                    gid, error
+                ),
             );
             send_gid_control_request(
                 config,
@@ -332,37 +335,163 @@ pub async fn refresh_tasks_from_aria2(
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
     let snapshot = list_tasks(tasks)?;
-    let gids: Vec<String> = snapshot
+    let candidates: Vec<DownloadTask> = snapshot
         .iter()
-        .filter(|task| task.status != DownloadTaskStatus::Removed)
-        .filter_map(|task| task.gid.clone())
+        .filter(|task| should_refresh_task(task))
+        .filter(|task| {
+            task.gid
+                .as_deref()
+                .map(|gid| !gid.trim().is_empty())
+                .unwrap_or(false)
+        })
+        .cloned()
         .collect();
 
-    if gids.is_empty() {
+    if candidates.is_empty() {
         return Ok(snapshot);
     }
 
     let client = reqwest::Client::new();
     let mut updates = Vec::new();
-    for gid in gids {
+    for candidate in candidates {
+        let Some(gid) = candidate.gid.clone() else {
+            continue;
+        };
         match tell_status(&client, config, &gid, debug_logs).await {
-            Ok(status) => updates.push((gid, status)),
-            Err(error) => updates.push((gid, task_status_error(error))),
+            Ok(status) if is_stale_aria2_gid_status(&status) => {
+                match readd_download_task(config, &candidate, debug_logs).await {
+                    Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
+                        task_id: candidate.id,
+                        old_gid: gid,
+                        new_gid,
+                    }),
+                    Err(error) => updates.push(TaskRefreshUpdate::Status {
+                        gid,
+                        status: task_status_error(error),
+                    }),
+                }
+            }
+            Ok(status) => updates.push(TaskRefreshUpdate::Status { gid, status }),
+            Err(error) if is_stale_aria2_gid_error(&error) => {
+                match readd_download_task(config, &candidate, debug_logs).await {
+                    Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
+                        task_id: candidate.id,
+                        old_gid: gid,
+                        new_gid,
+                    }),
+                    Err(error) => updates.push(TaskRefreshUpdate::Status {
+                        gid,
+                        status: task_status_error(error),
+                    }),
+                }
+            }
+            Err(error) => updates.push(TaskRefreshUpdate::Status {
+                gid,
+                status: task_status_error(error),
+            }),
         }
     }
 
     let mut guard = tasks
         .lock()
         .map_err(|_| "无法写入下载任务列表".to_string())?;
-    for task in guard.iter_mut() {
-        if let Some(gid) = &task.gid {
-            if let Some((_, status)) = updates.iter().find(|(update_gid, _)| update_gid == gid) {
-                apply_aria2_status(task, status);
+    for update in &updates {
+        match update {
+            TaskRefreshUpdate::Status { gid, status } => {
+                for task in guard
+                    .iter_mut()
+                    .filter(|task| task.gid.as_ref() == Some(gid))
+                {
+                    apply_aria2_status(task, status);
+                }
+            }
+            TaskRefreshUpdate::Readded {
+                task_id,
+                old_gid,
+                new_gid,
+            } => {
+                if let Some(task) = guard
+                    .iter_mut()
+                    .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
+                {
+                    apply_readded_gid(task, new_gid);
+                }
             }
         }
     }
 
     Ok(guard.clone())
+}
+
+enum TaskRefreshUpdate {
+    Status {
+        gid: String,
+        status: Aria2TaskStatus,
+    },
+    Readded {
+        task_id: u64,
+        old_gid: String,
+        new_gid: String,
+    },
+}
+
+fn should_refresh_task(task: &DownloadTask) -> bool {
+    matches!(
+        task.status,
+        DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+    )
+}
+
+pub async fn readd_task_to_aria2(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    config: &Aria2Config,
+    task_id: u64,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<DownloadTask, String> {
+    let task = {
+        let guard = tasks
+            .lock()
+            .map_err(|_| "无法读取下载任务列表".to_string())?;
+        guard
+            .iter()
+            .find(|task| task.id == task_id)
+            .cloned()
+            .ok_or_else(|| format!("下载任务不存在：{}", task_id))?
+    };
+
+    let new_gid = readd_download_task(config, &task, debug_logs).await?;
+
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let task = guard
+        .iter_mut()
+        .find(|task| task.id == task_id)
+        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+    apply_readded_gid(task, &new_gid);
+    Ok(task.clone())
+}
+
+async fn readd_download_task(
+    config: &Aria2Config,
+    task: &DownloadTask,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    log_info(
+        debug_logs,
+        "tasks.restore",
+        format!(
+            "Aria2 GID 失效，准备使用原始 URL 重新加入任务，ID {}，旧 GID {}",
+            task.id,
+            task.gid.as_deref().unwrap_or("-")
+        ),
+    );
+    let prepared = PreparedDownloadTask {
+        url: task.url.clone(),
+        file_name: task.file_name.clone(),
+        save_dir: task.save_dir.clone(),
+    };
+    add_uri_to_aria2(config, &prepared, debug_logs).await
 }
 
 pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>, String> {
@@ -518,7 +647,29 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
         .and_then(|files| files.first())
         .map(|file| file.path.clone())
         .filter(|path| !path.is_empty())
-        .or_else(|| Some(Path::new(&task.save_dir).join(&task.file_name).display().to_string()));
+        .or_else(|| {
+            Some(
+                Path::new(&task.save_dir)
+                    .join(&task.file_name)
+                    .display()
+                    .to_string(),
+            )
+        });
+    task.updated_at = current_timestamp_ms();
+}
+
+fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
+    task.gid = Some(new_gid.to_string());
+    task.status = DownloadTaskStatus::Active;
+    task.download_speed = 0;
+    task.error_code = None;
+    task.error_message = None;
+    task.file_path = Some(
+        Path::new(&task.save_dir)
+            .join(&task.file_name)
+            .display()
+            .to_string(),
+    );
     task.updated_at = current_timestamp_ms();
 }
 
@@ -541,7 +692,11 @@ fn update_task(
 }
 
 fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
-    let Some(file_path) = task.file_path.as_deref().filter(|path| !path.trim().is_empty()) else {
+    let Some(file_path) = task
+        .file_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    else {
         return Ok(());
     };
     let path = Path::new(file_path);
@@ -563,7 +718,8 @@ fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
         return Err("拒绝删除保存目录外的文件".to_string());
     }
 
-    fs::remove_file(&file).map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
+    fs::remove_file(&file)
+        .map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -577,6 +733,19 @@ fn task_status_error(message: String) -> Aria2TaskStatus {
         dir: None,
         files: None,
     }
+}
+
+fn is_stale_aria2_gid_status(status: &Aria2TaskStatus) -> bool {
+    status.status == "error"
+        && status
+            .error_message
+            .as_deref()
+            .map(is_stale_aria2_gid_error)
+            .unwrap_or(false)
+}
+
+pub fn is_stale_aria2_gid_error(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("no uri available")
 }
 
 fn is_aria2_status_error(status: &Aria2TaskStatus) -> bool {
@@ -1024,7 +1193,8 @@ mod tests {
             save_dir.display().to_string(),
         )]);
 
-        let error = mark_task_removed(&tasks, 1, true).expect_err("outside file should be rejected");
+        let error =
+            mark_task_removed(&tasks, 1, true).expect_err("outside file should be rejected");
 
         assert!(error.contains("保存目录外"));
         assert!(file_path.exists());
@@ -1071,7 +1241,9 @@ mod tests {
                 error_code: None,
                 error_message: None,
                 dir: Some("/downloads".to_string()),
-                files: Some(vec![Aria2FileStatus { path: "/downloads/file.zip".to_string() }]),
+                files: Some(vec![Aria2FileStatus {
+                    path: "/downloads/file.zip".to_string(),
+                }]),
             },
         );
 
@@ -1154,7 +1326,9 @@ mod tests {
     #[test]
     fn tell_status_request_contains_error_and_file_fields() {
         let request = build_tell_status_request(&test_config(), "abc123");
-        let fields = request["params"][1].as_array().expect("fields should be array");
+        let fields = request["params"][1]
+            .as_array()
+            .expect("fields should be array");
 
         assert!(fields.contains(&serde_json::json!("errorCode")));
         assert!(fields.contains(&serde_json::json!("errorMessage")));
@@ -1173,8 +1347,8 @@ mod tests {
     #[test]
     fn resolve_save_dir_creates_missing_directory() {
         let dir = temp_download_dir("missing-dir");
-        let resolved =
-            resolve_save_dir_with_logs(Some(dir.clone()), None).expect("directory should be created");
+        let resolved = resolve_save_dir_with_logs(Some(dir.clone()), None)
+            .expect("directory should be created");
 
         assert_eq!(resolved, dir);
         assert!(Path::new(&resolved).is_dir());
@@ -1219,10 +1393,48 @@ mod tests {
         let mut config = test_config();
         config.rpc_secret = "secret".to_string();
 
-        let request =
-            build_gid_control_request(&config, "abc123", "aria2.unpause", "unpause-test");
+        let request = build_gid_control_request(&config, "abc123", "aria2.unpause", "unpause-test");
 
         assert_eq!(request["params"][0], "token:secret");
         assert_eq!(request["params"][1], "abc123");
+    }
+
+    #[test]
+    fn stale_aria2_gid_error_is_detected() {
+        assert!(is_stale_aria2_gid_error(
+            "同步 Aria2 任务状态失败：No URI available."
+        ));
+        assert!(is_stale_aria2_gid_status(&Aria2TaskStatus {
+            status: "error".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: Some("1".to_string()),
+            error_message: Some("No URI available.".to_string()),
+            dir: None,
+            files: None,
+        }));
+        assert!(!is_stale_aria2_gid_error("连接失败"));
+    }
+
+    #[test]
+    fn readded_gid_updates_task_without_clearing_progress() {
+        let save_dir = temp_download_dir("readded-gid");
+        let mut task = sample_task(None, save_dir.clone());
+        task.status = DownloadTaskStatus::Error;
+        task.gid = Some("old-gid".to_string());
+        task.error_code = Some("1".to_string());
+        task.error_message = Some("No URI available.".to_string());
+
+        apply_readded_gid(&mut task, "new-gid");
+
+        assert_eq!(task.gid.as_deref(), Some("new-gid"));
+        assert_eq!(task.status, DownloadTaskStatus::Active);
+        assert_eq!(task.completed_length, 40);
+        assert_eq!(task.total_length, 100);
+        assert!(task.error_code.is_none());
+        assert!(task.error_message.is_none());
+        let expected_file_path = Path::new(&save_dir).join("file.zip").display().to_string();
+        assert_eq!(task.file_path.as_deref(), Some(expected_file_path.as_str()));
     }
 }

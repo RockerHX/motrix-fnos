@@ -7,8 +7,9 @@ use crate::database::tasks::{
 };
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
-    prepare_task_with_logs, refresh_tasks_from_aria2, remove_task, store_created_task, task_gid,
-    unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
+    prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
+    store_created_task, task_gid, unpause_task, CreateDownloadTaskRequest, DownloadTask,
+    DownloadTaskStatus,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -164,8 +165,23 @@ pub async fn resume_download_task(
     let config = Aria2Config::from_env();
     ensure_aria2_ready(&app, &state, &config).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
-    unpause_task(&config, &gid, Some(&state.debug_logs)).await?;
-    let task = mark_task_resumed(&state.download_tasks, task_id)?;
+    let task = match unpause_task(&config, &gid, Some(&state.debug_logs)).await {
+        Ok(_) => mark_task_resumed(&state.download_tasks, task_id)?,
+        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error) => {
+            state.debug_logs.warn(
+                "tasks.restore",
+                format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
+            );
+            readd_task_to_aria2(
+                &state.download_tasks,
+                &config,
+                task_id,
+                Some(&state.debug_logs),
+            )
+            .await?
+        }
+        Err(error) => return Err(error),
+    };
     sync_task_to_database(&state, &task).await?;
     state.debug_logs.info(
         "tasks.control",
