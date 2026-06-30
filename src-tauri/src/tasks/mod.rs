@@ -321,7 +321,7 @@ async fn tell_status(
     let status = rpc_response
         .result
         .ok_or_else(|| "同步 Aria2 任务状态失败：响应缺少任务状态".to_string())?;
-    if status.status == "error" || status.error_code.is_some() || status.error_message.is_some() {
+    if is_aria2_status_error(&status) {
         log_error(
             debug_logs,
             "aria2.tellStatus",
@@ -341,11 +341,11 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     task.total_length = parse_aria2_u64(&status.total_length);
     task.completed_length = parse_aria2_u64(&status.completed_length);
     task.download_speed = parse_aria2_u64(&status.download_speed);
-    task.error_code = status.error_code.clone().filter(|code| !code.is_empty());
+    task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message = status
         .error_message
         .clone()
-        .filter(|message| !message.is_empty());
+        .filter(|message| !message.trim().is_empty());
     if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
         task.save_dir = dir;
     }
@@ -369,6 +369,23 @@ fn task_status_error(message: String) -> Aria2TaskStatus {
         dir: None,
         files: None,
     }
+}
+
+fn is_aria2_status_error(status: &Aria2TaskStatus) -> bool {
+    status.status == "error"
+        || normalize_aria2_error_code(status.error_code.as_deref()).is_some()
+        || status
+            .error_message
+            .as_deref()
+            .map(|message| !message.trim().is_empty())
+            .unwrap_or(false)
+}
+
+fn normalize_aria2_error_code(error_code: Option<&str>) -> Option<String> {
+    error_code
+        .map(str::trim)
+        .filter(|code| !code.is_empty() && *code != "0")
+        .map(ToOwned::to_owned)
 }
 
 fn map_aria2_status(status: &str) -> DownloadTaskStatus {
@@ -452,10 +469,6 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
-}
-
-fn resolve_save_dir(input: Option<String>) -> Result<String, String> {
-    resolve_save_dir_with_logs(input, None)
 }
 
 fn resolve_save_dir_with_logs(
@@ -693,6 +706,63 @@ mod tests {
     }
 
     #[test]
+    fn apply_aria2_status_ignores_empty_error_code_zero() {
+        let mut task = DownloadTask {
+            id: 1,
+            url: "https://example.com/file.zip".to_string(),
+            file_name: "file.zip".to_string(),
+            save_dir: "/downloads".to_string(),
+            gid: Some("abc123".to_string()),
+            status: DownloadTaskStatus::Pending,
+            total_length: 0,
+            completed_length: 0,
+            download_speed: 0,
+            error_code: Some("old".to_string()),
+            error_message: Some("old".to_string()),
+            file_path: None,
+            created_at: 1,
+        };
+
+        let status = Aria2TaskStatus {
+            status: "complete".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "100".to_string(),
+            download_speed: "0".to_string(),
+            error_code: Some("0".to_string()),
+            error_message: Some("".to_string()),
+            dir: None,
+            files: None,
+        };
+
+        assert!(!is_aria2_status_error(&status));
+        apply_aria2_status(&mut task, &status);
+
+        assert_eq!(task.status, DownloadTaskStatus::Complete);
+        assert_eq!(task.error_code, None);
+        assert_eq!(task.error_message, None);
+    }
+
+    #[test]
+    fn non_zero_aria2_error_code_is_error() {
+        let status = Aria2TaskStatus {
+            status: "error".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: Some("3".to_string()),
+            error_message: Some("Resource not found".to_string()),
+            dir: None,
+            files: None,
+        };
+
+        assert!(is_aria2_status_error(&status));
+        assert_eq!(
+            normalize_aria2_error_code(status.error_code.as_deref()).as_deref(),
+            Some("3")
+        );
+    }
+
+    #[test]
     fn task_status_error_keeps_readable_message() {
         let status = task_status_error("同步任务状态失败：无法连接 Aria2 RPC".to_string());
 
@@ -725,7 +795,8 @@ mod tests {
     #[test]
     fn resolve_save_dir_creates_missing_directory() {
         let dir = temp_download_dir("missing-dir");
-        let resolved = resolve_save_dir(Some(dir.clone())).expect("directory should be created");
+        let resolved =
+            resolve_save_dir_with_logs(Some(dir.clone()), None).expect("directory should be created");
 
         assert_eq!(resolved, dir);
         assert!(Path::new(&resolved).is_dir());
