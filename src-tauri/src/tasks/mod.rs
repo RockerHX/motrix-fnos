@@ -95,7 +95,7 @@ pub async fn add_uri_to_aria2(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| format!("创建 Aria2 下载任务失败，RPC 不可用：{}", error))?;
+        .map_err(|_| "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string())?;
 
     let rpc_response = response
         .json::<AddUriResponse>()
@@ -195,7 +195,7 @@ async fn tell_status(
         .json(&request_body)
         .send()
         .await
-        .map_err(|error| format!("同步 Aria2 任务状态失败：{}", error))?;
+        .map_err(|_| "同步任务状态失败：无法连接 Aria2 RPC".to_string())?;
 
     let rpc_response = response
         .json::<TellStatusResponse>()
@@ -453,6 +453,17 @@ mod tests {
         assert_eq!(task.total_length, 100);
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
+    }
+
+    #[test]
+    fn task_status_error_keeps_readable_message() {
+        let status = task_status_error("同步任务状态失败：无法连接 Aria2 RPC".to_string());
+
+        assert_eq!(status.status, "error");
+        assert_eq!(
+            status.error_message.as_deref(),
+            Some("同步任务状态失败：无法连接 Aria2 RPC")
+        );
     }
 
     #[test]
