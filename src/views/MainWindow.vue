@@ -1,12 +1,28 @@
 <script setup lang="ts">
+import { onMounted, ref } from "vue";
 import EngineStatusPanel from "../components/EngineStatusPanel.vue";
+import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import type { AppInfo, BackendPing } from "../types/app";
+import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
 defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
   errorMessage: string;
 }>();
+
+const aria2Process = ref<Aria2ProcessStatus | null>(null);
+const aria2Rpc = ref<Aria2RpcStatus | null>(null);
+
+async function refreshPhaseStatus() {
+  const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
+  aria2Process.value = process;
+  aria2Rpc.value = rpc;
+}
+
+onMounted(() => {
+  void refreshPhaseStatus();
+});
 
 const categories = [
   { name: "全部", count: 0 },
@@ -84,6 +100,14 @@ const categories = [
             <div class="status-card">
               <span>通信结果</span>
               <strong>{{ backendPing?.message ?? "等待响应" }}</strong>
+            </div>
+            <div class="status-card">
+              <span>Aria2 进程</span>
+              <strong>{{ aria2Process?.running ? "运行中" : "未运行" }}</strong>
+            </div>
+            <div class="status-card">
+              <span>Aria2 RPC</span>
+              <strong>{{ aria2Rpc?.connected ? "已连接" : "未连接" }}</strong>
             </div>
           </div>
 
@@ -314,7 +338,7 @@ input:disabled {
 
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 

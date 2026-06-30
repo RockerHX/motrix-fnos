@@ -15,6 +15,10 @@ const rpcStatus = ref<Aria2RpcStatus | null>(null);
 const errorMessage = ref("");
 const loading = ref(false);
 
+defineExpose({
+  refreshEngineStatus,
+});
+
 async function refreshEngineStatus() {
   errorMessage.value = "";
   const [config, process] = await Promise.all([getAria2ConfigStatus(), getAria2ProcessStatus()]);
