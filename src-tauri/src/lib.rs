@@ -20,6 +20,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let app_handle = app.handle().clone();
             let (database, restored_tasks, next_task_id) = tauri::async_runtime::block_on(async {

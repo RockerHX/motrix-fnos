@@ -10,6 +10,7 @@
     "opener:default",
     "shell:default",
     "shell:allow-execute",
-    "dialog:default"
+    "dialog:default",
+    "autostart:default"
   ]
 }
