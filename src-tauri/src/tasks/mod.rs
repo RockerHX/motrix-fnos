@@ -18,6 +18,31 @@ pub enum DownloadTaskStatus {
     Removed,
 }
 
+impl DownloadTaskStatus {
+    pub fn as_storage_value(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Complete => "complete",
+            Self::Error => "error",
+            Self::Removed => "removed",
+        }
+    }
+
+    pub fn from_storage_value(value: &str) -> Self {
+        match value {
+            "pending" => Self::Pending,
+            "active" => Self::Active,
+            "paused" => Self::Paused,
+            "complete" => Self::Complete,
+            "error" => Self::Error,
+            "removed" => Self::Removed,
+            _ => Self::Pending,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
@@ -34,6 +59,7 @@ pub struct DownloadTask {
     pub error_message: Option<String>,
     pub file_path: Option<String>,
     pub created_at: u64,
+    pub updated_at: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -274,6 +300,7 @@ pub fn store_created_task(
         .join(&prepared.file_name)
         .display()
         .to_string();
+    let now = current_timestamp_ms();
     let task = DownloadTask {
         id: next_id.fetch_add(1, Ordering::Relaxed),
         file_name: prepared.file_name,
@@ -287,7 +314,8 @@ pub fn store_created_task(
         error_code: None,
         error_message: None,
         file_path: Some(file_path),
-        created_at: current_timestamp_ms(),
+        created_at: now,
+        updated_at: now,
     };
 
     let mut guard = tasks
@@ -490,6 +518,7 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
         .map(|file| file.path.clone())
         .filter(|path| !path.is_empty())
         .or_else(|| Some(Path::new(&task.save_dir).join(&task.file_name).display().to_string()));
+    task.updated_at = current_timestamp_ms();
 }
 
 fn update_task(
@@ -506,6 +535,7 @@ fn update_task(
         .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
 
     update(task)?;
+    task.updated_at = current_timestamp_ms();
     Ok(task.clone())
 }
 
@@ -872,6 +902,7 @@ mod tests {
             error_message: Some("old".to_string()),
             file_path,
             created_at: 1,
+            updated_at: 1,
         }
     }
 
@@ -1022,6 +1053,7 @@ mod tests {
             error_message: None,
             file_path: None,
             created_at: 1,
+            updated_at: 1,
         };
 
         apply_aria2_status(
@@ -1061,6 +1093,7 @@ mod tests {
             error_message: Some("old".to_string()),
             file_path: None,
             created_at: 1,
+            updated_at: 1,
         };
 
         let status = Aria2TaskStatus {

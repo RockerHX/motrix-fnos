@@ -14,6 +14,7 @@ export interface DownloadTask {
   errorMessage?: string | null;
   filePath?: string | null;
   createdAt: number;
+  updatedAt: number;
 }
 
 export interface CreateDownloadTaskRequest {
