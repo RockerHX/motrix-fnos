@@ -19,8 +19,7 @@ const defaultColumnWidths: Record<string, number> = {
   size: 180,
   speed: 130,
   eta: 120,
-  saveDir: 320,
-  actions: 220,
+  actions: 260,
 };
 
 const columns = ref<DataTableColumns<DownloadTask>>(createColumns(defaultColumnWidths));
@@ -96,21 +95,10 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     render: (task) => formatEta(task),
     },
     {
-    key: "saveDir",
-    title: "保存路径",
-    width: widths.saveDir,
-    minWidth: 220,
-    resizable: true,
-    ellipsis: {
-      tooltip: true,
-    },
-    render: (task) => task.saveDir,
-    },
-    {
     key: "actions",
     title: "操作",
     width: widths.actions,
-    minWidth: 200,
+    minWidth: 240,
     resizable: false,
     fixed: "right",
     render: (task) => h(TaskActions, { task }),
