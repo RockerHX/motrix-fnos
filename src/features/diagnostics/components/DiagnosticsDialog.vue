@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { NButton, NCard, NModal } from "naive-ui";
+import { ref } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
+import DebugLogDialog from "./DebugLogDialog.vue";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
 
@@ -15,6 +17,8 @@ defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
 }>();
+
+const showDebugLogs = ref(false);
 
 function updateShow(show: boolean) {
   emit("update:show", show);
@@ -35,7 +39,10 @@ function closeDialog() {
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle @click="closeDialog">×</NButton>
+        <div class="header-actions">
+          <NButton secondary @click="showDebugLogs = true">调试日志</NButton>
+          <NButton quaternary circle @click="closeDialog">×</NButton>
+        </div>
       </template>
 
       <div class="diagnostics-grid">
@@ -49,6 +56,8 @@ function closeDialog() {
       <EngineStatusPanel />
     </NCard>
   </NModal>
+
+  <DebugLogDialog v-model:show="showDebugLogs" />
 </template>
 
 <style scoped>
@@ -69,6 +78,12 @@ function closeDialog() {
 
 h2 {
   margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .diagnostics-grid {
