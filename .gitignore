@@ -77,3 +77,9 @@ temp/
 
 # CodeGraph local index, if generated later
 .codegraph/
+
+# Directory names without trailing slash for check-ignore compatibility
+node_modules
+dist
+target
+src-tauri/target
