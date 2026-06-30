@@ -1,7 +1,9 @@
 use crate::config::aria2::Aria2Config;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::{env, fs};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -21,13 +23,15 @@ pub struct DownloadTask {
     pub id: u64,
     pub url: String,
     pub file_name: String,
-    pub save_dir: Option<String>,
+    pub save_dir: String,
     pub gid: Option<String>,
     pub status: DownloadTaskStatus,
     pub total_length: u64,
     pub completed_length: u64,
     pub download_speed: u64,
+    pub error_code: Option<String>,
     pub error_message: Option<String>,
+    pub file_path: Option<String>,
     pub created_at: u64,
 }
 
@@ -43,7 +47,7 @@ pub struct CreateDownloadTaskRequest {
 pub struct PreparedDownloadTask {
     pub url: String,
     pub file_name: String,
-    pub save_dir: Option<String>,
+    pub save_dir: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,7 +70,16 @@ struct Aria2TaskStatus {
     total_length: String,
     completed_length: String,
     download_speed: String,
+    error_code: Option<String>,
     error_message: Option<String>,
+    dir: Option<String>,
+    files: Option<Vec<Aria2FileStatus>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2FileStatus {
+    path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +93,7 @@ pub fn prepare_task(request: CreateDownloadTaskRequest) -> Result<PreparedDownlo
 
     Ok(PreparedDownloadTask {
         file_name: normalize_optional(request.file_name).unwrap_or_else(|| infer_file_name(&url)),
-        save_dir: normalize_optional(request.save_dir),
+        save_dir: resolve_save_dir(normalize_optional(request.save_dir))?,
         url,
     })
 }
@@ -118,6 +131,10 @@ pub fn store_created_task(
     prepared: PreparedDownloadTask,
     gid: String,
 ) -> Result<DownloadTask, String> {
+    let file_path = Path::new(&prepared.save_dir)
+        .join(&prepared.file_name)
+        .display()
+        .to_string();
     let task = DownloadTask {
         id: next_id.fetch_add(1, Ordering::Relaxed),
         file_name: prepared.file_name,
@@ -128,7 +145,9 @@ pub fn store_created_task(
         total_length: 0,
         completed_length: 0,
         download_speed: 0,
+        error_code: None,
         error_message: None,
+        file_path: Some(file_path),
         created_at: current_timestamp_ms(),
     };
 
@@ -216,10 +235,21 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     task.total_length = parse_aria2_u64(&status.total_length);
     task.completed_length = parse_aria2_u64(&status.completed_length);
     task.download_speed = parse_aria2_u64(&status.download_speed);
+    task.error_code = status.error_code.clone().filter(|code| !code.is_empty());
     task.error_message = status
         .error_message
         .clone()
         .filter(|message| !message.is_empty());
+    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
+        task.save_dir = dir;
+    }
+    task.file_path = status
+        .files
+        .as_ref()
+        .and_then(|files| files.first())
+        .map(|file| file.path.clone())
+        .filter(|path| !path.is_empty())
+        .or_else(|| Some(Path::new(&task.save_dir).join(&task.file_name).display().to_string()));
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -228,7 +258,10 @@ fn task_status_error(message: String) -> Aria2TaskStatus {
         total_length: "0".to_string(),
         completed_length: "0".to_string(),
         download_speed: "0".to_string(),
+        error_code: None,
         error_message: Some(message),
+        dir: None,
+        files: None,
     }
 }
 
@@ -258,7 +291,10 @@ fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Val
         "totalLength",
         "completedLength",
         "downloadSpeed",
-        "errorMessage"
+        "errorCode",
+        "errorMessage",
+        "dir",
+        "files"
     ]));
 
     serde_json::json!({
@@ -278,9 +314,7 @@ fn build_add_uri_request(config: &Aria2Config, task: &PreparedDownloadTask) -> s
     params.push(serde_json::json!([task.url.clone()]));
 
     let mut options = serde_json::Map::new();
-    if let Some(dir) = &task.save_dir {
-        options.insert("dir".to_string(), serde_json::json!(dir));
-    }
+    options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if !task.file_name.trim().is_empty() {
         options.insert("out".to_string(), serde_json::json!(task.file_name));
     }
@@ -312,6 +346,45 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+fn resolve_save_dir(input: Option<String>) -> Result<String, String> {
+    let path = match input {
+        Some(path) => expand_home_dir(&path)?,
+        None => default_download_dir()?,
+    };
+
+    fs::create_dir_all(&path)
+        .map_err(|error| format!("创建下载目录失败：{}（{}）", path.display(), error))?;
+
+    if !path.is_dir() {
+        return Err(format!("下载目录不是有效文件夹：{}", path.display()));
+    }
+
+    Ok(path.display().to_string())
+}
+
+fn default_download_dir() -> Result<PathBuf, String> {
+    Ok(home_dir()?.join("Downloads"))
+}
+
+fn expand_home_dir(path: &str) -> Result<PathBuf, String> {
+    if path == "~" {
+        return home_dir();
+    }
+
+    if let Some(rest) = path.strip_prefix("~/") {
+        return Ok(home_dir()?.join(rest));
+    }
+
+    Ok(PathBuf::from(path))
+}
+
+fn home_dir() -> Result<PathBuf, String> {
+    env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "无法读取当前用户目录，不能确定默认下载目录".to_string())
 }
 
 fn validate_http_url(url: &str) -> Result<(), String> {
@@ -360,18 +433,27 @@ mod tests {
         }
     }
 
+    fn temp_download_dir(name: &str) -> String {
+        let dir = env::temp_dir().join(format!(
+            "motrix-fnos-test-{}-{}",
+            name,
+            current_timestamp_ms()
+        ));
+        dir.display().to_string()
+    }
+
     #[test]
     fn prepare_task_accepts_https_url() {
         let task = prepare_task(CreateDownloadTaskRequest {
             url: " https://example.com/file.zip?token=1 ".to_string(),
             file_name: None,
-            save_dir: Some(" /downloads ".to_string()),
+            save_dir: Some(format!(" {} ", temp_download_dir("prepare"))),
         })
         .expect("https task should be prepared");
 
         assert_eq!(task.url, "https://example.com/file.zip?token=1");
         assert_eq!(task.file_name, "file.zip");
-        assert_eq!(task.save_dir.as_deref(), Some("/downloads"));
+        assert!(Path::new(&task.save_dir).is_dir());
     }
 
     #[test]
@@ -396,7 +478,7 @@ mod tests {
             PreparedDownloadTask {
                 url: "https://example.com/file.zip".to_string(),
                 file_name: "file.zip".to_string(),
-                save_dir: None,
+                save_dir: "/downloads".to_string(),
             },
             "abc123".to_string(),
         )
@@ -428,13 +510,15 @@ mod tests {
             id: 1,
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
-            save_dir: None,
+            save_dir: "/downloads".to_string(),
             gid: Some("abc123".to_string()),
             status: DownloadTaskStatus::Pending,
             total_length: 0,
             completed_length: 0,
             download_speed: 0,
+            error_code: None,
             error_message: None,
+            file_path: None,
             created_at: 1,
         };
 
@@ -445,7 +529,10 @@ mod tests {
                 total_length: "100".to_string(),
                 completed_length: "40".to_string(),
                 download_speed: "20".to_string(),
+                error_code: None,
                 error_message: None,
+                dir: Some("/downloads".to_string()),
+                files: Some(vec![Aria2FileStatus { path: "/downloads/file.zip".to_string() }]),
             },
         );
 
@@ -453,6 +540,7 @@ mod tests {
         assert_eq!(task.total_length, 100);
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
+        assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
     }
 
     #[test]
@@ -467,13 +555,48 @@ mod tests {
     }
 
     #[test]
+    fn tell_status_request_contains_error_and_file_fields() {
+        let request = build_tell_status_request(&test_config(), "abc123");
+        let fields = request["params"][1].as_array().expect("fields should be array");
+
+        assert!(fields.contains(&serde_json::json!("errorCode")));
+        assert!(fields.contains(&serde_json::json!("errorMessage")));
+        assert!(fields.contains(&serde_json::json!("dir")));
+        assert!(fields.contains(&serde_json::json!("files")));
+    }
+
+    #[test]
+    fn expand_home_dir_supports_tilde_paths() {
+        let expanded = expand_home_dir("~/Downloads").expect("home path should expand");
+
+        assert!(expanded.ends_with("Downloads"));
+        assert!(expanded.is_absolute());
+    }
+
+    #[test]
+    fn resolve_save_dir_creates_missing_directory() {
+        let dir = temp_download_dir("missing-dir");
+        let resolved = resolve_save_dir(Some(dir.clone())).expect("directory should be created");
+
+        assert_eq!(resolved, dir);
+        assert!(Path::new(&resolved).is_dir());
+    }
+
+    #[test]
+    fn default_download_dir_uses_downloads_under_home() {
+        let dir = default_download_dir().expect("default download dir should resolve");
+
+        assert!(dir.ends_with("Downloads"));
+    }
+
+    #[test]
     fn add_uri_request_contains_url_and_options() {
         let request = build_add_uri_request(
             &test_config(),
             &PreparedDownloadTask {
                 url: "https://example.com/file.zip".to_string(),
                 file_name: "custom.zip".to_string(),
-                save_dir: Some("/downloads".to_string()),
+                save_dir: "/downloads".to_string(),
             },
         );
 
