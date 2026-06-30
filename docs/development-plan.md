@@ -1,6 +1,6 @@
 # 飞牛版 Motrix 阶段性开发计划
 
-> 本文档只负责记录阶段目标、具体任务、完成状态、优先级和验收标准。整体技术架构、前后端职责边界、UI 组件策略和目录规范见 `docs/motrix-fnos-architecture.md`。
+> 本文档只负责记录阶段目标、具体任务、完成状态、优先级和验收标准。整体技术架构、前后端职责边界、UI 组件策略和目录规范见 `docs/architecture.md`。
 
 ## 1. 项目目标
 
@@ -80,7 +80,7 @@
 
 - 先完成架构文档和任务计划边界。
 - 先治理前端架构和任务表组件化，再继续堆新功能。
-- 后续实现必须遵守 `docs/motrix-fnos-architecture.md`。
+- 后续实现必须遵守 `docs/architecture.md`。
 
 ## 4. 阶段 0：工程骨架搭建（已完成）
 
@@ -207,7 +207,7 @@
 
 #### 6.2.1 文档治理
 
-- 新增 `docs/motrix-fnos-architecture.md`。
+- 新增 `docs/architecture.md`。
 - 明确开发计划文档只记录阶段任务和验收标准。
 - 明确架构文档负责技术边界、UI 策略、目录规范和数据流。
 - 后续新功能必须遵守架构文档。
@@ -491,7 +491,7 @@ Axum 在此阶段或更后引入，前提是明确需要：
 
 ### 第一优先级
 
-1. 阅读并确认 `docs/motrix-fnos-architecture.md`。
+1. 阅读并确认 `docs/architecture.md`。
 2. 引入 Naive UI。
 3. 引入 Pinia。
 4. 拆分 `MainWindow.vue`。
@@ -527,7 +527,7 @@ Axum 在此阶段或更后引入，前提是明确需要：
 - 功能可手动验证。
 - 不破坏已有下载闭环。
 - 文档状态同步更新。
-- 新代码符合 `docs/motrix-fnos-architecture.md`。
+- 新代码符合 `docs/architecture.md`。
 - 如果涉及前端 UI，不能继续向 `MainWindow.vue` 堆叠复杂实现。
 - 如果涉及生产环境问题，必须考虑日志和用户可见错误。
 
