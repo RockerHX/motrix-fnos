@@ -27,7 +27,7 @@ const assets = [
 ];
 
 async function download(url) {
-  const response = await fetch(url, { headers: { "User-Agent": "MotrixFnnas-dev" } });
+  const response = await fetch(url, { headers: { "User-Agent": "motrix-fnos-dev" } });
   if (!response.ok) {
     throw new Error(`下载失败 ${response.status}: ${url}`);
   }
