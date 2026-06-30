@@ -1,7 +1,7 @@
 use crate::app::ManagedAria2Process;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use tauri::AppHandle;
@@ -19,6 +19,7 @@ pub struct Aria2ConfigStatus {
     pub rpc_host: String,
     pub rpc_port: u16,
     pub rpc_secret_configured: bool,
+    pub ca_certificate_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,6 +75,7 @@ impl Aria2ConfigStatus {
             rpc_host: config.rpc_host.clone(),
             rpc_port: config.rpc_port,
             rpc_secret_configured: !config.rpc_secret.is_empty(),
+            ca_certificate_path: detect_ca_certificate_path().map(|path| path.display().to_string()),
         }
     }
 }
@@ -222,7 +224,33 @@ fn process_args(config: &Aria2Config) -> Vec<String> {
         args.push(format!("--rpc-secret={}", config.rpc_secret));
     }
 
+    if let Some(path) = detect_ca_certificate_path() {
+        args.push(format!("--ca-certificate={}", path.display()));
+    }
+
     args
+}
+
+fn detect_ca_certificate_path() -> Option<PathBuf> {
+    ca_certificate_candidates()
+        .into_iter()
+        .find(|path| path.is_file())
+}
+
+fn ca_certificate_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if cfg!(target_os = "macos") {
+        candidates.push(PathBuf::from("/etc/ssl/cert.pem"));
+        candidates.push(PathBuf::from("/opt/homebrew/etc/ca-certificates/cert.pem"));
+        candidates.push(PathBuf::from("/usr/local/etc/ca-certificates/cert.pem"));
+    }
+
+    candidates.push(PathBuf::from("/etc/ssl/certs/ca-certificates.crt"));
+    candidates.push(PathBuf::from("/etc/pki/tls/certs/ca-bundle.crt"));
+    candidates.push(PathBuf::from("/etc/ssl/ca-bundle.pem"));
+
+    candidates
 }
 
 fn source_label(source: &Aria2BinarySource) -> &'static str {
@@ -367,6 +395,24 @@ mod tests {
         assert!(args.contains(&"--enable-rpc=true".to_string()));
         assert!(args.contains(&"--rpc-listen-port=6800".to_string()));
         assert!(args.contains(&"--rpc-listen-all=false".to_string()));
+    }
+
+    #[test]
+    fn ca_certificate_candidates_include_platform_defaults() {
+        let candidates = ca_certificate_candidates();
+
+        if cfg!(target_os = "macos") {
+            assert_eq!(candidates.first(), Some(&PathBuf::from("/etc/ssl/cert.pem")));
+        }
+        assert!(candidates.contains(&PathBuf::from("/etc/ssl/certs/ca-certificates.crt")));
+    }
+
+    #[test]
+    fn process_args_include_detected_ca_certificate_when_available() {
+        if let Some(path) = detect_ca_certificate_path() {
+            let args = process_args(&test_config(None));
+            assert!(args.contains(&format!("--ca-certificate={}", path.display())));
+        }
     }
 
     #[test]
