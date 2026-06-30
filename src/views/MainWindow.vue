@@ -175,29 +175,31 @@ onMounted(() => {
             <span>操作</span>
           </div>
 
-          <div v-if="tasks.length === 0" class="empty-state">
-            <div class="empty-illustration">↓</div>
-            <h2>暂无任务</h2>
-            <p>添加 HTTP / HTTPS 链接开始下载，也可以直接粘贴链接创建任务。</p>
-            <button type="button" class="primary" @click="openCreateDialog">添加任务</button>
-          </div>
+          <div class="task-list-scroll">
+            <div v-if="tasks.length === 0" class="empty-state">
+              <div class="empty-illustration">↓</div>
+              <h2>暂无任务</h2>
+              <p>添加 HTTP / HTTPS 链接开始下载，也可以直接粘贴链接创建任务。</p>
+              <button type="button" class="primary" @click="openCreateDialog">添加任务</button>
+            </div>
 
-          <article v-for="task in tasks" v-else :key="task.id" class="task-row">
-            <div class="task-title">
-              <strong>{{ task.fileName }}</strong>
-              <small>{{ task.url }}</small>
-            </div>
-            <span class="status-badge">{{ formatStatus(task.status) }}</span>
-            <div class="progress-cell">
-              <div class="progress-bar"><span /></div>
-              <small>0%</small>
-            </div>
-            <span>{{ formatSize(task.completedLength) }} / {{ formatSize(task.totalLength) }}</span>
-            <span>{{ formatSize(task.downloadSpeed) }}/s</span>
-            <span>--</span>
-            <span class="task-path">{{ task.saveDir ?? "默认目录待设置" }}</span>
-            <button type="button" class="row-action" disabled>更多</button>
-          </article>
+            <article v-for="task in tasks" v-else :key="task.id" class="task-row">
+              <div class="task-title">
+                <strong>{{ task.fileName }}</strong>
+                <small>{{ task.url }}</small>
+              </div>
+              <span class="status-badge">{{ formatStatus(task.status) }}</span>
+              <div class="progress-cell">
+                <div class="progress-bar"><span /></div>
+                <small>0%</small>
+              </div>
+              <span>{{ formatSize(task.completedLength) }} / {{ formatSize(task.totalLength) }}</span>
+              <span>{{ formatSize(task.downloadSpeed) }}/s</span>
+              <span>--</span>
+              <span class="task-path">{{ task.saveDir ?? "默认目录待设置" }}</span>
+              <button type="button" class="row-action" disabled>更多</button>
+            </article>
+          </div>
         </section>
 
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
@@ -469,13 +471,16 @@ input:disabled {
 
 .task-content {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 26px;
 }
 
 .task-table-shell {
-  min-height: 100%;
-  overflow: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 18px;
   background: #111b18;
@@ -495,6 +500,11 @@ input:disabled {
   background: rgba(255, 255, 255, 0.04);
   font-size: 12px;
   font-weight: 800;
+}
+
+.task-list-scroll {
+  min-height: 0;
+  overflow: auto;
 }
 
 .task-row {
@@ -555,7 +565,7 @@ input:disabled {
 }
 
 .empty-state {
-  min-height: 520px;
+  min-height: 100%;
   display: grid;
   justify-items: center;
   align-content: center;
