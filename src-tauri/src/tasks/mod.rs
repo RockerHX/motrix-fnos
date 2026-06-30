@@ -8,6 +8,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[serde(rename_all = "camelCase")]
 pub enum DownloadTaskStatus {
     Pending,
+    Active,
+    Paused,
+    Complete,
+    Error,
+    Removed,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -45,6 +50,23 @@ pub struct PreparedDownloadTask {
 struct AddUriResponse {
     result: Option<String>,
     error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TellStatusResponse {
+    result: Option<Aria2TaskStatus>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2TaskStatus {
+    status: String,
+    total_length: String,
+    completed_length: String,
+    download_speed: String,
+    error_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -118,11 +140,133 @@ pub fn store_created_task(
     Ok(task)
 }
 
+pub async fn refresh_tasks_from_aria2(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    config: &Aria2Config,
+) -> Result<Vec<DownloadTask>, String> {
+    let snapshot = list_tasks(tasks)?;
+    let gids: Vec<String> = snapshot
+        .iter()
+        .filter_map(|task| task.gid.clone())
+        .collect();
+
+    if gids.is_empty() {
+        return Ok(snapshot);
+    }
+
+    let client = reqwest::Client::new();
+    let mut updates = Vec::new();
+    for gid in gids {
+        match tell_status(&client, config, &gid).await {
+            Ok(status) => updates.push((gid, status)),
+            Err(error) => updates.push((gid, task_status_error(error))),
+        }
+    }
+
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    for task in guard.iter_mut() {
+        if let Some(gid) = &task.gid {
+            if let Some((_, status)) = updates.iter().find(|(update_gid, _)| update_gid == gid) {
+                apply_aria2_status(task, status);
+            }
+        }
+    }
+
+    Ok(guard.clone())
+}
+
 pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>, String> {
     tasks
         .lock()
         .map(|guard| guard.clone())
         .map_err(|_| "无法读取下载任务列表".to_string())
+}
+
+async fn tell_status(
+    client: &reqwest::Client,
+    config: &Aria2Config,
+    gid: &str,
+) -> Result<Aria2TaskStatus, String> {
+    let request_body = build_tell_status_request(config, gid);
+    let response = client
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| format!("同步 Aria2 任务状态失败：{}", error))?;
+
+    let rpc_response = response
+        .json::<TellStatusResponse>()
+        .await
+        .map_err(|error| format!("同步 Aria2 任务状态解析失败：{}", error))?;
+
+    if let Some(error) = rpc_response.error {
+        return Err(format!("同步 Aria2 任务状态失败：{}", error.message));
+    }
+
+    rpc_response
+        .result
+        .ok_or_else(|| "同步 Aria2 任务状态失败：响应缺少任务状态".to_string())
+}
+
+fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    task.status = map_aria2_status(&status.status);
+    task.total_length = parse_aria2_u64(&status.total_length);
+    task.completed_length = parse_aria2_u64(&status.completed_length);
+    task.download_speed = parse_aria2_u64(&status.download_speed);
+    task.error_message = status
+        .error_message
+        .clone()
+        .filter(|message| !message.is_empty());
+}
+
+fn task_status_error(message: String) -> Aria2TaskStatus {
+    Aria2TaskStatus {
+        status: "error".to_string(),
+        total_length: "0".to_string(),
+        completed_length: "0".to_string(),
+        download_speed: "0".to_string(),
+        error_message: Some(message),
+    }
+}
+
+fn map_aria2_status(status: &str) -> DownloadTaskStatus {
+    match status {
+        "active" | "waiting" => DownloadTaskStatus::Active,
+        "paused" => DownloadTaskStatus::Paused,
+        "complete" => DownloadTaskStatus::Complete,
+        "error" => DownloadTaskStatus::Error,
+        "removed" => DownloadTaskStatus::Removed,
+        _ => DownloadTaskStatus::Pending,
+    }
+}
+
+fn parse_aria2_u64(value: &str) -> u64 {
+    value.parse::<u64>().unwrap_or_default()
+}
+
+fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+    params.push(serde_json::json!(gid));
+    params.push(serde_json::json!([
+        "status",
+        "totalLength",
+        "completedLength",
+        "downloadSpeed",
+        "errorMessage"
+    ]));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-tell-status",
+        "method": "aria2.tellStatus",
+        "params": params,
+    })
 }
 
 fn build_add_uri_request(config: &Aria2Config, task: &PreparedDownloadTask) -> serde_json::Value {
@@ -264,6 +408,51 @@ mod tests {
             list_tasks(&tasks).expect("tasks should be readable").len(),
             1
         );
+    }
+
+    #[test]
+    fn tell_status_request_contains_gid_and_fields() {
+        let request = build_tell_status_request(&test_config(), "abc123");
+
+        assert_eq!(request["method"], "aria2.tellStatus");
+        assert_eq!(request["params"][0], "abc123");
+        assert!(request["params"][1]
+            .as_array()
+            .expect("fields should be array")
+            .contains(&serde_json::json!("downloadSpeed")));
+    }
+
+    #[test]
+    fn apply_aria2_status_updates_progress_fields() {
+        let mut task = DownloadTask {
+            id: 1,
+            url: "https://example.com/file.zip".to_string(),
+            file_name: "file.zip".to_string(),
+            save_dir: None,
+            gid: Some("abc123".to_string()),
+            status: DownloadTaskStatus::Pending,
+            total_length: 0,
+            completed_length: 0,
+            download_speed: 0,
+            error_message: None,
+            created_at: 1,
+        };
+
+        apply_aria2_status(
+            &mut task,
+            &Aria2TaskStatus {
+                status: "active".to_string(),
+                total_length: "100".to_string(),
+                completed_length: "40".to_string(),
+                download_speed: "20".to_string(),
+                error_message: None,
+            },
+        );
+
+        assert_eq!(task.status, DownloadTaskStatus::Active);
+        assert_eq!(task.total_length, 100);
+        assert_eq!(task.completed_length, 40);
+        assert_eq!(task.download_speed, 20);
     }
 
     #[test]

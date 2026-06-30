@@ -1,8 +1,8 @@
 use crate::app::AppState;
 use crate::config::aria2::Aria2Config;
 use crate::tasks::{
-    add_uri_to_aria2, list_tasks, prepare_task, store_created_task, CreateDownloadTaskRequest,
-    DownloadTask,
+    add_uri_to_aria2, prepare_task, refresh_tasks_from_aria2, store_created_task,
+    CreateDownloadTaskRequest, DownloadTask,
 };
 use tauri::State;
 
@@ -17,6 +17,6 @@ pub async fn create_download_task(
 }
 
 #[tauri::command]
-pub fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
-    list_tasks(&state.download_tasks)
+pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
+    refresh_tasks_from_aria2(&state.download_tasks, &Aria2Config::from_env()).await
 }

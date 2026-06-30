@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import EngineStatusPanel from "../components/EngineStatusPanel.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import { createDownloadTask, listDownloadTasks } from "../services/tasks";
@@ -27,17 +27,18 @@ const startMode = ref<"now" | "paused">("now");
 const note = ref("");
 const activeInputType = ref("URL 下载");
 const showAdvanced = ref(false);
+let taskRefreshTimer: number | undefined;
 
 const inputTypes = ["URL 下载", "批量 URL", "种子文件（后期）", "磁力链接（后期）"];
 
 const categories = computed(() => [
   { name: "全部", count: tasks.value.length },
-  { name: "下载中", count: 0 },
-  { name: "已完成", count: 0 },
+  { name: "下载中", count: tasks.value.filter((task) => task.status === "active").length },
+  { name: "已完成", count: tasks.value.filter((task) => task.status === "complete").length },
   { name: "做种", count: 0 },
-  { name: "活动", count: 0 },
-  { name: "暂停", count: 0 },
-  { name: "错误", count: 0 },
+  { name: "活动", count: tasks.value.filter((task) => task.status === "active").length },
+  { name: "暂停", count: tasks.value.filter((task) => task.status === "paused").length },
+  { name: "错误", count: tasks.value.filter((task) => task.status === "error").length },
 ]);
 
 const isUrlValid = computed(() => /^https?:\/\/.+/i.test(newTaskUrl.value.trim()));
@@ -82,6 +83,7 @@ async function submitCreateTask() {
       saveDir: newTaskSaveDir.value || null,
     });
     tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+    void refreshTasks();
     newTaskUrl.value = "";
     newTaskFileName.value = "";
     newTaskSaveDir.value = "";
@@ -97,11 +99,39 @@ async function submitCreateTask() {
 }
 
 function formatStatus(status: DownloadTask["status"]) {
-  if (status === "pending") {
-    return "排队";
+  const labels: Record<DownloadTask["status"], string> = {
+    pending: "排队",
+    active: "下载中",
+    paused: "暂停",
+    complete: "已完成",
+    error: "错误",
+    removed: "已删除",
+  };
+
+  return labels[status];
+}
+
+function taskProgress(task: DownloadTask) {
+  if (task.totalLength <= 0) {
+    return 0;
   }
 
-  return status;
+  return Math.min(100, Math.round((task.completedLength / task.totalLength) * 100));
+}
+
+function formatEta(task: DownloadTask) {
+  if (task.downloadSpeed <= 0 || task.totalLength <= task.completedLength) {
+    return "--";
+  }
+
+  const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  return `${minutes}m ${restSeconds}s`;
 }
 
 function formatSize(size: number) {
@@ -124,6 +154,15 @@ function formatSize(size: number) {
 onMounted(() => {
   void refreshPhaseStatus();
   void refreshTasks();
+  taskRefreshTimer = window.setInterval(() => {
+    void refreshTasks();
+  }, 2000);
+});
+
+onBeforeUnmount(() => {
+  if (taskRefreshTimer) {
+    window.clearInterval(taskRefreshTimer);
+  }
 });
 </script>
 
@@ -188,14 +227,14 @@ onMounted(() => {
                 <strong>{{ task.fileName }}</strong>
                 <small>{{ task.url }}</small>
               </div>
-              <span class="status-badge">{{ formatStatus(task.status) }}</span>
+              <span :class="['status-badge', `status-${task.status}`]">{{ formatStatus(task.status) }}</span>
               <div class="progress-cell">
-                <div class="progress-bar"><span /></div>
-                <small>0%</small>
+                <div class="progress-bar"><span :style="{ width: `${taskProgress(task)}%` }" /></div>
+                <small>{{ taskProgress(task) }}%</small>
               </div>
               <span>{{ formatSize(task.completedLength) }} / {{ formatSize(task.totalLength) }}</span>
               <span>{{ formatSize(task.downloadSpeed) }}/s</span>
-              <span>--</span>
+              <span>{{ formatEta(task) }}</span>
               <span class="task-path">{{ task.saveDir ?? "默认目录待设置" }}</span>
               <button type="button" class="row-action" disabled>更多</button>
             </article>
@@ -538,6 +577,23 @@ input:disabled {
   background: #dfb84a;
   font-size: 12px;
   font-weight: 900;
+}
+
+.status-active,
+.status-complete {
+  color: #092216;
+  background: #66e39a;
+}
+
+.status-paused,
+.status-removed {
+  color: #dbe7e1;
+  background: #4d5d58;
+}
+
+.status-error {
+  color: #2a0909;
+  background: #ff8d8d;
 }
 
 .progress-cell {

@@ -1,4 +1,4 @@
-export type DownloadTaskStatus = "pending";
+export type DownloadTaskStatus = "pending" | "active" | "paused" | "complete" | "error" | "removed";
 
 export interface DownloadTask {
   id: number;
