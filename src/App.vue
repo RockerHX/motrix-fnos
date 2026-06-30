@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { getAppInfo, pingBackend } from "./services/backend";
 import type { AppInfo, BackendPing } from "./types/app";
+import NaiveProvider from "./app/providers/NaiveProvider.vue";
 import MainWindow from "./views/MainWindow.vue";
 
 const appInfo = ref<AppInfo | null>(null);
@@ -26,7 +27,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <MainWindow :app-info="appInfo" :backend-ping="backendPing" :error-message="errorMessage" />
+  <NaiveProvider>
+    <MainWindow :app-info="appInfo" :backend-ping="backendPing" :error-message="errorMessage" />
+  </NaiveProvider>
 </template>
 
 <style>
