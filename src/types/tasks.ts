@@ -1,0 +1,20 @@
+export type DownloadTaskStatus = "pending";
+
+export interface DownloadTask {
+  id: number;
+  url: string;
+  fileName: string;
+  saveDir?: string | null;
+  gid?: string | null;
+  status: DownloadTaskStatus;
+  totalLength: number;
+  completedLength: number;
+  downloadSpeed: number;
+  createdAt: number;
+}
+
+export interface CreateDownloadTaskRequest {
+  url: string;
+  fileName?: string | null;
+  saveDir?: string | null;
+}
