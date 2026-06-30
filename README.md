@@ -1,13 +1,13 @@
 # Motrix FNOS
 
-飞牛 OS 专用 GUI 下载工具。当前仓库处于 **阶段 0：工程骨架搭建**，目标是验证 Tauri GUI、Vue 前端、Rust 后端通信，以及 Aria2 Next 进程/RPC 连接能力。
+飞牛 OS 专用 GUI 下载工具。当前仓库已完成 **阶段 0：工程骨架搭建**，正在进入 **阶段 1：最小可用下载器（MVP）**。阶段 1 的重点是内置 Aria2 Next sidecar，并打通 HTTP / HTTPS 下载闭环。
 
 ## 技术栈
 
 - Rust + Tauri 2
 - Vue 3 + TypeScript + Vite
 - pnpm
-- Aria2 Next（阶段 0 使用外部路径配置，不提交二进制）
+- Aria2 Next（阶段 1 默认使用 Tauri sidecar 内置引擎）
 
 ## 环境要求
 
@@ -43,14 +43,22 @@ rtk cargo check --manifest-path src-tauri/Cargo.toml
 rtk cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-## 配置 Aria2 Next
+## Aria2 Next 集成
 
-阶段 0 不把 Aria2 Next 二进制放进仓库。需要验证真实引擎启动时，先设置环境变量：
+阶段 1 默认通过 Tauri sidecar 内置 Aria2 Next，不依赖系统安装的 aria2。开发调试时仍可用环境变量覆盖内置引擎：
 
 ```bash
-export MOTRIX_FNOS_ARIA2_PATH=/path/to/aria2c
+export MOTRIX_FNOS_ARIA2_PATH=/path/to/aria2-next
 rtk pnpm tauri:dev
 ```
+
+首批 sidecar 目标平台：
+
+- `aarch64-apple-darwin`：macOS Apple Silicon / 当前 M1 开发测试
+- `x86_64-unknown-linux-gnu`：飞牛 OS x86 64 位
+- `aarch64-unknown-linux-gnu`：飞牛 OS ARM64
+
+当前暂不支持 32 位 Linux。
 
 应用内“Aria2 Next / 引擎状态验证”区域提供：
 
@@ -59,9 +67,9 @@ rtk pnpm tauri:dev
 - 停止引擎
 - 检查 RPC（调用 `aria2.getVersion`）
 
-未设置路径或路径无效时，界面应显示明确错误，不应崩溃。
+内置 sidecar 缺失、环境变量路径无效或 RPC 连接失败时，界面应显示明确错误，不应崩溃。
 
-## 阶段 0 完成标准
+## 阶段 0 完成标准（已完成）
 
 - 应用窗口标题为 `Motrix FNOS`
 - GUI 可显示深色主窗口占位布局
