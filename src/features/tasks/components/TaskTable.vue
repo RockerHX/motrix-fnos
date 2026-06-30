@@ -1,21 +1,51 @@
 <script setup lang="ts">
-import { h } from "vue";
+import { computed, h, onMounted, ref } from "vue";
 import { NDataTable } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
+import { getUiPreferences, saveUiPreferences } from "../../../services/settings";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
   tasks: DownloadTask[];
 }>();
 
-const columns: DataTableColumns<DownloadTask> = [
-  {
+const defaultColumnWidths: Record<string, number> = {
+  name: 360,
+  status: 110,
+  progress: 180,
+  size: 180,
+  speed: 130,
+  eta: 120,
+  saveDir: 320,
+  actions: 220,
+};
+
+const columns = ref<DataTableColumns<DownloadTask>>(createColumns(defaultColumnWidths));
+const scrollX = computed(() =>
+  columns.value.reduce((total, column) => total + normalizeColumnWidth(column.width), 0),
+);
+
+onMounted(async () => {
+  try {
+    const preferences = await getUiPreferences();
+    columns.value = createColumns({
+      ...defaultColumnWidths,
+      ...preferences.taskTableColumnWidths,
+    });
+  } catch {
+    columns.value = createColumns(defaultColumnWidths);
+  }
+});
+
+function createColumns(widths: Record<string, number>): DataTableColumns<DownloadTask> {
+  return [
+    {
     key: "name",
     title: "任务名称",
-    width: 360,
+    width: widths.name,
     minWidth: 240,
     resizable: true,
     render: (task) =>
@@ -24,68 +54,92 @@ const columns: DataTableColumns<DownloadTask> = [
         h("small", task.url),
         task.status === "error" ? h("small", { class: "task-error-detail" }, formatTaskError(task)) : null,
       ]),
-  },
-  {
+    },
+    {
     key: "status",
     title: "状态",
-    width: 110,
+    width: widths.status,
     minWidth: 90,
     resizable: true,
     render: (task) => h(TaskStatusBadge, { status: task.status }),
-  },
-  {
+    },
+    {
     key: "progress",
     title: "进度",
-    width: 180,
+    width: widths.progress,
     minWidth: 150,
     resizable: true,
     render: (task) => h(TaskProgressCell, { task }),
-  },
-  {
+    },
+    {
     key: "size",
     title: "已下载 / 总大小",
-    width: 180,
+    width: widths.size,
     minWidth: 150,
     resizable: true,
     render: (task) => formatSizePair(task),
-  },
-  {
+    },
+    {
     key: "speed",
     title: "速度",
-    width: 130,
+    width: widths.speed,
     minWidth: 110,
     resizable: true,
     render: (task) => `${formatSize(task.downloadSpeed)}/s`,
-  },
-  {
+    },
+    {
     key: "eta",
     title: "剩余时间",
-    width: 120,
+    width: widths.eta,
     minWidth: 100,
     resizable: true,
     render: (task) => formatEta(task),
-  },
-  {
+    },
+    {
     key: "saveDir",
     title: "保存路径",
-    width: 320,
+    width: widths.saveDir,
     minWidth: 220,
     resizable: true,
     ellipsis: {
       tooltip: true,
     },
     render: (task) => task.saveDir,
-  },
-  {
+    },
+    {
     key: "actions",
     title: "操作",
-    width: 220,
+    width: widths.actions,
     minWidth: 200,
     resizable: false,
     fixed: "right",
     render: (task) => h(TaskActions, { task }),
-  },
-];
+    },
+  ];
+}
+
+function handleColumnsUpdate(nextColumns: DataTableColumns<DownloadTask>) {
+  columns.value = nextColumns;
+  void saveUiPreferences({
+    taskTableColumnWidths: extractColumnWidths(nextColumns),
+  });
+}
+
+function extractColumnWidths(nextColumns: DataTableColumns<DownloadTask>) {
+  const widths: Record<string, number> = {};
+  for (const column of nextColumns) {
+    const dataColumn = column as { key?: unknown; width?: unknown };
+    if (!dataColumn.key || typeof dataColumn.width !== "number") {
+      continue;
+    }
+    widths[String(dataColumn.key)] = dataColumn.width;
+  }
+  return widths;
+}
+
+function normalizeColumnWidth(width: unknown) {
+  return typeof width === "number" ? width : 0;
+}
 
 function formatTaskError(task: DownloadTask) {
   const code = task.errorCode ? `错误码 ${task.errorCode}：` : "";
@@ -142,8 +196,9 @@ function formatSize(size: number) {
       :bordered="false"
       :single-line="false"
       :row-key="(task: DownloadTask) => task.id"
-      :scroll-x="1540"
+      :scroll-x="scrollX"
       flex-height
+      @update:columns="handleColumnsUpdate"
     />
   </section>
 </template>
