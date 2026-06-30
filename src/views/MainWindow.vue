@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { open } from "@tauri-apps/plugin-dialog";
+import { storeToRefs } from "pinia";
+import { onMounted, ref, watch } from "vue";
+import { useMessage } from "naive-ui";
 import EngineStatusPanel from "../components/EngineStatusPanel.vue";
+import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
+import { useTaskPolling } from "../features/tasks/composables/useTaskPolling";
+import { useTaskStore } from "../features/tasks/stores/taskStore";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
-import { createDownloadTask, listDownloadTasks } from "../services/tasks";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { DownloadTask } from "../types/tasks";
@@ -14,41 +17,22 @@ const props = defineProps<{
   errorMessage: string;
 }>();
 
+const message = useMessage();
+const taskStore = useTaskStore();
+const { tasks } = storeToRefs(taskStore);
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
-const tasks = ref<DownloadTask[]>([]);
-const taskLoading = ref(false);
 const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
-const newTaskUrl = ref("");
-const newTaskFileName = ref("");
-const newTaskSaveDir = ref("");
-const startMode = ref<"now" | "paused">("now");
-const note = ref("");
-const formErrorMessage = ref("");
-const toasts = ref<ToastMessage[]>([]);
 const tableScroll = ref<HTMLElement | null>(null);
-const activeInputType = ref("URL 下载");
-const showAdvanced = ref(false);
-let taskRefreshTimer: number | undefined;
-let nextToastId = 1;
-let lastRefreshErrorAt = 0;
 let isDraggingTable = false;
 let tableDragStartX = 0;
 let tableDragStartScrollLeft = 0;
-const notifiedErrorTaskKeys = new Set<string>();
 
-type ToastType = "success" | "error" | "info";
-
-interface ToastMessage {
-  id: number;
-  type: ToastType;
-  message: string;
-}
-
-const inputTypes = ["URL 下载", "批量 URL", "种子文件（后期）", "磁力链接（后期）"];
-
-const isUrlValid = computed(() => /^https?:\/\/.+/i.test(newTaskUrl.value.trim()));
+const { refresh: refreshTasks } = useTaskPolling({
+  onRefreshError: (errorMessage) => message.error(errorMessage),
+  onTaskError: (errorMessage) => message.error(errorMessage),
+});
 
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
@@ -56,130 +40,14 @@ async function refreshPhaseStatus() {
   aria2Rpc.value = rpc;
 }
 
-async function refreshTasks(showError = false) {
-  try {
-    const nextTasks = await listDownloadTasks();
-    notifyNewTaskErrors(tasks.value, nextTasks);
-    tasks.value = nextTasks;
-  } catch (error) {
-    const now = Date.now();
-    if (showError || now - lastRefreshErrorAt > 10000) {
-      notify("error", getErrorMessage(error));
-      lastRefreshErrorAt = now;
-    }
-  }
-}
-
-function notifyNewTaskErrors(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
-  const previousStatus = new Map(previousTasks.map((task) => [taskKey(task), task.status]));
-
-  for (const task of nextTasks) {
-    const key = taskKey(task);
-    if (
-      task.status === "error" &&
-      previousStatus.get(key) !== "error" &&
-      !notifiedErrorTaskKeys.has(key)
-    ) {
-      notifiedErrorTaskKeys.add(key);
-      notify("error", `任务下载失败：${formatTaskError(task)}`);
-    }
-  }
-}
-
-function taskKey(task: DownloadTask) {
-  return task.gid || String(task.id);
-}
-
 function openCreateDialog() {
-  formErrorMessage.value = "";
   showCreateDialog.value = true;
 }
 
-function closeCreateDialog() {
-  if (taskLoading.value) {
-    return;
-  }
-
-  showCreateDialog.value = false;
-}
-
-async function selectSaveDir() {
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "选择下载目录",
-  });
-
-  if (typeof selected === "string") {
-    newTaskSaveDir.value = selected;
-  }
-}
-
-async function submitCreateTask() {
-  if (!isUrlValid.value) {
-    formErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
-    return;
-  }
-
-  taskLoading.value = true;
-  formErrorMessage.value = "";
-
-  try {
-    const task = await createDownloadTask({
-      url: newTaskUrl.value,
-      fileName: newTaskFileName.value || null,
-      saveDir: newTaskSaveDir.value || null,
-    });
-    tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
-    notify("success", "任务已添加");
-    void refreshPhaseStatus();
-    void refreshTasks();
-    resetCreateForm();
-    showCreateDialog.value = false;
-  } catch (error) {
-    notify("error", getErrorMessage(error));
-  } finally {
-    taskLoading.value = false;
-  }
-}
-
-function notify(type: ToastType, message: string) {
-  const toast: ToastMessage = {
-    id: nextToastId++,
-    type,
-    message,
-  };
-  toasts.value = [...toasts.value, toast];
-
-  window.setTimeout(
-    () => {
-      dismissToast(toast.id);
-    },
-    type === "error" ? 6200 : 3200,
-  );
-}
-
-function dismissToast(id: number) {
-  toasts.value = toasts.value.filter((toast) => toast.id !== id);
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const message = String(error);
-  return message || "操作失败，请稍后重试";
-}
-
-function resetCreateForm() {
-  newTaskUrl.value = "";
-  newTaskFileName.value = "";
-  newTaskSaveDir.value = "";
-  startMode.value = "now";
-  note.value = "";
-  showAdvanced.value = false;
-  formErrorMessage.value = "";
+async function handleTaskCreated() {
+  message.success("任务已添加");
+  void refreshPhaseStatus();
+  await refreshTasks();
 }
 
 function formatTaskError(task: DownloadTask) {
@@ -278,25 +146,15 @@ function formatSize(size: number) {
 
 watch(
   () => props.errorMessage,
-  (message) => {
-    if (message) {
-      notify("error", message);
+  (nextMessage) => {
+    if (nextMessage) {
+      message.error(nextMessage);
     }
   },
 );
 
 onMounted(() => {
   void refreshPhaseStatus();
-  void refreshTasks();
-  taskRefreshTimer = window.setInterval(() => {
-    void refreshTasks();
-  }, 2000);
-});
-
-onBeforeUnmount(() => {
-  if (taskRefreshTimer) {
-    window.clearInterval(taskRefreshTimer);
-  }
 });
 </script>
 
@@ -426,85 +284,9 @@ onBeforeUnmount(() => {
 
     <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>
 
-    <div class="toast-stack" aria-live="polite" aria-atomic="true">
-      <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
-        <span class="toast-dot" aria-hidden="true" />
-        <p>{{ toast.message }}</p>
-        <button type="button" aria-label="关闭通知" @click="dismissToast(toast.id)">×</button>
-      </div>
-    </div>
 
-    <div v-if="showCreateDialog" class="dialog-backdrop" @click.self="closeCreateDialog">
-      <form class="create-dialog" @submit.prevent="submitCreateTask">
-        <div class="dialog-header">
-          <div>
-            <p class="eyebrow">New Task</p>
-            <h2>新建下载任务</h2>
-          </div>
-          <button type="button" class="icon-button" :disabled="taskLoading" @click="closeCreateDialog">×</button>
-        </div>
 
-        <div class="input-tabs" aria-label="输入类型">
-          <button
-            v-for="type in inputTypes"
-            :key="type"
-            type="button"
-            :class="{ active: activeInputType === type }"
-            :disabled="type !== 'URL 下载'"
-            @click="activeInputType = type"
-          >
-            {{ type }}
-          </button>
-        </div>
-
-        <label>
-          <span>下载链接</span>
-          <input v-model="newTaskUrl" type="url" placeholder="https://example.com/file.zip" required />
-          <small v-if="newTaskUrl && !isUrlValid" class="field-error">当前仅支持 HTTP / HTTPS 链接</small>
-        </label>
-        <label>
-          <span>文件名</span>
-          <input v-model="newTaskFileName" type="text" placeholder="留空则从链接自动识别" />
-        </label>
-        <label>
-          <span>保存路径</span>
-          <div class="path-input-row">
-            <input v-model="newTaskSaveDir" type="text" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
-            <button type="button" class="secondary path-select-button" :disabled="taskLoading" @click="selectSaveDir">选择目录</button>
-          </div>
-        </label>
-
-        <div class="segmented-field">
-          <span>开始方式</span>
-          <div class="segmented-control">
-            <button type="button" :class="{ active: startMode === 'now' }" @click="startMode = 'now'">立即开始</button>
-            <button type="button" :class="{ active: startMode === 'paused' }" @click="startMode = 'paused'">添加后暂停</button>
-          </div>
-        </div>
-
-        <label>
-          <span>备注</span>
-          <input v-model="note" type="text" placeholder="可选" />
-        </label>
-
-        <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
-          {{ showAdvanced ? "收起高级设置" : "展开高级设置" }}
-        </button>
-        <div v-if="showAdvanced" class="advanced-grid">
-          <label><span>分类</span><input type="text" placeholder="默认" disabled /></label>
-          <label><span>连接数</span><input type="number" placeholder="16" disabled /></label>
-          <label><span>限速</span><input type="text" placeholder="不限速" disabled /></label>
-          <label><span>代理</span><input type="text" placeholder="后期支持" disabled /></label>
-        </div>
-
-        <p v-if="formErrorMessage" class="dialog-error">{{ formErrorMessage }}</p>
-
-        <div class="dialog-actions">
-          <button type="button" :disabled="taskLoading" @click="closeCreateDialog">取消</button>
-          <button type="submit" class="primary" :disabled="taskLoading || !isUrlValid">{{ taskLoading ? "创建中" : "开始下载" }}</button>
-        </div>
-      </form>
-    </div>
+    <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
 
     <div v-if="showDiagnostics" class="dialog-backdrop" @click.self="showDiagnostics = false">
       <section class="diagnostics-dialog">
