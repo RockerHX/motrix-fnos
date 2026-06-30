@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { NProgress } from "naive-ui";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
@@ -17,7 +18,7 @@ const percentage = computed(() => {
 
 <template>
   <div class="task-progress-cell">
-    <n-progress type="line" :percentage="percentage" :height="8" :show-indicator="false" processing />
+    <NProgress type="line" :percentage="percentage" :height="8" :show-indicator="false" processing />
     <small>{{ percentage }}%</small>
   </div>
 </template>

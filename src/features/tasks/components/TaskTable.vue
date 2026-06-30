@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { h } from "vue";
+import { NDataTable } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
@@ -134,7 +135,7 @@ function formatSize(size: number) {
 
 <template>
   <section class="task-table-shell">
-    <n-data-table
+    <NDataTable
       class="task-data-table"
       :columns="columns"
       :data="props.tasks"

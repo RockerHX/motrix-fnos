@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { NTag } from "naive-ui";
 import type { DownloadTaskStatus } from "../../../types/tasks";
 
 const props = defineProps<{
@@ -37,5 +38,5 @@ const badgeType = computed(() => {
 </script>
 
 <template>
-  <n-tag :type="badgeType" size="small" round>{{ label }}</n-tag>
+  <NTag :type="badgeType" size="small" round>{{ label }}</NTag>
 </template>

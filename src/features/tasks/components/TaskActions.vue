@@ -1,3 +1,7 @@
+<script setup lang="ts">
+import { NButton } from "naive-ui";
+</script>
+
 <template>
-  <n-button size="small" secondary disabled>更多</n-button>
+  <NButton size="small" secondary disabled>更多</NButton>
 </template>

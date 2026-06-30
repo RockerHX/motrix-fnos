@@ -1,6 +1,22 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
-import { useMessage } from "naive-ui";
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NCollapse,
+  NCollapseItem,
+  NForm,
+  NFormItem,
+  NGi,
+  NGrid,
+  NInput,
+  NModal,
+  NSpace,
+  NTabPane,
+  NTabs,
+  useMessage,
+} from "naive-ui";
 import { selectDownloadDirectory } from "../services/taskService";
 import { useTaskStore } from "../stores/taskStore";
 
@@ -97,8 +113,8 @@ function getErrorMessage(error: unknown) {
 </script>
 
 <template>
-  <n-modal :show="show" :mask-closable="!taskStore.isCreating" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
-    <n-card class="task-create-card" role="dialog" aria-modal="true">
+  <NModal :show="show" :mask-closable="!taskStore.isCreating" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
+    <NCard class="task-create-card" role="dialog" aria-modal="true">
       <template #header>
         <div>
           <p class="eyebrow">New Task</p>
@@ -106,63 +122,63 @@ function getErrorMessage(error: unknown) {
         </div>
       </template>
       <template #header-extra>
-        <n-button quaternary circle :disabled="taskStore.isCreating" @click="closeDialog">×</n-button>
+        <NButton quaternary circle :disabled="taskStore.isCreating" @click="closeDialog">×</NButton>
       </template>
 
-      <n-form @submit.prevent="submitCreateTask">
-        <n-tabs v-model:value="activeInputType" type="segment" animated>
-          <n-tab-pane name="URL 下载" tab="URL 下载" />
-          <n-tab-pane name="批量 URL" tab="批量 URL" disabled />
-          <n-tab-pane name="种子文件（后期）" tab="种子文件（后期）" disabled />
-          <n-tab-pane name="磁力链接（后期）" tab="磁力链接（后期）" disabled />
-        </n-tabs>
+      <NForm @submit.prevent="submitCreateTask">
+        <NTabs v-model:value="activeInputType" type="segment" animated>
+          <NTabPane name="URL 下载" tab="URL 下载" />
+          <NTabPane name="批量 URL" tab="批量 URL" disabled />
+          <NTabPane name="种子文件（后期）" tab="种子文件（后期）" disabled />
+          <NTabPane name="磁力链接（后期）" tab="磁力链接（后期）" disabled />
+        </NTabs>
 
-        <n-form-item label="下载链接" :feedback="urlFeedback" :validation-status="urlValidationStatus">
-          <n-input v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
-        </n-form-item>
+        <NFormItem label="下载链接" :feedback="urlFeedback" :validation-status="urlValidationStatus">
+          <NInput v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
+        </NFormItem>
 
-        <n-form-item label="文件名">
-          <n-input v-model:value="form.fileName" placeholder="留空则从链接自动识别" />
-        </n-form-item>
+        <NFormItem label="文件名">
+          <NInput v-model:value="form.fileName" placeholder="留空则从链接自动识别" />
+        </NFormItem>
 
-        <n-form-item label="保存路径">
-          <n-space vertical class="full-width">
-            <n-input v-model:value="form.saveDir" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
-            <n-button secondary :disabled="taskStore.isCreating" @click="selectSaveDir">选择目录</n-button>
-          </n-space>
-        </n-form-item>
+        <NFormItem label="保存路径">
+          <NSpace vertical class="full-width">
+            <NInput v-model:value="form.saveDir" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
+            <NButton secondary :disabled="taskStore.isCreating" @click="selectSaveDir">选择目录</NButton>
+          </NSpace>
+        </NFormItem>
 
-        <n-form-item label="开始方式">
-          <n-tabs v-model:value="form.startMode" type="segment">
-            <n-tab-pane name="now" tab="立即开始" />
-            <n-tab-pane name="paused" tab="添加后暂停" />
-          </n-tabs>
-        </n-form-item>
+        <NFormItem label="开始方式">
+          <NTabs v-model:value="form.startMode" type="segment">
+            <NTabPane name="now" tab="立即开始" />
+            <NTabPane name="paused" tab="添加后暂停" />
+          </NTabs>
+        </NFormItem>
 
-        <n-form-item label="备注">
-          <n-input v-model:value="form.note" placeholder="可选" />
-        </n-form-item>
+        <NFormItem label="备注">
+          <NInput v-model:value="form.note" placeholder="可选" />
+        </NFormItem>
 
-        <n-collapse>
-          <n-collapse-item title="高级设置" name="advanced">
-            <n-grid :cols="2" :x-gap="12" :y-gap="12">
-              <n-gi><n-input placeholder="分类：默认" disabled /></n-gi>
-              <n-gi><n-input placeholder="连接数：16" disabled /></n-gi>
-              <n-gi><n-input placeholder="限速：不限速" disabled /></n-gi>
-              <n-gi><n-input placeholder="代理：后期支持" disabled /></n-gi>
-            </n-grid>
-          </n-collapse-item>
-        </n-collapse>
+        <NCollapse>
+          <NCollapseItem title="高级设置" name="advanced">
+            <NGrid :cols="2" :x-gap="12" :y-gap="12">
+              <NGi><NInput placeholder="分类：默认" disabled /></NGi>
+              <NGi><NInput placeholder="连接数：16" disabled /></NGi>
+              <NGi><NInput placeholder="限速：不限速" disabled /></NGi>
+              <NGi><NInput placeholder="代理：后期支持" disabled /></NGi>
+            </NGrid>
+          </NCollapseItem>
+        </NCollapse>
 
-        <n-alert v-if="formErrorMessage" type="error" class="form-alert">{{ formErrorMessage }}</n-alert>
+        <NAlert v-if="formErrorMessage" type="error" class="form-alert">{{ formErrorMessage }}</NAlert>
 
-        <n-space justify="end" class="dialog-actions">
-          <n-button :disabled="taskStore.isCreating" @click="closeDialog">取消</n-button>
-          <n-button type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!isUrlValid">开始下载</n-button>
-        </n-space>
-      </n-form>
-    </n-card>
-  </n-modal>
+        <NSpace justify="end" class="dialog-actions">
+          <NButton :disabled="taskStore.isCreating" @click="closeDialog">取消</NButton>
+          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!isUrlValid">开始下载</NButton>
+        </NSpace>
+      </NForm>
+    </NCard>
+  </NModal>
 </template>
 
 <style scoped>
