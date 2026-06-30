@@ -19,9 +19,16 @@ const tasks = ref<DownloadTask[]>([]);
 const taskErrorMessage = ref("");
 const taskLoading = ref(false);
 const showCreateDialog = ref(false);
+const showDiagnostics = ref(false);
 const newTaskUrl = ref("");
 const newTaskFileName = ref("");
 const newTaskSaveDir = ref("");
+const startMode = ref<"now" | "paused">("now");
+const note = ref("");
+const activeInputType = ref("URL 下载");
+const showAdvanced = ref(false);
+
+const inputTypes = ["URL 下载", "批量 URL", "种子文件（后期）", "磁力链接（后期）"];
 
 const categories = computed(() => [
   { name: "全部", count: tasks.value.length },
@@ -32,6 +39,8 @@ const categories = computed(() => [
   { name: "暂停", count: 0 },
   { name: "错误", count: 0 },
 ]);
+
+const isUrlValid = computed(() => /^https?:\/\/.+/i.test(newTaskUrl.value.trim()));
 
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
@@ -58,6 +67,11 @@ function closeCreateDialog() {
 }
 
 async function submitCreateTask() {
+  if (!isUrlValid.value) {
+    taskErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
+    return;
+  }
+
   taskLoading.value = true;
   taskErrorMessage.value = "";
 
@@ -71,6 +85,9 @@ async function submitCreateTask() {
     newTaskUrl.value = "";
     newTaskFileName.value = "";
     newTaskSaveDir.value = "";
+    startMode.value = "now";
+    note.value = "";
+    showAdvanced.value = false;
     showCreateDialog.value = false;
   } catch (error) {
     taskErrorMessage.value = error instanceof Error ? error.message : String(error);
@@ -81,7 +98,7 @@ async function submitCreateTask() {
 
 function formatStatus(status: DownloadTask["status"]) {
   if (status === "pending") {
-    return "待开始";
+    return "排队";
   }
 
   return status;
@@ -89,7 +106,7 @@ function formatStatus(status: DownloadTask["status"]) {
 
 function formatSize(size: number) {
   if (size <= 0) {
-    return "-";
+    return "0 B / 未知";
   }
 
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -141,83 +158,56 @@ onMounted(() => {
           <button type="button" disabled>暂停</button>
           <button type="button" disabled>删除</button>
           <input type="search" placeholder="搜索任务" disabled />
+          <button type="button" class="ghost diagnostics-button" @click="showDiagnostics = true">诊断</button>
         </div>
       </header>
 
-      <main class="content-stack">
-        <section v-if="tasks.length === 0" class="empty-state">
-          <div class="empty-icon">↓</div>
-          <h2>暂无任务</h2>
-          <p>阶段 1 已支持创建 HTTP / HTTPS 下载任务记录，后续会接入 Aria2 Next 执行真实下载。</p>
-          <button type="button" class="primary" @click="openCreateDialog">添加第一个任务</button>
-        </section>
-
-        <section v-else class="task-list-panel">
-          <div class="task-list-header">
-            <span>任务</span>
+      <main class="task-content">
+        <section class="task-table-shell">
+          <div class="task-table-head">
+            <span>任务名称</span>
             <span>状态</span>
-            <span>大小</span>
-            <span>保存位置</span>
+            <span>进度</span>
+            <span>已下载 / 总大小</span>
+            <span>速度</span>
+            <span>剩余时间</span>
+            <span>保存路径</span>
+            <span>操作</span>
           </div>
-          <article v-for="task in tasks" :key="task.id" class="task-row">
+
+          <div v-if="tasks.length === 0" class="empty-state">
+            <div class="empty-illustration">↓</div>
+            <h2>暂无任务</h2>
+            <p>添加 HTTP / HTTPS 链接开始下载，也可以直接粘贴链接创建任务。</p>
+            <button type="button" class="primary" @click="openCreateDialog">添加任务</button>
+          </div>
+
+          <article v-for="task in tasks" v-else :key="task.id" class="task-row">
             <div class="task-title">
               <strong>{{ task.fileName }}</strong>
               <small>{{ task.url }}</small>
             </div>
-            <span class="task-status">{{ formatStatus(task.status) }}</span>
-            <span>{{ formatSize(task.totalLength) }}</span>
+            <span class="status-badge">{{ formatStatus(task.status) }}</span>
+            <div class="progress-cell">
+              <div class="progress-bar"><span /></div>
+              <small>0%</small>
+            </div>
+            <span>{{ formatSize(task.completedLength) }} / {{ formatSize(task.totalLength) }}</span>
+            <span>{{ formatSize(task.downloadSpeed) }}/s</span>
+            <span>--</span>
             <span class="task-path">{{ task.saveDir ?? "默认目录待设置" }}</span>
+            <button type="button" class="row-action" disabled>更多</button>
           </article>
         </section>
 
-        <section class="phase-status">
-          <div class="phase-header">
-            <div>
-              <p class="eyebrow">Status Check</p>
-              <h2>阶段状态检查</h2>
-            </div>
-            <span :class="['status-pill', backendPing?.ok ? 'ok' : 'pending']">
-              {{ backendPing?.ok ? "后端已连接" : "等待后端" }}
-            </span>
-          </div>
-
-          <div class="status-grid">
-            <div class="status-card">
-              <span>应用版本</span>
-              <strong>{{ appInfo?.version ?? "-" }}</strong>
-            </div>
-            <div class="status-card">
-              <span>后端状态</span>
-              <strong>{{ appInfo?.backendStatus ?? "checking" }}</strong>
-            </div>
-            <div class="status-card">
-              <span>通信结果</span>
-              <strong>{{ backendPing?.message ?? "等待响应" }}</strong>
-            </div>
-            <div class="status-card">
-              <span>任务数量</span>
-              <strong>{{ tasks.length }}</strong>
-            </div>
-            <div class="status-card">
-              <span>Aria2 进程</span>
-              <strong>{{ aria2Process?.running ? "运行中" : "未运行" }}</strong>
-            </div>
-            <div class="status-card">
-              <span>Aria2 RPC</span>
-              <strong>{{ aria2Rpc?.connected ? "已连接" : "未连接" }}</strong>
-            </div>
-          </div>
-
-          <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
-          <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
-        </section>
-
-        <EngineStatusPanel />
+        <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
+        <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
       </main>
 
       <footer class="status-bar">
         <span>下载 0 B/s</span>
         <span>上传 0 B/s</span>
+        <span>连接数 0</span>
         <span>任务数 {{ tasks.length }}</span>
         <span>磁盘状态：待接入</span>
       </footer>
@@ -228,31 +218,88 @@ onMounted(() => {
         <div class="dialog-header">
           <div>
             <p class="eyebrow">New Task</p>
-            <h2>添加下载任务</h2>
+            <h2>新建下载任务</h2>
           </div>
           <button type="button" class="icon-button" :disabled="taskLoading" @click="closeCreateDialog">×</button>
+        </div>
+
+        <div class="input-tabs" aria-label="输入类型">
+          <button
+            v-for="type in inputTypes"
+            :key="type"
+            type="button"
+            :class="{ active: activeInputType === type }"
+            :disabled="type !== 'URL 下载'"
+            @click="activeInputType = type"
+          >
+            {{ type }}
+          </button>
         </div>
 
         <label>
           <span>下载链接</span>
           <input v-model="newTaskUrl" type="url" placeholder="https://example.com/file.zip" required />
+          <small v-if="newTaskUrl && !isUrlValid" class="field-error">当前仅支持 HTTP / HTTPS 链接</small>
         </label>
         <label>
-          <span>文件名（可选）</span>
-          <input v-model="newTaskFileName" type="text" placeholder="留空则从链接推断" />
+          <span>文件名</span>
+          <input v-model="newTaskFileName" type="text" placeholder="留空则从链接自动识别" />
         </label>
         <label>
-          <span>保存路径（可选）</span>
+          <span>保存路径</span>
           <input v-model="newTaskSaveDir" type="text" placeholder="例如 /vol1/Downloads" />
         </label>
+
+        <div class="segmented-field">
+          <span>开始方式</span>
+          <div class="segmented-control">
+            <button type="button" :class="{ active: startMode === 'now' }" @click="startMode = 'now'">立即开始</button>
+            <button type="button" :class="{ active: startMode === 'paused' }" @click="startMode = 'paused'">添加后暂停</button>
+          </div>
+        </div>
+
+        <label>
+          <span>备注</span>
+          <input v-model="note" type="text" placeholder="可选" />
+        </label>
+
+        <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+          {{ showAdvanced ? "收起高级设置" : "展开高级设置" }}
+        </button>
+        <div v-if="showAdvanced" class="advanced-grid">
+          <label><span>分类</span><input type="text" placeholder="默认" disabled /></label>
+          <label><span>连接数</span><input type="number" placeholder="16" disabled /></label>
+          <label><span>限速</span><input type="text" placeholder="不限速" disabled /></label>
+          <label><span>代理</span><input type="text" placeholder="后期支持" disabled /></label>
+        </div>
 
         <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
 
         <div class="dialog-actions">
           <button type="button" :disabled="taskLoading" @click="closeCreateDialog">取消</button>
-          <button type="submit" class="primary" :disabled="taskLoading">{{ taskLoading ? "创建中" : "创建任务" }}</button>
+          <button type="submit" class="primary" :disabled="taskLoading || !isUrlValid">{{ taskLoading ? "创建中" : "开始下载" }}</button>
         </div>
       </form>
+    </div>
+
+    <div v-if="showDiagnostics" class="dialog-backdrop" @click.self="showDiagnostics = false">
+      <section class="diagnostics-dialog">
+        <div class="dialog-header">
+          <div>
+            <p class="eyebrow">Diagnostics</p>
+            <h2>阶段状态与引擎诊断</h2>
+          </div>
+          <button type="button" class="icon-button" @click="showDiagnostics = false">×</button>
+        </div>
+        <div class="diagnostics-grid">
+          <div><span>应用版本</span><strong>{{ appInfo?.version ?? "-" }}</strong></div>
+          <div><span>后端状态</span><strong>{{ appInfo?.backendStatus ?? "checking" }}</strong></div>
+          <div><span>通信结果</span><strong>{{ backendPing?.message ?? "等待响应" }}</strong></div>
+          <div><span>Aria2 进程</span><strong>{{ aria2Process?.running ? "运行中" : "未运行" }}</strong></div>
+          <div><span>Aria2 RPC</span><strong>{{ aria2Rpc?.connected ? "已连接" : "未连接" }}</strong></div>
+        </div>
+        <EngineStatusPanel />
+      </section>
     </div>
   </div>
 </template>
@@ -262,31 +309,32 @@ onMounted(() => {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
-  color: #dce8e2;
-  background: #0b0f0e;
+  color: #e7f1ec;
+  background: #0b1110;
 }
 
 .sidebar {
-  padding: 22px 16px;
+  padding: 24px 16px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0f1514;
+  background: #0d1513;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 28px;
+  gap: 13px;
+  margin-bottom: 34px;
 }
 
 .brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
-  color: #062015;
-  background: #67dca0;
+  border-radius: 13px;
+  color: #092216;
+  background: #66e39a;
+  font-size: 22px;
   font-weight: 900;
 }
 
@@ -295,15 +343,19 @@ onMounted(() => {
   display: block;
 }
 
+.brand strong {
+  font-size: 18px;
+}
+
 .brand span {
-  margin-top: 2px;
-  color: #7f918a;
-  font-size: 12px;
+  margin-top: 4px;
+  color: #91a19a;
+  font-size: 13px;
 }
 
 .category-list {
   display: grid;
-  gap: 6px;
+  gap: 10px;
 }
 
 .category-list button {
@@ -312,9 +364,9 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   border: 0;
-  border-radius: 12px;
-  padding: 11px 12px;
-  color: #a9bbb4;
+  border-radius: 14px;
+  padding: 13px 14px;
+  color: #b2c1bb;
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -323,14 +375,14 @@ onMounted(() => {
 .category-list button.active,
 .category-list button:hover {
   color: #ffffff;
-  background: rgba(103, 220, 160, 0.12);
+  background: #173628;
 }
 
 .category-list em {
-  min-width: 24px;
+  min-width: 26px;
   border-radius: 999px;
-  color: #80a494;
-  background: rgba(255, 255, 255, 0.06);
+  color: #a5bbb1;
+  background: rgba(255, 255, 255, 0.08);
   font-style: normal;
   font-size: 12px;
   text-align: center;
@@ -346,18 +398,18 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 20px 24px;
+  gap: 22px;
+  padding: 24px 26px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(15, 21, 20, 0.94);
+  background: #0d1513;
 }
 
 .eyebrow {
-  margin: 0 0 5px;
-  color: #67dca0;
+  margin: 0 0 6px;
+  color: #66e39a;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -367,19 +419,23 @@ h2 {
   color: #ffffff;
 }
 
+h1 {
+  font-size: 28px;
+}
+
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
 }
 
 button,
 input {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  padding: 9px 13px;
-  color: #dce8e2;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 10px 15px;
+  color: #e7f1ec;
+  background: rgba(255, 255, 255, 0.055);
   font: inherit;
 }
 
@@ -390,76 +446,53 @@ button {
 button:disabled,
 input:disabled {
   cursor: not-allowed;
-  opacity: 0.48;
+  opacity: 0.46;
 }
 
 .primary {
   border-color: transparent;
-  color: #062015;
-  background: #67dca0;
-  font-weight: 800;
+  color: #092216;
+  background: #66e39a;
+  font-weight: 900;
 }
 
-.content-stack {
+.ghost {
+  color: #bcd0c7;
+  background: transparent;
+}
+
+.diagnostics-button {
+  padding-inline: 12px;
+}
+
+.task-content {
   min-height: 0;
   overflow: auto;
-  display: grid;
-  gap: 18px;
-  padding: 24px;
+  padding: 26px;
 }
 
-.empty-state,
-.phase-status,
-.task-list-panel {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  background: #151b1a;
-}
-
-.empty-state {
-  min-height: 280px;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  padding: 32px;
-  text-align: center;
-}
-
-.empty-icon {
-  width: 72px;
-  height: 72px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 18px;
-  border-radius: 24px;
-  color: #67dca0;
-  background: rgba(103, 220, 160, 0.12);
-  font-size: 42px;
-}
-
-.empty-state p {
-  max-width: 520px;
-  color: #8fa29a;
-}
-
-.task-list-panel {
+.task-table-shell {
+  min-height: 100%;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: #111b18;
 }
 
-.task-list-header,
+.task-table-head,
 .task-row {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 100px 100px minmax(160px, 0.6fr);
+  grid-template-columns: minmax(220px, 1.4fr) 84px minmax(130px, 0.8fr) 130px 90px 90px minmax(150px, 0.8fr) 70px;
   gap: 14px;
   align-items: center;
 }
 
-.task-list-header {
+.task-table-head {
   padding: 14px 18px;
   color: #7f918a;
   background: rgba(255, 255, 255, 0.04);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .task-row {
@@ -480,102 +513,116 @@ input:disabled {
 }
 
 .task-title small,
-.task-path {
-  color: #83958e;
+.task-path,
+.progress-cell small {
+  color: #84968f;
 }
 
-.task-status {
+.status-badge {
   width: fit-content;
   border-radius: 999px;
   padding: 5px 9px;
-  color: #cfeedd;
-  background: rgba(103, 220, 160, 0.12);
+  color: #2c2410;
+  background: #dfb84a;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 900;
 }
 
-.phase-status {
-  padding: 22px;
-}
-
-.phase-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.status-pill {
-  border-radius: 999px;
-  padding: 7px 10px;
-  color: #cbd8d2;
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.status-pill.ok {
-  color: #082014;
-  background: #67dca0;
-}
-
-.status-grid {
+.progress-cell {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
+  gap: 6px;
 }
 
-.status-card {
-  padding: 15px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.05);
+.progress-bar {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.status-card span {
+.progress-bar span {
   display: block;
-  margin-bottom: 8px;
-  color: #84968f;
+  width: 0%;
+  height: 100%;
+  background: #66e39a;
+}
+
+.row-action {
+  padding: 7px 9px;
   font-size: 12px;
 }
 
-.status-card strong {
-  color: #ffffff;
+.empty-state {
+  min-height: 520px;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  padding: 36px;
+  text-align: center;
+}
+
+.empty-illustration {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 22px;
+  border-radius: 26px;
+  color: #66e39a;
+  background: #173628;
+  font-size: 56px;
+  line-height: 1;
+}
+
+.empty-state p {
+  max-width: 520px;
+  margin: 14px 0 24px;
+  color: #8fa29a;
+  font-size: 17px;
+  line-height: 1.55;
 }
 
 .error-message {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   color: #ff8d8d;
 }
 
 .status-bar {
   display: flex;
-  gap: 20px;
+  gap: 22px;
   padding: 10px 24px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   color: #7f918a;
-  background: #0f1514;
+  background: #0d1513;
   font-size: 12px;
 }
 
 .dialog-backdrop {
   position: fixed;
   inset: 0;
+  z-index: 10;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.62);
+  background: rgba(0, 0, 0, 0.66);
 }
 
-.create-dialog {
-  width: min(560px, 100%);
+.create-dialog,
+.diagnostics-dialog {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
   display: grid;
   gap: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
   padding: 22px;
-  background: #151b1a;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  background: #151d1a;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48);
+}
+
+.diagnostics-dialog {
+  width: min(900px, 100%);
 }
 
 .dialog-header,
@@ -593,18 +640,73 @@ input:disabled {
   font-size: 22px;
 }
 
-.create-dialog label {
+.input-tabs,
+.segmented-control {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.input-tabs button,
+.segmented-control button {
+  border: 0;
+  background: transparent;
+}
+
+.input-tabs button.active,
+.segmented-control button.active {
+  color: #092216;
+  background: #66e39a;
+  font-weight: 900;
+}
+
+.create-dialog label,
+.segmented-field {
   display: grid;
   gap: 8px;
   color: #9dafaa;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .create-dialog input {
   width: 100%;
   border-radius: 12px;
   padding: 12px 13px;
+}
+
+.field-error {
+  color: #ff8d8d;
+}
+
+.advanced-toggle {
+  width: fit-content;
+  border: 0;
+  padding: 0;
+  color: #66e39a;
+  background: transparent;
+  font-weight: 800;
+}
+
+.advanced-grid,
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.diagnostics-grid div {
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.diagnostics-grid span {
+  display: block;
+  margin-bottom: 8px;
+  color: #84968f;
 }
 
 .dialog-actions {
