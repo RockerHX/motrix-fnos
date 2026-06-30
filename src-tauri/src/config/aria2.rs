@@ -15,7 +15,9 @@ pub struct Aria2Config {
 impl Aria2Config {
     pub fn from_env() -> Self {
         Self {
-            aria2_path: env::var(ARIA2_PATH_ENV).ok().filter(|value| !value.trim().is_empty()),
+            aria2_path: env::var(ARIA2_PATH_ENV)
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
             rpc_host: "127.0.0.1".to_string(),
             rpc_port: 6800,
             rpc_secret: String::new(),
