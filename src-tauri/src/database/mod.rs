@@ -5,6 +5,7 @@ use std::str::FromStr;
 use tauri::Manager;
 
 pub mod tasks;
+pub mod settings;
 
 pub const DATABASE_FILE_NAME: &str = "motrix-fnos.sqlite";
 

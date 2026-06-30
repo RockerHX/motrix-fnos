@@ -797,6 +797,10 @@ fn default_download_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join("Downloads"))
 }
 
+pub fn default_download_dir_string() -> Result<String, String> {
+    Ok(default_download_dir()?.display().to_string())
+}
+
 fn expand_home_dir(path: &str) -> Result<PathBuf, String> {
     if path == "~" {
         return home_dir();

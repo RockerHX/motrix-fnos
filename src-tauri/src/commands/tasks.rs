@@ -1,6 +1,7 @@
 use crate::app::AppState;
 use crate::aria2::{ping_rpc, process_status, start_process};
 use crate::config::aria2::Aria2Config;
+use crate::commands::settings::load_app_config_from_pool;
 use crate::database::tasks::{record_task_error, record_task_history, upsert_download_task};
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
@@ -17,6 +18,16 @@ pub async fn create_download_task(
     payload: CreateDownloadTaskRequest,
 ) -> Result<DownloadTask, String> {
     let config = Aria2Config::from_env();
+    let mut payload = payload;
+    if payload
+        .save_dir
+        .as_deref()
+        .map(|save_dir| save_dir.trim().is_empty())
+        .unwrap_or(true)
+    {
+        let app_config = load_app_config_from_pool(&state.database.pool).await?;
+        payload.save_dir = Some(app_config.default_download_dir);
+    }
     let prepared = prepare_task_with_logs(payload, &state.debug_logs)?;
     ensure_aria2_ready(&app, &state, &config).await?;
     let gid = add_uri_to_aria2(&config, &prepared, Some(&state.debug_logs)).await?;
