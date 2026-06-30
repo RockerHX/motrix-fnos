@@ -15,6 +15,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
             commands::app::ping_backend,
+            commands::debug_logs::list_debug_logs,
+            commands::debug_logs::clear_debug_logs,
             commands::aria2::get_aria2_config_status,
             commands::aria2::get_aria2_process_status,
             commands::aria2::start_aria2,

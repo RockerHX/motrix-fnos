@@ -116,3 +116,47 @@ fn current_timestamp_ms() -> u64 {
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn store_keeps_recent_entries_with_capacity_limit() {
+        let store = DebugLogStore::new(2);
+
+        store.info("test", "first");
+        store.warn("test", "second");
+        store.error("test", "third");
+
+        let entries = store.list();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].message, "second");
+        assert_eq!(entries[1].message, "third");
+    }
+
+    #[test]
+    fn clear_removes_all_entries() {
+        let store = DebugLogStore::new(2);
+        store.info("test", "message");
+
+        store.clear();
+
+        assert!(store.list().is_empty());
+    }
+
+    #[test]
+    fn list_returns_entries_in_time_order() {
+        let store = DebugLogStore::new(3);
+        store.info("test", "first");
+        store.warn("test", "second");
+        store.error("test", "third");
+
+        let entries = store.list();
+        assert_eq!(entries.iter().map(|entry| entry.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert!(entries
+            .windows(2)
+            .all(|window| window[0].timestamp_ms <= window[1].timestamp_ms));
+    }
+}
