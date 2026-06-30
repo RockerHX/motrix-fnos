@@ -31,16 +31,6 @@ let taskRefreshTimer: number | undefined;
 
 const inputTypes = ["URL 下载", "批量 URL", "种子文件（后期）", "磁力链接（后期）"];
 
-const categories = computed(() => [
-  { name: "全部", count: tasks.value.length },
-  { name: "下载中", count: tasks.value.filter((task) => task.status === "active").length },
-  { name: "已完成", count: tasks.value.filter((task) => task.status === "complete").length },
-  { name: "做种", count: 0 },
-  { name: "活动", count: tasks.value.filter((task) => task.status === "active").length },
-  { name: "暂停", count: tasks.value.filter((task) => task.status === "paused").length },
-  { name: "错误", count: tasks.value.filter((task) => task.status === "error").length },
-]);
-
 const isUrlValid = computed(() => /^https?:\/\/.+/i.test(newTaskUrl.value.trim()));
 
 async function refreshPhaseStatus() {
@@ -170,39 +160,81 @@ onBeforeUnmount(() => {
   <div class="window-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">M</div>
+        <div class="brand-mark" />
         <div>
           <strong>{{ appInfo?.name ?? "Motrix FNOS" }}</strong>
-          <span>飞牛下载工具</span>
+          <span>v{{ appInfo?.version ?? "2.1.0" }}</span>
         </div>
       </div>
 
       <nav class="category-list" aria-label="任务分类">
-        <button v-for="category in categories" :key="category.name" type="button" :class="{ active: category.name === '全部' }">
-          <span>{{ category.name }}</span>
-          <em>{{ category.count }}</em>
+        <button type="button" class="active">
+          <span class="nav-icon">⇩</span>
+          <span>Downloading</span>
+        </button>
+        <button type="button">
+          <span class="nav-icon">✓</span>
+          <span>Completed</span>
+        </button>
+        <button type="button">
+          <span class="nav-icon">Ⅱ</span>
+          <span>Stopped</span>
+        </button>
+        <button type="button" class="nav-spaced">
+          <span class="nav-icon">♜</span>
+          <span>Trash</span>
+        </button>
+        <button type="button">
+          <span class="nav-icon">♧</span>
+          <span>Extensions</span>
         </button>
       </nav>
+
+      <div class="sidebar-footer">
+        <button type="button">
+          <span class="nav-icon">⚙</span>
+          <span>Settings</span>
+        </button>
+        <button type="button">
+          <span class="nav-icon">?</span>
+          <span>Help</span>
+        </button>
+      </div>
     </aside>
 
     <section class="main-area">
-      <header class="toolbar">
-        <div>
-          <p class="eyebrow">阶段 1 / MVP 下载闭环</p>
-          <h1>全部任务</h1>
-        </div>
-        <div class="toolbar-actions">
-          <button type="button" class="primary" @click="openCreateDialog">添加任务</button>
-          <button type="button" disabled>开始</button>
-          <button type="button" disabled>暂停</button>
-          <button type="button" disabled>删除</button>
-          <input type="search" placeholder="搜索任务" disabled />
-          <button type="button" class="ghost diagnostics-button" @click="showDiagnostics = true">诊断</button>
+      <header class="topbar">
+        <div class="topbar-spacer" />
+        <div class="topbar-actions">
+          <button type="button" title="筛选">≡</button>
+          <button type="button" title="排序">≡</button>
+          <button type="button" title="诊断" @click="showDiagnostics = true">⋮</button>
         </div>
       </header>
 
-      <main class="task-content">
-        <section class="task-table-shell">
+      <main class="content-stage">
+        <section v-if="tasks.length === 0" class="empty-guide">
+          <div class="empty-box" aria-hidden="true">
+            <div class="box-lid" />
+            <div class="box-body">
+              <span>+</span>
+            </div>
+          </div>
+          <h1>暂无任务</h1>
+          <p>点击下方按钮或粘贴 HTTP / HTTPS 链接开始您的第一次下载。</p>
+          <div class="empty-actions">
+            <button type="button" class="primary" @click="openCreateDialog">
+              <span>＋</span>
+              添加任务
+            </button>
+            <button type="button" class="secondary">
+              <span>⚙</span>
+              打开设置
+            </button>
+          </div>
+        </section>
+
+        <section v-else class="task-table-shell">
           <div class="task-table-head">
             <span>任务名称</span>
             <span>状态</span>
@@ -213,16 +245,8 @@ onBeforeUnmount(() => {
             <span>保存路径</span>
             <span>操作</span>
           </div>
-
           <div class="task-list-scroll">
-            <div v-if="tasks.length === 0" class="empty-state">
-              <div class="empty-illustration">↓</div>
-              <h2>暂无任务</h2>
-              <p>添加 HTTP / HTTPS 链接开始下载，也可以直接粘贴链接创建任务。</p>
-              <button type="button" class="primary" @click="openCreateDialog">添加任务</button>
-            </div>
-
-            <article v-for="task in tasks" v-else :key="task.id" class="task-row">
+            <article v-for="task in tasks" :key="task.id" class="task-row">
               <div class="task-title">
                 <strong>{{ task.fileName }}</strong>
                 <small>{{ task.url }}</small>
@@ -244,15 +268,9 @@ onBeforeUnmount(() => {
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
         <p v-if="taskErrorMessage" class="error-message">{{ taskErrorMessage }}</p>
       </main>
-
-      <footer class="status-bar">
-        <span>下载 0 B/s</span>
-        <span>上传 0 B/s</span>
-        <span>连接数 0</span>
-        <span>任务数 {{ tasks.length }}</span>
-        <span>磁盘状态：待接入</span>
-      </footer>
     </section>
+
+    <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>
 
     <div v-if="showCreateDialog" class="dialog-backdrop" @click.self="closeCreateDialog">
       <form class="create-dialog" @submit.prevent="submitCreateTask">
@@ -347,37 +365,36 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .window-shell {
+  position: relative;
   height: 100vh;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  color: #e7f1ec;
-  background: #0b1110;
+  grid-template-columns: 220px minmax(0, 1fr);
+  color: #d7dfd8;
+  background: #121212;
 }
 
 .sidebar {
-  padding: 24px 16px;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0d1513;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 22px 8px 24px;
+  border-right: 1px solid #324036;
+  background: #0f100f;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 13px;
-  margin-bottom: 34px;
+  gap: 9px;
+  padding: 0 22px 30px;
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 13px;
-  color: #092216;
-  background: #66e39a;
-  font-size: 22px;
-  font-weight: 900;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #6ab75f;
 }
 
 .brand strong,
@@ -386,132 +403,217 @@ onBeforeUnmount(() => {
 }
 
 .brand strong {
-  font-size: 18px;
+  color: #8ef08a;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .brand span {
   margin-top: 4px;
-  color: #91a19a;
-  font-size: 13px;
+  color: #d8e0d7;
+  font-size: 12px;
 }
 
-.category-list {
-  display: grid;
-  gap: 10px;
+.category-list,
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.category-list button {
-  width: 100%;
+.category-list button,
+.sidebar-footer button {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
   border: 0;
-  border-radius: 14px;
-  padding: 13px 14px;
-  color: #b2c1bb;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #cfd8ce;
   background: transparent;
+  font: inherit;
+  font-size: 16px;
   text-align: left;
   cursor: pointer;
 }
 
-.category-list button.active,
-.category-list button:hover {
-  color: #ffffff;
-  background: #173628;
+.category-list button.active {
+  color: #8ef08a;
+  background: #4a4b48;
 }
 
-.category-list em {
-  min-width: 26px;
-  border-radius: 999px;
-  color: #a5bbb1;
-  background: rgba(255, 255, 255, 0.08);
-  font-style: normal;
-  font-size: 12px;
+.nav-spaced {
+  margin-top: 28px;
+}
+
+.nav-icon {
+  width: 22px;
+  color: currentColor;
   text-align: center;
+  font-weight: 800;
+}
+
+.sidebar-footer {
+  margin: 0 0 0;
+  padding: 26px 8px 0;
+  border-top: 1px solid #39443b;
 }
 
 .main-area {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: 52px minmax(0, 1fr);
+  background: #151515;
 }
 
-.toolbar {
+.topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 24px 26px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: #0d1513;
+  justify-content: flex-end;
+  border-bottom: 1px solid #324036;
+  background: #151515;
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: #66e39a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-h1,
-h2 {
-  margin: 0;
-  color: #ffffff;
-}
-
-h1 {
-  font-size: 28px;
-}
-
-.toolbar-actions {
+.topbar-actions {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 16px;
+  padding-right: 26px;
+}
+
+.topbar-actions button {
+  border: 0;
+  padding: 4px;
+  color: #cfd8ce;
+  background: transparent;
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.content-stage {
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.empty-guide {
+  height: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  padding-bottom: 24px;
+  text-align: center;
+}
+
+.empty-box {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin-bottom: 44px;
+  color: #565e55;
+}
+
+.box-lid {
+  position: absolute;
+  left: 20px;
+  top: 6px;
+  width: 78px;
+  height: 32px;
+  border: 4px solid #3d423d;
+  border-bottom: 0;
+  transform: skewX(-38deg);
+}
+
+.box-body {
+  position: absolute;
+  left: 10px;
+  top: 34px;
+  width: 100px;
+  height: 88px;
+  display: grid;
+  place-items: center;
+  border: 4px solid #3d423d;
+  border-radius: 0 0 18px 18px;
+}
+
+.box-body span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #101710;
+  background: #68ae5a;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.empty-guide h1 {
+  margin: 0 0 14px;
+  color: #f1f2ed;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+.empty-guide p {
+  max-width: 360px;
+  margin: 0 0 30px;
+  color: #b7bfb4;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.empty-actions {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
 }
 
 button,
 input {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  padding: 10px 15px;
-  color: #e7f1ec;
-  background: rgba(255, 255, 255, 0.055);
   font: inherit;
 }
 
-button {
+.primary,
+.secondary {
+  min-width: 118px;
+  border-radius: 7px;
+  padding: 10px 18px;
+  font-size: 16px;
   cursor: pointer;
 }
 
-button:disabled,
-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.46;
-}
-
 .primary {
-  border-color: transparent;
-  color: #092216;
-  background: #66e39a;
-  font-weight: 900;
+  border: 1px solid #68ae5a;
+  color: #101710;
+  background: #68ae5a;
 }
 
-.ghost {
-  color: #bcd0c7;
+.secondary {
+  border: 1px solid #3d423d;
+  color: #dbe3d8;
   background: transparent;
 }
 
-.diagnostics-button {
-  padding-inline: 12px;
-}
-
-.task-content {
-  min-height: 0;
-  overflow: hidden;
-  padding: 26px;
+.floating-add {
+  position: absolute;
+  right: 26px;
+  bottom: 24px;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 999px;
+  color: #101710;
+  background: #68ae5a;
+  font-size: 30px;
+  line-height: 1;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
 }
 
 .task-table-shell {
@@ -520,9 +622,7 @@ input:disabled {
   overflow: hidden;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 18px;
-  background: #111b18;
+  background: #151515;
 }
 
 .task-table-head,
@@ -535,8 +635,8 @@ input:disabled {
 
 .task-table-head {
   padding: 14px 18px;
-  color: #7f918a;
-  background: rgba(255, 255, 255, 0.04);
+  color: #899389;
+  background: #1e2420;
   font-size: 12px;
   font-weight: 800;
 }
@@ -620,49 +720,12 @@ input:disabled {
   font-size: 12px;
 }
 
-.empty-state {
-  min-height: 100%;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  padding: 36px;
-  text-align: center;
-}
-
-.empty-illustration {
-  width: 82px;
-  height: 82px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 22px;
-  border-radius: 26px;
-  color: #66e39a;
-  background: #173628;
-  font-size: 56px;
-  line-height: 1;
-}
-
-.empty-state p {
-  max-width: 520px;
-  margin: 14px 0 24px;
-  color: #8fa29a;
-  font-size: 17px;
-  line-height: 1.55;
-}
-
 .error-message {
-  margin: 14px 0 0;
+  position: absolute;
+  left: 24px;
+  bottom: 18px;
+  margin: 0;
   color: #ff8d8d;
-}
-
-.status-bar {
-  display: flex;
-  gap: 22px;
-  padding: 10px 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  color: #7f918a;
-  background: #0d1513;
-  font-size: 12px;
 }
 
 .dialog-backdrop {
@@ -701,6 +764,15 @@ input:disabled {
   gap: 12px;
 }
 
+.eyebrow {
+  margin: 0 0 6px;
+  color: #66e39a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .icon-button {
   width: 36px;
   height: 36px;
@@ -720,6 +792,9 @@ input:disabled {
 .input-tabs button,
 .segmented-control button {
   border: 0;
+  border-radius: 999px;
+  padding: 10px 15px;
+  color: #e7f1ec;
   background: transparent;
 }
 
@@ -741,8 +816,11 @@ input:disabled {
 
 .create-dialog input {
   width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   padding: 12px 13px;
+  color: #e7f1ec;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 .field-error {
