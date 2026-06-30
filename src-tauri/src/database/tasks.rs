@@ -78,13 +78,23 @@ pub async fn record_task_history(
     sqlx::query(
         r#"
         INSERT INTO task_history (task_id, status, message, created_at)
-        VALUES (?, ?, ?, ?)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM task_history
+            WHERE task_id = ?
+              AND status = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        )
         "#,
     )
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(task.status.as_storage_value())
     .bind(message)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
+    .bind(u64_to_i64(task.id, "任务 ID")?)
+    .bind(task.status.as_storage_value())
     .execute(pool)
     .await
     .map_err(|error| format!("保存任务历史失败：{}", error))?;
@@ -101,13 +111,24 @@ pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result
     sqlx::query(
         r#"
         INSERT INTO task_errors (task_id, error_code, error_message, created_at)
-        VALUES (?, ?, ?, ?)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM task_errors
+            WHERE task_id = ?
+              AND COALESCE(error_code, '') = COALESCE(?, '')
+              AND error_message = ?
+            LIMIT 1
+        )
         "#,
     )
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(&task.error_code)
     .bind(message)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
+    .bind(u64_to_i64(task.id, "任务 ID")?)
+    .bind(&task.error_code)
+    .bind(message)
     .execute(pool)
     .await
     .map_err(|error| format!("保存任务错误记录失败：{}", error))?;

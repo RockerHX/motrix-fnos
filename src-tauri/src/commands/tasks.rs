@@ -1,11 +1,11 @@
 use crate::app::AppState;
 use crate::aria2::{ping_rpc, process_status, start_process};
 use crate::config::aria2::Aria2Config;
-use crate::database::tasks::upsert_download_task;
+use crate::database::tasks::{record_task_error, record_task_history, upsert_download_task};
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, refresh_tasks_from_aria2, remove_task, store_created_task, task_gid,
-    unpause_task, CreateDownloadTaskRequest, DownloadTask,
+    unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -109,12 +109,18 @@ fn shorten_start_error(message: String) -> String {
 
 #[tauri::command]
 pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
-    refresh_tasks_from_aria2(
+    let tasks = refresh_tasks_from_aria2(
         &state.download_tasks,
         &Aria2Config::from_env(),
         Some(&state.debug_logs),
     )
-    .await
+    .await?;
+    sync_tasks_to_database(&state, &tasks).await?;
+
+    Ok(tasks
+        .into_iter()
+        .filter(|task| task.status != DownloadTaskStatus::Removed)
+        .collect())
 }
 
 #[tauri::command]
@@ -128,6 +134,7 @@ pub async fn pause_download_task(
     let gid = task_gid(&state.download_tasks, task_id)?;
     pause_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_paused(&state.download_tasks, task_id)?;
+    sync_task_to_database(&state, &task).await?;
     state
         .debug_logs
         .info("tasks.control", format!("任务已暂停，ID {}，GID {}", task_id, gid));
@@ -145,6 +152,7 @@ pub async fn resume_download_task(
     let gid = task_gid(&state.download_tasks, task_id)?;
     unpause_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_resumed(&state.download_tasks, task_id)?;
+    sync_task_to_database(&state, &task).await?;
     state
         .debug_logs
         .info("tasks.control", format!("任务已恢复，ID {}，GID {}", task_id, gid));
@@ -163,6 +171,7 @@ pub async fn delete_download_task(
     let gid = task_gid(&state.download_tasks, task_id)?;
     remove_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_removed(&state.download_tasks, task_id, delete_files)?;
+    sync_task_to_database(&state, &task).await?;
     state.debug_logs.info(
         "tasks.control",
         format!(
@@ -173,4 +182,38 @@ pub async fn delete_download_task(
         ),
     );
     Ok(task)
+}
+
+async fn sync_tasks_to_database(
+    state: &State<'_, AppState>,
+    tasks: &[DownloadTask],
+) -> Result<(), String> {
+    for task in tasks {
+        sync_task_to_database(state, task).await?;
+    }
+
+    Ok(())
+}
+
+async fn sync_task_to_database(
+    state: &State<'_, AppState>,
+    task: &DownloadTask,
+) -> Result<(), String> {
+    upsert_download_task(&state.database.pool, task).await?;
+
+    match task.status {
+        DownloadTaskStatus::Complete
+        | DownloadTaskStatus::Paused
+        | DownloadTaskStatus::Error
+        | DownloadTaskStatus::Removed => {
+            record_task_history(&state.database.pool, task, task.error_message.as_deref()).await?;
+        }
+        DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
+    }
+
+    if task.status == DownloadTaskStatus::Error {
+        record_task_error(&state.database.pool, task).await?;
+    }
+
+    Ok(())
 }
