@@ -4,6 +4,7 @@ pub mod commands;
 pub mod config;
 pub mod database;
 pub mod debug_logs;
+pub mod runtime;
 pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
@@ -20,6 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -38,6 +40,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 start_aria2_after_app_launch(app_handle).await;
             });
+            runtime::spawn_task_monitor(app.handle().clone());
             setup_tray(app)?;
             Ok(())
         })
@@ -223,24 +226,7 @@ async fn refresh_persisted_tasks_after_rpc_ready(
             .await?;
 
     for task in &tasks {
-        database::tasks::upsert_download_task(&state.database.pool, task).await?;
-        match task.status {
-            tasks::DownloadTaskStatus::Complete
-            | tasks::DownloadTaskStatus::Paused
-            | tasks::DownloadTaskStatus::Error
-            | tasks::DownloadTaskStatus::Removed => {
-                database::tasks::record_task_history(
-                    &state.database.pool,
-                    task,
-                    task.error_message.as_deref(),
-                )
-                .await?;
-            }
-            tasks::DownloadTaskStatus::Pending | tasks::DownloadTaskStatus::Active => {}
-        }
-        if task.status == tasks::DownloadTaskStatus::Error {
-            database::tasks::record_task_error(&state.database.pool, task).await?;
-        }
+        database::tasks::persist_download_task_state(&state.database.pool, task).await?;
     }
 
     state.debug_logs.info(

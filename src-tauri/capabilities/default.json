@@ -11,6 +11,7 @@
     "shell:default",
     "shell:allow-execute",
     "dialog:default",
-    "autostart:default"
+    "autostart:default",
+    "notification:default"
   ]
 }

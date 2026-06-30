@@ -2,7 +2,11 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
 import type { AppConfig } from "../../../types/settings";
-import { getAutoStartEnabled, setAutoStartEnabled } from "../services/systemIntegrationService";
+import {
+  ensureNotificationPermission,
+  getAutoStartEnabled,
+  setAutoStartEnabled,
+} from "../services/systemIntegrationService";
 
 export const useSettingsStore = defineStore("settings", () => {
   const config = ref<AppConfig | null>(null);
@@ -30,6 +34,12 @@ export const useSettingsStore = defineStore("settings", () => {
       const currentAutoStartEnabled = await getAutoStartEnabled().catch(() => payload.autoStartEnabled);
       if (currentAutoStartEnabled !== payload.autoStartEnabled) {
         await setAutoStartEnabled(payload.autoStartEnabled);
+      }
+      if (payload.notificationsEnabled) {
+        const granted = await ensureNotificationPermission();
+        if (!granted) {
+          throw new Error("系统通知权限未开启，无法启用下载通知");
+        }
       }
       config.value = await saveAppConfig(payload);
       return config.value;

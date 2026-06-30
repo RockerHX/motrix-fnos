@@ -45,6 +45,40 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     Ok(())
 }
 
+pub async fn persist_download_task_state(
+    pool: &SqlitePool,
+    task: &DownloadTask,
+) -> Result<(), String> {
+    upsert_download_task(pool, task).await?;
+
+    match task.status {
+        DownloadTaskStatus::Complete
+        | DownloadTaskStatus::Paused
+        | DownloadTaskStatus::Error
+        | DownloadTaskStatus::Removed => {
+            record_task_history(pool, task, task.error_message.as_deref()).await?;
+        }
+        DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
+    }
+
+    if task.status == DownloadTaskStatus::Error {
+        record_task_error(pool, task).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn persist_download_task_states(
+    pool: &SqlitePool,
+    tasks: &[DownloadTask],
+) -> Result<(), String> {
+    for task in tasks {
+        persist_download_task_state(pool, task).await?;
+    }
+
+    Ok(())
+}
+
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
     let rows = sqlx::query(
         r#"
@@ -103,7 +137,10 @@ pub async fn record_task_history(
 }
 
 pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
-    let Some(message) = task.error_message.as_deref().filter(|message| !message.trim().is_empty())
+    let Some(message) = task
+        .error_message
+        .as_deref()
+        .filter(|message| !message.trim().is_empty())
     else {
         return Ok(());
     };
@@ -180,10 +217,8 @@ mod tests {
     #[test]
     fn repository_inserts_updates_and_lists_tasks() {
         tauri::async_runtime::block_on(async {
-            let path = std::env::temp_dir().join(format!(
-                "motrix-fnos-repository-test-{}.sqlite",
-                now_ms()
-            ));
+            let path = std::env::temp_dir()
+                .join(format!("motrix-fnos-repository-test-{}.sqlite", now_ms()));
             let database = connect_database(path.clone())
                 .await
                 .expect("database should connect");
@@ -217,10 +252,8 @@ mod tests {
     #[test]
     fn repository_records_history_and_error() {
         tauri::async_runtime::block_on(async {
-            let path = std::env::temp_dir().join(format!(
-                "motrix-fnos-history-test-{}.sqlite",
-                now_ms()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("motrix-fnos-history-test-{}.sqlite", now_ms()));
             let database = connect_database(path.clone())
                 .await
                 .expect("database should connect");

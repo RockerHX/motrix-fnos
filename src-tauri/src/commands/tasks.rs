@@ -1,8 +1,10 @@
 use crate::app::AppState;
 use crate::aria2::{ping_rpc, process_status, start_process};
-use crate::config::aria2::Aria2Config;
 use crate::commands::settings::load_app_config_from_pool;
-use crate::database::tasks::{record_task_error, record_task_history, upsert_download_task};
+use crate::config::aria2::Aria2Config;
+use crate::database::tasks::{
+    persist_download_task_state, persist_download_task_states, upsert_download_task,
+};
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, refresh_tasks_from_aria2, remove_task, store_created_task, task_gid,
@@ -146,9 +148,10 @@ pub async fn pause_download_task(
     pause_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_paused(&state.download_tasks, task_id)?;
     sync_task_to_database(&state, &task).await?;
-    state
-        .debug_logs
-        .info("tasks.control", format!("任务已暂停，ID {}，GID {}", task_id, gid));
+    state.debug_logs.info(
+        "tasks.control",
+        format!("任务已暂停，ID {}，GID {}", task_id, gid),
+    );
     Ok(task)
 }
 
@@ -164,9 +167,10 @@ pub async fn resume_download_task(
     unpause_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_resumed(&state.download_tasks, task_id)?;
     sync_task_to_database(&state, &task).await?;
-    state
-        .debug_logs
-        .info("tasks.control", format!("任务已恢复，ID {}，GID {}", task_id, gid));
+    state.debug_logs.info(
+        "tasks.control",
+        format!("任务已恢复，ID {}，GID {}", task_id, gid),
+    );
     Ok(task)
 }
 
@@ -199,32 +203,12 @@ async fn sync_tasks_to_database(
     state: &State<'_, AppState>,
     tasks: &[DownloadTask],
 ) -> Result<(), String> {
-    for task in tasks {
-        sync_task_to_database(state, task).await?;
-    }
-
-    Ok(())
+    persist_download_task_states(&state.database.pool, tasks).await
 }
 
 async fn sync_task_to_database(
     state: &State<'_, AppState>,
     task: &DownloadTask,
 ) -> Result<(), String> {
-    upsert_download_task(&state.database.pool, task).await?;
-
-    match task.status {
-        DownloadTaskStatus::Complete
-        | DownloadTaskStatus::Paused
-        | DownloadTaskStatus::Error
-        | DownloadTaskStatus::Removed => {
-            record_task_history(&state.database.pool, task, task.error_message.as_deref()).await?;
-        }
-        DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
-    }
-
-    if task.status == DownloadTaskStatus::Error {
-        record_task_error(&state.database.pool, task).await?;
-    }
-
-    Ok(())
+    persist_download_task_state(&state.database.pool, task).await
 }

@@ -1,6 +1,7 @@
 use crate::database::AppDatabase;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
+use std::collections::HashSet;
 use std::process::Child;
 use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
@@ -37,10 +38,15 @@ pub struct AppState {
     pub database: AppDatabase,
     pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
+    pub notified_task_events: Mutex<HashSet<String>>,
 }
 
 impl AppState {
-    pub fn new(database: AppDatabase, download_tasks: Vec<DownloadTask>, next_task_id: u64) -> Self {
+    pub fn new(
+        database: AppDatabase,
+        download_tasks: Vec<DownloadTask>,
+        next_task_id: u64,
+    ) -> Self {
         let restored_count = download_tasks.len();
         let state = Self {
             aria2_process: Mutex::new(None),
@@ -48,8 +54,11 @@ impl AppState {
             database,
             debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(next_task_id),
+            notified_task_events: Mutex::new(HashSet::new()),
         };
-        state.debug_logs.info("app", "应用启动，调试日志队列已初始化");
+        state
+            .debug_logs
+            .info("app", "应用启动，调试日志队列已初始化");
         state.debug_logs.info(
             "database",
             format!("SQLite 数据库已初始化：{}", state.database.path.display()),
