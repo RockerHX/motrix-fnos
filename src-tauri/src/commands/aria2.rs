@@ -13,7 +13,11 @@ pub fn get_aria2_config_status() -> Aria2ConfigStatus {
 
 #[tauri::command]
 pub fn get_aria2_process_status(state: State<'_, AppState>) -> Result<Aria2ProcessStatus, String> {
-    process_status(&state.aria2_process)
+    let status = process_status(&state.aria2_process)?;
+    state
+        .debug_logs
+        .info("aria2", format!("读取 Aria2 进程状态：{}", status.message));
+    Ok(status)
 }
 
 #[tauri::command]
@@ -21,15 +25,23 @@ pub fn start_aria2(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Aria2ProcessStatus, String> {
-    start_process(&app, &state.aria2_process, &Aria2Config::from_env())
+    start_process(
+        &app,
+        &state.aria2_process,
+        &Aria2Config::from_env(),
+        &state.debug_logs,
+    )
 }
 
 #[tauri::command]
 pub fn stop_aria2(state: State<'_, AppState>) -> Result<Aria2ProcessStatus, String> {
-    stop_process(&state.aria2_process)
+    stop_process(&state.aria2_process, &state.debug_logs)
 }
 
 #[tauri::command]
-pub async fn ping_aria2_rpc() -> Aria2RpcStatus {
-    ping_rpc(&Aria2Config::from_env()).await
+pub fn ping_aria2_rpc(state: State<'_, AppState>) -> Aria2RpcStatus {
+    tauri::async_runtime::block_on(ping_rpc(
+        &Aria2Config::from_env(),
+        Some(&state.debug_logs),
+    ))
 }

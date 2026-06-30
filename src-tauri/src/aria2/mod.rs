@@ -1,5 +1,6 @@
 use crate::app::ManagedAria2Process;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+use crate::debug_logs::DebugLogStore;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -110,12 +111,21 @@ pub fn start_process(
     app: &AppHandle,
     process: &Mutex<Option<ManagedAria2Process>>,
     config: &Aria2Config,
+    debug_logs: &DebugLogStore,
 ) -> Result<Aria2ProcessStatus, String> {
-    let mut guard = process
-        .lock()
-        .map_err(|_| "无法写入 Aria2 进程状态".to_string())?;
+    let mut guard = match process.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            debug_logs.error("aria2", "无法写入 Aria2 进程状态");
+            return Err("无法写入 Aria2 进程状态".to_string());
+        }
+    };
 
     if let Some(child) = guard.as_ref() {
+        debug_logs.info(
+            "aria2",
+            format!("Aria2 进程已在运行，PID {}", child.id()),
+        );
         return Ok(Aria2ProcessStatus {
             running: true,
             pid: Some(child.id()),
@@ -128,9 +138,22 @@ pub fn start_process(
     }
 
     let args = process_args(config);
+    log_start_summary(debug_logs, config, &args);
     let managed = match config.binary_source {
-        Aria2BinarySource::ExternalPath => start_external_process(config, &args)?,
-        Aria2BinarySource::Sidecar => start_sidecar_process(app, config, &args)?,
+        Aria2BinarySource::ExternalPath => match start_external_process(config, &args) {
+            Ok(process) => process,
+            Err(error) => {
+                debug_logs.error("aria2", format!("启动外部 Aria2 Next 失败：{}", error));
+                return Err(error);
+            }
+        },
+        Aria2BinarySource::Sidecar => match start_sidecar_process(app, config, &args) {
+            Ok(process) => process,
+            Err(error) => {
+                debug_logs.error("aria2", format!("启动内置 Aria2 Next sidecar 失败：{}", error));
+                return Err(error);
+            }
+        },
     };
     let pid = managed.id();
     let source = match &managed {
@@ -138,6 +161,10 @@ pub fn start_process(
         ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
     };
     *guard = Some(managed);
+    debug_logs.info(
+        "aria2",
+        format!("Aria2 进程启动成功，来源 {}，PID {}", source_label(&source), pid),
+    );
 
     Ok(Aria2ProcessStatus {
         running: true,
@@ -149,15 +176,25 @@ pub fn start_process(
 
 pub fn stop_process(
     process: &Mutex<Option<ManagedAria2Process>>,
+    debug_logs: &DebugLogStore,
 ) -> Result<Aria2ProcessStatus, String> {
-    let mut guard = process
-        .lock()
-        .map_err(|_| "无法写入 Aria2 进程状态".to_string())?;
+    let mut guard = match process.lock() {
+        Ok(guard) => guard,
+        Err(_) => {
+            debug_logs.error("aria2", "无法写入 Aria2 进程状态");
+            return Err("无法写入 Aria2 进程状态".to_string());
+        }
+    };
 
     if let Some(child) = guard.take() {
-        child
-            .kill()
-            .map_err(|error| format!("停止 Aria2 进程失败：{}", error))?;
+        let pid = child.id();
+        if let Err(error) = child.kill() {
+            debug_logs.error("aria2", format!("停止 Aria2 进程失败：{}", error));
+            return Err(format!("停止 Aria2 进程失败：{}", error));
+        }
+        debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
+    } else {
+        debug_logs.info("aria2", "停止 Aria2 进程：当前没有运行中的进程");
     }
 
     Ok(Aria2ProcessStatus {
@@ -260,7 +297,7 @@ fn source_label(source: &Aria2BinarySource) -> &'static str {
     }
 }
 
-pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
+pub async fn ping_rpc(config: &Aria2Config, debug_logs: Option<&DebugLogStore>) -> Aria2RpcStatus {
     let mut params = Vec::new();
     if !config.rpc_secret.is_empty() {
         params.push(format!("token:{}", config.rpc_secret));
@@ -281,6 +318,9 @@ pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
     {
         Ok(response) => response,
         Err(error) => {
+            if let Some(debug_logs) = debug_logs {
+                debug_logs.error("aria2.rpc", format!("Aria2 RPC 连接失败：{}", error));
+            }
             return Aria2RpcStatus {
                 connected: false,
                 version: None,
@@ -292,6 +332,9 @@ pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
     let rpc_response = match response.json::<JsonRpcResponse>().await {
         Ok(body) => body,
         Err(error) => {
+            if let Some(debug_logs) = debug_logs {
+                debug_logs.error("aria2.rpc", format!("Aria2 RPC 响应解析失败：{}", error));
+            }
             return Aria2RpcStatus {
                 connected: false,
                 version: None,
@@ -301,6 +344,9 @@ pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
     };
 
     if let Some(error) = rpc_response.error {
+        if let Some(debug_logs) = debug_logs {
+            debug_logs.error("aria2.rpc", format!("Aria2 RPC 返回错误：{}", error.message));
+        }
         return Aria2RpcStatus {
             connected: false,
             version: None,
@@ -309,17 +355,63 @@ pub async fn ping_rpc(config: &Aria2Config) -> Aria2RpcStatus {
     }
 
     match rpc_response.result {
-        Some(result) => Aria2RpcStatus {
-            connected: true,
-            version: Some(result.version.clone()),
-            message: format!("Aria2 RPC 连接正常，版本 {}", result.version),
-        },
-        None => Aria2RpcStatus {
-            connected: false,
-            version: None,
-            message: "Aria2 RPC 响应缺少版本信息".to_string(),
-        },
+        Some(result) => {
+            if let Some(debug_logs) = debug_logs {
+                debug_logs.info("aria2.rpc", format!("Aria2 RPC ready，版本 {}", result.version));
+            }
+            Aria2RpcStatus {
+                connected: true,
+                version: Some(result.version.clone()),
+                message: format!("Aria2 RPC 连接正常，版本 {}", result.version),
+            }
+        }
+        None => {
+            if let Some(debug_logs) = debug_logs {
+                debug_logs.error("aria2.rpc", "Aria2 RPC 响应缺少版本信息");
+            }
+            Aria2RpcStatus {
+                connected: false,
+                version: None,
+                message: "Aria2 RPC 响应缺少版本信息".to_string(),
+            }
+        }
     }
+}
+
+fn log_start_summary(debug_logs: &DebugLogStore, config: &Aria2Config, args: &[String]) {
+    debug_logs.info(
+        "aria2",
+        format!(
+            "准备启动 Aria2 Next，来源 {}，target {}，RPC {}:{}，参数 {}",
+            source_label(&config.binary_source),
+            config.target_triple,
+            config.rpc_host,
+            config.rpc_port,
+            summarize_args(args)
+        ),
+    );
+
+    if let Some(path) = args
+        .iter()
+        .find_map(|arg| arg.strip_prefix("--ca-certificate="))
+    {
+        debug_logs.info("aria2.ca", format!("CA 证书探测成功：{}", path));
+    } else {
+        debug_logs.warn("aria2.ca", "未探测到可用 CA 证书路径");
+    }
+}
+
+fn summarize_args(args: &[String]) -> String {
+    args.iter()
+        .map(|arg| {
+            if arg.starts_with("--rpc-secret=") {
+                "--rpc-secret=***".to_string()
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]
@@ -420,7 +512,7 @@ mod tests {
         let mut config = test_config(None);
         config.rpc_port = 9;
 
-        let status = tauri::async_runtime::block_on(ping_rpc(&config));
+        let status = tauri::async_runtime::block_on(ping_rpc(&config, None));
 
         assert!(!status.connected);
         assert!(status.version.is_none());

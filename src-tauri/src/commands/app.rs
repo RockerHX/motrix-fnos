@@ -1,4 +1,6 @@
+use crate::app::AppState;
 use serde::Serialize;
+use tauri::State;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +18,8 @@ pub struct BackendPing {
 }
 
 #[tauri::command]
-pub fn get_app_info() -> AppInfo {
+pub fn get_app_info(state: State<'_, AppState>) -> AppInfo {
+    state.debug_logs.info("app", "读取应用信息");
     AppInfo {
         name: "Motrix FNOS".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -25,7 +28,8 @@ pub fn get_app_info() -> AppInfo {
 }
 
 #[tauri::command]
-pub fn ping_backend() -> BackendPing {
+pub fn ping_backend(state: State<'_, AppState>) -> BackendPing {
+    state.debug_logs.info("app", "Rust 后端通信检查成功");
     BackendPing {
         ok: true,
         message: "Rust 后端通信正常".to_string(),

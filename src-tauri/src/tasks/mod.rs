@@ -1,4 +1,5 @@
 use crate::config::aria2::Aria2Config;
+use crate::debug_logs::DebugLogStore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -88,12 +89,48 @@ struct JsonRpcError {
 }
 
 pub fn prepare_task(request: CreateDownloadTaskRequest) -> Result<PreparedDownloadTask, String> {
-    let url = normalize_required(&request.url, "下载链接不能为空")?;
-    validate_http_url(&url)?;
+    prepare_task_inner(request, None)
+}
+
+pub fn prepare_task_with_logs(
+    request: CreateDownloadTaskRequest,
+    debug_logs: &DebugLogStore,
+) -> Result<PreparedDownloadTask, String> {
+    prepare_task_inner(request, Some(debug_logs))
+}
+
+fn prepare_task_inner(
+    request: CreateDownloadTaskRequest,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<PreparedDownloadTask, String> {
+    let url = match normalize_required(&request.url, "下载链接不能为空") {
+        Ok(url) => url,
+        Err(error) => {
+            log_error(debug_logs, "tasks.create", &error);
+            return Err(error);
+        }
+    };
+    if let Err(error) = validate_http_url(&url) {
+        log_error(debug_logs, "tasks.create", &error);
+        return Err(error);
+    }
+
+    let file_name = normalize_optional(request.file_name).unwrap_or_else(|| infer_file_name(&url));
+    let save_dir = resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
+    log_info(
+        debug_logs,
+        "tasks.create",
+        format!(
+            "下载任务参数已准备，URL {}，文件名 {}，保存目录 {}",
+            redact_url_for_log(&url),
+            file_name,
+            save_dir
+        ),
+    );
 
     Ok(PreparedDownloadTask {
-        file_name: normalize_optional(request.file_name).unwrap_or_else(|| infer_file_name(&url)),
-        save_dir: resolve_save_dir(normalize_optional(request.save_dir))?,
+        file_name,
+        save_dir,
         url,
     })
 }
@@ -101,28 +138,57 @@ pub fn prepare_task(request: CreateDownloadTaskRequest) -> Result<PreparedDownlo
 pub async fn add_uri_to_aria2(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
+    debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    log_info(
+        debug_logs,
+        "aria2.addUri",
+        format!(
+            "开始创建 Aria2 下载任务，URL {}，保存目录 {}",
+            redact_url_for_log(&task.url),
+            task.save_dir
+        ),
+    );
     let request_body = build_add_uri_request(config, task);
-    let response = reqwest::Client::new()
+    let response = match reqwest::Client::new()
         .post(config.rpc_url())
         .json(&request_body)
         .send()
         .await
-        .map_err(|_| "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string())?;
+    {
+        Ok(response) => response,
+        Err(_) => {
+            let error = "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string();
+            log_error(debug_logs, "aria2.addUri", &error);
+            return Err(error);
+        }
+    };
 
-    let rpc_response = response
-        .json::<AddUriResponse>()
-        .await
-        .map_err(|error| format!("创建 Aria2 下载任务失败，响应解析失败：{}", error))?;
+    let rpc_response = match response.json::<AddUriResponse>().await {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("创建 Aria2 下载任务失败，响应解析失败：{}", error);
+            log_error(debug_logs, "aria2.addUri", &error);
+            return Err(error);
+        }
+    };
 
     if let Some(error) = rpc_response.error {
-        return Err(format!("创建 Aria2 下载任务失败：{}", error.message));
+        let error = format!("创建 Aria2 下载任务失败：{}", error.message);
+        log_error(debug_logs, "aria2.addUri", &error);
+        return Err(error);
     }
 
-    rpc_response
+    let gid = rpc_response
         .result
         .filter(|gid| !gid.trim().is_empty())
-        .ok_or_else(|| "创建 Aria2 下载任务失败：响应缺少 GID".to_string())
+        .ok_or_else(|| "创建 Aria2 下载任务失败：响应缺少 GID".to_string())?;
+    log_info(
+        debug_logs,
+        "aria2.addUri",
+        format!("Aria2 下载任务创建成功，GID {}", gid),
+    );
+    Ok(gid)
 }
 
 pub fn store_created_task(
@@ -162,6 +228,7 @@ pub fn store_created_task(
 pub async fn refresh_tasks_from_aria2(
     tasks: &Mutex<Vec<DownloadTask>>,
     config: &Aria2Config,
+    debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
     let snapshot = list_tasks(tasks)?;
     let gids: Vec<String> = snapshot
@@ -176,7 +243,7 @@ pub async fn refresh_tasks_from_aria2(
     let client = reqwest::Client::new();
     let mut updates = Vec::new();
     for gid in gids {
-        match tell_status(&client, config, &gid).await {
+        match tell_status(&client, config, &gid, debug_logs).await {
             Ok(status) => updates.push((gid, status)),
             Err(error) => updates.push((gid, task_status_error(error))),
         }
@@ -207,27 +274,66 @@ async fn tell_status(
     client: &reqwest::Client,
     config: &Aria2Config,
     gid: &str,
+    debug_logs: Option<&DebugLogStore>,
 ) -> Result<Aria2TaskStatus, String> {
     let request_body = build_tell_status_request(config, gid);
-    let response = client
+    let response = match client
         .post(config.rpc_url())
         .json(&request_body)
         .send()
         .await
-        .map_err(|_| "同步任务状态失败：无法连接 Aria2 RPC".to_string())?;
+    {
+        Ok(response) => response,
+        Err(_) => {
+            let error = "同步任务状态失败：无法连接 Aria2 RPC".to_string();
+            log_error(
+                debug_logs,
+                "aria2.tellStatus",
+                format!("GID {} {}", gid, error),
+            );
+            return Err(error);
+        }
+    };
 
-    let rpc_response = response
-        .json::<TellStatusResponse>()
-        .await
-        .map_err(|error| format!("同步 Aria2 任务状态解析失败：{}", error))?;
+    let rpc_response = match response.json::<TellStatusResponse>().await {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("同步 Aria2 任务状态解析失败：{}", error);
+            log_error(
+                debug_logs,
+                "aria2.tellStatus",
+                format!("GID {} {}", gid, error),
+            );
+            return Err(error);
+        }
+    };
 
     if let Some(error) = rpc_response.error {
-        return Err(format!("同步 Aria2 任务状态失败：{}", error.message));
+        let error = format!("同步 Aria2 任务状态失败：{}", error.message);
+        log_error(
+            debug_logs,
+            "aria2.tellStatus",
+            format!("GID {} {}", gid, error),
+        );
+        return Err(error);
     }
 
-    rpc_response
+    let status = rpc_response
         .result
-        .ok_or_else(|| "同步 Aria2 任务状态失败：响应缺少任务状态".to_string())
+        .ok_or_else(|| "同步 Aria2 任务状态失败：响应缺少任务状态".to_string())?;
+    if status.status == "error" || status.error_code.is_some() || status.error_message.is_some() {
+        log_error(
+            debug_logs,
+            "aria2.tellStatus",
+            format!(
+                "GID {} 返回错误状态，错误码 {}，原因 {}",
+                gid,
+                status.error_code.as_deref().unwrap_or("-"),
+                status.error_message.as_deref().unwrap_or("未知错误")
+            ),
+        );
+    }
+    Ok(status)
 }
 
 fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
@@ -349,17 +455,44 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
 }
 
 fn resolve_save_dir(input: Option<String>) -> Result<String, String> {
+    resolve_save_dir_with_logs(input, None)
+}
+
+fn resolve_save_dir_with_logs(
+    input: Option<String>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    let source = if input.is_some() {
+        "自定义"
+    } else {
+        "默认"
+    };
     let path = match input {
         Some(path) => expand_home_dir(&path)?,
         None => default_download_dir()?,
     };
+    log_info(
+        debug_logs,
+        "tasks.path",
+        format!("解析{}下载目录：{}", source, path.display()),
+    );
 
-    fs::create_dir_all(&path)
-        .map_err(|error| format!("创建下载目录失败：{}（{}）", path.display(), error))?;
+    if let Err(error) = fs::create_dir_all(&path) {
+        let error = format!("创建下载目录失败：{}（{}）", path.display(), error);
+        log_error(debug_logs, "tasks.path", &error);
+        return Err(error);
+    }
 
     if !path.is_dir() {
-        return Err(format!("下载目录不是有效文件夹：{}", path.display()));
+        let error = format!("下载目录不是有效文件夹：{}", path.display());
+        log_error(debug_logs, "tasks.path", &error);
+        return Err(error);
     }
+    log_info(
+        debug_logs,
+        "tasks.path",
+        format!("下载目录可用：{}", path.display()),
+    );
 
     Ok(path.display().to_string())
 }
@@ -415,6 +548,22 @@ fn current_timestamp_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or_default()
+}
+
+fn log_info(debug_logs: Option<&DebugLogStore>, module: &str, message: impl Into<String>) {
+    if let Some(debug_logs) = debug_logs {
+        debug_logs.info(module, message);
+    }
+}
+
+fn log_error(debug_logs: Option<&DebugLogStore>, module: &str, message: impl Into<String>) {
+    if let Some(debug_logs) = debug_logs {
+        debug_logs.error(module, message);
+    }
+}
+
+fn redact_url_for_log(url: &str) -> String {
+    url.split(['?', '#']).next().unwrap_or(url).to_string()
 }
 
 #[cfg(test)]
