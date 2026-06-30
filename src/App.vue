@@ -44,7 +44,15 @@ onMounted(() => {
   box-sizing: border-box;
 }
 
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+}
+
 body {
+  overflow: hidden;
   margin: 0;
 }
 </style>

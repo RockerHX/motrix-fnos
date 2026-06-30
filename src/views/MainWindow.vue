@@ -306,7 +306,8 @@ onMounted(() => {
 
 <style scoped>
 .window-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
   color: #e7f1ec;
@@ -390,6 +391,7 @@ onMounted(() => {
 
 .main-area {
   min-width: 0;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
@@ -473,7 +475,7 @@ input:disabled {
 
 .task-table-shell {
   min-height: 100%;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 18px;
   background: #111b18;
