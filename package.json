@@ -13,7 +13,9 @@
     "typecheck": "vue-tsc --noEmit",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
-    "tauri:dev:raw": "tauri dev"
+    "tauri:dev:raw": "tauri dev",
+    "prepare": "git config core.hooksPath .githooks || true",
+    "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -29,5 +31,6 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10"
-  }
+  },
+  "packageManager": "pnpm@11.9.0"
 }
