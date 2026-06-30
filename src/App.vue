@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import EngineStatusPanel from "./components/EngineStatusPanel.vue";
 import { getAppInfo, pingBackend } from "./services/backend";
 import type { AppInfo, BackendPing } from "./types/app";
 
@@ -49,6 +50,8 @@ onMounted(() => {
       <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
       <button type="button" @click="refreshBackendStatus">重新检查通信</button>
     </section>
+
+    <EngineStatusPanel />
   </main>
 </template>
 
@@ -56,14 +59,15 @@ onMounted(() => {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  place-items: center;
+  align-content: center;
+  gap: 24px;
   padding: 32px;
   color: #e5f4ee;
   background: #0d1110;
 }
 
 .hero-card {
-  width: min(720px, 100%);
+  width: min(1040px, 100%);
   padding: 32px;
   border: 1px solid rgba(113, 245, 177, 0.16);
   border-radius: 18px;
