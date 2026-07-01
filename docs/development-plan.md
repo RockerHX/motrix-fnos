@@ -109,7 +109,7 @@
 - P1-2：`server/` 核心库 crate 已建立。✅
 - P1-3：`config` 与 `debug_logs` 已抽取到 `server/`。✅
 - P1-4：`database` 已抽取到 `server/`。✅
-- P1-5：待抽取 `tasks` 领域核心。⏳
+- P1-5：`tasks` 领域核心已抽取到 `server/`。✅
 - P1-6：待拆分纯 `aria2` 核心与 Tauri 进程适配。⏳
 - P1-7：待抽取 `ServerState`。⏳
 - P1-8：待拆分 `settings` / `tasks` 服务层并收口。⏳
