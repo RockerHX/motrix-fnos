@@ -13,7 +13,7 @@ use crate::database::tasks::{persist_download_task_state, persist_download_task_
 use std::io;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{Menu, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -28,6 +28,12 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .menu(|app| build_app_menu(app))
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "app-quit" {
+                request_application_exit(app, "用户通过 macOS 应用菜单退出应用");
+            }
+        })
         .setup(|app| {
             let app_handle = app.handle().clone();
             let (database, restored_tasks, next_task_id) = tauri::async_runtime::block_on(async {
@@ -108,6 +114,29 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+fn build_app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let quit = MenuItem::with_id(
+        app,
+        "app-quit",
+        "Quit motrix-fnos",
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+    let app_menu = SubmenuBuilder::new(app, "motrix-fnos")
+        .about(None)
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    MenuBuilder::new(app).item(&app_menu).build()
 }
 
 fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {

@@ -188,7 +188,9 @@ impl Drop for AppState {
         }
         if let Ok(process) = self.aria2_process.get_mut() {
             if let Some(child) = process.take() {
+                let pid = child.id();
                 let _ = child.kill();
+                let _ = crate::aria2::terminate_process(pid);
             }
         }
     }

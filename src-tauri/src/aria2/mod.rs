@@ -119,7 +119,7 @@ pub fn cleanup_saved_sidecar_if_owned(
 }
 
 #[cfg(unix)]
-fn terminate_process(pid: u32) -> bool {
+pub(crate) fn terminate_process(pid: u32) -> bool {
     let _ = std::process::Command::new("kill")
         .arg("-TERM")
         .arg(pid.to_string())
@@ -158,7 +158,7 @@ fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
 }
 
 #[cfg(windows)]
-fn terminate_process(pid: u32) -> bool {
+pub(crate) fn terminate_process(pid: u32) -> bool {
     let _ = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status();
@@ -353,6 +353,7 @@ pub fn stop_process(
 
     if let Some(child) = guard.take() {
         let pid = child.id();
+        debug_logs.info("aria2", format!("准备停止 Aria2 进程，PID {}", pid));
         if let Err(error) = child.kill() {
             debug_logs.warn(
                 "aria2",
