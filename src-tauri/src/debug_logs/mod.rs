@@ -117,7 +117,6 @@ fn current_timestamp_ms() -> u64 {
         .unwrap_or_default()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,7 +153,10 @@ mod tests {
         store.error("test", "third");
 
         let entries = store.list();
-        assert_eq!(entries.iter().map(|entry| entry.id).collect::<Vec<_>>(), vec![1, 2, 3]);
+        assert_eq!(
+            entries.iter().map(|entry| entry.id).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
         assert!(entries
             .windows(2)
             .all(|window| window[0].timestamp_ms <= window[1].timestamp_ms));

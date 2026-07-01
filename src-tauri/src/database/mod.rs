@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tauri::Manager;
 
-pub mod tasks;
 pub mod settings;
+pub mod tasks;
 
 pub const DATABASE_FILE_NAME: &str = "motrix-fnos.sqlite";
 
@@ -118,36 +118,37 @@ mod tests {
     #[test]
     fn connect_database_creates_required_tables() {
         tauri::async_runtime::block_on(async {
-        let path = std::env::temp_dir().join(format!(
-            "motrix-fnos-db-test-{}.sqlite",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be valid")
-                .as_millis()
-        ));
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_millis()
+            ));
 
-        let database = connect_database(path.clone())
-            .await
-            .expect("database should connect");
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
 
-        for table in [
-            "download_tasks",
-            "app_config",
-            "task_history",
-            "task_errors",
-            "ui_preferences",
-        ] {
-            let exists: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?")
-                    .bind(table)
-                    .fetch_one(&database.pool)
-                    .await
-                    .expect("table lookup should succeed");
-            assert_eq!(exists, 1, "{table} should exist");
-        }
+            for table in [
+                "download_tasks",
+                "app_config",
+                "task_history",
+                "task_errors",
+                "ui_preferences",
+            ] {
+                let exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+                )
+                .bind(table)
+                .fetch_one(&database.pool)
+                .await
+                .expect("table lookup should succeed");
+                assert_eq!(exists, 1, "{table} should exist");
+            }
 
-        database.pool.close().await;
-        let _ = std::fs::remove_file(path);
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
         });
     }
 }
