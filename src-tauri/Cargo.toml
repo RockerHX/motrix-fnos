@@ -30,3 +30,4 @@ tracing = "0.1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
+trash = "5.2.6"

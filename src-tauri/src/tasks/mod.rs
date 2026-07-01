@@ -768,27 +768,39 @@ fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
     else {
         return Ok(());
     };
-    let path = Path::new(file_path);
-    if !path.exists() {
-        return Ok(());
-    }
-    if !path.is_file() {
-        return Err(format!("当前仅支持删除单文件：{}", path.display()));
-    }
 
     let save_dir = Path::new(&task.save_dir)
         .canonicalize()
         .map_err(|error| format!("校验保存目录失败：{}（{}）", task.save_dir, error))?;
-    let file = path
-        .canonicalize()
-        .map_err(|error| format!("校验本地文件失败：{}（{}）", path.display(), error))?;
+    let candidates = delete_file_candidates(Path::new(file_path));
 
-    if !file.starts_with(&save_dir) {
-        return Err("拒绝删除保存目录外的文件".to_string());
+    for path in candidates {
+        if !path.exists() {
+            continue;
+        }
+        if !path.is_file() {
+            return Err(format!("当前仅支持删除单文件：{}", path.display()));
+        }
+
+        let file = path
+            .canonicalize()
+            .map_err(|error| format!("校验本地文件失败：{}（{}）", path.display(), error))?;
+        if !file.starts_with(&save_dir) {
+            return Err("拒绝删除保存目录外的文件".to_string());
+        }
+
+        trash::delete(&file)
+            .map_err(|error| format!("移入回收站失败：{}（{}）", file.display(), error))?;
     }
 
-    fs::remove_file(&file)
-        .map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
+    Ok(())
+}
+
+fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
+    vec![
+        path.to_path_buf(),
+        PathBuf::from(format!("{}.aria2", path.display())),
+    ]
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -1320,11 +1332,13 @@ mod tests {
     }
 
     #[test]
-    fn mark_task_removed_deletes_file_under_save_dir() {
+    fn mark_task_removed_moves_file_under_save_dir_to_trash() {
         let save_dir = PathBuf::from(temp_download_dir("delete-file"));
         fs::create_dir_all(&save_dir).expect("save dir should be created");
         let file_path = save_dir.join("file.zip");
         fs::write(&file_path, b"test").expect("file should be written");
+        let aria2_path = save_dir.join("file.zip.aria2");
+        fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
         let tasks = Mutex::new(vec![sample_task(
             Some(file_path.display().to_string()),
             save_dir.display().to_string(),
@@ -1334,6 +1348,33 @@ mod tests {
 
         assert_eq!(task.status, DownloadTaskStatus::Removed);
         assert!(!file_path.exists());
+        assert!(!aria2_path.exists());
+    }
+
+    #[test]
+    fn mark_task_removed_moves_orphan_aria2_control_file_to_trash() {
+        let save_dir = PathBuf::from(temp_download_dir("delete-orphan-aria2"));
+        fs::create_dir_all(&save_dir).expect("save dir should be created");
+        let file_path = save_dir.join("file.zip");
+        let aria2_path = save_dir.join("file.zip.aria2");
+        fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
+        let tasks = Mutex::new(vec![sample_task(
+            Some(file_path.display().to_string()),
+            save_dir.display().to_string(),
+        )]);
+
+        let task = mark_task_removed(&tasks, 1, true).expect("task should be removed");
+
+        assert_eq!(task.status, DownloadTaskStatus::Removed);
+        assert!(!aria2_path.exists());
+    }
+
+    #[test]
+    fn delete_file_candidates_include_aria2_control_file() {
+        let candidates = delete_file_candidates(Path::new("/downloads/file.iso"));
+
+        assert_eq!(candidates[0], PathBuf::from("/downloads/file.iso"));
+        assert_eq!(candidates[1], PathBuf::from("/downloads/file.iso.aria2"));
     }
 
     #[test]
