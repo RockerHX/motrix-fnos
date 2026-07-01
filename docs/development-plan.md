@@ -37,7 +37,7 @@
 
 更新时间：2026-07-02
 
-当前阶段：**阶段 1：抽出 Rust 业务核心（已完成，待进入阶段 2）**
+当前阶段：**阶段 2：实现 HTTP API 和事件流（进行中）**
 
 已确认的可迁移资产：
 
@@ -59,10 +59,11 @@
 - 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
 - `server::settings::service` 与 `server::tasks::service` 已承接业务编排，`src-tauri` commands 已压薄为 Tauri 适配层。
 - 双轨验证通过：`server/` 可独立测试，`src-tauri` 仍可编译并通过现有测试。
+- 阶段 2 已建立执行清单与 API 契约初稿，接下来将按 P2-2 ~ P2-8 顺序落地 server 主线。
 
 当前阶段约束：
 
-- 阶段 2 开始前，继续保持 `server/` 与 `src-tauri/` 双轨可运行。
+- 阶段 2 期间，继续保持 `server/` 与 `src-tauri/` 双轨可运行。
 - 在 HTTP API / SSE 替代完成前，不删除现有 Tauri command 和前端调用契约。
 - 在 FPK 打包链路建立前，不把 legacy Tauri 启动方式误写为最终交付形态。
 
@@ -140,6 +141,17 @@
 
 目标：用 Axum + SSE 取代 Tauri command 与事件机制。
 
+当前小任务状态：
+
+- P2-1：阶段 2 执行清单与 API 契约初稿已建立。✅
+- P2-2：独立 server 启动入口与运行时配置。⬜
+- P2-3：server 侧 Aria2 进程管理。⬜
+- P2-4：Axum 基础接口与统一错误响应。⬜
+- P2-5：设置与调试日志 HTTP 接口。⬜
+- P2-6：任务 HTTP 接口与自动拉起 Aria2。⬜
+- P2-7：SSE 事件流与后台任务同步。⬜
+- P2-8：优雅关闭与阶段收口。⬜
+
 核心任务：
 
 - 建立 `/api/*` 路由。
@@ -151,6 +163,12 @@
 
 - 不启动 Tauri 也能通过 HTTP 管理下载任务。
 - 服务停止时可保存 session 并停止当前管理的 Aria2。
+
+阶段进展说明：
+
+- 已先锁定阶段 2 的运行时约定：`MOTRIX_FNOS_APP_DATA_DIR`、`MOTRIX_FNOS_HTTP_ADDR`、`MOTRIX_FNOS_ARIA2_PATH`。
+- 事件流固定采用 SSE，不引入 WebSocket。
+- 首版 SSE 采用“整包任务快照 + 退出事件”模型，避免在阶段 2 提前引入前后端增量同步复杂度。
 
 ### 5.3 阶段 3：前端迁移到 HTTP API
 
