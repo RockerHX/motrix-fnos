@@ -390,8 +390,8 @@ FPK 下必须重新设计：
 
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P0-1 | 把阶段 0 改成可执行清单 | 为阶段 0 增加编号、跟踪规则和状态表 | 阶段 0 出现覆盖全部后续小任务的执行清单 | `docs: 细化阶段0整改执行清单` | 已完成 | `docs: 细化阶段0整改执行清单` |
-| P0-2 | 重写架构目标与总体技术路线 | `docs/architecture.md` 明确 FPK-first、Rust server、Vue Web UI、Axum 主线 | 文档不再把 Tauri 2 写成当前主应用壳 | `docs: 明确FPK-first总体架构主线` | 待完成 | - |
+| P0-1 | 把阶段 0 改成可执行清单 | 为阶段 0 增加编号、跟踪规则和状态表 | 阶段 0 出现覆盖全部后续小任务的执行清单 | `docs: 细化阶段0整改执行清单` | 已完成 | `docs: 细化阶段0整改执行清单`（`efe5a61`） |
+| P0-2 | 重写架构目标与总体技术路线 | `docs/architecture.md` 明确 FPK-first、Rust server、Vue Web UI、Axum 主线 | 文档不再把 Tauri 2 写成当前主应用壳 | `docs: 明确FPK-first总体架构主线` | 已完成 | `docs: 明确FPK-first总体架构主线` |
 | P0-3 | 调整架构分层、数据流和运行时表述 | `docs/architecture.md` 切换到 HTTP API / SSE / fnOS 服务生命周期 | 文档不再把托盘、Dock、Tauri sidecar 打包写成长期原则 | `docs: 调整架构分层与数据流到服务化模型` | 待完成 | - |
 | P0-4 | 重置开发计划的目标与现状描述 | `docs/development-plan.md` 顶部改成 FPK-first 目标与 legacy 资产摘要 | 文档顶部不再宣称 Tauri 是当前确定方向 | `docs: 重置开发计划的目标与现状描述` | 待完成 | - |
 | P0-5 | 新增架构纠偏阶段并冻结 Tauri 主线 | `docs/development-plan.md` 增加阶段 0、冻结说明和新阶段顺序 | 文档中存在新的“阶段 0：架构纠偏” | `docs: 新增FPK整改阶段并冻结Tauri主线` | 待完成 | - |
