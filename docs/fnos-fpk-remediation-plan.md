@@ -421,8 +421,8 @@ FPK 下必须重新设计：
 
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P1-1 | 建立阶段 1 执行清单 | 为阶段 1 增加编号、跟踪规则和状态表 | 阶段 1 出现覆盖后续迁移步骤的执行清单 | `docs: 细化阶段1Rust核心抽离执行清单` | 已完成 | `docs: 细化阶段1Rust核心抽离执行清单` |
-| P1-2 | 新建 server 核心库 crate 骨架 | 新建 `server/` 库 crate，并让 `src-tauri` 通过 path dependency 引入 | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新建server核心库crate骨架` | 待完成 | - |
+| P1-1 | 建立阶段 1 执行清单 | 为阶段 1 增加编号、跟踪规则和状态表 | 阶段 1 出现覆盖后续迁移步骤的执行清单 | `docs: 细化阶段1Rust核心抽离执行清单` | 已完成 | `docs: 细化阶段1Rust核心抽离执行清单`（`247bdfc`） |
+| P1-2 | 新建 server 核心库 crate 骨架 | 新建 `server/` 库 crate，并让 `src-tauri` 通过 path dependency 引入 | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新建server核心库crate骨架` | 已完成 | `feat: 新建server核心库crate骨架` |
 | P1-3 | 抽取 config 与 debug_logs | `server/` 承载纯配置与调试日志核心，`src-tauri` 改为包装层或 re-export | `server/src/config`、`server/src/debug_logs` 中不出现 `tauri::` 或 `tauri_plugin` | `refactor: 抽取服务端配置与调试日志核心` | 待完成 | - |
 | P1-4 | 抽取 database | `server/` 承载数据库连接、schema 与 repository，`src-tauri` 仅保留 Tauri 路径适配 | `server/src/database` 中不出现 `tauri::Manager`，双轨测试通过 | `refactor: 抽取服务端数据库核心模块` | 待完成 | - |
 | P1-5 | 抽取 tasks 领域核心 | `server/` 承载任务模型、校验、状态变更与 RPC 交互核心 | `server/src/tasks` 中不出现 `tauri::`、`AppHandle`、`Manager` | `refactor: 抽取下载任务领域核心` | 待完成 | - |

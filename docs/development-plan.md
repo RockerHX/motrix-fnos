@@ -106,7 +106,7 @@
 当前小任务状态：
 
 - P1-1：阶段 1 执行清单已建立。✅
-- P1-2：待新建 `server/` 核心库 crate。⏳
+- P1-2：`server/` 核心库 crate 已建立。✅
 - P1-3：待抽取 `config` 与 `debug_logs`。⏳
 - P1-4：待抽取 `database`。⏳
 - P1-5：待抽取 `tasks` 领域核心。⏳
