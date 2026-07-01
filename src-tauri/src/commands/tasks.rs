@@ -10,10 +10,10 @@ use crate::database::tasks::{
 };
 use crate::tasks::{
     add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_redownloaded,
-    mark_task_removed, mark_task_resumed, pause_task, prepare_task_with_logs, readd_task_to_aria2,
-    refresh_tasks_from_aria2, remove_task, should_readd_task_after_resume_error,
-    store_created_task, task_gid, task_snapshot, unpause_task, CreateDownloadTaskRequest,
-    DownloadTask, DownloadTaskStatus,
+    mark_task_removed, mark_task_resumed, move_task_files_to_trash, pause_task,
+    prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
+    should_readd_task_after_resume_error, store_created_task, task_gid, task_snapshot,
+    unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -225,6 +225,7 @@ pub async fn redownload_download_task(
         return Err("只有已完成任务可以重新下载".to_string());
     }
 
+    move_task_files_to_trash(&task)?;
     let prepared = crate::tasks::PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
@@ -235,7 +236,10 @@ pub async fn redownload_download_task(
     sync_task_to_database(&state, &task).await?;
     state.debug_logs.info(
         "tasks.control",
-        format!("任务已重新下载，ID {}，GID {}", task_id, gid),
+        format!(
+            "任务已重新下载，ID {}，GID {}，原本地文件已移入回收站",
+            task_id, gid
+        ),
     );
     Ok(task)
 }

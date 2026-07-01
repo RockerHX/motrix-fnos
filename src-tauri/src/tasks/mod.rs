@@ -479,6 +479,10 @@ pub async fn readd_task_to_aria2(
     Ok(task.clone())
 }
 
+pub fn move_task_files_to_trash(task: &DownloadTask) -> Result<(), String> {
+    delete_task_file(task)
+}
+
 pub fn mark_task_redownloaded(
     tasks: &Mutex<Vec<DownloadTask>>,
     task_id: u64,
@@ -1360,6 +1364,26 @@ mod tests {
             .expect_err("unfinished task should be rejected");
 
         assert!(error.contains("已完成任务"));
+    }
+
+    #[test]
+    fn move_task_files_to_trash_removes_completed_file_before_redownload() {
+        let save_dir = PathBuf::from(temp_download_dir("redownload-trash"));
+        fs::create_dir_all(&save_dir).expect("save dir should be created");
+        let file_path = save_dir.join("file.zip");
+        fs::write(&file_path, b"completed").expect("file should be written");
+        let aria2_path = save_dir.join("file.zip.aria2");
+        fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
+        let mut task = sample_task(
+            Some(file_path.display().to_string()),
+            save_dir.display().to_string(),
+        );
+        task.status = DownloadTaskStatus::Complete;
+
+        move_task_files_to_trash(&task).expect("files should move to trash");
+
+        assert!(!file_path.exists());
+        assert!(!aria2_path.exists());
     }
 
     #[test]

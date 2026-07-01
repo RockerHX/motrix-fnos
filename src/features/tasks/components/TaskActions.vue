@@ -20,6 +20,7 @@ const props = defineProps<{
 const taskStore = useTaskStore();
 const message = useMessage();
 const showDeleteConfirm = ref(false);
+const showRedownloadConfirm = ref(false);
 const showDetails = ref(false);
 const deleteFiles = ref(false);
 
@@ -55,10 +56,11 @@ async function resumeTask() {
   }
 }
 
-async function redownloadTask() {
+async function confirmRedownloadTask() {
   try {
     await taskStore.redownloadTask(props.task.id);
-    message.success("任务已重新下载");
+    showRedownloadConfirm.value = false;
+    message.success("任务已重新下载，原文件已移入回收站");
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -119,7 +121,7 @@ function formatTimestamp(timestamp: number) {
     <NButton size="small" secondary :disabled="isOperating" @click="showDetails = true">详情</NButton>
     <NButton v-if="canPause" size="small" secondary :loading="isOperating" @click="pauseTask">暂停</NButton>
     <NButton v-if="canResume" size="small" secondary :loading="isOperating" @click="resumeTask">继续</NButton>
-    <NButton v-if="canRedownload" size="small" secondary :loading="isOperating" @click="redownloadTask">
+    <NButton v-if="canRedownload" size="small" secondary :disabled="isOperating" @click="showRedownloadConfirm = true">
       重新下载
     </NButton>
     <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isOperating" @click="openDeleteConfirm">
@@ -156,6 +158,21 @@ function formatTimestamp(timestamp: number) {
     </NCard>
   </NModal>
 
+  <NModal v-model:show="showRedownloadConfirm" :mask-closable="!isOperating">
+    <NCard class="redownload-confirm-card" role="dialog" aria-modal="true" title="重新下载任务">
+      <p class="delete-confirm-text">
+        重新下载会把“{{ task.fileName }}”当前本地文件移入回收站，然后从 0 开始下载。确定继续吗？
+      </p>
+
+      <template #footer>
+        <NSpace justify="end">
+          <NButton :disabled="isOperating" @click="showRedownloadConfirm = false">取消</NButton>
+          <NButton type="primary" :loading="isOperating" @click="confirmRedownloadTask">重新下载</NButton>
+        </NSpace>
+      </template>
+    </NCard>
+  </NModal>
+
   <NModal v-model:show="showDeleteConfirm" :mask-closable="!isOperating">
     <NCard class="delete-confirm-card" role="dialog" aria-modal="true" title="删除下载任务">
       <p class="delete-confirm-text">确定要删除“{{ task.fileName }}”吗？</p>
@@ -172,7 +189,8 @@ function formatTimestamp(timestamp: number) {
 </template>
 
 <style scoped>
-.delete-confirm-card {
+.delete-confirm-card,
+.redownload-confirm-card {
   width: min(420px, calc(100vw - 48px));
 }
 
