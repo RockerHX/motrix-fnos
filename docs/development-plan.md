@@ -111,7 +111,7 @@
 - P1-4：`database` 已抽取到 `server/`。✅
 - P1-5：`tasks` 领域核心已抽取到 `server/`。✅
 - P1-6：纯 `aria2` 核心与 Tauri 进程适配已拆分。✅
-- P1-7：待抽取 `ServerState`。⏳
+- P1-7：`ServerState` 已抽取，`AppState` 已变为 Tauri 适配层。✅
 - P1-8：待拆分 `settings` / `tasks` 服务层并收口。⏳
 
 核心任务：

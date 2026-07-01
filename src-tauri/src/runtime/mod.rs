@@ -15,9 +15,9 @@ pub fn spawn_task_monitor(app_handle: tauri::AppHandle) {
         loop {
             tokio::time::sleep(TASK_MONITOR_INTERVAL).await;
             let state = app_handle.state::<AppState>();
-            if state.is_exiting.load(Ordering::SeqCst) {
+            if state.core.is_exiting.load(Ordering::SeqCst) {
                 state
-                    .debug_logs
+                    .core.debug_logs
                     .info("runtime.monitor", "应用正在退出，停止后台任务状态同步");
                 break;
             }
@@ -25,7 +25,7 @@ pub fn spawn_task_monitor(app_handle: tauri::AppHandle) {
 
             if let Err(error) = monitor_tasks_once(&app_handle).await {
                 let state = app_handle.state::<AppState>();
-                state.debug_logs.warn(
+                state.core.debug_logs.warn(
                     "runtime.monitor",
                     format!("后台任务状态同步失败：{}", error),
                 );
@@ -43,10 +43,10 @@ async fn monitor_tasks_once(app_handle: &tauri::AppHandle) -> Result<(), String>
     }
     let previous_statuses = previous_statuses(&previous_tasks);
     let tasks =
-        refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs)).await?;
-    persist_download_task_states(&state.database.pool, &tasks).await?;
+        refresh_tasks_from_aria2(&state.core.download_tasks, &config, Some(&state.core.debug_logs)).await?;
+    persist_download_task_states(&state.core.database.pool, &tasks).await?;
 
-    let app_config = load_app_config_from_pool(&state.database.pool).await?;
+    let app_config = load_app_config_from_pool(&state.core.database.pool).await?;
     if !app_config.notifications_enabled {
         return Ok(());
     }
@@ -60,7 +60,7 @@ async fn monitor_tasks_once(app_handle: &tauri::AppHandle) -> Result<(), String>
 
 fn snapshot_tasks(state: &AppState) -> Vec<DownloadTask> {
     state
-        .download_tasks
+        .core.download_tasks
         .lock()
         .map(|tasks| tasks.clone())
         .unwrap_or_default()
@@ -89,7 +89,7 @@ fn maybe_notify_task_transition(
     if !should_notify_transition(previous_statuses.get(&task.id), &task.status) {
         return;
     }
-    if !reserve_notification_key(&state.notified_task_events, notification_key(task)) {
+    if !reserve_notification_key(&state.core.notified_task_events, notification_key(task)) {
         return;
     }
 
@@ -101,7 +101,7 @@ fn maybe_notify_task_transition(
         .body(body)
         .show()
     {
-        Ok(()) => state.debug_logs.info(
+        Ok(()) => state.core.debug_logs.info(
             "runtime.notification",
             format!(
                 "已发送任务通知，ID {}，状态 {}",
@@ -109,7 +109,7 @@ fn maybe_notify_task_transition(
                 task.status.as_storage_value()
             ),
         ),
-        Err(error) => state.debug_logs.warn(
+        Err(error) => state.core.debug_logs.warn(
             "runtime.notification",
             format!("发送任务通知失败，ID {}：{}", task.id, error),
         ),

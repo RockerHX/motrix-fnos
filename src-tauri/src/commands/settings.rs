@@ -33,8 +33,8 @@ pub struct UiPreferences {
 
 #[tauri::command]
 pub async fn get_app_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
-    let config = load_app_config_from_pool(&state.database.pool).await?;
-    state.debug_logs.info("settings", "读取应用配置");
+    let config = load_app_config_from_pool(&state.core.database.pool).await?;
+    state.core.debug_logs.info("settings", "读取应用配置");
     Ok(config)
 }
 
@@ -44,16 +44,16 @@ pub async fn save_app_config(
     payload: AppConfig,
 ) -> Result<AppConfig, String> {
     let config = normalize_app_config(payload)?;
-    set_app_config_value(&state.database.pool, APP_CONFIG_KEY, &config).await?;
-    state.debug_logs.info("settings", "应用配置已保存");
+    set_app_config_value(&state.core.database.pool, APP_CONFIG_KEY, &config).await?;
+    state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(config)
 }
 
 #[tauri::command]
 pub async fn get_ui_preferences(state: State<'_, AppState>) -> Result<UiPreferences, String> {
-    let preferences = load_ui_preferences_from_pool(&state.database.pool).await?;
-    state.debug_logs.info("settings", "读取 UI 偏好");
+    let preferences = load_ui_preferences_from_pool(&state.core.database.pool).await?;
+    state.core.debug_logs.info("settings", "读取 UI 偏好");
     Ok(preferences)
 }
 
@@ -62,8 +62,8 @@ pub async fn save_ui_preferences(
     state: State<'_, AppState>,
     payload: UiPreferences,
 ) -> Result<UiPreferences, String> {
-    set_ui_preference_value(&state.database.pool, UI_PREFERENCES_KEY, &payload).await?;
-    state.debug_logs.info("settings", "UI 偏好已保存");
+    set_ui_preference_value(&state.core.database.pool, UI_PREFERENCES_KEY, &payload).await?;
+    state.core.debug_logs.info("settings", "UI 偏好已保存");
     Ok(payload)
 }
 
@@ -112,7 +112,7 @@ async fn apply_runtime_download_config(state: &State<'_, AppState>, config: &App
     let aria2_config = state.aria2_config();
     let status = ping_rpc(&aria2_config, None).await;
     if !status.connected {
-        state.debug_logs.warn(
+        state.core.debug_logs.warn(
             "settings",
             format!(
                 "Aria2 RPC 未就绪，下载配置将在下次启动后生效：{}",
@@ -127,10 +127,10 @@ async fn apply_runtime_download_config(state: &State<'_, AppState>, config: &App
         config.download_limit,
         config.upload_limit,
     );
-    if let Err(error) = apply_global_options(&aria2_config, &options, Some(&state.debug_logs)).await
+    if let Err(error) = apply_global_options(&aria2_config, &options, Some(&state.core.debug_logs)).await
     {
         state
-            .debug_logs
+            .core.debug_logs
             .warn("settings", format!("即时应用下载配置失败：{}", error));
     }
 }

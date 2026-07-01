@@ -4,10 +4,10 @@ use tauri::State;
 
 #[tauri::command]
 pub fn list_debug_logs(state: State<'_, AppState>) -> Vec<DebugLogEntry> {
-    state.debug_logs.list()
+    state.core.debug_logs.list()
 }
 
 #[tauri::command]
 pub fn clear_debug_logs(state: State<'_, AppState>) {
-    state.debug_logs.clear();
+    state.core.debug_logs.clear();
 }

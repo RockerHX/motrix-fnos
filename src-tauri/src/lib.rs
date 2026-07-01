@@ -59,9 +59,9 @@ pub fn run() {
 
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.app_handle().state::<app::AppState>();
-                if state.is_exiting.load(Ordering::SeqCst) {
+                if state.core.is_exiting.load(Ordering::SeqCst) {
                     state
-                        .debug_logs
+                        .core.debug_logs
                         .info("runtime.window", "应用正在退出，允许关闭主窗口");
                     return;
                 }
@@ -69,13 +69,13 @@ pub fn run() {
                 api.prevent_close();
                 if let Err(error) = window.hide() {
                     state
-                        .debug_logs
+                        .core.debug_logs
                         .error("runtime.window", format!("隐藏主窗口失败：{}", error));
                     return;
                 }
 
                 state
-                    .debug_logs
+                    .core.debug_logs
                     .info("runtime.window", "主窗口已隐藏到后台，下载任务将继续运行");
             }
         })
@@ -108,7 +108,7 @@ pub fn run() {
             RunEvent::Reopen { .. } => show_main_window(app),
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<app::AppState>();
-                if !state.is_exiting.load(Ordering::SeqCst) {
+                if !state.core.is_exiting.load(Ordering::SeqCst) {
                     api.prevent_exit();
                     request_application_exit(app, "系统退出请求");
                 }
@@ -195,14 +195,14 @@ struct RuntimeExitingPayload {
 
 pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     let state = app.state::<app::AppState>();
-    if state.is_exiting.swap(true, Ordering::SeqCst) {
+    if state.core.is_exiting.swap(true, Ordering::SeqCst) {
         state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.exit", "应用退出流程已在执行，忽略重复退出请求");
         return;
     }
 
-    state.debug_logs.info("runtime.exit", reason);
+    state.core.debug_logs.info("runtime.exit", reason);
     if let Err(error) = app.emit(
         "runtime://exiting",
         RuntimeExitingPayload {
@@ -211,7 +211,7 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
         },
     ) {
         state
-            .debug_logs
+            .core.debug_logs
             .warn("runtime.exit", format!("发送退出事件失败：{}", error));
     }
     let app_handle = app.clone();
@@ -223,40 +223,40 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
 async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
     let state = app.state::<app::AppState>();
     let config = state.aria2_config();
-    match tasks::refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs))
+    match tasks::refresh_tasks_from_aria2(&state.core.download_tasks, &config, Some(&state.core.debug_logs))
         .await
     {
         Ok(tasks) => {
-            if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
-                state.debug_logs.error(
+            if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
+                state.core.debug_logs.error(
                     "runtime.exit",
                     format!("退出前保存最新任务状态失败：{}", error),
                 );
             } else {
-                state.debug_logs.info(
+                state.core.debug_logs.info(
                     "runtime.exit",
                     format!("退出前已同步并保存 {} 个任务状态", tasks.len()),
                 );
             }
         }
         Err(error) => {
-            state.debug_logs.warn(
+            state.core.debug_logs.warn(
                 "runtime.exit",
                 format!("退出前同步 Aria2 状态失败，将保存应用内最后状态：{}", error),
             );
-            match tasks::list_tasks(&state.download_tasks) {
+            match tasks::list_tasks(&state.core.download_tasks) {
                 Ok(tasks) => {
                     if let Err(error) =
-                        persist_download_task_states(&state.database.pool, &tasks).await
+                        persist_download_task_states(&state.core.database.pool, &tasks).await
                     {
-                        state.debug_logs.error(
+                        state.core.debug_logs.error(
                             "runtime.exit",
                             format!("退出前保存最后已知任务状态失败：{}", error),
                         );
                     }
                 }
                 Err(error) => state
-                    .debug_logs
+                    .core.debug_logs
                     .error("runtime.exit", format!("退出前读取任务快照失败：{}", error)),
             }
         }
@@ -266,14 +266,14 @@ async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
 async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     let state = app.state::<app::AppState>();
     let config = state.aria2_config();
-    let candidates = match tasks::list_tasks(&state.download_tasks) {
+    let candidates = match tasks::list_tasks(&state.core.download_tasks) {
         Ok(tasks) => tasks
             .into_iter()
             .filter(tasks::should_pause_task_on_exit)
             .filter_map(|task| task.gid.map(|gid| (task.id, gid)))
             .collect::<Vec<_>>(),
         Err(error) => {
-            state.debug_logs.error(
+            state.core.debug_logs.error(
                 "runtime.exit",
                 format!("退出前读取待暂停任务失败：{}", error),
             );
@@ -283,15 +283,15 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
 
     if candidates.is_empty() {
         state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.exit", "退出前没有可通过 RPC 暂停的未完成任务");
     }
 
     let mut rpc_paused_count = 0;
     for (task_id, gid) in candidates {
-        match tasks::pause_task(&config, &gid, Some(&state.debug_logs)).await {
+        match tasks::pause_task(&config, &gid, Some(&state.core.debug_logs)).await {
             Ok(_) => rpc_paused_count += 1,
-            Err(error) => state.debug_logs.warn(
+            Err(error) => state.core.debug_logs.warn(
                 "runtime.exit",
                 format!(
                     "退出前 RPC 暂停任务失败，仍会把任务保存为暂停态，ID {}，GID {}：{}",
@@ -301,10 +301,10 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
         }
     }
 
-    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.download_tasks) {
+    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.core.download_tasks) {
         Ok(tasks) => tasks,
         Err(error) => {
-            state.debug_logs.error(
+            state.core.debug_logs.error(
                 "runtime.exit",
                 format!("退出前标记未完成任务暂停失败：{}", error),
             );
@@ -312,10 +312,10 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
         }
     };
 
-    let tasks = match tasks::list_tasks(&state.download_tasks) {
+    let tasks = match tasks::list_tasks(&state.core.download_tasks) {
         Ok(tasks) => tasks,
         Err(error) => {
-            state.debug_logs.error(
+            state.core.debug_logs.error(
                 "runtime.exit",
                 format!("退出前读取暂停后任务状态失败：{}", error),
             );
@@ -323,13 +323,13 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
         }
     };
 
-    if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
-        state.debug_logs.error(
+    if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
+        state.core.debug_logs.error(
             "runtime.exit",
             format!("退出前保存暂停任务状态失败：{}", error),
         );
     } else {
-        state.debug_logs.info(
+        state.core.debug_logs.info(
             "runtime.exit",
             format!(
                 "退出前已保存 {} 个未完成任务为暂停态，RPC 成功暂停 {} 个",
@@ -343,11 +343,11 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
 async fn save_aria2_session_before_exit(app: &tauri::AppHandle) {
     let state = app.state::<app::AppState>();
     let config = state.aria2_config();
-    match aria2::save_session(&config, Some(&state.debug_logs)).await {
+    match aria2::save_session(&config, Some(&state.core.debug_logs)).await {
         Ok(()) => state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.exit", "退出前已请求 Aria2 保存 session"),
-        Err(error) => state.debug_logs.warn(
+        Err(error) => state.core.debug_logs.warn(
             "runtime.exit",
             format!("退出前保存 Aria2 session 失败，继续退出：{}", error),
         ),
@@ -358,7 +358,7 @@ async fn run_application_exit(app: tauri::AppHandle) {
     {
         let state = app.state::<app::AppState>();
         state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.exit", "开始执行统一退出流程");
     }
 
@@ -368,16 +368,16 @@ async fn run_application_exit(app: tauri::AppHandle) {
 
     let should_clear_runtime = {
         let state = app.state::<app::AppState>();
-        match aria2::stop_process(&state.aria2_process, &state.debug_logs) {
+        match aria2::stop_process(&state.aria2_process, &state.core.debug_logs) {
             Ok(status) => {
-                state.debug_logs.info(
+                state.core.debug_logs.info(
                     "runtime.exit",
                     format!("退出流程已停止 Aria2：{}", status.message),
                 );
                 true
             }
             Err(error) => {
-                state.debug_logs.warn(
+                state.core.debug_logs.warn(
                     "runtime.exit",
                     format!(
                         "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
@@ -402,7 +402,7 @@ fn show_main_window(app: &tauri::AppHandle) {
         if let Err(error) = window.show() {
             let state = app.state::<app::AppState>();
             state
-                .debug_logs
+                .core.debug_logs
                 .error("runtime.tray", format!("显示主窗口失败：{}", error));
             return;
         }
@@ -411,7 +411,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
         let state = app.state::<app::AppState>();
         state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.tray", "已通过托盘打开主界面");
     }
 }
@@ -421,14 +421,14 @@ fn hide_main_window(app: &tauri::AppHandle) {
         if let Err(error) = window.hide() {
             let state = app.state::<app::AppState>();
             state
-                .debug_logs
+                .core.debug_logs
                 .error("runtime.tray", format!("隐藏主窗口失败：{}", error));
             return;
         }
 
         let state = app.state::<app::AppState>();
         state
-            .debug_logs
+            .core.debug_logs
             .info("runtime.tray", "已通过托盘隐藏主界面");
     }
 }
@@ -438,7 +438,7 @@ fn runtime_aria2_config(app: &tauri::AppHandle) -> Result<Aria2Config, String> {
     let state = app.state::<app::AppState>();
     let saved_runtime = state.load_saved_aria2_runtime();
     let port =
-        aria2::select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
+        aria2::select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.core.debug_logs)
             .ok_or_else(aria2::rpc_ports_exhausted_message)?;
     state.with_aria2_runtime_paths(aria2::runtime_config(
         &base,
@@ -457,20 +457,20 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
         Ok(config) => config,
         Err(error) => {
             let state = app_handle.state::<app::AppState>();
-            state.debug_logs.error("aria2", &error);
+            state.core.debug_logs.error("aria2", &error);
             return;
         }
     };
     {
         let state = app_handle.state::<app::AppState>();
         state
-            .debug_logs
+            .core.debug_logs
             .info("aria2", "应用启动后自动启动 Aria2 Next");
         match aria2::start_process(
             &app_handle,
             &state.aria2_process,
             &config,
-            &state.debug_logs,
+            &state.core.debug_logs,
         ) {
             Ok(status) => {
                 if let Some(pid) = status.pid {
@@ -481,13 +481,13 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                             source,
                             crate::aria2::process_args(&config),
                         )) {
-                            state.debug_logs.warn("aria2", error);
+                            state.core.debug_logs.warn("aria2", error);
                         }
                     }
                 }
             }
             Err(error) => {
-                state.debug_logs.error(
+                state.core.debug_logs.error(
                     "aria2",
                     format!("应用启动时启动 Aria2 Next 失败：{}", error),
                 );
@@ -501,14 +501,14 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
         let status = aria2::ping_rpc(&config, None).await;
         if status.connected {
             let state = app_handle.state::<app::AppState>();
-            state.debug_logs.info(
+            state.core.debug_logs.info(
                 "aria2.rpc",
                 format!("应用启动后 Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
             );
             drop(state);
             if let Err(error) = sync_session_tasks_after_rpc_ready(&app_handle, &config).await {
                 let state = app_handle.state::<app::AppState>();
-                state.debug_logs.warn(
+                state.core.debug_logs.warn(
                     "tasks.restore",
                     format!(
                         "Aria2 session 任务同步失败，保留 SQLite 恢复路径：{}",
@@ -520,7 +520,7 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
             {
                 let state = app_handle.state::<app::AppState>();
                 state
-                    .debug_logs
+                    .core.debug_logs
                     .error("tasks.restore", format!("恢复任务状态同步失败：{}", error));
             }
             if let Err(error) =
@@ -528,7 +528,7 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
             {
                 let state = app_handle.state::<app::AppState>();
                 state
-                    .debug_logs
+                    .core.debug_logs
                     .warn("settings", format!("应用启动后应用下载配置失败：{}", error));
             }
             return;
@@ -544,7 +544,7 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     match aria2::process_status(&state.aria2_process) {
         Ok(status) if !status.running => {
             state.clear_aria2_runtime();
-            state.debug_logs.error(
+            state.core.debug_logs.error(
                 "aria2.rpc",
                 format!(
                     "应用启动后 Aria2 已退出，RPC 未就绪：{}（{}）",
@@ -553,14 +553,14 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                 ),
             );
         }
-        Ok(_) => state.debug_logs.error(
+        Ok(_) => state.core.debug_logs.error(
             "aria2.rpc",
             format!(
                 "应用启动后 Aria2 RPC ready timeout：{}",
                 normalize_startup_rpc_message(&last_message)
             ),
         ),
-        Err(error) => state.debug_logs.error(
+        Err(error) => state.core.debug_logs.error(
             "aria2.rpc",
             format!("应用启动后读取 Aria2 进程状态失败：{}", error),
         ),
@@ -569,10 +569,10 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
 
 async fn force_pause_unfinished_tasks_on_startup(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<app::AppState>();
-    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.download_tasks) {
+    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.core.download_tasks) {
         Ok(tasks) => tasks,
         Err(error) => {
-            state.debug_logs.error(
+            state.core.debug_logs.error(
                 "tasks.restore",
                 format!("启动时兜底暂停未完成任务失败：{}", error),
             );
@@ -585,15 +585,15 @@ async fn force_pause_unfinished_tasks_on_startup(app_handle: &tauri::AppHandle) 
     }
 
     for task in &paused_tasks {
-        if let Err(error) = persist_download_task_state(&state.database.pool, task).await {
-            state.debug_logs.error(
+        if let Err(error) = persist_download_task_state(&state.core.database.pool, task).await {
+            state.core.debug_logs.error(
                 "tasks.restore",
                 format!("启动时保存兜底暂停任务失败，ID {}：{}", task.id, error),
             );
         }
     }
 
-    state.debug_logs.warn(
+    state.core.debug_logs.warn(
         "tasks.restore",
         format!(
             "启动时已将 {} 个上次未完成任务兜底恢复为暂停态，避免自动继续下载",
@@ -608,12 +608,12 @@ async fn sync_session_tasks_after_rpc_ready(
 ) -> Result<(), String> {
     let state = app_handle.state::<app::AppState>();
     let tasks = tasks::sync_session_tasks_from_aria2(
-        &state.download_tasks,
+        &state.core.download_tasks,
         config,
-        Some(&state.debug_logs),
+        Some(&state.core.debug_logs),
     )
     .await?;
-    persist_download_task_states(&state.database.pool, &tasks).await?;
+    persist_download_task_states(&state.core.database.pool, &tasks).await?;
     Ok(())
 }
 
@@ -623,14 +623,14 @@ async fn refresh_persisted_tasks_after_rpc_ready(
 ) -> Result<(), String> {
     let state = app_handle.state::<app::AppState>();
     let tasks =
-        tasks::refresh_tasks_from_aria2(&state.download_tasks, config, Some(&state.debug_logs))
+        tasks::refresh_tasks_from_aria2(&state.core.download_tasks, config, Some(&state.core.debug_logs))
             .await?;
 
     for task in &tasks {
-        database::tasks::persist_download_task_state(&state.database.pool, task).await?;
+        database::tasks::persist_download_task_state(&state.core.database.pool, task).await?;
     }
 
-    state.debug_logs.info(
+    state.core.debug_logs.info(
         "tasks.restore",
         format!("应用启动后已同步 {} 个恢复任务状态", tasks.len()),
     );
@@ -642,13 +642,13 @@ async fn apply_saved_download_config_after_rpc_ready(
     config: &Aria2Config,
 ) -> Result<(), String> {
     let state = app_handle.state::<app::AppState>();
-    let app_config = commands::settings::load_app_config_from_pool(&state.database.pool).await?;
+    let app_config = commands::settings::load_app_config_from_pool(&state.core.database.pool).await?;
     let options = aria2::global_options_from_values(
         app_config.max_concurrent_downloads,
         app_config.download_limit,
         app_config.upload_limit,
     );
-    aria2::apply_global_options(config, &options, Some(&state.debug_logs)).await
+    aria2::apply_global_options(config, &options, Some(&state.core.debug_logs)).await
 }
 
 fn current_timestamp_ms() -> u64 {
