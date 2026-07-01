@@ -305,12 +305,65 @@ server/
 - `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持清晰边界。
 - 现有 `src-tauri/` 目录在迁移完成前仅作为 legacy 参考来源，不再承载长期架构决策。
 
-## 8. 开发约束
+## 8. 标准数据流与事件流
+
+标准数据流：
+
+```text
+Vue Component
+  -> Pinia Store
+  -> Feature Service
+  -> HTTP client
+  -> Axum Route
+  -> Rust Service / Repository
+  -> Aria2 JSON-RPC / SQLite
+```
+
+标准事件流：
+
+```text
+Rust Runtime Event
+  -> SSE
+  -> frontend runtime event service
+  -> Pinia Store
+  -> Components
+```
+
+禁止：
+
+- Vue 组件直接散落调用后端接口。
+- 前端直接拼装复杂 Aria2 RPC 请求。
+- Rust handler 内直接堆积业务逻辑而不拆 service。
+- 把 UI 临时状态和后端持久状态混成同一层对象。
+
+## 9. 运行时生命周期原则
+
+当前长期运行模型基于 fnOS 服务，而不是桌面窗口或托盘语义。
+
+固定原则：
+
+- 应用启动与停止以 fnOS 的 start / stop / status 语义为准。
+- 后端启动后负责准备数据目录、初始化 SQLite、启动或连接 Aria2。
+- 后端停止时应统一保存运行状态、刷新必要持久化并停止当前服务管理的 Aria2 实例。
+- 前端页面关闭、刷新或重新进入不应被视为应用退出。
+- 不再把 Dock、托盘、窗口隐藏或桌面通知写成长期固定原则；如未来需要兼容，只能作为 legacy 支持或附加能力。
+
+## 10. 数据目录与安全边界
+
+- SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
+- 数据目录优先从 fnOS / FPK 提供的环境或配置读取，不再依赖 Tauri app data dir。
+- 下载目录不能默认写死桌面用户目录；必须改为 fnOS 可访问目录或应用数据目录下的默认下载区。
+- Aria2 RPC secret 只能在服务端生成和持有，不对前端暴露。
+- 日志继续隐藏私密 URL query 和敏感配置。
+
+## 11. 开发约束
 
 后续开发必须遵守：
 
 - 不再新增 Tauri 主线能力。
 - 新增前端交互继续进入 `features/*`，不得重新向入口页面堆叠。
 - 新增后端能力必须按 `api -> service -> domain -> persistence` 分层。
+- 新增通信能力默认走 HTTP API / SSE，不再新增 Tauri command。
+- Tauri 相关目录、脚本和配置在迁移完成前仅作为 legacy 参考，不得继续扩展为目标主线。
 - 新增长期状态时必须考虑 SQLite 持久化路径。
 - 若后续发现本文档与实际演进不匹配，应先更新本文档，再继续实现。
