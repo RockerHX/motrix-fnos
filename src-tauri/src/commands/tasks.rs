@@ -8,8 +8,8 @@ use crate::database::tasks::{
 use crate::tasks::{
     add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    store_created_task, task_gid, unpause_task, CreateDownloadTaskRequest, DownloadTask,
-    DownloadTaskStatus,
+    should_readd_task_after_resume_error, store_created_task, task_gid, task_snapshot,
+    unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -165,9 +165,10 @@ pub async fn resume_download_task(
     let config = Aria2Config::from_env();
     ensure_aria2_ready(&app, &state, &config).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
+    let task_before_resume = task_snapshot(&state.download_tasks, task_id)?;
     let task = match unpause_task(&config, &gid, Some(&state.debug_logs)).await {
         Ok(_) => mark_task_resumed(&state.download_tasks, task_id)?,
-        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error) => {
+        Err(error) if should_readd_task_after_resume_error(&task_before_resume, &error) => {
             state.debug_logs.warn(
                 "tasks.restore",
                 format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
@@ -185,7 +186,12 @@ pub async fn resume_download_task(
     sync_task_to_database(&state, &task).await?;
     state.debug_logs.info(
         "tasks.control",
-        format!("任务已恢复，ID {}，GID {}", task_id, gid),
+        format!(
+            "任务已恢复，ID {}，旧 GID {}，当前 GID {}",
+            task_id,
+            gid,
+            task.gid.as_deref().unwrap_or("-")
+        ),
     );
     Ok(task)
 }

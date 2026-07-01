@@ -25,13 +25,18 @@ export const useTaskStore = defineStore("tasks", () => {
   const operatingTaskIds = ref<number[]>([]);
   const lastRefreshErrorAt = ref(0);
   const notifiedErrorTaskKeys = new Set<string>();
+  const hasLoadedTasks = ref(false);
 
   async function refreshTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
     try {
       isRefreshing.value = true;
       const nextTasks = await listDownloadTasks();
-      const taskErrorMessages = collectNewTaskErrorMessages(tasks.value, nextTasks);
+      const taskErrorMessages = hasLoadedTasks.value
+        ? collectNewTaskErrorMessages(tasks.value, nextTasks)
+        : [];
+      rememberErrorTasks(nextTasks);
       tasks.value = nextTasks;
+      hasLoadedTasks.value = true;
       return { taskErrorMessages };
     } catch (error) {
       const now = Date.now();
@@ -120,6 +125,14 @@ export const useTaskStore = defineStore("tasks", () => {
     }
 
     return messages;
+  }
+
+  function rememberErrorTasks(nextTasks: DownloadTask[]) {
+    for (const task of nextTasks) {
+      if (task.status === "error") {
+        notifiedErrorTaskKeys.add(taskKey(task));
+      }
+    }
   }
 
   return {

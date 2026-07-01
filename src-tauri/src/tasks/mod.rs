@@ -486,12 +486,40 @@ async fn readd_download_task(
             task.gid.as_deref().unwrap_or("-")
         ),
     );
+    if let Some(old_gid) = task.gid.as_deref() {
+        if let Err(error) = remove_download_result(config, old_gid, debug_logs).await {
+            log_info(
+                debug_logs,
+                "tasks.restore",
+                format!(
+                    "旧 GID 结果清理未完成，继续重新加入任务，GID {}：{}",
+                    old_gid, error
+                ),
+            );
+        }
+    }
     let prepared = PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
         save_dir: task.save_dir.clone(),
     };
     add_uri_to_aria2(config, &prepared, debug_logs).await
+}
+
+async fn remove_download_result(
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    send_gid_control_request(
+        config,
+        gid,
+        "aria2.removeDownloadResult",
+        "motrix-fnos-remove-result-before-readd",
+        "清理任务结果",
+        debug_logs,
+    )
+    .await
 }
 
 pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>, String> {
@@ -502,13 +530,7 @@ pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>,
 }
 
 pub fn task_gid(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<String, String> {
-    let guard = tasks
-        .lock()
-        .map_err(|_| "无法读取下载任务列表".to_string())?;
-    let task = guard
-        .iter()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+    let task = task_snapshot(tasks, task_id)?;
 
     if task.status == DownloadTaskStatus::Removed {
         return Err("已删除任务不能继续操作".to_string());
@@ -518,6 +540,20 @@ pub fn task_gid(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<String
         .clone()
         .filter(|gid| !gid.trim().is_empty())
         .ok_or_else(|| "下载任务缺少 Aria2 GID，无法控制".to_string())
+}
+
+pub fn task_snapshot(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+) -> Result<DownloadTask, String> {
+    let guard = tasks
+        .lock()
+        .map_err(|_| "无法读取下载任务列表".to_string())?;
+    guard
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .ok_or_else(|| format!("下载任务不存在：{}", task_id))
 }
 
 pub fn mark_task_paused(
@@ -629,9 +665,16 @@ async fn tell_status(
 }
 
 fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    let next_total_length = parse_aria2_u64(&status.total_length);
+    let next_completed_length = parse_aria2_u64(&status.completed_length);
+    let should_preserve_progress =
+        status.status == "error" && next_total_length == 0 && task.total_length > 0;
+
     task.status = map_aria2_status(&status.status);
-    task.total_length = parse_aria2_u64(&status.total_length);
-    task.completed_length = parse_aria2_u64(&status.completed_length);
+    if !should_preserve_progress {
+        task.total_length = next_total_length;
+        task.completed_length = next_completed_length;
+    }
     task.download_speed = parse_aria2_u64(&status.download_speed);
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message = status
@@ -746,7 +789,14 @@ fn is_stale_aria2_gid_status(status: &Aria2TaskStatus) -> bool {
 
 pub fn is_stale_aria2_gid_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    normalized.contains("no uri available") || normalized.contains("cannot be unpaused now")
+    normalized.contains("no uri available")
+}
+
+pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) -> bool {
+    let normalized = message.to_ascii_lowercase();
+    is_stale_aria2_gid_error(&normalized)
+        || (normalized.contains("cannot be unpaused now")
+            && task.status == DownloadTaskStatus::Error)
 }
 
 fn is_aria2_status_error(status: &Aria2TaskStatus) -> bool {
@@ -1167,8 +1217,32 @@ mod tests {
     #[test]
     fn is_stale_aria2_gid_error_detects_unrecoverable_resume_errors() {
         assert!(is_stale_aria2_gid_error("No URI available"));
-        assert!(is_stale_aria2_gid_error("GID#123 cannot be unpaused now"));
+        assert!(!is_stale_aria2_gid_error("GID#123 cannot be unpaused now"));
         assert!(!is_stale_aria2_gid_error("download failed"));
+    }
+
+    #[test]
+    fn resume_error_readds_only_when_task_already_has_stale_gid_error() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Error;
+        task.error_message = Some("No URI available.".to_string());
+
+        assert!(should_readd_task_after_resume_error(
+            &task,
+            "GID#abc cannot be unpaused now"
+        ));
+
+        task.error_message = Some("download failed".to_string());
+        assert!(should_readd_task_after_resume_error(
+            &task,
+            "GID#abc cannot be unpaused now"
+        ));
+
+        task.status = DownloadTaskStatus::Active;
+        assert!(!should_readd_task_after_resume_error(
+            &task,
+            "GID#abc cannot be unpaused now"
+        ));
     }
 
     #[test]
@@ -1317,6 +1391,35 @@ mod tests {
         assert_eq!(
             normalize_aria2_error_code(status.error_code.as_deref()).as_deref(),
             Some("3")
+        );
+    }
+
+    #[test]
+    fn apply_aria2_status_preserves_progress_when_error_has_no_lengths() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        let status = Aria2TaskStatus {
+            status: "error".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: Some("1".to_string()),
+            error_message: Some(
+                "SSL/TLS handshake failure: unable to get local issuer certificate".to_string(),
+            ),
+            dir: None,
+            files: None,
+        };
+
+        apply_aria2_status(&mut task, &status);
+
+        assert_eq!(task.status, DownloadTaskStatus::Error);
+        assert_eq!(task.total_length, 100);
+        assert_eq!(task.completed_length, 40);
+        assert_eq!(task.download_speed, 0);
+        assert_eq!(task.error_code.as_deref(), Some("1"));
+        assert_eq!(
+            task.error_message.as_deref(),
+            Some("SSL/TLS handshake failure: unable to get local issuer certificate")
         );
     }
 
