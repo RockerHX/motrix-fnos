@@ -308,6 +308,20 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     }
 }
 
+async fn save_aria2_session_before_exit(app: &tauri::AppHandle) {
+    let state = app.state::<app::AppState>();
+    let config = state.aria2_config();
+    match aria2::save_session(&config, Some(&state.debug_logs)).await {
+        Ok(()) => state
+            .debug_logs
+            .info("runtime.exit", "退出前已请求 Aria2 保存 session"),
+        Err(error) => state.debug_logs.warn(
+            "runtime.exit",
+            format!("退出前保存 Aria2 session 失败，继续退出：{}", error),
+        ),
+    }
+}
+
 async fn run_application_exit(app: tauri::AppHandle) {
     {
         let state = app.state::<app::AppState>();
@@ -318,6 +332,7 @@ async fn run_application_exit(app: tauri::AppHandle) {
 
     sync_tasks_before_exit(&app).await;
     pause_unfinished_tasks_before_exit(&app).await;
+    save_aria2_session_before_exit(&app).await;
 
     let should_clear_runtime = {
         let state = app.state::<app::AppState>();
