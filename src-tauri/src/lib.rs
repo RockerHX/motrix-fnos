@@ -8,6 +8,7 @@ pub mod runtime;
 pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
+use crate::database::tasks::persist_download_task_states;
 use std::io;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -157,12 +158,59 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     });
 }
 
+
+async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
+    let config = Aria2Config::from_env();
+    let state = app.state::<app::AppState>();
+    match tasks::refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs)).await
+    {
+        Ok(tasks) => {
+            if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
+                state.debug_logs.error(
+                    "runtime.exit",
+                    format!("退出前保存最新任务状态失败：{}", error),
+                );
+            } else {
+                state.debug_logs.info(
+                    "runtime.exit",
+                    format!("退出前已同步并保存 {} 个任务状态", tasks.len()),
+                );
+            }
+        }
+        Err(error) => {
+            state.debug_logs.warn(
+                "runtime.exit",
+                format!("退出前同步 Aria2 状态失败，将保存应用内最后状态：{}", error),
+            );
+            match tasks::list_tasks(&state.download_tasks) {
+                Ok(tasks) => {
+                    if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
+                        state.debug_logs.error(
+                            "runtime.exit",
+                            format!("退出前保存最后已知任务状态失败：{}", error),
+                        );
+                    }
+                }
+                Err(error) => state
+                    .debug_logs
+                    .error("runtime.exit", format!("退出前读取任务快照失败：{}", error)),
+            }
+        }
+    }
+}
+
 async fn run_application_exit(app: tauri::AppHandle) {
     {
         let state = app.state::<app::AppState>();
         state
             .debug_logs
             .info("runtime.exit", "开始执行统一退出流程");
+    }
+
+    sync_tasks_before_exit(&app).await;
+
+    {
+        let state = app.state::<app::AppState>();
         match aria2::stop_process(&state.aria2_process, &state.debug_logs) {
             Ok(status) => state.debug_logs.info(
                 "runtime.exit",
