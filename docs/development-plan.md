@@ -144,7 +144,7 @@
 当前小任务状态：
 
 - P2-1：阶段 2 执行清单与 API 契约初稿已建立。✅
-- P2-2：独立 server 启动入口与运行时配置。⬜
+- P2-2：独立 server 启动入口与运行时配置已建立。✅
 - P2-3：server 侧 Aria2 进程管理。⬜
 - P2-4：Axum 基础接口与统一错误响应。⬜
 - P2-5：设置与调试日志 HTTP 接口。⬜
@@ -169,6 +169,7 @@
 - 已先锁定阶段 2 的运行时约定：`MOTRIX_FNOS_APP_DATA_DIR`、`MOTRIX_FNOS_HTTP_ADDR`、`MOTRIX_FNOS_ARIA2_PATH`。
 - 事件流固定采用 SSE，不引入 WebSocket。
 - 首版 SSE 采用“整包任务快照 + 退出事件”模型，避免在阶段 2 提前引入前后端增量同步复杂度。
+- `server/src/main.rs`、`ServerRuntimeConfig` 与 `HttpAppState` 已建立，独立 server 主线现在可以完成状态初始化并等待停止信号。
 
 ### 5.3 阶段 3：前端迁移到 HTTP API
 

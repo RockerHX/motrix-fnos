@@ -452,8 +452,8 @@ FPK 下必须重新设计：
 
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P2-1 | 细化阶段 2 执行清单与 API 契约 | 为阶段 2 增加编号、跟踪规则和状态表；补全 `docs/api-contract.md` 初稿 | 文档中出现完整阶段 2 编号、路由清单、错误响应和 SSE 契约 | `docs: 细化阶段2HTTP API执行清单` | 已完成 | `docs: 细化阶段2HTTP API执行清单` |
-| P2-2 | 新增独立 server 启动入口与运行时配置 | 新增 `server/src/main.rs` 与运行时配置加载，建立 `HttpAppState` | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新增独立server启动入口与运行时配置` | 未开始 | - |
+| P2-1 | 细化阶段 2 执行清单与 API 契约 | 为阶段 2 增加编号、跟踪规则和状态表；补全 `docs/api-contract.md` 初稿 | 文档中出现完整阶段 2 编号、路由清单、错误响应和 SSE 契约 | `docs: 细化阶段2HTTP API执行清单` | 已完成 | `docs: 细化阶段2HTTP API执行清单`（`34b5dbe`） |
+| P2-2 | 新增独立 server 启动入口与运行时配置 | 新增 `server/src/main.rs` 与运行时配置加载，建立 `HttpAppState` | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新增独立server启动入口与运行时配置` | 已完成 | `feat: 新增独立server启动入口与运行时配置` |
 | P2-3 | 新增 server 侧 Aria2 进程管理 | 在 `server/` 内承接 Aria2 启停、状态、残留清理和路径解析 | 新增进程管理单测，双轨测试通过 | `feat: 新增server侧Aria2进程管理` | 未开始 | - |
 | P2-4 | 新增 Axum 基础接口与统一错误响应 | 建立 `server/src/api`、router 组装、`ApiError` 与 app/aria2 路由 | 新增 handler/router 集成测试 | `feat: 新增Axum基础接口与统一错误响应` | 未开始 | - |
 | P2-5 | 新增设置与调试日志 HTTP 接口 | 落地 `settings`、`ui-preferences`、`debug-logs` 路由 | 新增 GET/PUT/DELETE handler 测试，双轨测试通过 | `feat: 新增设置与调试日志HTTP接口` | 未开始 | - |
