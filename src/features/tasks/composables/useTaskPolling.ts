@@ -1,4 +1,4 @@
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useTaskStore } from "../stores/taskStore";
 
 interface UseTaskPollingOptions {
@@ -10,9 +10,18 @@ interface UseTaskPollingOptions {
 export function useTaskPolling(options: UseTaskPollingOptions = {}) {
   const taskStore = useTaskStore();
   let timer: number | undefined;
+  let refreshVersion = 0;
 
   async function refresh(showError = false) {
+    if (taskStore.isRuntimeExiting) {
+      return;
+    }
+
+    const currentVersion = ++refreshVersion;
     const result = await taskStore.refreshTasks({ showError });
+    if (taskStore.isRuntimeExiting || currentVersion !== refreshVersion) {
+      return;
+    }
     if (result.refreshError) {
       options.onRefreshError?.(result.refreshError);
     }
@@ -22,7 +31,7 @@ export function useTaskPolling(options: UseTaskPollingOptions = {}) {
   }
 
   function start() {
-    if (timer) {
+    if (timer || taskStore.isRuntimeExiting) {
       return;
     }
 
@@ -40,9 +49,21 @@ export function useTaskPolling(options: UseTaskPollingOptions = {}) {
     timer = undefined;
   }
 
+  watch(
+    () => taskStore.isRuntimeExiting,
+    (isExiting) => {
+      if (isExiting) {
+        refreshVersion += 1;
+        stop();
+      }
+    },
+  );
+
   onMounted(() => {
-    void refresh();
-    start();
+    if (!taskStore.isRuntimeExiting) {
+      void refresh();
+      start();
+    }
   });
 
   onBeforeUnmount(stop);

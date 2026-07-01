@@ -15,6 +15,7 @@ use crate::tasks::{
     should_readd_task_after_resume_error, store_created_task, task_gid, task_snapshot,
     unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
@@ -24,6 +25,7 @@ pub async fn create_download_task(
     state: State<'_, AppState>,
     payload: CreateDownloadTaskRequest,
 ) -> Result<DownloadTask, String> {
+    ensure_not_exiting(&state)?;
     let mut payload = payload;
     if payload
         .save_dir
@@ -48,6 +50,14 @@ pub async fn create_download_task(
         ),
     );
     Ok(task)
+}
+
+fn ensure_not_exiting(state: &State<'_, AppState>) -> Result<(), String> {
+    if state.is_exiting.load(Ordering::SeqCst) {
+        Err("应用正在退出，不能执行任务操作".to_string())
+    } else {
+        Ok(())
+    }
 }
 
 async fn ensure_aria2_ready(
@@ -142,6 +152,17 @@ fn shorten_start_error(message: String) -> String {
 
 #[tauri::command]
 pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
+    if state.is_exiting.load(Ordering::SeqCst) {
+        state.debug_logs.info(
+            "tasks.list",
+            "应用正在退出，跳过 Aria2 刷新并返回内存任务快照",
+        );
+        return Ok(crate::tasks::list_tasks(&state.download_tasks)?
+            .into_iter()
+            .filter(|task| task.status != DownloadTaskStatus::Removed)
+            .collect());
+    }
+
     let tasks = refresh_tasks_from_aria2(
         &state.download_tasks,
         &state.aria2_config(),
@@ -162,6 +183,7 @@ pub async fn pause_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
+    ensure_not_exiting(&state)?;
     let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     pause_task(&config, &gid, Some(&state.debug_logs)).await?;
@@ -180,6 +202,7 @@ pub async fn resume_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
+    ensure_not_exiting(&state)?;
     let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     let task_before_resume = task_snapshot(&state.download_tasks, task_id)?;
@@ -219,6 +242,7 @@ pub async fn redownload_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
+    ensure_not_exiting(&state)?;
     let config = ensure_aria2_ready(&app, &state).await?;
     let task = task_snapshot(&state.download_tasks, task_id)?;
     if task.status != DownloadTaskStatus::Complete {
@@ -251,6 +275,7 @@ pub async fn delete_download_task(
     task_id: u64,
     delete_files: bool,
 ) -> Result<DownloadTask, String> {
+    ensure_not_exiting(&state)?;
     let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     if let Err(error) = remove_task(&config, &gid, Some(&state.debug_logs)).await {

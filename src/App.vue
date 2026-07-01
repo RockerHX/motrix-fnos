@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { getAppInfo, pingBackend } from "./services/backend";
+import { disposeRuntimeEventListeners, initializeRuntimeEventListeners } from "./services/runtime";
 import type { AppInfo, BackendPing } from "./types/app";
 import NaiveProvider from "./app/providers/NaiveProvider.vue";
 import MainWindow from "./views/MainWindow.vue";
@@ -22,7 +23,12 @@ async function refreshBackendStatus() {
 }
 
 onMounted(() => {
+  void initializeRuntimeEventListeners();
   void refreshBackendStatus();
+});
+
+onBeforeUnmount(() => {
+  void disposeRuntimeEventListeners();
 });
 </script>
 

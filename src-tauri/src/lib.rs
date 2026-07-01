@@ -9,12 +9,13 @@ pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
 use crate::database::tasks::{persist_download_task_state, persist_download_task_states};
+use serde::Serialize;
 use std::io;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::{Menu, MenuBuilder, MenuItem, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -172,6 +173,13 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeExitingPayload {
+    reason: String,
+    timestamp: u64,
+}
+
 pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     let state = app.state::<app::AppState>();
     if state.is_exiting.swap(true, Ordering::SeqCst) {
@@ -182,6 +190,17 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     }
 
     state.debug_logs.info("runtime.exit", reason);
+    if let Err(error) = app.emit(
+        "runtime://exiting",
+        RuntimeExitingPayload {
+            reason: reason.to_string(),
+            timestamp: current_timestamp_ms(),
+        },
+    ) {
+        state
+            .debug_logs
+            .warn("runtime.exit", format!("发送退出事件失败：{}", error));
+    }
     let app_handle = app.clone();
     tauri::async_runtime::block_on(async move {
         run_application_exit(app_handle).await;
@@ -600,6 +619,13 @@ async fn apply_saved_download_config_after_rpc_ready(
         app_config.upload_limit,
     );
     aria2::apply_global_options(config, &options, Some(&state.debug_logs)).await
+}
+
+fn current_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn normalize_startup_rpc_message(message: &str) -> &str {

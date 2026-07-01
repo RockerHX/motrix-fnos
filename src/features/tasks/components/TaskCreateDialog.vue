@@ -56,6 +56,10 @@ watch(
 );
 
 async function selectSaveDir() {
+  if (taskStore.isRuntimeExiting) {
+    message.warning("应用正在退出，请稍候");
+    return;
+  }
   const selected = await selectDownloadDirectory();
   if (selected) {
     form.saveDir = selected;
@@ -63,6 +67,10 @@ async function selectSaveDir() {
 }
 
 async function submitCreateTask() {
+  if (taskStore.isRuntimeExiting) {
+    message.warning("应用正在退出，请稍候");
+    return;
+  }
   if (!isUrlValid.value) {
     formErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
     return;
@@ -85,7 +93,7 @@ async function submitCreateTask() {
 }
 
 function closeDialog() {
-  if (taskStore.isCreating) {
+  if (taskStore.isCreating || taskStore.isRuntimeExiting) {
     return;
   }
 
@@ -113,7 +121,7 @@ function getErrorMessage(error: unknown) {
 </script>
 
 <template>
-  <NModal :show="show" :mask-closable="!taskStore.isCreating" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
+  <NModal :show="show" :mask-closable="!taskStore.isCreating && !taskStore.isRuntimeExiting" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
     <NCard class="task-create-card" role="dialog" aria-modal="true">
       <template #header>
         <div>
@@ -122,7 +130,7 @@ function getErrorMessage(error: unknown) {
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle :disabled="taskStore.isCreating" @click="closeDialog">×</NButton>
+        <NButton quaternary circle :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">×</NButton>
       </template>
 
       <NForm @submit.prevent="submitCreateTask">
@@ -144,7 +152,7 @@ function getErrorMessage(error: unknown) {
         <NFormItem label="保存路径">
           <NSpace vertical class="full-width">
             <NInput v-model:value="form.saveDir" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
-            <NButton secondary :disabled="taskStore.isCreating" @click="selectSaveDir">选择目录</NButton>
+            <NButton secondary :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="selectSaveDir">选择目录</NButton>
           </NSpace>
         </NFormItem>
 
@@ -173,8 +181,8 @@ function getErrorMessage(error: unknown) {
         <NAlert v-if="formErrorMessage" type="error" class="form-alert">{{ formErrorMessage }}</NAlert>
 
         <NSpace justify="end" class="dialog-actions">
-          <NButton :disabled="taskStore.isCreating" @click="closeDialog">取消</NButton>
-          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!isUrlValid">开始下载</NButton>
+          <NButton :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">取消</NButton>
+          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!isUrlValid || taskStore.isRuntimeExiting">开始下载</NButton>
         </NSpace>
       </NForm>
     </NCard>

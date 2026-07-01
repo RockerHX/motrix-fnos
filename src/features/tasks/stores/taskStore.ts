@@ -8,6 +8,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
+import type { RuntimeExitingPayload } from "../../../services/runtime";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
 interface RefreshTasksOptions {
@@ -27,11 +28,20 @@ export const useTaskStore = defineStore("tasks", () => {
   const lastRefreshErrorAt = ref(0);
   const notifiedErrorTaskKeys = new Set<string>();
   const hasLoadedTasks = ref(false);
+  const isRuntimeExiting = ref(false);
+  const runtimeExitReason = ref("");
 
   async function refreshTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
+    if (isRuntimeExiting.value) {
+      return { taskErrorMessages: [] };
+    }
+
     try {
       isRefreshing.value = true;
       const nextTasks = await listDownloadTasks();
+      if (isRuntimeExiting.value) {
+        return { taskErrorMessages: [] };
+      }
       const taskErrorMessages = hasLoadedTasks.value
         ? collectNewTaskErrorMessages(tasks.value, nextTasks)
         : [];
@@ -53,6 +63,7 @@ export const useTaskStore = defineStore("tasks", () => {
   }
 
   async function createTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
+    ensureRuntimeActive();
     isCreating.value = true;
 
     try {
@@ -84,14 +95,28 @@ export const useTaskStore = defineStore("tasks", () => {
     taskId: number,
     operation: () => Promise<DownloadTask>,
   ): Promise<DownloadTask> {
+    ensureRuntimeActive();
     beginTaskOperation(taskId);
     try {
       const task = await operation();
-      upsertTask(task);
-      await refreshTasks({ showError: true });
+      if (!isRuntimeExiting.value) {
+        upsertTask(task);
+        await refreshTasks({ showError: true });
+      }
       return task;
     } finally {
       endTaskOperation(taskId);
+    }
+  }
+
+  function markRuntimeExiting(payload: RuntimeExitingPayload) {
+    isRuntimeExiting.value = true;
+    runtimeExitReason.value = payload.reason || "应用正在退出";
+  }
+
+  function ensureRuntimeActive() {
+    if (isRuntimeExiting.value) {
+      throw new Error("应用正在退出，请稍候");
     }
   }
 
@@ -151,12 +176,15 @@ export const useTaskStore = defineStore("tasks", () => {
     isCreating,
     isRefreshing,
     operatingTaskIds,
+    isRuntimeExiting,
+    runtimeExitReason,
     createTask,
     pauseTask,
     resumeTask,
     redownloadTask,
     deleteTask,
     refreshTasks,
+    markRuntimeExiting,
     isTaskOperating,
   };
 });

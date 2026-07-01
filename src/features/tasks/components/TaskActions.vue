@@ -25,6 +25,7 @@ const showDetails = ref(false);
 const deleteFiles = ref(false);
 
 const isOperating = computed(() => taskStore.isTaskOperating(props.task.id));
+const isActionDisabled = computed(() => isOperating.value || taskStore.isRuntimeExiting);
 const canPause = computed(() => props.task.status === "active" || props.task.status === "pending");
 const canResume = computed(() => props.task.status === "paused" || props.task.status === "error");
 const canRedownload = computed(() => props.task.status === "complete");
@@ -38,7 +39,16 @@ const progressText = computed(() => {
   return `${percentage.toFixed(2)}%`;
 });
 
+function ensureCanOperate() {
+  if (taskStore.isRuntimeExiting) {
+    message.warning("应用正在退出，请稍候");
+    return false;
+  }
+  return true;
+}
+
 async function pauseTask() {
+  if (!ensureCanOperate()) return;
   try {
     await taskStore.pauseTask(props.task.id);
     message.success("任务已暂停");
@@ -48,6 +58,7 @@ async function pauseTask() {
 }
 
 async function resumeTask() {
+  if (!ensureCanOperate()) return;
   try {
     await taskStore.resumeTask(props.task.id);
     message.success("任务已继续");
@@ -57,6 +68,7 @@ async function resumeTask() {
 }
 
 async function confirmRedownloadTask() {
+  if (!ensureCanOperate()) return;
   try {
     await taskStore.redownloadTask(props.task.id);
     showRedownloadConfirm.value = false;
@@ -67,11 +79,13 @@ async function confirmRedownloadTask() {
 }
 
 function openDeleteConfirm() {
+  if (!ensureCanOperate()) return;
   deleteFiles.value = false;
   showDeleteConfirm.value = true;
 }
 
 async function confirmDeleteTask() {
+  if (!ensureCanOperate()) return;
   try {
     await taskStore.deleteTask(props.task.id, deleteFiles.value);
     showDeleteConfirm.value = false;
@@ -118,13 +132,13 @@ function formatTimestamp(timestamp: number) {
 
 <template>
   <NSpace :size="6" wrap>
-    <NButton size="small" secondary :disabled="isOperating" @click="showDetails = true">详情</NButton>
-    <NButton v-if="canPause" size="small" secondary :loading="isOperating" @click="pauseTask">暂停</NButton>
-    <NButton v-if="canResume" size="small" secondary :loading="isOperating" @click="resumeTask">继续</NButton>
-    <NButton v-if="canRedownload" size="small" secondary :disabled="isOperating" @click="showRedownloadConfirm = true">
+    <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">详情</NButton>
+    <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">暂停</NButton>
+    <NButton v-if="canResume" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="resumeTask">继续</NButton>
+    <NButton v-if="canRedownload" size="small" secondary :disabled="isActionDisabled" @click="showRedownloadConfirm = true">
       重新下载
     </NButton>
-    <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isOperating" @click="openDeleteConfirm">
+    <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isActionDisabled" @click="openDeleteConfirm">
       删除
     </NButton>
   </NSpace>
@@ -166,8 +180,8 @@ function formatTimestamp(timestamp: number) {
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="isOperating" @click="showRedownloadConfirm = false">取消</NButton>
-          <NButton type="primary" :loading="isOperating" @click="confirmRedownloadTask">重新下载</NButton>
+          <NButton :disabled="isActionDisabled" @click="showRedownloadConfirm = false">取消</NButton>
+          <NButton type="primary" :loading="isOperating" :disabled="isActionDisabled" @click="confirmRedownloadTask">重新下载</NButton>
         </NSpace>
       </template>
     </NCard>
@@ -180,8 +194,8 @@ function formatTimestamp(timestamp: number) {
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="isOperating" @click="showDeleteConfirm = false">取消</NButton>
-          <NButton type="error" :loading="isOperating" @click="confirmDeleteTask">删除</NButton>
+          <NButton :disabled="isActionDisabled" @click="showDeleteConfirm = false">取消</NButton>
+          <NButton type="error" :loading="isOperating" :disabled="isActionDisabled" @click="confirmDeleteTask">删除</NButton>
         </NSpace>
       </template>
     </NCard>
