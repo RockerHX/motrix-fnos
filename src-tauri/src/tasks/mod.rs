@@ -450,6 +450,33 @@ pub async fn refresh_tasks_from_aria2(
     Ok(guard.clone())
 }
 
+pub async fn sync_task_progress_from_aria2_by_gid(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<DownloadTask, String> {
+    let client = reqwest::Client::new();
+    let status = tell_status(&client, config, gid, debug_logs).await?;
+    apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+fn apply_aria2_status_by_gid(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    gid: &str,
+    status: &Aria2TaskStatus,
+) -> Result<DownloadTask, String> {
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let task = guard
+        .iter_mut()
+        .find(|task| task.gid.as_deref() == Some(gid))
+        .ok_or_else(|| format!("下载任务不存在，GID {}", gid))?;
+    apply_aria2_status(task, status);
+    Ok(task.clone())
+}
+
 enum TaskRefreshUpdate {
     Status {
         gid: String,
@@ -1866,6 +1893,32 @@ mod tests {
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
         assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+    }
+
+    #[test]
+    fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
+        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+        let status = Aria2TaskStatus {
+            gid: Some("abc123".to_string()),
+            status: "active".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "80".to_string(),
+            download_speed: "50".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: Some("/downloads".to_string()),
+            files: None,
+        };
+
+        let synced = apply_aria2_status_by_gid(&tasks, "abc123", &status)
+            .expect("task progress should sync");
+        assert_eq!(synced.completed_length, 80);
+
+        let paused = mark_task_paused(&tasks, 1).expect("task should pause");
+        assert_eq!(paused.status, DownloadTaskStatus::Paused);
+        assert_eq!(paused.completed_length, 80);
+        assert_eq!(paused.total_length, 100);
+        assert_eq!(paused.download_speed, 0);
     }
 
     #[test]
