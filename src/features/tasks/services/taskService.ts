@@ -18,6 +18,10 @@ export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
   return invoke<DownloadTask>("resume_download_task", { taskId });
 }
 
+export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
+  return invoke<DownloadTask>("redownload_download_task", { taskId });
+}
+
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
   return invoke<DownloadTask>("delete_download_task", { taskId, deleteFiles });
 }

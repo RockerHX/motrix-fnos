@@ -479,6 +479,33 @@ pub async fn readd_task_to_aria2(
     Ok(task.clone())
 }
 
+pub fn mark_task_redownloaded(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    task_id: u64,
+    new_gid: String,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        if task.status != DownloadTaskStatus::Complete {
+            return Err("只有已完成任务可以重新下载".to_string());
+        }
+
+        task.gid = Some(new_gid);
+        task.status = DownloadTaskStatus::Pending;
+        task.total_length = 0;
+        task.completed_length = 0;
+        task.download_speed = 0;
+        task.error_code = None;
+        task.error_message = None;
+        task.file_path = Some(
+            Path::new(&task.save_dir)
+                .join(&task.file_name)
+                .display()
+                .to_string(),
+        );
+        Ok(())
+    })
+}
+
 async fn readd_download_task(
     config: &Aria2Config,
     task: &DownloadTask,
@@ -1300,6 +1327,39 @@ mod tests {
         let task = mark_task_resumed(&tasks, 1).expect("task should be resumed");
 
         assert_eq!(task.status, DownloadTaskStatus::Active);
+    }
+
+    #[test]
+    fn mark_task_redownloaded_resets_completed_task_progress() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Complete;
+        task.total_length = 100;
+        task.completed_length = 100;
+        task.download_speed = 0;
+        let tasks = Mutex::new(vec![task]);
+
+        let task = mark_task_redownloaded(&tasks, 1, "new-gid".to_string())
+            .expect("completed task should be redownloaded");
+
+        assert_eq!(task.gid.as_deref(), Some("new-gid"));
+        assert_eq!(task.status, DownloadTaskStatus::Pending);
+        assert_eq!(task.total_length, 0);
+        assert_eq!(task.completed_length, 0);
+        assert_eq!(task.download_speed, 0);
+        assert!(task.error_code.is_none());
+        assert!(task.error_message.is_none());
+        assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+    }
+
+    #[test]
+    fn mark_task_redownloaded_rejects_unfinished_task() {
+        let task = sample_task(None, "/downloads".to_string());
+        let tasks = Mutex::new(vec![task]);
+
+        let error = mark_task_redownloaded(&tasks, 1, "new-gid".to_string())
+            .expect_err("unfinished task should be rejected");
+
+        assert!(error.contains("已完成任务"));
     }
 
     #[test]

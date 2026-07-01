@@ -5,6 +5,7 @@ import {
   deleteDownloadTask,
   listDownloadTasks,
   pauseDownloadTask,
+  redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
@@ -69,6 +70,10 @@ export const useTaskStore = defineStore("tasks", () => {
 
   async function resumeTask(taskId: number): Promise<DownloadTask> {
     return runTaskOperation(taskId, () => resumeDownloadTask(taskId));
+  }
+
+  async function redownloadTask(taskId: number): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => redownloadDownloadTask(taskId));
   }
 
   async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
@@ -143,6 +148,7 @@ export const useTaskStore = defineStore("tasks", () => {
     createTask,
     pauseTask,
     resumeTask,
+    redownloadTask,
     deleteTask,
     refreshTasks,
     isTaskOperating,

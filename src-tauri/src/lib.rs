@@ -92,6 +92,7 @@ pub fn run() {
             commands::tasks::list_download_tasks,
             commands::tasks::pause_download_task,
             commands::tasks::resume_download_task,
+            commands::tasks::redownload_download_task,
             commands::tasks::delete_download_task
         ])
         .build(tauri::generate_context!())

@@ -26,6 +26,7 @@ const deleteFiles = ref(false);
 const isOperating = computed(() => taskStore.isTaskOperating(props.task.id));
 const canPause = computed(() => props.task.status === "active" || props.task.status === "pending");
 const canResume = computed(() => props.task.status === "paused" || props.task.status === "error");
+const canRedownload = computed(() => props.task.status === "complete");
 const canDelete = computed(() => props.task.status !== "removed");
 const progressText = computed(() => {
   if (props.task.totalLength <= 0) {
@@ -49,6 +50,15 @@ async function resumeTask() {
   try {
     await taskStore.resumeTask(props.task.id);
     message.success("任务已继续");
+  } catch (error) {
+    message.error(getErrorMessage(error));
+  }
+}
+
+async function redownloadTask() {
+  try {
+    await taskStore.redownloadTask(props.task.id);
+    message.success("任务已重新下载");
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -109,6 +119,9 @@ function formatTimestamp(timestamp: number) {
     <NButton size="small" secondary :disabled="isOperating" @click="showDetails = true">详情</NButton>
     <NButton v-if="canPause" size="small" secondary :loading="isOperating" @click="pauseTask">暂停</NButton>
     <NButton v-if="canResume" size="small" secondary :loading="isOperating" @click="resumeTask">继续</NButton>
+    <NButton v-if="canRedownload" size="small" secondary :loading="isOperating" @click="redownloadTask">
+      重新下载
+    </NButton>
     <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isOperating" @click="openDeleteConfirm">
       删除
     </NButton>
