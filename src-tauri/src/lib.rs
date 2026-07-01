@@ -93,10 +93,16 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
-            if let RunEvent::Reopen { .. } = event {
-                show_main_window(app);
+        .run(|app, event| match event {
+            RunEvent::Reopen { .. } => show_main_window(app),
+            RunEvent::ExitRequested { api, .. } => {
+                let state = app.state::<app::AppState>();
+                if !state.is_exiting.load(Ordering::SeqCst) {
+                    api.prevent_exit();
+                    request_application_exit(app, "系统退出请求");
+                }
             }
+            _ => {}
         });
 }
 
@@ -124,17 +130,50 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 hide_main_window(app);
             }
             "quit-app" => {
-                let state = app.state::<app::AppState>();
-                state
-                    .debug_logs
-                    .info("runtime.tray", "用户通过托盘退出应用");
-                app.exit(0);
+                request_application_exit(app, "用户通过托盘退出应用");
             }
             _ => {}
         })
         .build(app)?;
 
     Ok(())
+}
+
+
+fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
+    let state = app.state::<app::AppState>();
+    if state.is_exiting.swap(true, Ordering::SeqCst) {
+        state
+            .debug_logs
+            .info("runtime.exit", "应用退出流程已在执行，忽略重复退出请求");
+        return;
+    }
+
+    state.debug_logs.info("runtime.exit", reason);
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        run_application_exit(app_handle).await;
+    });
+}
+
+async fn run_application_exit(app: tauri::AppHandle) {
+    {
+        let state = app.state::<app::AppState>();
+        state
+            .debug_logs
+            .info("runtime.exit", "开始执行统一退出流程");
+        match aria2::stop_process(&state.aria2_process, &state.debug_logs) {
+            Ok(status) => state.debug_logs.info(
+                "runtime.exit",
+                format!("退出流程已停止 Aria2：{}", status.message),
+            ),
+            Err(error) => state
+                .debug_logs
+                .warn("runtime.exit", format!("退出流程停止 Aria2 失败：{}", error)),
+        }
+    }
+
+    app.exit(0);
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

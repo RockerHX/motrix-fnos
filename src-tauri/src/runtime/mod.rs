@@ -4,6 +4,7 @@ use crate::config::aria2::Aria2Config;
 use crate::database::tasks::persist_download_task_states;
 use crate::tasks::{refresh_tasks_from_aria2, DownloadTask, DownloadTaskStatus};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::Manager;
 use tauri_plugin_notification::NotificationExt;
@@ -14,6 +15,15 @@ pub fn spawn_task_monitor(app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(TASK_MONITOR_INTERVAL).await;
+            let state = app_handle.state::<AppState>();
+            if state.is_exiting.load(Ordering::SeqCst) {
+                state
+                    .debug_logs
+                    .info("runtime.monitor", "应用正在退出，停止后台任务状态同步");
+                break;
+            }
+            drop(state);
+
             if let Err(error) = monitor_tasks_once(&app_handle).await {
                 let state = app_handle.state::<AppState>();
                 state.debug_logs.warn(
