@@ -8,6 +8,7 @@ pub mod runtime;
 pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
+use crate::app::Aria2RuntimeInfo;
 use crate::database::tasks::persist_download_task_states;
 use std::io;
 use std::sync::atomic::Ordering;
@@ -326,27 +327,50 @@ fn hide_main_window(app: &tauri::AppHandle) {
     }
 }
 
+
+fn runtime_aria2_config() -> Aria2Config {
+    let base = Aria2Config::from_env();
+    aria2::runtime_config(&base, base.rpc_port, aria2::generate_rpc_secret())
+}
+
 async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
 
-    let config = Aria2Config::from_env();
+    let config = runtime_aria2_config();
     {
         let state = app_handle.state::<app::AppState>();
         state
             .debug_logs
             .info("aria2", "应用启动后自动启动 Aria2 Next");
-        if let Err(error) = aria2::start_process(
+        match aria2::start_process(
             &app_handle,
             &state.aria2_process,
             &config,
             &state.debug_logs,
         ) {
-            state.debug_logs.error(
-                "aria2",
-                format!("应用启动时启动 Aria2 Next 失败：{}", error),
-            );
-            return;
+            Ok(status) => {
+                if let Some(pid) = status.pid {
+                    if let Some(source) = status.binary_source.clone() {
+                        if let Err(error) = state.set_aria2_runtime(Aria2RuntimeInfo {
+                            pid,
+                            actual_port: config.rpc_port,
+                            rpc_secret: config.rpc_secret.clone(),
+                            rpc_endpoint: config.rpc_url(),
+                            binary_source: source,
+                        }) {
+                            state.debug_logs.warn("aria2", error);
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                state.debug_logs.error(
+                    "aria2",
+                    format!("应用启动时启动 Aria2 Next 失败：{}", error),
+                );
+                return;
+            }
         }
     }
 

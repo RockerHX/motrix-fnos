@@ -6,7 +6,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
@@ -47,6 +47,22 @@ pub struct Aria2GlobalOptions {
     pub max_concurrent_downloads: u32,
     pub download_limit: u64,
     pub upload_limit: u64,
+}
+
+
+pub fn generate_rpc_secret() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!("motrix-fnos-{nanos}-{}", std::process::id())
+}
+
+pub fn runtime_config(base: &Aria2Config, actual_port: u16, rpc_secret: String) -> Aria2Config {
+    let mut config = base.clone();
+    config.rpc_port = actual_port;
+    config.rpc_secret = rpc_secret;
+    config
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -593,6 +609,14 @@ mod tests {
             binary_source: Some(Aria2BinarySource::ExternalPath),
             message: "Aria2 进程启动成功".to_string(),
         })
+    }
+
+    #[test]
+    fn runtime_config_sets_actual_port_and_secret() {
+        let config = runtime_config(&test_config(None), 16800, "secret".to_string());
+
+        assert_eq!(config.rpc_port, 16800);
+        assert_eq!(config.rpc_secret, "secret");
     }
 
     #[test]
