@@ -81,6 +81,8 @@
 
 当前问题：
 
+- macOS 上关闭主窗口隐藏到后台后，托盘图标和 Dock 图标恢复主窗口的体验不可靠，需要按 `docs/runtime-lifecycle-and-aria2-strategy.md` 修复。
+- 明确退出时尚未形成统一流程；应先暂停未完成任务并保存状态，再停止当前 AppState 管理的 Aria2 sidecar。
 - 暂未提供独立设置页和历史记录页；配置与历史数据已落库，后续阶段再补 UI 入口。
 - 重启恢复依赖已有 Aria2 GID；若 Aria2 侧已丢失任务，当前会标记为错误并记录日志。
 

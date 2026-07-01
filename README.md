@@ -69,6 +69,8 @@ rtk pnpm tauri:dev
 
 内置 sidecar 缺失、环境变量路径无效或 RPC 连接失败时，界面应显示明确错误，不应崩溃。
 
+运行时生命周期、后台驻留、退出清理和 Aria2 端口兜底策略见 [`docs/runtime-lifecycle-and-aria2-strategy.md`](docs/runtime-lifecycle-and-aria2-strategy.md)。核心原则：关闭窗口只隐藏；明确退出才暂停任务、保存状态并停止本应用管理的 sidecar；Aria2 RPC 端口不得硬编码。
+
 ## 阶段 0 完成标准（已完成）
 
 - 应用窗口标题为 `Motrix FNOS`
