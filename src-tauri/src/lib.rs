@@ -95,7 +95,13 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let quit = MenuItem::with_id(app, "quit-app", "退出 Motrix FNOS", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &hide, &quit])?;
 
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .ok_or_else(|| io::Error::other("应用默认图标未配置"))?;
+
     TrayIconBuilder::with_id("main-tray")
+        .icon(icon)
         .tooltip("Motrix FNOS")
         .menu(&menu)
         .show_menu_on_left_click(true)
