@@ -1,4 +1,4 @@
-use crate::app::ManagedAria2Process;
+use crate::app::{Aria2RuntimeInfo, ManagedAria2Process};
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
 use serde::Serialize;
@@ -63,6 +63,80 @@ pub fn runtime_config(base: &Aria2Config, actual_port: u16, rpc_secret: String) 
     config.rpc_port = actual_port;
     config.rpc_secret = rpc_secret;
     config
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidecarOwnership {
+    OwnSidecar,
+    ExternalOrUnknown,
+}
+
+pub fn classify_saved_sidecar(
+    saved: Option<&Aria2RuntimeInfo>,
+    candidate_port: u16,
+) -> SidecarOwnership {
+    match saved {
+        Some(runtime)
+            if runtime.binary_source == Aria2BinarySource::Sidecar
+                && runtime.actual_port == candidate_port
+                && !runtime.rpc_secret.trim().is_empty()
+                && runtime.pid > 0 =>
+        {
+            SidecarOwnership::OwnSidecar
+        }
+        _ => SidecarOwnership::ExternalOrUnknown,
+    }
+}
+
+pub fn cleanup_saved_sidecar_if_owned(
+    saved: Option<&Aria2RuntimeInfo>,
+    candidate_port: u16,
+    debug_logs: &DebugLogStore,
+) -> bool {
+    if classify_saved_sidecar(saved, candidate_port) != SidecarOwnership::OwnSidecar {
+        return false;
+    }
+
+    let Some(runtime) = saved else {
+        return false;
+    };
+
+    if !terminate_process(runtime.pid) {
+        debug_logs.warn(
+            "aria2.cleanup",
+            format!("本应用残留 sidecar PID {} 清理未确认成功", runtime.pid),
+        );
+        return false;
+    }
+
+    debug_logs.info(
+        "aria2.cleanup",
+        format!(
+            "已清理本应用残留 Aria2 sidecar，PID {}，端口 {}",
+            runtime.pid, runtime.actual_port
+        ),
+    );
+    true
+}
+
+#[cfg(unix)]
+fn terminate_process(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn terminate_process(pid: u32) -> bool {
+    std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -631,6 +705,50 @@ mod tests {
             binary_source: Some(Aria2BinarySource::ExternalPath),
             message: "Aria2 进程启动成功".to_string(),
         })
+    }
+
+    fn runtime_info(port: u16, source: Aria2BinarySource) -> Aria2RuntimeInfo {
+        Aria2RuntimeInfo {
+            pid: 42,
+            actual_port: port,
+            rpc_secret: "secret".to_string(),
+            rpc_endpoint: format!("http://127.0.0.1:{port}/jsonrpc"),
+            binary_source: source,
+        }
+    }
+
+    #[test]
+    fn saved_sidecar_is_owned_only_when_record_matches_candidate() {
+        let runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+
+        assert_eq!(
+            classify_saved_sidecar(Some(&runtime), 6800),
+            SidecarOwnership::OwnSidecar
+        );
+        assert_eq!(
+            classify_saved_sidecar(Some(&runtime), 16800),
+            SidecarOwnership::ExternalOrUnknown
+        );
+        assert_eq!(
+            classify_saved_sidecar(None, 6800),
+            SidecarOwnership::ExternalOrUnknown
+        );
+    }
+
+    #[test]
+    fn external_or_incomplete_runtime_is_not_owned_sidecar() {
+        let external = runtime_info(6800, Aria2BinarySource::ExternalPath);
+        let mut missing_secret = runtime_info(6800, Aria2BinarySource::Sidecar);
+        missing_secret.rpc_secret.clear();
+
+        assert_eq!(
+            classify_saved_sidecar(Some(&external), 6800),
+            SidecarOwnership::ExternalOrUnknown
+        );
+        assert_eq!(
+            classify_saved_sidecar(Some(&missing_secret), 6800),
+            SidecarOwnership::ExternalOrUnknown
+        );
     }
 
     #[test]
