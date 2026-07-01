@@ -323,6 +323,26 @@ fn rpc_port_in_use(config: &Aria2Config) -> bool {
         .any(|address| TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok())
 }
 
+
+pub fn rpc_port_candidates() -> Vec<u16> {
+    std::iter::once(6800).chain(16800..=16820).collect()
+}
+
+pub fn select_available_rpc_port(config: &Aria2Config) -> Option<u16> {
+    select_available_rpc_port_from(config, rpc_port_candidates())
+}
+
+fn select_available_rpc_port_from(
+    config: &Aria2Config,
+    candidates: impl IntoIterator<Item = u16>,
+) -> Option<u16> {
+    candidates.into_iter().find(|port| {
+        let mut candidate_config = config.clone();
+        candidate_config.rpc_port = *port;
+        !rpc_port_in_use(&candidate_config)
+    })
+}
+
 fn detect_ca_certificate_path() -> Option<PathBuf> {
     ca_certificate_candidates()
         .into_iter()
@@ -627,6 +647,37 @@ mod tests {
         assert!(args.contains(&"--rpc-listen-port=6800".to_string()));
         assert!(args.contains(&"--rpc-listen-all=false".to_string()));
         assert!(args.contains(&"--no-conf=true".to_string()));
+    }
+
+    #[test]
+    fn rpc_port_candidates_use_primary_then_fallback_range() {
+        let candidates = rpc_port_candidates();
+
+        assert_eq!(candidates.first(), Some(&6800));
+        assert_eq!(candidates[1], 16800);
+        assert_eq!(candidates.last(), Some(&16820));
+        assert_eq!(candidates.len(), 22);
+    }
+
+    #[test]
+    fn select_available_rpc_port_skips_occupied_candidate() {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
+        let occupied = listener
+            .local_addr()
+            .expect("test listener should have local addr")
+            .port();
+        let free = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .expect("free probe should bind")
+            .local_addr()
+            .expect("free probe should have local addr")
+            .port();
+        let config = test_config(None);
+
+        assert_eq!(
+            select_available_rpc_port_from(&config, [occupied, free]),
+            Some(free)
+        );
     }
 
     #[test]
