@@ -12,9 +12,9 @@ use crate::tasks::{
     add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_redownloaded,
     mark_task_removed, mark_task_resumed, move_task_files_to_trash, pause_task,
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    should_readd_task_after_resume_error, store_created_task, sync_task_progress_from_aria2_by_gid,
-    task_gid, task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask,
-    DownloadTaskStatus,
+    should_readd_task_after_resume_error, store_created_task,
+    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
+    task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -202,7 +202,7 @@ pub async fn pause_download_task(
     let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     pause_task(&config, &gid, Some(&state.debug_logs)).await?;
-    if let Err(error) = sync_task_progress_from_aria2_by_gid(
+    if let Err(error) = sync_task_progress_after_pause_by_gid(
         &state.download_tasks,
         &config,
         &gid,

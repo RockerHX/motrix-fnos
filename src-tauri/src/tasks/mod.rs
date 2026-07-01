@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -459,6 +459,55 @@ pub async fn sync_task_progress_from_aria2_by_gid(
     let client = reqwest::Client::new();
     let status = tell_status(&client, config, gid, debug_logs).await?;
     apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+pub async fn sync_task_progress_after_pause_by_gid(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<DownloadTask, String> {
+    const MAX_ATTEMPTS: usize = 8;
+    const RETRY_INTERVAL_MS: u64 = 150;
+
+    let client = reqwest::Client::new();
+    let mut previous_completed = None;
+    let mut latest_status = None;
+
+    for attempt in 0..MAX_ATTEMPTS {
+        let status = tell_status(&client, config, gid, debug_logs).await?;
+        let completed = parse_aria2_u64(&status.completed_length);
+        let settled = pause_status_is_settled(&status, previous_completed);
+        previous_completed = Some(completed);
+        latest_status = Some(status);
+
+        if settled {
+            break;
+        }
+
+        if attempt + 1 < MAX_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(RETRY_INTERVAL_MS)).await;
+        }
+    }
+
+    let status =
+        latest_status.ok_or_else(|| "暂停后同步 Aria2 任务状态失败：未获取到状态".to_string())?;
+    if !matches!(status.status.as_str(), "paused" | "complete" | "error") {
+        log_info(
+            debug_logs,
+            "tasks.control",
+            format!(
+                "暂停后 Aria2 状态尚未稳定，使用最后一次进度，GID {}，状态 {}",
+                gid, status.status
+            ),
+        );
+    }
+    apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+fn pause_status_is_settled(status: &Aria2TaskStatus, previous_completed: Option<u64>) -> bool {
+    matches!(status.status.as_str(), "paused" | "complete" | "error")
+        && previous_completed == Some(parse_aria2_u64(&status.completed_length))
 }
 
 fn apply_aria2_status_by_gid(
@@ -1893,6 +1942,29 @@ mod tests {
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
         assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+    }
+
+    #[test]
+    fn pause_status_settles_only_after_paused_progress_is_stable() {
+        let active = Aria2TaskStatus {
+            gid: Some("abc123".to_string()),
+            status: "active".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "80".to_string(),
+            download_speed: "50".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: None,
+            files: None,
+        };
+        let mut paused = active.clone();
+        paused.status = "paused".to_string();
+        paused.download_speed = "0".to_string();
+
+        assert!(!pause_status_is_settled(&active, Some(80)));
+        assert!(!pause_status_is_settled(&paused, None));
+        assert!(!pause_status_is_settled(&paused, Some(79)));
+        assert!(pause_status_is_settled(&paused, Some(80)));
     }
 
     #[test]
