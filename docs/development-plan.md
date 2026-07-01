@@ -107,7 +107,7 @@
 
 - P1-1：阶段 1 执行清单已建立。✅
 - P1-2：`server/` 核心库 crate 已建立。✅
-- P1-3：待抽取 `config` 与 `debug_logs`。⏳
+- P1-3：`config` 与 `debug_logs` 已抽取到 `server/`。✅
 - P1-4：待抽取 `database`。⏳
 - P1-5：待抽取 `tasks` 领域核心。⏳
 - P1-6：待拆分纯 `aria2` 核心与 Tauri 进程适配。⏳
