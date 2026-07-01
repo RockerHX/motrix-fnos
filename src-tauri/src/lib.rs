@@ -153,7 +153,7 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
 
     state.debug_logs.info("runtime.exit", reason);
     let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
+    tauri::async_runtime::block_on(async move {
         run_application_exit(app_handle).await;
     });
 }
