@@ -1,5 +1,5 @@
-use crate::app::AppState;
-use crate::aria2::{ping_rpc, process_status, start_process};
+use crate::app::{AppState, Aria2RuntimeInfo};
+use crate::aria2::{generate_rpc_secret, ping_rpc, process_status, runtime_config, start_process};
 use crate::commands::settings::load_app_config_from_pool;
 use crate::config::aria2::Aria2Config;
 use crate::database::tasks::{
@@ -20,7 +20,6 @@ pub async fn create_download_task(
     state: State<'_, AppState>,
     payload: CreateDownloadTaskRequest,
 ) -> Result<DownloadTask, String> {
-    let config = Aria2Config::from_env();
     let mut payload = payload;
     if payload
         .save_dir
@@ -32,7 +31,7 @@ pub async fn create_download_task(
         payload.save_dir = Some(app_config.default_download_dir);
     }
     let prepared = prepare_task_with_logs(payload, &state.debug_logs)?;
-    ensure_aria2_ready(&app, &state, &config).await?;
+    let config = ensure_aria2_ready(&app, &state).await?;
     let gid = add_uri_to_aria2(&config, &prepared, Some(&state.debug_logs)).await?;
     let task = store_created_task(&state.download_tasks, &state.next_task_id, prepared, gid)?;
     upsert_download_task(&state.database.pool, &task).await?;
@@ -50,18 +49,30 @@ pub async fn create_download_task(
 async fn ensure_aria2_ready(
     app: &AppHandle,
     state: &State<'_, AppState>,
-    config: &Aria2Config,
-) -> Result<(), String> {
+) -> Result<Aria2Config, String> {
     let process = process_status(&state.aria2_process)?;
     if !process.running {
         state
             .debug_logs
             .info("aria2", "Aria2 进程未运行，准备自动启动");
-        start_process(app, &state.aria2_process, config, &state.debug_logs)
+        let base = Aria2Config::from_env();
+        let config = runtime_config(&base, base.rpc_port, generate_rpc_secret());
+        let status = start_process(app, &state.aria2_process, &config, &state.debug_logs)
             .map_err(|error| format!("启动 Aria2 Next 失败：{}", shorten_start_error(error)))?;
+        if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
+            state.set_aria2_runtime(Aria2RuntimeInfo {
+                pid,
+                actual_port: config.rpc_port,
+                rpc_secret: config.rpc_secret.clone(),
+                rpc_endpoint: config.rpc_url(),
+                binary_source: source,
+            })?;
+        }
     }
 
-    wait_for_rpc_ready(config, &state.debug_logs).await
+    let config = state.aria2_config();
+    wait_for_rpc_ready(&config, &state.debug_logs).await?;
+    Ok(config)
 }
 
 async fn wait_for_rpc_ready(
@@ -125,7 +136,7 @@ fn shorten_start_error(message: String) -> String {
 pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
     let tasks = refresh_tasks_from_aria2(
         &state.download_tasks,
-        &Aria2Config::from_env(),
+        &state.aria2_config(),
         Some(&state.debug_logs),
     )
     .await?;
@@ -143,8 +154,7 @@ pub async fn pause_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
-    let config = Aria2Config::from_env();
-    ensure_aria2_ready(&app, &state, &config).await?;
+    let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     pause_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_paused(&state.download_tasks, task_id)?;
@@ -162,8 +172,7 @@ pub async fn resume_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
-    let config = Aria2Config::from_env();
-    ensure_aria2_ready(&app, &state, &config).await?;
+    let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     let task_before_resume = task_snapshot(&state.download_tasks, task_id)?;
     let task = match unpause_task(&config, &gid, Some(&state.debug_logs)).await {
@@ -203,8 +212,7 @@ pub async fn delete_download_task(
     task_id: u64,
     delete_files: bool,
 ) -> Result<DownloadTask, String> {
-    let config = Aria2Config::from_env();
-    ensure_aria2_ready(&app, &state, &config).await?;
+    let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
     remove_task(&config, &gid, Some(&state.debug_logs)).await?;
     let task = mark_task_removed(&state.download_tasks, task_id, delete_files)?;

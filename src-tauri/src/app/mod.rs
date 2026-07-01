@@ -1,4 +1,4 @@
-use crate::config::aria2::Aria2BinarySource;
+use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::database::AppDatabase;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
@@ -105,6 +105,15 @@ impl AppState {
         if let Ok(mut runtime) = self.aria2_runtime.lock() {
             *runtime = None;
         }
+    }
+
+    pub fn aria2_config(&self) -> Aria2Config {
+        let mut config = Aria2Config::from_env();
+        if let Some(runtime) = self.aria2_runtime_snapshot() {
+            config.rpc_port = runtime.actual_port;
+            config.rpc_secret = runtime.rpc_secret;
+        }
+        config
     }
 }
 

@@ -1,6 +1,5 @@
 use crate::app::AppState;
 use crate::commands::settings::load_app_config_from_pool;
-use crate::config::aria2::Aria2Config;
 use crate::database::tasks::persist_download_task_states;
 use crate::tasks::{refresh_tasks_from_aria2, DownloadTask, DownloadTaskStatus};
 use std::collections::{HashMap, HashSet};
@@ -36,8 +35,8 @@ pub fn spawn_task_monitor(app_handle: tauri::AppHandle) {
 }
 
 async fn monitor_tasks_once(app_handle: &tauri::AppHandle) -> Result<(), String> {
-    let config = Aria2Config::from_env();
     let state = app_handle.state::<AppState>();
+    let config = state.aria2_config();
     let previous_tasks = snapshot_tasks(&state);
     if !previous_tasks.iter().any(should_monitor_task) {
         return Ok(());

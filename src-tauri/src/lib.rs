@@ -161,8 +161,8 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
 
 
 async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
-    let config = Aria2Config::from_env();
     let state = app.state::<app::AppState>();
+    let config = state.aria2_config();
     match tasks::refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs)).await
     {
         Ok(tasks) => {
@@ -202,8 +202,8 @@ async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
 
 
 async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
-    let config = Aria2Config::from_env();
     let state = app.state::<app::AppState>();
+    let config = state.aria2_config();
     let candidates = match tasks::list_tasks(&state.download_tasks) {
         Ok(tasks) => tasks
             .into_iter()
@@ -286,6 +286,11 @@ async fn run_application_exit(app: tauri::AppHandle) {
                 .debug_logs
                 .warn("runtime.exit", format!("退出流程停止 Aria2 失败：{}", error)),
         }
+    }
+
+    {
+        let state = app.state::<app::AppState>();
+        state.clear_aria2_runtime();
     }
 
     app.exit(0);

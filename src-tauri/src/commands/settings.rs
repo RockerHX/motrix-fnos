@@ -1,6 +1,5 @@
 use crate::app::AppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
-use crate::config::aria2::Aria2Config;
 use crate::database::settings::{
     get_app_config_value, get_ui_preference_value, set_app_config_value, set_ui_preference_value,
 };
@@ -110,7 +109,7 @@ fn normalize_app_config(config: AppConfig) -> Result<AppConfig, String> {
 }
 
 async fn apply_runtime_download_config(state: &State<'_, AppState>, config: &AppConfig) {
-    let aria2_config = Aria2Config::from_env();
+    let aria2_config = state.aria2_config();
     let status = ping_rpc(&aria2_config, None).await;
     if !status.connected {
         state.debug_logs.warn(
