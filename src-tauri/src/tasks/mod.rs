@@ -693,8 +693,12 @@ async fn tell_status(
 fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
-    let should_preserve_progress =
-        status.status == "error" && next_total_length == 0 && task.total_length > 0;
+    let should_preserve_progress = should_preserve_existing_progress(
+        &status.status,
+        next_total_length,
+        next_completed_length,
+        task.total_length,
+    );
 
     task.status = map_aria2_status(&status.status);
     if !should_preserve_progress {
@@ -725,6 +729,18 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
             )
         });
     task.updated_at = current_timestamp_ms();
+}
+
+fn should_preserve_existing_progress(
+    status: &str,
+    next_total_length: u64,
+    next_completed_length: u64,
+    current_total_length: u64,
+) -> bool {
+    next_total_length == 0
+        && next_completed_length == 0
+        && current_total_length > 0
+        && matches!(status, "active" | "waiting" | "paused" | "error")
 }
 
 fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
@@ -1507,6 +1523,31 @@ mod tests {
             normalize_aria2_error_code(status.error_code.as_deref()).as_deref(),
             Some("3")
         );
+    }
+
+    #[test]
+    fn apply_aria2_status_preserves_progress_when_active_status_is_temporarily_empty() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Paused;
+        let status = Aria2TaskStatus {
+            status: "active".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: None,
+            files: None,
+        };
+
+        apply_aria2_status(&mut task, &status);
+
+        assert_eq!(task.status, DownloadTaskStatus::Active);
+        assert_eq!(task.total_length, 100);
+        assert_eq!(task.completed_length, 40);
+        assert_eq!(task.download_speed, 0);
+        assert!(task.error_code.is_none());
+        assert!(task.error_message.is_none());
     }
 
     #[test]
