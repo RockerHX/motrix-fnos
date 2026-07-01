@@ -1,6 +1,6 @@
 use crate::app::{AppState, Aria2RuntimeInfo};
 use crate::aria2::{
-    generate_rpc_secret, ping_rpc, process_status, runtime_config, start_process, stop_process,
+    generate_rpc_secret, ping_rpc, process_status, runtime_config, select_available_rpc_port, start_process, stop_process,
     Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus,
 };
 use crate::config::aria2::Aria2Config;
@@ -26,7 +26,10 @@ pub fn start_aria2(
     state: State<'_, AppState>,
 ) -> Result<Aria2ProcessStatus, String> {
     let base = Aria2Config::from_env();
-    let config = runtime_config(&base, base.rpc_port, generate_rpc_secret());
+    let port = select_available_rpc_port(&base).ok_or_else(|| {
+        "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+    })?;
+    let config = runtime_config(&base, port, generate_rpc_secret());
     let status = start_process(&app, &state.aria2_process, &config, &state.debug_logs)?;
     if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
         state.set_aria2_runtime(Aria2RuntimeInfo {

@@ -333,16 +333,30 @@ fn hide_main_window(app: &tauri::AppHandle) {
 }
 
 
-fn runtime_aria2_config() -> Aria2Config {
+fn runtime_aria2_config() -> Result<Aria2Config, String> {
     let base = Aria2Config::from_env();
-    aria2::runtime_config(&base, base.rpc_port, aria2::generate_rpc_secret())
+    let port = aria2::select_available_rpc_port(&base).ok_or_else(|| {
+        "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+    })?;
+    Ok(aria2::runtime_config(
+        &base,
+        port,
+        aria2::generate_rpc_secret(),
+    ))
 }
 
 async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
 
-    let config = runtime_aria2_config();
+    let config = match runtime_aria2_config() {
+        Ok(config) => config,
+        Err(error) => {
+            let state = app_handle.state::<app::AppState>();
+            state.debug_logs.error("aria2", &error);
+            return;
+        }
+    };
     {
         let state = app_handle.state::<app::AppState>();
         state

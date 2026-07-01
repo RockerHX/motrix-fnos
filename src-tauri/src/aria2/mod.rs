@@ -297,14 +297,11 @@ fn process_args(config: &Aria2Config) -> Vec<String> {
         "--enable-rpc=true".to_string(),
         format!("--rpc-listen-port={}", config.rpc_port),
         "--rpc-listen-all=false".to_string(),
+        format!("--rpc-secret={}", config.rpc_secret),
         "--no-conf=true".to_string(),
         "--continue=true".to_string(),
         "--console-log-level=warn".to_string(),
     ];
-
-    if !config.rpc_secret.is_empty() {
-        args.push(format!("--rpc-secret={}", config.rpc_secret));
-    }
 
     if let Some(path) = detect_ca_certificate_path() {
         args.push(format!("--ca-certificate={}", path.display()));
@@ -646,7 +643,17 @@ mod tests {
         assert!(args.contains(&"--enable-rpc=true".to_string()));
         assert!(args.contains(&"--rpc-listen-port=6800".to_string()));
         assert!(args.contains(&"--rpc-listen-all=false".to_string()));
+        assert!(args.contains(&"--rpc-secret=".to_string()));
         assert!(args.contains(&"--no-conf=true".to_string()));
+    }
+
+    #[test]
+    fn process_args_include_runtime_secret_when_configured() {
+        let mut config = test_config(None);
+        config.rpc_secret = "secret".to_string();
+        let args = process_args(&config);
+
+        assert!(args.contains(&"--rpc-secret=secret".to_string()));
     }
 
     #[test]

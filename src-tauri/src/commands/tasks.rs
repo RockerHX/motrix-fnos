@@ -1,5 +1,5 @@
 use crate::app::{AppState, Aria2RuntimeInfo};
-use crate::aria2::{generate_rpc_secret, ping_rpc, process_status, runtime_config, start_process};
+use crate::aria2::{generate_rpc_secret, ping_rpc, process_status, runtime_config, select_available_rpc_port, start_process};
 use crate::commands::settings::load_app_config_from_pool;
 use crate::config::aria2::Aria2Config;
 use crate::database::tasks::{
@@ -56,7 +56,10 @@ async fn ensure_aria2_ready(
             .debug_logs
             .info("aria2", "Aria2 进程未运行，准备自动启动");
         let base = Aria2Config::from_env();
-        let config = runtime_config(&base, base.rpc_port, generate_rpc_secret());
+        let port = select_available_rpc_port(&base).ok_or_else(|| {
+        "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+    })?;
+    let config = runtime_config(&base, port, generate_rpc_secret());
         let status = start_process(app, &state.aria2_process, &config, &state.debug_logs)
             .map_err(|error| format!("启动 Aria2 Next 失败：{}", shorten_start_error(error)))?;
         if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
