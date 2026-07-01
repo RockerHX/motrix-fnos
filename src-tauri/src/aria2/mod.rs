@@ -599,8 +599,20 @@ pub(crate) fn process_args(config: &Aria2Config) -> Vec<String> {
         format!("--rpc-secret={}", config.rpc_secret),
         "--no-conf=true".to_string(),
         "--continue=true".to_string(),
+        "--pause=true".to_string(),
+        "--save-session-interval=30".to_string(),
+        "--force-save=true".to_string(),
         "--console-log-level=warn".to_string(),
     ];
+
+    if let Some(session_path) = config.session_path.as_deref() {
+        args.push(format!("--input-file={session_path}"));
+        args.push(format!("--save-session={session_path}"));
+    }
+
+    if let Some(log_path) = config.log_path.as_deref() {
+        args.push(format!("--log={log_path}"));
+    }
 
     if let Some(path) = detect_ca_certificate_path() {
         args.push(format!("--ca-certificate={}", path.display()));
@@ -1156,6 +1168,33 @@ mod tests {
         let args = process_args(&config);
 
         assert!(args.contains(&"--rpc-secret=secret".to_string()));
+    }
+
+    #[test]
+    fn process_args_include_session_paths_when_configured() {
+        let mut config = test_config(None);
+        config.session_path = Some("/tmp/motrix-fnos/aria2/aria2.session".to_string());
+        config.log_path = Some("/tmp/motrix-fnos/aria2/aria2.log".to_string());
+        let args = process_args(&config);
+
+        assert!(args.contains(&"--pause=true".to_string()));
+        assert!(args.contains(&"--save-session-interval=30".to_string()));
+        assert!(args.contains(&"--force-save=true".to_string()));
+        assert!(args.contains(&"--input-file=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
+        assert!(args.contains(&"--save-session=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
+        assert!(args.contains(&"--log=/tmp/motrix-fnos/aria2/aria2.log".to_string()));
+    }
+
+    #[test]
+    fn summarized_process_args_redact_rpc_secret() {
+        let mut config = test_config(None);
+        config.rpc_secret = "super-secret".to_string();
+        config.session_path = Some("/tmp/motrix-fnos/aria2/aria2.session".to_string());
+        let summary = summarize_args(&process_args(&config));
+
+        assert!(summary.contains("--rpc-secret=***"));
+        assert!(!summary.contains("super-secret"));
+        assert!(summary.contains("--save-session=/tmp/motrix-fnos/aria2/aria2.session"));
     }
 
     #[test]
