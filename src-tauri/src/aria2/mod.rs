@@ -49,7 +49,6 @@ pub struct Aria2GlobalOptions {
     pub upload_limit: u64,
 }
 
-
 pub fn generate_rpc_secret() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -64,7 +63,6 @@ pub fn runtime_config(base: &Aria2Config, actual_port: u16, rpc_secret: String) 
     config.rpc_secret = rpc_secret;
     config
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidecarOwnership {
@@ -394,8 +392,6 @@ fn rpc_port_in_use(config: &Aria2Config) -> bool {
         .any(|address| TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok())
 }
 
-
-
 pub fn rpc_ports_exhausted_message() -> String {
     "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
 }
@@ -406,6 +402,29 @@ pub fn rpc_port_candidates() -> Vec<u16> {
 
 pub fn select_available_rpc_port(config: &Aria2Config) -> Option<u16> {
     select_available_rpc_port_from(config, rpc_port_candidates())
+}
+
+pub fn select_rpc_port_with_saved_runtime(
+    config: &Aria2Config,
+    saved: Option<&Aria2RuntimeInfo>,
+    debug_logs: &DebugLogStore,
+) -> Option<u16> {
+    for port in rpc_port_candidates() {
+        let mut candidate_config = config.clone();
+        candidate_config.rpc_port = port;
+        if !rpc_port_in_use(&candidate_config) {
+            return Some(port);
+        }
+
+        if cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
+            std::thread::sleep(Duration::from_millis(300));
+            if !rpc_port_in_use(&candidate_config) {
+                return Some(port);
+            }
+        }
+    }
+
+    None
 }
 
 fn select_available_rpc_port_from(
@@ -787,6 +806,19 @@ mod tests {
         assert_eq!(candidates[1], 16800);
         assert_eq!(candidates.last(), Some(&16820));
         assert_eq!(candidates.len(), 22);
+    }
+
+    #[test]
+    fn occupied_external_port_is_not_selected() {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
+        let occupied = listener
+            .local_addr()
+            .expect("test listener should have local addr")
+            .port();
+        let config = test_config(None);
+
+        assert_eq!(select_available_rpc_port_from(&config, [occupied]), None);
     }
 
     #[test]

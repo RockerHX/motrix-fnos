@@ -7,8 +7,8 @@ pub mod debug_logs;
 pub mod runtime;
 pub mod tasks;
 
-use crate::config::aria2::Aria2Config;
 use crate::app::Aria2RuntimeInfo;
+use crate::config::aria2::Aria2Config;
 use crate::database::tasks::persist_download_task_states;
 use std::io;
 use std::sync::atomic::Ordering;
@@ -142,7 +142,6 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     let state = app.state::<app::AppState>();
     if state.is_exiting.swap(true, Ordering::SeqCst) {
@@ -159,11 +158,11 @@ pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     });
 }
 
-
 async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
     let state = app.state::<app::AppState>();
     let config = state.aria2_config();
-    match tasks::refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs)).await
+    match tasks::refresh_tasks_from_aria2(&state.download_tasks, &config, Some(&state.debug_logs))
+        .await
     {
         Ok(tasks) => {
             if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
@@ -185,7 +184,9 @@ async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
             );
             match tasks::list_tasks(&state.download_tasks) {
                 Ok(tasks) => {
-                    if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
+                    if let Err(error) =
+                        persist_download_task_states(&state.database.pool, &tasks).await
+                    {
                         state.debug_logs.error(
                             "runtime.exit",
                             format!("退出前保存最后已知任务状态失败：{}", error),
@@ -200,7 +201,6 @@ async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
     }
 }
 
-
 async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     let state = app.state::<app::AppState>();
     let config = state.aria2_config();
@@ -211,9 +211,10 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
             .filter_map(|task| task.gid.map(|gid| (task.id, gid)))
             .collect::<Vec<_>>(),
         Err(error) => {
-            state
-                .debug_logs
-                .error("runtime.exit", format!("退出前读取待暂停任务失败：{}", error));
+            state.debug_logs.error(
+                "runtime.exit",
+                format!("退出前读取待暂停任务失败：{}", error),
+            );
             return;
         }
     };
@@ -232,7 +233,10 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
                 Ok(task) => paused_tasks.push(task),
                 Err(error) => state.debug_logs.warn(
                     "runtime.exit",
-                    format!("退出前标记任务暂停失败，ID {}，GID {}：{}", task_id, gid, error),
+                    format!(
+                        "退出前标记任务暂停失败，ID {}，GID {}：{}",
+                        task_id, gid, error
+                    ),
                 ),
             },
             Err(error) => state.debug_logs.warn(
@@ -245,17 +249,19 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     let tasks = match tasks::list_tasks(&state.download_tasks) {
         Ok(tasks) => tasks,
         Err(error) => {
-            state
-                .debug_logs
-                .error("runtime.exit", format!("退出前读取暂停后任务状态失败：{}", error));
+            state.debug_logs.error(
+                "runtime.exit",
+                format!("退出前读取暂停后任务状态失败：{}", error),
+            );
             return;
         }
     };
 
     if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
-        state
-            .debug_logs
-            .error("runtime.exit", format!("退出前保存暂停任务状态失败：{}", error));
+        state.debug_logs.error(
+            "runtime.exit",
+            format!("退出前保存暂停任务状态失败：{}", error),
+        );
     } else {
         state.debug_logs.info(
             "runtime.exit",
@@ -282,9 +288,10 @@ async fn run_application_exit(app: tauri::AppHandle) {
                 "runtime.exit",
                 format!("退出流程已停止 Aria2：{}", status.message),
             ),
-            Err(error) => state
-                .debug_logs
-                .warn("runtime.exit", format!("退出流程停止 Aria2 失败：{}", error)),
+            Err(error) => state.debug_logs.warn(
+                "runtime.exit",
+                format!("退出流程停止 Aria2 失败：{}", error),
+            ),
         }
     }
 
@@ -332,12 +339,13 @@ fn hide_main_window(app: &tauri::AppHandle) {
     }
 }
 
-
-fn runtime_aria2_config() -> Result<Aria2Config, String> {
+fn runtime_aria2_config(app: &tauri::AppHandle) -> Result<Aria2Config, String> {
     let base = Aria2Config::from_env();
-    let port = aria2::select_available_rpc_port(&base).ok_or_else(|| {
-        aria2::rpc_ports_exhausted_message()
-    })?;
+    let state = app.state::<app::AppState>();
+    let saved_runtime = state.load_saved_aria2_runtime();
+    let port =
+        aria2::select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
+            .ok_or_else(aria2::rpc_ports_exhausted_message)?;
     Ok(aria2::runtime_config(
         &base,
         port,
@@ -349,7 +357,7 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
 
-    let config = match runtime_aria2_config() {
+    let config = match runtime_aria2_config(&app_handle) {
         Ok(config) => config,
         Err(error) => {
             let state = app_handle.state::<app::AppState>();
@@ -410,7 +418,8 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                     .debug_logs
                     .error("tasks.restore", format!("恢复任务状态同步失败：{}", error));
             }
-            if let Err(error) = apply_saved_download_config_after_rpc_ready(&app_handle, &config).await
+            if let Err(error) =
+                apply_saved_download_config_after_rpc_ready(&app_handle, &config).await
             {
                 let state = app_handle.state::<app::AppState>();
                 state

@@ -1,7 +1,8 @@
 use crate::app::{AppState, Aria2RuntimeInfo};
 use crate::aria2::{
-    generate_rpc_secret, ping_rpc, process_status, runtime_config, select_available_rpc_port, start_process, stop_process,
-    Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus,
+    generate_rpc_secret, ping_rpc, process_status, runtime_config,
+    select_rpc_port_with_saved_runtime, start_process, stop_process, Aria2ConfigStatus,
+    Aria2ProcessStatus, Aria2RpcStatus,
 };
 use crate::config::aria2::Aria2Config;
 use tauri::{AppHandle, State};
@@ -26,9 +27,9 @@ pub fn start_aria2(
     state: State<'_, AppState>,
 ) -> Result<Aria2ProcessStatus, String> {
     let base = Aria2Config::from_env();
-    let port = select_available_rpc_port(&base).ok_or_else(|| {
-        crate::aria2::rpc_ports_exhausted_message()
-    })?;
+    let saved_runtime = state.load_saved_aria2_runtime();
+    let port = select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
+        .ok_or_else(crate::aria2::rpc_ports_exhausted_message)?;
     let config = runtime_config(&base, port, generate_rpc_secret());
     let status = start_process(&app, &state.aria2_process, &config, &state.debug_logs)?;
     if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
@@ -52,8 +53,5 @@ pub fn stop_aria2(state: State<'_, AppState>) -> Result<Aria2ProcessStatus, Stri
 
 #[tauri::command]
 pub fn ping_aria2_rpc(state: State<'_, AppState>) -> Aria2RpcStatus {
-    tauri::async_runtime::block_on(ping_rpc(
-        &state.aria2_config(),
-        Some(&state.debug_logs),
-    ))
+    tauri::async_runtime::block_on(ping_rpc(&state.aria2_config(), Some(&state.debug_logs)))
 }
