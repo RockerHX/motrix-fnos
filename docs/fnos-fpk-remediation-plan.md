@@ -425,8 +425,8 @@ FPK 下必须重新设计：
 | P1-2 | 新建 server 核心库 crate 骨架 | 新建 `server/` 库 crate，并让 `src-tauri` 通过 path dependency 引入 | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新建server核心库crate骨架` | 已完成 | `feat: 新建server核心库crate骨架`（`3b5b231`） |
 | P1-3 | 抽取 config 与 debug_logs | `server/` 承载纯配置与调试日志核心，`src-tauri` 改为包装层或 re-export | `server/src/config`、`server/src/debug_logs` 中不出现 `tauri::` 或 `tauri_plugin` | `refactor: 抽取服务端配置与调试日志核心` | 已完成 | `refactor: 抽取服务端配置与调试日志核心`（`6f8a776`） |
 | P1-4 | 抽取 database | `server/` 承载数据库连接、schema 与 repository，`src-tauri` 仅保留 Tauri 路径适配 | `server/src/database` 中不出现 `tauri::Manager`，双轨测试通过 | `refactor: 抽取服务端数据库核心模块` | 已完成 | `refactor: 抽取服务端数据库核心模块`（`3e005fd`） |
-| P1-5 | 抽取 tasks 领域核心 | `server/` 承载任务模型、校验、状态变更与 RPC 交互核心 | `server/src/tasks` 中不出现 `tauri::`、`AppHandle`、`Manager` | `refactor: 抽取下载任务领域核心` | 已完成 | `refactor: 抽取下载任务领域核心` |
-| P1-6 | 拆分纯 aria2 核心与 Tauri 进程适配 | `server/` 承载纯 RPC / 端口 / 运行态逻辑，`src-tauri` 保留 sidecar 进程适配 | `server/src/aria2` 中不出现 `AppHandle`、`ShellExt`、`CommandChild` | `refactor: 拆分纯aria2核心与Tauri进程适配` | 待完成 | - |
+| P1-5 | 抽取 tasks 领域核心 | `server/` 承载任务模型、校验、状态变更与 RPC 交互核心 | `server/src/tasks` 中不出现 `tauri::`、`AppHandle`、`Manager` | `refactor: 抽取下载任务领域核心` | 已完成 | `refactor: 抽取下载任务领域核心`（`8f3ad40`） |
+| P1-6 | 拆分纯 aria2 核心与 Tauri 进程适配 | `server/` 承载纯 RPC / 端口 / 运行态逻辑，`src-tauri` 保留 sidecar 进程适配 | `server/src/aria2` 中不出现 `AppHandle`、`ShellExt`、`CommandChild` | `refactor: 拆分纯aria2核心与Tauri进程适配` | 已完成 | `refactor: 拆分纯aria2核心与Tauri进程适配` |
 | P1-7 | 抽取无 Tauri 的 ServerState | `server/` 新增 `ServerState`，`src-tauri::AppState` 改为 Tauri 适配层 | `server/src/state` 中不出现 `tauri_plugin_shell`、`CommandChild` | `refactor: 抽取无Tauri依赖的ServerState核心` | 待完成 | - |
 | P1-8 | 拆分 settings / tasks 服务层并收口 | `server::settings::service` 与 `server::tasks::service` 承接业务编排，`src-tauri` command 变薄 | `cargo check --manifest-path src-tauri/Cargo.toml` 与双轨测试通过 | `refactor: 拆分设置与任务服务层` | 待完成 | - |
 
