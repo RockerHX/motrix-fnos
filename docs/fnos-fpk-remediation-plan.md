@@ -378,14 +378,26 @@ FPK 下必须重新设计：
 
 目标：先修正项目的“决策来源”，停止继续沿 Tauri 增加功能，防止方向继续跑偏。
 
-任务：
+执行规则：
 
-1. 更新 `docs/architecture.md`，明确 FPK-first 架构，并废止“Tauri 2 是主应用壳”的长期决策。
-2. 更新 `docs/development-plan.md`，增加架构纠偏阶段，并把当前 Tauri 工作标记为 legacy/可迁移资产，而不是最终交付完成项。
-3. 更新 `README.md`，标注当前不能直接打 FPK，项目正在从 Tauri 桌面壳迁移到 FPK-first 架构。
-4. 新增或规划 `docs/fnos-fpk-architecture.md`、`docs/api-contract.md`、`docs/fpk-packaging.md`、`docs/fnos-manual-test-checklist.md`。
-5. 从计划和文档中移除“Tauri 是最终主线”的表述。
-6. 保留 Tauri 现状仅作为 legacy 参考，不再新增 Tauri 能力。
+- 本阶段只做文档整改和追踪机制建立，不改代码、不删 Tauri 文件、不启动 server/API 迁移。
+- 提交粒度固定为“小任务一提交”。
+- 本阶段提交前缀固定为 `docs:`，使用中文 Conventional Commit。
+- 完成状态双写：`docs/fnos-fpk-remediation-plan.md` 记录细项，`docs/development-plan.md` 记录阶段摘要。
+- 默认在同一提交中更新小任务状态；受 Git 提交哈希自引用限制，`提交记录` 字段允许先写提交主题，并在后续提交中回填前一项短哈希。
+
+执行清单：
+
+| 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
+| --- | --- | --- | --- | --- | --- | --- |
+| P0-1 | 把阶段 0 改成可执行清单 | 为阶段 0 增加编号、跟踪规则和状态表 | 阶段 0 出现覆盖全部后续小任务的执行清单 | `docs: 细化阶段0整改执行清单` | 已完成 | `docs: 细化阶段0整改执行清单` |
+| P0-2 | 重写架构目标与总体技术路线 | `docs/architecture.md` 明确 FPK-first、Rust server、Vue Web UI、Axum 主线 | 文档不再把 Tauri 2 写成当前主应用壳 | `docs: 明确FPK-first总体架构主线` | 待完成 | - |
+| P0-3 | 调整架构分层、数据流和运行时表述 | `docs/architecture.md` 切换到 HTTP API / SSE / fnOS 服务生命周期 | 文档不再把托盘、Dock、Tauri sidecar 打包写成长期原则 | `docs: 调整架构分层与数据流到服务化模型` | 待完成 | - |
+| P0-4 | 重置开发计划的目标与现状描述 | `docs/development-plan.md` 顶部改成 FPK-first 目标与 legacy 资产摘要 | 文档顶部不再宣称 Tauri 是当前确定方向 | `docs: 重置开发计划的目标与现状描述` | 待完成 | - |
+| P0-5 | 新增架构纠偏阶段并冻结 Tauri 主线 | `docs/development-plan.md` 增加阶段 0、冻结说明和新阶段顺序 | 文档中存在新的“阶段 0：架构纠偏” | `docs: 新增FPK整改阶段并冻结Tauri主线` | 待完成 | - |
+| P0-6 | 更新 README 的整改期说明 | `README.md` 切换到 FPK-first 整改叙述 | README 首页不再把 Tauri 桌面应用写成目标形态 | `docs: 更新README说明FPK整改状态` | 待完成 | - |
+| P0-7 | 新增 FPK 文档骨架 | 新建 4 份文档骨架并建立引用入口 | 文档文件存在且标题、命名与整改计划一致 | `docs: 新增FPK架构与交付文档骨架` | 待完成 | - |
+| P0-8 | 做一致性检查并收口阶段状态 | 修正文档冲突并完成阶段 0 状态更新 | 主文档不再把 Tauri 写成当前主线或把 `tauri build` 写成目标交付链路 | `docs: 完成阶段0文档纠偏与状态收口` | 待完成 | - |
 
 验收：
 
