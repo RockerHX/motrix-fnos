@@ -815,7 +815,7 @@ fn is_stale_aria2_gid_status(status: &Aria2TaskStatus) -> bool {
 
 pub fn is_stale_aria2_gid_error(message: &str) -> bool {
     let normalized = message.to_ascii_lowercase();
-    normalized.contains("no uri available")
+    normalized.contains("no uri available") || normalized.contains("is not found")
 }
 
 pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) -> bool {
@@ -1277,8 +1277,22 @@ mod tests {
     #[test]
     fn is_stale_aria2_gid_error_detects_unrecoverable_resume_errors() {
         assert!(is_stale_aria2_gid_error("No URI available"));
+        assert!(is_stale_aria2_gid_error(
+            "GID 6c4e6a308ea8d57e is not found"
+        ));
         assert!(!is_stale_aria2_gid_error("GID#123 cannot be unpaused now"));
         assert!(!is_stale_aria2_gid_error("download failed"));
+    }
+
+    #[test]
+    fn resume_error_readds_when_gid_is_not_found() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.status = DownloadTaskStatus::Error;
+
+        assert!(should_readd_task_after_resume_error(
+            &task,
+            "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
+        ));
     }
 
     #[test]

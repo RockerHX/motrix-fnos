@@ -9,10 +9,11 @@ use crate::database::tasks::{
     persist_download_task_state, persist_download_task_states, upsert_download_task,
 };
 use crate::tasks::{
-    add_uri_to_aria2, mark_task_paused, mark_task_removed, mark_task_resumed, pause_task,
-    prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    should_readd_task_after_resume_error, store_created_task, task_gid, task_snapshot,
-    unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
+    add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_removed,
+    mark_task_resumed, pause_task, prepare_task_with_logs, readd_task_to_aria2,
+    refresh_tasks_from_aria2, remove_task, should_readd_task_after_resume_error,
+    store_created_task, task_gid, task_snapshot, unpause_task, CreateDownloadTaskRequest,
+    DownloadTask, DownloadTaskStatus,
 };
 use std::time::Duration;
 use tauri::{AppHandle, State};
@@ -221,7 +222,19 @@ pub async fn delete_download_task(
 ) -> Result<DownloadTask, String> {
     let config = ensure_aria2_ready(&app, &state).await?;
     let gid = task_gid(&state.download_tasks, task_id)?;
-    remove_task(&config, &gid, Some(&state.debug_logs)).await?;
+    if let Err(error) = remove_task(&config, &gid, Some(&state.debug_logs)).await {
+        if is_stale_aria2_gid_error(&error) {
+            state.debug_logs.warn(
+                "tasks.control",
+                format!(
+                    "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
+                    task_id, gid, error
+                ),
+            );
+        } else {
+            return Err(error);
+        }
+    }
     let task = mark_task_removed(&state.download_tasks, task_id, delete_files)?;
     sync_task_to_database(&state, &task).await?;
     state.debug_logs.info(
