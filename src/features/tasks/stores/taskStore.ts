@@ -110,7 +110,13 @@ export const useTaskStore = defineStore("tasks", () => {
   }
 
   function upsertTask(task: DownloadTask) {
-    tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+    const existingIndex = tasks.value.findIndex((item) => item.id === task.id);
+    if (existingIndex < 0) {
+      tasks.value = [task, ...tasks.value];
+      return;
+    }
+
+    tasks.value = tasks.value.map((item) => (item.id === task.id ? task : item));
   }
 
   function collectNewTaskErrorMessages(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {

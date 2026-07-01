@@ -32,10 +32,7 @@ watch(
   ],
   () => {
     sampleStartedAt = performance.now();
-    sampleCompletedLength = Math.max(
-      clampCompletedLength(props.task.completedLength),
-      estimatedCompletedLength.value,
-    );
+    sampleCompletedLength = clampCompletedLength(props.task.completedLength);
     estimatedCompletedLength.value = sampleCompletedLength;
     restartProgressLoop();
   },
