@@ -403,20 +403,28 @@ impl Aria2ConfigStatus {
 pub fn process_status(
     process: &Mutex<Option<ManagedAria2Process>>,
 ) -> Result<Aria2ProcessStatus, String> {
-    let guard = process
+    let mut guard = process
         .lock()
         .map_err(|_| "无法读取 Aria2 进程状态".to_string())?;
 
     Ok(match guard.as_ref() {
-        Some(child) => Aria2ProcessStatus {
+        Some(child) if managed_process_is_running(child) => Aria2ProcessStatus {
             running: true,
             pid: Some(child.id()),
-            binary_source: Some(match child {
-                ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
-                ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
-            }),
+            binary_source: Some(managed_process_source(child)),
             message: "Aria2 进程已启动".to_string(),
         },
+        Some(child) => {
+            let pid = child.id();
+            let source = managed_process_source(child);
+            let _ = guard.take();
+            Aria2ProcessStatus {
+                running: false,
+                pid: Some(pid),
+                binary_source: Some(source),
+                message: format!("Aria2 进程已退出，PID {}", pid),
+            }
+        }
         None => Aria2ProcessStatus {
             running: false,
             pid: None,
@@ -424,6 +432,17 @@ pub fn process_status(
             message: "Aria2 进程未启动".to_string(),
         },
     })
+}
+
+fn managed_process_source(process: &ManagedAria2Process) -> Aria2BinarySource {
+    match process {
+        ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
+        ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
+    }
+}
+
+fn managed_process_is_running(process: &ManagedAria2Process) -> bool {
+    process_is_running(process.id())
 }
 
 pub fn start_process(
@@ -441,16 +460,19 @@ pub fn start_process(
     };
 
     if let Some(child) = guard.as_ref() {
-        debug_logs.info("aria2", format!("Aria2 进程已在运行，PID {}", child.id()));
-        return Ok(Aria2ProcessStatus {
-            running: true,
-            pid: Some(child.id()),
-            binary_source: Some(match child {
-                ManagedAria2Process::External(_) => Aria2BinarySource::ExternalPath,
-                ManagedAria2Process::Sidecar(_) => Aria2BinarySource::Sidecar,
-            }),
-            message: "Aria2 进程已在运行".to_string(),
-        });
+        let pid = child.id();
+        if managed_process_is_running(child) {
+            debug_logs.info("aria2", format!("Aria2 进程已在运行，PID {}", pid));
+            return Ok(Aria2ProcessStatus {
+                running: true,
+                pid: Some(pid),
+                binary_source: Some(managed_process_source(child)),
+                message: "Aria2 进程已在运行".to_string(),
+            });
+        }
+
+        debug_logs.warn("aria2", format!("清理已退出的 Aria2 进程句柄，PID {}", pid));
+        let _ = guard.take();
     }
 
     if rpc_port_in_use(config) {
@@ -520,22 +542,30 @@ pub fn stop_process(
 
     if let Some(child) = guard.take() {
         let pid = child.id();
-        debug_logs.info("aria2", format!("准备停止 Aria2 进程，PID {}", pid));
-        if let Err(error) = child.kill() {
+        if !managed_process_is_running(&child) {
             debug_logs.warn(
                 "aria2",
-                format!(
-                    "停止 Aria2 进程句柄失败，尝试按 PID 兜底终止，PID {}：{}",
-                    pid, error
-                ),
+                format!("停止 Aria2 进程：PID {} 已不存在，清理本地句柄", pid),
             );
+        } else {
+            debug_logs.info("aria2", format!("准备停止 Aria2 进程，PID {}", pid));
+            if let Err(error) = child.kill() {
+                debug_logs.warn(
+                    "aria2",
+                    format!(
+                        "停止 Aria2 进程句柄失败，尝试按 PID 兜底终止，PID {}：{}",
+                        pid, error
+                    ),
+                );
+            }
+            if !wait_until_process_exits(pid, Duration::from_millis(800)) && !terminate_process(pid)
+            {
+                let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
+                debug_logs.error("aria2", &error);
+                return Err(error);
+            }
+            debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
         }
-        if !wait_until_process_exits(pid, Duration::from_millis(800)) && !terminate_process(pid) {
-            let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
-            debug_logs.error("aria2", &error);
-            return Err(error);
-        }
-        debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
     } else {
         debug_logs.info("aria2", "停止 Aria2 进程：当前没有运行中的进程");
     }

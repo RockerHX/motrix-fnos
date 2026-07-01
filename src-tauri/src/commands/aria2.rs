@@ -15,6 +15,9 @@ pub fn get_aria2_config_status() -> Aria2ConfigStatus {
 #[tauri::command]
 pub fn get_aria2_process_status(state: State<'_, AppState>) -> Result<Aria2ProcessStatus, String> {
     let status = process_status(&state.aria2_process)?;
+    if !status.running && status.pid.is_some() {
+        state.clear_aria2_runtime();
+    }
     state
         .debug_logs
         .info("aria2", format!("读取 Aria2 进程状态：{}", status.message));

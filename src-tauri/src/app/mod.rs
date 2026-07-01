@@ -93,6 +93,28 @@ pub fn read_aria2_runtime_record(path: &Path) -> Result<Option<Aria2RuntimeInfo>
         .map_err(|error| format!("解析 Aria2 运行态文件失败：{}", error))
 }
 
+fn ensure_aria2_session_file(path: &Path) -> Result<(), String> {
+    if path.exists() && !path.is_file() {
+        return Err(format!(
+            "Aria2 session 路径已存在但不是文件：{}",
+            path.display()
+        ));
+    }
+
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map(|_| ())
+        .map_err(|error| {
+            format!(
+                "创建 Aria2 session 文件失败：{}（{}）",
+                path.display(),
+                error
+            )
+        })
+}
+
 pub fn remove_aria2_runtime_record(path: &Path) -> Result<(), String> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -231,6 +253,7 @@ impl AppState {
                 error
             )
         })?;
+        ensure_aria2_session_file(&paths.session_path)?;
         self.debug_logs.info(
             "aria2.runtime",
             format!("Aria2 runtime 目录已准备：{}", paths.runtime_dir.display()),
@@ -289,6 +312,28 @@ mod tests {
         assert_eq!(paths.runtime_dir, app_data_dir.join("aria2"));
         assert_eq!(paths.session_path, app_data_dir.join("aria2/aria2.session"));
         assert_eq!(paths.log_path, app_data_dir.join("aria2/aria2.log"));
+    }
+
+    #[test]
+    fn ensure_aria2_session_file_creates_missing_file_without_truncating() {
+        let path = std::env::temp_dir().join(format!(
+            "motrix-fnos-session-{}.session",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be valid")
+                .as_millis()
+        ));
+
+        ensure_aria2_session_file(&path).expect("session file should be created");
+        assert!(path.is_file());
+        fs::write(&path, b"content").expect("session content should write");
+        ensure_aria2_session_file(&path).expect("existing session file should be kept");
+        assert_eq!(
+            fs::read_to_string(&path).expect("session should read"),
+            "content"
+        );
+
+        let _ = fs::remove_file(path);
     }
 
     #[test]

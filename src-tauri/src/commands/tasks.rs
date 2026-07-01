@@ -89,7 +89,21 @@ async fn ensure_aria2_ready(
     }
 
     let config = state.aria2_config();
-    wait_for_rpc_ready(&config, &state.debug_logs).await?;
+    if let Err(error) = wait_for_rpc_ready(&config, &state.debug_logs).await {
+        let status = process_status(&state.aria2_process)?;
+        if !status.running {
+            state.clear_aria2_runtime();
+            state.debug_logs.error(
+                "aria2",
+                format!("Aria2 进程已退出，RPC 无法就绪：{}", status.message),
+            );
+            return Err(format!(
+                "Aria2 Next 启动后已退出，RPC 未就绪，请查看 Aria2 日志（{}）",
+                normalize_rpc_error(&error)
+            ));
+        }
+        return Err(error);
+    }
     Ok(config)
 }
 

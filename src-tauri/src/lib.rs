@@ -528,13 +528,30 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     }
 
     let state = app_handle.state::<app::AppState>();
-    state.debug_logs.error(
-        "aria2.rpc",
-        format!(
-            "应用启动后 Aria2 RPC ready timeout：{}",
-            normalize_startup_rpc_message(&last_message)
+    match aria2::process_status(&state.aria2_process) {
+        Ok(status) if !status.running => {
+            state.clear_aria2_runtime();
+            state.debug_logs.error(
+                "aria2.rpc",
+                format!(
+                    "应用启动后 Aria2 已退出，RPC 未就绪：{}（{}）",
+                    status.message,
+                    normalize_startup_rpc_message(&last_message)
+                ),
+            );
+        }
+        Ok(_) => state.debug_logs.error(
+            "aria2.rpc",
+            format!(
+                "应用启动后 Aria2 RPC ready timeout：{}",
+                normalize_startup_rpc_message(&last_message)
+            ),
         ),
-    );
+        Err(error) => state.debug_logs.error(
+            "aria2.rpc",
+            format!("应用启动后读取 Aria2 进程状态失败：{}", error),
+        ),
+    }
 }
 
 async fn force_pause_unfinished_tasks_on_startup(app_handle: &tauri::AppHandle) {
