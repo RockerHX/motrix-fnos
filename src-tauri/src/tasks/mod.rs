@@ -745,7 +745,8 @@ fn is_stale_aria2_gid_status(status: &Aria2TaskStatus) -> bool {
 }
 
 pub fn is_stale_aria2_gid_error(message: &str) -> bool {
-    message.to_ascii_lowercase().contains("no uri available")
+    let normalized = message.to_ascii_lowercase();
+    normalized.contains("no uri available") || normalized.contains("cannot be unpaused now")
 }
 
 fn is_aria2_status_error(status: &Aria2TaskStatus) -> bool {
@@ -1161,6 +1162,13 @@ mod tests {
         let task = mark_task_resumed(&tasks, 1).expect("task should be resumed");
 
         assert_eq!(task.status, DownloadTaskStatus::Active);
+    }
+
+    #[test]
+    fn is_stale_aria2_gid_error_detects_unrecoverable_resume_errors() {
+        assert!(is_stale_aria2_gid_error("No URI available"));
+        assert!(is_stale_aria2_gid_error("GID#123 cannot be unpaused now"));
+        assert!(!is_stale_aria2_gid_error("download failed"));
     }
 
     #[test]
