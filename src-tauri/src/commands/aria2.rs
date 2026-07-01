@@ -1,4 +1,4 @@
-use crate::app::{AppState, Aria2RuntimeInfo};
+use crate::app::AppState;
 use crate::aria2::{
     generate_rpc_secret, ping_rpc, process_status, runtime_config,
     select_rpc_port_with_saved_runtime, start_process, stop_process, Aria2ConfigStatus,
@@ -33,13 +33,12 @@ pub fn start_aria2(
     let config = runtime_config(&base, port, generate_rpc_secret());
     let status = start_process(&app, &state.aria2_process, &config, &state.debug_logs)?;
     if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
-        state.set_aria2_runtime(Aria2RuntimeInfo {
+        state.set_aria2_runtime(state.build_aria2_runtime_info(
             pid,
-            actual_port: config.rpc_port,
-            rpc_secret: config.rpc_secret.clone(),
-            rpc_endpoint: config.rpc_url(),
-            binary_source: source,
-        })?;
+            &config,
+            source,
+            crate::aria2::process_args(&config),
+        ))?;
     }
     Ok(status)
 }

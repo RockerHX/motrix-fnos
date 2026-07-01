@@ -19,9 +19,26 @@ pub struct Aria2RuntimeInfo {
     pub rpc_secret: String,
     pub rpc_endpoint: String,
     pub binary_source: Aria2BinarySource,
+    #[serde(default)]
+    pub sidecar_name: Option<String>,
+    #[serde(default)]
+    pub app_data_dir: Option<String>,
+    #[serde(default)]
+    pub aria2_session_path: Option<String>,
+    #[serde(default)]
+    pub aria2_log_path: Option<String>,
+    #[serde(default)]
+    pub launch_args: Option<Vec<String>>,
 }
 
 pub const ARIA2_RUNTIME_FILE_NAME: &str = "aria2-runtime.json";
+
+pub fn app_data_dir_from_database_path(database_path: &Path) -> PathBuf {
+    database_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
 
 pub fn aria2_runtime_path(database_path: &Path) -> PathBuf {
     database_path
@@ -99,6 +116,7 @@ pub struct AppState {
     pub aria2_runtime: Mutex<Option<Aria2RuntimeInfo>>,
     pub download_tasks: Mutex<Vec<DownloadTask>>,
     pub database: AppDatabase,
+    pub app_data_dir: PathBuf,
     pub aria2_runtime_path: PathBuf,
     pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
@@ -113,11 +131,14 @@ impl AppState {
         next_task_id: u64,
     ) -> Self {
         let restored_count = download_tasks.len();
+        let app_data_dir = app_data_dir_from_database_path(&database.path);
+        let aria2_runtime_path = aria2_runtime_path(&database.path);
         let state = Self {
             aria2_process: Mutex::new(None),
             aria2_runtime: Mutex::new(None),
             download_tasks: Mutex::new(download_tasks),
-            aria2_runtime_path: aria2_runtime_path(&database.path),
+            app_data_dir,
+            aria2_runtime_path,
             database,
             debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(next_task_id),
@@ -179,6 +200,27 @@ impl AppState {
         }
         config
     }
+
+    pub fn build_aria2_runtime_info(
+        &self,
+        pid: u32,
+        config: &Aria2Config,
+        source: Aria2BinarySource,
+        launch_args: Vec<String>,
+    ) -> Aria2RuntimeInfo {
+        Aria2RuntimeInfo {
+            pid,
+            actual_port: config.rpc_port,
+            rpc_secret: config.rpc_secret.clone(),
+            rpc_endpoint: config.rpc_url(),
+            binary_source: source,
+            sidecar_name: Some(config.sidecar_name.clone()),
+            app_data_dir: Some(self.app_data_dir.display().to_string()),
+            aria2_session_path: None,
+            aria2_log_path: None,
+            launch_args: Some(launch_args),
+        }
+    }
 }
 
 impl Drop for AppState {
@@ -201,6 +243,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn old_runtime_record_without_identity_fields_still_reads() {
+        let path = std::env::temp_dir().join(format!(
+            "motrix-fnos-old-runtime-{}.json",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be valid")
+                .as_millis()
+        ));
+        std::fs::write(
+            &path,
+            r#"{
+  "pid": 42,
+  "actualPort": 6800,
+  "rpcSecret": "secret",
+  "rpcEndpoint": "http://127.0.0.1:6800/jsonrpc",
+  "binarySource": "sidecar"
+}
+"#,
+        )
+        .expect("old runtime fixture should write");
+
+        let restored = read_aria2_runtime_record(&path)
+            .expect("old runtime should read")
+            .expect("old runtime should exist");
+
+        assert_eq!(restored.pid, 42);
+        assert_eq!(restored.actual_port, 6800);
+        assert_eq!(restored.binary_source, Aria2BinarySource::Sidecar);
+        assert!(restored.sidecar_name.is_none());
+        assert!(restored.app_data_dir.is_none());
+        assert!(restored.launch_args.is_none());
+
+        remove_aria2_runtime_record(&path).expect("old runtime should remove");
+    }
+    #[test]
     fn runtime_record_round_trips_and_removes() {
         let path = std::env::temp_dir().join(format!(
             "motrix-fnos-runtime-{}.json",
@@ -215,6 +292,11 @@ mod tests {
             rpc_secret: "secret".to_string(),
             rpc_endpoint: "http://127.0.0.1:16800/jsonrpc".to_string(),
             binary_source: Aria2BinarySource::Sidecar,
+            sidecar_name: Some("aria2-next".to_string()),
+            app_data_dir: Some("/tmp/motrix-fnos".to_string()),
+            aria2_session_path: None,
+            aria2_log_path: None,
+            launch_args: Some(vec!["--enable-rpc=true".to_string()]),
         };
 
         write_aria2_runtime_record(&path, &runtime).expect("runtime should write");

@@ -424,7 +424,7 @@ fn start_sidecar_process(
     Ok(ManagedAria2Process::Sidecar(child))
 }
 
-fn process_args(config: &Aria2Config) -> Vec<String> {
+pub(crate) fn process_args(config: &Aria2Config) -> Vec<String> {
     let mut args = vec![
         "--enable-rpc=true".to_string(),
         format!("--rpc-listen-port={}", config.rpc_port),
@@ -718,7 +718,7 @@ fn log_start_summary(debug_logs: &DebugLogStore, config: &Aria2Config, args: &[S
     }
 }
 
-fn summarize_args(args: &[String]) -> String {
+pub(crate) fn summarize_args(args: &[String]) -> String {
     args.iter()
         .map(|arg| {
             if arg.starts_with("--rpc-secret=") {
@@ -804,6 +804,15 @@ mod tests {
             rpc_secret: "secret".to_string(),
             rpc_endpoint: format!("http://127.0.0.1:{port}/jsonrpc"),
             binary_source: source,
+            sidecar_name: Some("aria2-next".to_string()),
+            app_data_dir: Some("/tmp/motrix-fnos".to_string()),
+            aria2_session_path: None,
+            aria2_log_path: None,
+            launch_args: Some(vec![
+                "--enable-rpc=true".to_string(),
+                format!("--rpc-listen-port={port}"),
+                "--rpc-secret=secret".to_string(),
+            ]),
         }
     }
 

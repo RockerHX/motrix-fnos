@@ -7,7 +7,6 @@ pub mod debug_logs;
 pub mod runtime;
 pub mod tasks;
 
-use crate::app::Aria2RuntimeInfo;
 use crate::config::aria2::Aria2Config;
 use crate::database::tasks::{persist_download_task_state, persist_download_task_states};
 use std::io;
@@ -429,13 +428,12 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
             Ok(status) => {
                 if let Some(pid) = status.pid {
                     if let Some(source) = status.binary_source.clone() {
-                        if let Err(error) = state.set_aria2_runtime(Aria2RuntimeInfo {
+                        if let Err(error) = state.set_aria2_runtime(state.build_aria2_runtime_info(
                             pid,
-                            actual_port: config.rpc_port,
-                            rpc_secret: config.rpc_secret.clone(),
-                            rpc_endpoint: config.rpc_url(),
-                            binary_source: source,
-                        }) {
+                            &config,
+                            source,
+                            crate::aria2::process_args(&config),
+                        )) {
                             state.debug_logs.warn("aria2", error);
                         }
                     }
