@@ -1,3 +1,4 @@
+use crate::config::aria2::Aria2BinarySource;
 use crate::database::AppDatabase;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
@@ -6,6 +7,16 @@ use std::process::Child;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Mutex;
 use tauri_plugin_shell::process::CommandChild;
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Aria2RuntimeInfo {
+    pub pid: u32,
+    pub actual_port: u16,
+    pub rpc_secret: String,
+    pub rpc_endpoint: String,
+    pub binary_source: Aria2BinarySource,
+}
 
 pub enum ManagedAria2Process {
     External(Child),
@@ -34,6 +45,7 @@ impl ManagedAria2Process {
 
 pub struct AppState {
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
+    pub aria2_runtime: Mutex<Option<Aria2RuntimeInfo>>,
     pub download_tasks: Mutex<Vec<DownloadTask>>,
     pub database: AppDatabase,
     pub debug_logs: DebugLogStore,
@@ -51,6 +63,7 @@ impl AppState {
         let restored_count = download_tasks.len();
         let state = Self {
             aria2_process: Mutex::new(None),
+            aria2_runtime: Mutex::new(None),
             download_tasks: Mutex::new(download_tasks),
             database,
             debug_logs: DebugLogStore::default(),
@@ -74,10 +87,32 @@ impl AppState {
         );
         state
     }
+
+    pub fn aria2_runtime_snapshot(&self) -> Option<Aria2RuntimeInfo> {
+        self.aria2_runtime.lock().ok().and_then(|runtime| runtime.clone())
+    }
+
+    pub fn set_aria2_runtime(&self, runtime: Aria2RuntimeInfo) -> Result<(), String> {
+        let mut guard = self
+            .aria2_runtime
+            .lock()
+            .map_err(|_| "无法写入 Aria2 运行态".to_string())?;
+        *guard = Some(runtime);
+        Ok(())
+    }
+
+    pub fn clear_aria2_runtime(&self) {
+        if let Ok(mut runtime) = self.aria2_runtime.lock() {
+            *runtime = None;
+        }
+    }
 }
 
 impl Drop for AppState {
     fn drop(&mut self) {
+        if let Ok(runtime) = self.aria2_runtime.get_mut() {
+            *runtime = None;
+        }
         if let Ok(process) = self.aria2_process.get_mut() {
             if let Some(child) = process.take() {
                 let _ = child.kill();
