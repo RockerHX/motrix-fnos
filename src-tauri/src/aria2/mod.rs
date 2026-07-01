@@ -2,9 +2,11 @@ use crate::app::ManagedAria2Process;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
 use serde::Serialize;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
@@ -147,6 +149,15 @@ pub fn start_process(
         });
     }
 
+    if rpc_port_in_use(config) {
+        let error = format!(
+            "Aria2 RPC 端口 {}:{} 已被其他进程占用，请先退出残留的 Aria2 Next 进程后重试",
+            config.rpc_host, config.rpc_port
+        );
+        debug_logs.error("aria2", &error);
+        return Err(error);
+    }
+
     let args = process_args(config);
     log_start_summary(debug_logs, config, &args);
     let managed = match config.binary_source {
@@ -270,6 +281,7 @@ fn process_args(config: &Aria2Config) -> Vec<String> {
         "--enable-rpc=true".to_string(),
         format!("--rpc-listen-port={}", config.rpc_port),
         "--rpc-listen-all=false".to_string(),
+        "--no-conf=true".to_string(),
         "--continue=true".to_string(),
         "--console-log-level=warn".to_string(),
     ];
@@ -283,6 +295,16 @@ fn process_args(config: &Aria2Config) -> Vec<String> {
     }
 
     args
+}
+
+fn rpc_port_in_use(config: &Aria2Config) -> bool {
+    let Ok(addresses) = (config.rpc_host.as_str(), config.rpc_port).to_socket_addrs() else {
+        return false;
+    };
+
+    addresses
+        .into_iter()
+        .any(|address| TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok())
 }
 
 fn detect_ca_certificate_path() -> Option<PathBuf> {
@@ -580,6 +602,21 @@ mod tests {
         assert!(args.contains(&"--enable-rpc=true".to_string()));
         assert!(args.contains(&"--rpc-listen-port=6800".to_string()));
         assert!(args.contains(&"--rpc-listen-all=false".to_string()));
+        assert!(args.contains(&"--no-conf=true".to_string()));
+    }
+
+    #[test]
+    fn rpc_port_in_use_detects_listening_port() {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
+        let port = listener
+            .local_addr()
+            .expect("test listener should have local addr")
+            .port();
+        let mut config = test_config(None);
+        config.rpc_port = port;
+
+        assert!(rpc_port_in_use(&config));
     }
 
     #[test]
