@@ -1,82 +1,74 @@
 # Motrix FNOS
 
-飞牛 OS 专用 GUI 下载工具。当前仓库已完成 **阶段 0：工程骨架搭建**，正在进入 **阶段 1：最小可用下载器（MVP）**。阶段 1 的重点是内置 Aria2 Next sidecar，并打通 HTTP / HTTPS 下载闭环。
+飞牛 fnOS 下载管理应用，当前处于 **FPK-first 架构整改期**。
 
-## 技术栈
+本仓库的目标不是继续完善 Tauri 桌面应用，而是把现有前端和 Rust 业务资产迁移为：
 
-- Rust + Tauri 2
-- Vue 3 + TypeScript + Vite
-- pnpm
-- Aria2 Next（阶段 1 默认使用 Tauri sidecar 内置引擎）
+- `FPK` 交付形态
+- `Rust server + Axum` 后端主线
+- `Vue Web UI + Naive UI + Pinia` 前端主线
+- `Aria2 Next sidecar + SQLite` 运行时基础设施
 
-## 环境要求
+## 当前状态
 
-- Node.js
-- pnpm
-- Rust / Cargo
-- 可选：Aria2 Next 可执行文件
+当前仓库 **还不能直接产出最终 FPK 交付物**。
 
-## 安装依赖
+现阶段正在进行“阶段 0：文档先行，冻结 Tauri 主线”整改，目标是先统一：
+
+- 架构决策来源
+- 后续阶段顺序
+- 文档与验收口径
+
+在阶段 0 完成前：
+
+- 不新增 Tauri 能力
+- 不删除现有 Tauri 主线文件
+- 不启动 server/API 迁移实现
+
+## 当前仓库中哪些内容可复用
+
+以下内容仍保留较高迁移价值：
+
+- Vue 3 + Naive UI 的任务、设置、诊断界面结构
+- Pinia 状态管理与任务运行态管理模式
+- Rust 中的下载任务模型、Aria2 管理、SQLite 持久化、日志与 session 恢复逻辑
+- Linux x86_64 / ARM64 的 Aria2 Next sidecar 资产
+
+## Legacy 说明
+
+当前仓库仍保留 `src-tauri/`、Tauri 脚本和 `@tauri-apps/*` 依赖。这些内容仅作为 **legacy 迁移来源**：
+
+- 可用于复用业务逻辑和现有资产
+- 不再代表最终交付路线
+- 不应继续作为主线能力扩展
+
+## 文档入口
+
+- 架构边界：[`docs/architecture.md`](docs/architecture.md)
+- 阶段计划：[`docs/development-plan.md`](docs/development-plan.md)
+- FPK-first 整改计划：[`docs/fnos-fpk-remediation-plan.md`](docs/fnos-fpk-remediation-plan.md)
+
+## 本地开发说明（Legacy 链路）
+
+以下命令仅用于查看和维护当前 legacy 代码，不代表最终 FPK 交付方式：
 
 ```bash
 rtk pnpm install
-```
-
-## 本地开发
-
-```bash
 rtk pnpm tauri:dev
-```
-
-仅启动前端开发服务器：
-
-```bash
-rtk pnpm dev
-```
-
-## 构建与检查
-
-```bash
-rtk pnpm typecheck
 rtk pnpm build
-rtk cargo check --manifest-path src-tauri/Cargo.toml
 rtk cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-## Aria2 Next 集成
+最终交付链路将切换到：
 
-阶段 1 默认通过 Tauri sidecar 内置 Aria2 Next，不依赖系统安装的 aria2。开发调试时仍可用环境变量覆盖内置引擎：
+- Rust server 独立运行
+- 前端纯 Web 静态资源构建
+- `fnpack` FPK 打包
 
-```bash
-export MOTRIX_FNOS_ARIA2_PATH=/path/to/aria2-next
-rtk pnpm tauri:dev
-```
+## 当前阶段完成标准
 
-首批 sidecar 目标平台：
+阶段 0 完成后，仓库需要满足：
 
-- `aarch64-apple-darwin`：macOS Apple Silicon / 当前 M1 开发测试
-- `x86_64-unknown-linux-gnu`：飞牛 OS x86 64 位
-- `aarch64-unknown-linux-gnu`：飞牛 OS ARM64
-
-当前暂不支持 32 位 Linux。
-
-应用内“Aria2 Next / 引擎状态验证”区域提供：
-
-- 路径配置检查
-- 启动引擎
-- 停止引擎
-- 检查 RPC（调用 `aria2.getVersion`）
-
-内置 sidecar 缺失、环境变量路径无效或 RPC 连接失败时，界面应显示明确错误，不应崩溃。
-
-运行时生命周期、后台驻留、退出清理和 Aria2 端口兜底策略见 [`docs/runtime-lifecycle-and-aria2-strategy.md`](docs/runtime-lifecycle-and-aria2-strategy.md)。核心原则：关闭窗口只隐藏；明确退出才暂停任务、保存状态并停止本应用管理的 sidecar；Aria2 RPC 端口不得硬编码。
-
-## 阶段 0 完成标准（已完成）
-
-- 应用窗口标题为 `Motrix FNOS`
-- GUI 可显示深色主窗口占位布局
-- 前端能调用 Rust 命令并显示应用信息
-- Aria2 Next 路径、进程和 RPC 状态可验证
-- 不实现真实下载任务 CRUD
-- 不引入 Axum
-- 不做 FPK 打包
+- 主文档不再把 Tauri 写成当前交付主线
+- 后续阶段全部以 FPK / Rust server / Web UI 为验收方向
+- 新的 FPK 架构、API 契约、打包说明和实机测试文档骨架已建立

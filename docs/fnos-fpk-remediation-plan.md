@@ -394,8 +394,8 @@ FPK 下必须重新设计：
 | P0-2 | 重写架构目标与总体技术路线 | `docs/architecture.md` 明确 FPK-first、Rust server、Vue Web UI、Axum 主线 | 文档不再把 Tauri 2 写成当前主应用壳 | `docs: 明确FPK-first总体架构主线` | 已完成 | `docs: 明确FPK-first总体架构主线`（`7e2fce6`） |
 | P0-3 | 调整架构分层、数据流和运行时表述 | `docs/architecture.md` 切换到 HTTP API / SSE / fnOS 服务生命周期 | 文档不再把托盘、Dock、Tauri sidecar 打包写成长期原则 | `docs: 调整架构分层与数据流到服务化模型` | 已完成 | `docs: 调整架构分层与数据流到服务化模型`（`156283e`） |
 | P0-4 | 重置开发计划的目标与现状描述 | `docs/development-plan.md` 顶部改成 FPK-first 目标与 legacy 资产摘要 | 文档顶部不再宣称 Tauri 是当前确定方向 | `docs: 重置开发计划的目标与现状描述` | 已完成 | `docs: 重置开发计划的目标与现状描述`（`aed2264`） |
-| P0-5 | 新增架构纠偏阶段并冻结 Tauri 主线 | `docs/development-plan.md` 增加阶段 0、冻结说明和新阶段顺序 | 文档中存在新的“阶段 0：架构纠偏” | `docs: 新增FPK整改阶段并冻结Tauri主线` | 已完成 | `docs: 新增FPK整改阶段并冻结Tauri主线` |
-| P0-6 | 更新 README 的整改期说明 | `README.md` 切换到 FPK-first 整改叙述 | README 首页不再把 Tauri 桌面应用写成目标形态 | `docs: 更新README说明FPK整改状态` | 待完成 | - |
+| P0-5 | 新增架构纠偏阶段并冻结 Tauri 主线 | `docs/development-plan.md` 增加阶段 0、冻结说明和新阶段顺序 | 文档中存在新的“阶段 0：架构纠偏” | `docs: 新增FPK整改阶段并冻结Tauri主线` | 已完成 | `docs: 新增FPK整改阶段并冻结Tauri主线`（`dfbf9d7`） |
+| P0-6 | 更新 README 的整改期说明 | `README.md` 切换到 FPK-first 整改叙述 | README 首页不再把 Tauri 桌面应用写成目标形态 | `docs: 更新README说明FPK整改状态` | 已完成 | `docs: 更新README说明FPK整改状态` |
 | P0-7 | 新增 FPK 文档骨架 | 新建 4 份文档骨架并建立引用入口 | 文档文件存在且标题、命名与整改计划一致 | `docs: 新增FPK架构与交付文档骨架` | 待完成 | - |
 | P0-8 | 做一致性检查并收口阶段状态 | 修正文档冲突并完成阶段 0 状态更新 | 主文档不再把 Tauri 写成当前主线或把 `tauri build` 写成目标交付链路 | `docs: 完成阶段0文档纠偏与状态收口` | 待完成 | - |
 
