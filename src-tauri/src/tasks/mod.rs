@@ -43,6 +43,13 @@ impl DownloadTaskStatus {
     }
 }
 
+pub fn should_pause_task_on_exit(task: &DownloadTask) -> bool {
+    matches!(
+        task.status,
+        DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+    )
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
@@ -1190,6 +1197,29 @@ mod tests {
         let error = task_gid(&tasks, 1).expect_err("removed task should be rejected");
 
         assert!(error.contains("已删除"));
+    }
+
+    #[test]
+    fn exit_pause_scope_only_includes_unfinished_tasks() {
+        let mut task = sample_task(None, "/downloads".to_string());
+
+        task.status = DownloadTaskStatus::Pending;
+        assert!(should_pause_task_on_exit(&task));
+
+        task.status = DownloadTaskStatus::Active;
+        assert!(should_pause_task_on_exit(&task));
+
+        task.status = DownloadTaskStatus::Paused;
+        assert!(!should_pause_task_on_exit(&task));
+
+        task.status = DownloadTaskStatus::Complete;
+        assert!(!should_pause_task_on_exit(&task));
+
+        task.status = DownloadTaskStatus::Error;
+        assert!(!should_pause_task_on_exit(&task));
+
+        task.status = DownloadTaskStatus::Removed;
+        assert!(!should_pause_task_on_exit(&task));
     }
 
     #[test]
