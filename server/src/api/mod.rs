@@ -1,6 +1,9 @@
 mod app;
 mod aria2;
+mod debug_logs;
 pub mod error;
+mod extract;
+mod settings;
 
 use crate::app::HttpAppState;
 use axum::Router;
@@ -21,6 +24,8 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
     Router::new()
         .nest("/api", app::routes())
         .nest("/api", aria2::routes())
+        .nest("/api", settings::routes())
+        .nest("/api", debug_logs::routes())
         .with_state(state)
 }
 
@@ -30,8 +35,11 @@ mod tests {
     use crate::api::app::{AppInfo, BackendPing};
     use crate::api::error::ErrorResponse;
     use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
+    use crate::debug_logs::DebugLogEntry;
+    use crate::settings::service::{AppConfig, UiPreferences};
     use crate::runtime::Aria2ProcessStatus;
     use serde::de::DeserializeOwned;
+    use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
 
     #[tokio::test]
@@ -157,6 +165,180 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
+        let state = test_state(None).await;
+        let app = router(state.clone());
+
+        let default_settings = response_json::<AppConfig>(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/settings")
+                        .body(Body::empty())
+                        .expect("request should build"),
+                )
+                .await
+                .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(default_settings.default_download_dir.ends_with("Downloads"));
+
+        let updated_settings = response_json::<AppConfig>(
+            app.clone()
+                .oneshot(json_request(
+                    "PUT",
+                    "/api/settings",
+                    &AppConfig {
+                        default_download_dir: "/tmp/custom".to_string(),
+                        max_concurrent_downloads: 0,
+                        download_limit: 1024,
+                        upload_limit: 2048,
+                        auto_start_enabled: true,
+                        notifications_enabled: true,
+                    },
+                ))
+                .await
+                .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(updated_settings.default_download_dir, "/tmp/custom");
+        assert_eq!(updated_settings.max_concurrent_downloads, 1);
+        assert_eq!(updated_settings.download_limit, 1024);
+        assert_eq!(updated_settings.upload_limit, 2048);
+        assert!(updated_settings.auto_start_enabled);
+        assert!(updated_settings.notifications_enabled);
+
+        let stored_settings = response_json::<AppConfig>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/settings")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(stored_settings, updated_settings);
+        assert!(state.core.debug_logs.list().iter().any(|entry| {
+            entry.module == "settings" && entry.message.contains("下载配置将在下次启动后生效")
+        }));
+    }
+
+    #[tokio::test]
+    async fn ui_preferences_routes_round_trip_payloads() {
+        let state = test_state(None).await;
+        let app = router(state);
+
+        let default_preferences = response_json::<UiPreferences>(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/ui-preferences")
+                        .body(Body::empty())
+                        .expect("request should build"),
+                )
+                .await
+                .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(default_preferences.task_table_column_widths.is_empty());
+
+        let mut widths = BTreeMap::new();
+        widths.insert("name".to_string(), 280);
+        let payload = UiPreferences {
+            task_table_column_widths: widths.clone(),
+        };
+        let updated_preferences = response_json::<UiPreferences>(
+            app.clone()
+                .oneshot(json_request("PUT", "/api/ui-preferences", &payload))
+                .await
+                .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(updated_preferences.task_table_column_widths, widths);
+
+        let stored_preferences = response_json::<UiPreferences>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/ui-preferences")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(stored_preferences, updated_preferences);
+    }
+
+    #[tokio::test]
+    async fn debug_log_routes_list_and_clear_entries() {
+        let state = test_state(None).await;
+        state.core.debug_logs.info("test", "first");
+        state.core.debug_logs.warn("test", "second");
+        let app = router(state.clone());
+
+        let logs = response_json::<Vec<DebugLogEntry>>(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/debug-logs")
+                        .body(Body::empty())
+                        .expect("request should build"),
+                )
+                .await
+                .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(logs.iter().any(|entry| entry.message == "first"));
+        assert!(logs.iter().any(|entry| entry.message == "second"));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/debug-logs")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert!(state.core.debug_logs.list().is_empty());
+    }
+
+    #[tokio::test]
+    async fn invalid_json_payload_uses_unified_error_response() {
+        let state = test_state(None).await;
+        let app = router(state);
+
+        let error = response_json::<ErrorResponse>(
+            app.oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/settings")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{"))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(error.code, "invalid_json");
+        assert!(error.message.contains("请求体 JSON 无效"));
+    }
+
     async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         let app_data_dir = temp_dir("api-state");
         let runtime = ServerRuntimeConfig {
@@ -180,6 +362,17 @@ mod tests {
             .await
             .expect("body should read");
         serde_json::from_slice(&body).expect("response json should deserialize")
+    }
+
+    fn json_request<T: serde::Serialize>(method: &str, uri: &str, payload: &T) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(payload).expect("payload should serialize"),
+            ))
+            .expect("request should build")
     }
 
     fn temp_dir(label: &str) -> PathBuf {

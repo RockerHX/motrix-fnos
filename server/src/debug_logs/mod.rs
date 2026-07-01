@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DEFAULT_DEBUG_LOG_CAPACITY: usize = 500;
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DebugLogLevel {
     Info,
@@ -14,7 +14,7 @@ pub enum DebugLogLevel {
     Error,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DebugLogEntry {
     pub id: u64,
