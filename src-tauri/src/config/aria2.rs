@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::env;
 
 pub const ARIA2_PATH_ENV: &str = "MOTRIX_FNOS_ARIA2_PATH";
 pub const ARIA2_SIDECAR_NAME: &str = "aria2-next";
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Aria2BinarySource {
     ExternalPath,
