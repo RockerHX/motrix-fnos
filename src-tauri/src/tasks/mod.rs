@@ -109,7 +109,15 @@ struct TellStatusResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TellManyResponse {
+    result: Option<Vec<Aria2TaskStatus>>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Aria2TaskStatus {
+    gid: Option<String>,
     status: String,
     total_length: String,
     completed_length: String,
@@ -120,10 +128,18 @@ struct Aria2TaskStatus {
     files: Option<Vec<Aria2FileStatus>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Aria2FileStatus {
     path: String,
+    #[serde(default)]
+    uris: Vec<Aria2UriStatus>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2UriStatus {
+    uri: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -451,6 +467,175 @@ fn should_refresh_task(task: &DownloadTask) -> bool {
         task.status,
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active
     )
+}
+
+pub async fn sync_session_tasks_from_aria2(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    config: &Aria2Config,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Vec<DownloadTask>, String> {
+    let session_tasks = list_current_aria2_tasks(config, debug_logs).await?;
+    if session_tasks.is_empty() {
+        log_info(debug_logs, "tasks.restore", "Aria2 session 未加载任何任务");
+        return list_tasks(tasks);
+    }
+
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut matched_count = 0;
+    let mut unmatched_count = 0;
+
+    for session_task in &session_tasks {
+        if let Some(index) = find_matching_sqlite_task(&guard, session_task) {
+            let task = &mut guard[index];
+            if let Some(gid) = session_task
+                .gid
+                .as_deref()
+                .filter(|gid| !gid.trim().is_empty())
+            {
+                task.gid = Some(gid.to_string());
+            }
+            apply_aria2_status(task, session_task);
+            if should_force_pause_task_on_startup(task) {
+                apply_paused_state(task);
+            }
+            task.updated_at = current_timestamp_ms();
+            matched_count += 1;
+        } else {
+            unmatched_count += 1;
+            log_info(
+                debug_logs,
+                "tasks.restore",
+                format!(
+                    "Aria2 session 存在未匹配的任务，GID {}，不自动创建 UI 任务",
+                    session_task.gid.as_deref().unwrap_or("-")
+                ),
+            );
+        }
+    }
+
+    log_info(
+        debug_logs,
+        "tasks.restore",
+        format!(
+            "Aria2 session 任务同步完成：匹配 {} 个，未匹配 {} 个",
+            matched_count, unmatched_count
+        ),
+    );
+
+    Ok(guard.clone())
+}
+
+async fn list_current_aria2_tasks(
+    config: &Aria2Config,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Vec<Aria2TaskStatus>, String> {
+    let client = reqwest::Client::new();
+    let mut tasks = Vec::new();
+    for method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped"] {
+        match tell_many_tasks(&client, config, method).await {
+            Ok(mut result) => tasks.append(&mut result),
+            Err(error) => {
+                log_error(debug_logs, "tasks.restore", &error);
+                return Err(error);
+            }
+        }
+    }
+    Ok(tasks)
+}
+
+async fn tell_many_tasks(
+    client: &reqwest::Client,
+    config: &Aria2Config,
+    method: &str,
+) -> Result<Vec<Aria2TaskStatus>, String> {
+    let request_body = build_tell_many_request(config, method);
+    let response = client
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|error| format!("读取 Aria2 session 任务失败：无法连接 RPC（{}）", error))?;
+
+    let rpc_response = response
+        .json::<TellManyResponse>()
+        .await
+        .map_err(|error| format!("读取 Aria2 session 任务失败：响应解析失败（{}）", error))?;
+
+    if let Some(error) = rpc_response.error {
+        return Err(format!("读取 Aria2 session 任务失败：{}", error.message));
+    }
+
+    Ok(rpc_response.result.unwrap_or_default())
+}
+
+fn find_matching_sqlite_task(
+    tasks: &[DownloadTask],
+    session_task: &Aria2TaskStatus,
+) -> Option<usize> {
+    if let Some(gid) = session_task
+        .gid
+        .as_deref()
+        .filter(|gid| !gid.trim().is_empty())
+    {
+        if let Some(index) = tasks.iter().position(|task| {
+            task.status != DownloadTaskStatus::Removed && task.gid.as_deref() == Some(gid)
+        }) {
+            return Some(index);
+        }
+    }
+
+    let urls = session_task_urls(session_task);
+    if urls.is_empty() {
+        return None;
+    }
+
+    tasks.iter().position(|task| {
+        task.status != DownloadTaskStatus::Removed
+            && urls.iter().any(|url| url == &task.url)
+            && session_task_location_matches(task, session_task)
+    })
+}
+
+fn session_task_urls(session_task: &Aria2TaskStatus) -> Vec<String> {
+    session_task
+        .files
+        .as_ref()
+        .into_iter()
+        .flatten()
+        .flat_map(|file| file.uris.iter())
+        .map(|uri| uri.uri.trim())
+        .filter(|uri| !uri.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn session_task_location_matches(task: &DownloadTask, session_task: &Aria2TaskStatus) -> bool {
+    let dir_matches = session_task
+        .dir
+        .as_deref()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(|dir| normalize_path_for_match(dir) == normalize_path_for_match(&task.save_dir))
+        .unwrap_or(false);
+
+    let file_matches = session_task.files.as_ref().is_some_and(|files| {
+        files.iter().any(|file| {
+            let normalized_path = normalize_path_for_match(&file.path);
+            normalized_path.ends_with(&normalize_path_for_match(&task.file_name))
+                || task
+                    .file_path
+                    .as_deref()
+                    .map(|path| normalized_path == normalize_path_for_match(path))
+                    .unwrap_or(false)
+        })
+    });
+
+    dir_matches || file_matches
+}
+
+fn normalize_path_for_match(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').to_string()
 }
 
 pub async fn readd_task_to_aria2(
@@ -874,6 +1059,7 @@ fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
     Aria2TaskStatus {
+        gid: None,
         status: "error".to_string(),
         total_length: "0".to_string(),
         completed_length: "0".to_string(),
@@ -945,6 +1131,7 @@ fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Val
     }
     params.push(serde_json::json!(gid));
     params.push(serde_json::json!([
+        "gid",
         "status",
         "totalLength",
         "completedLength",
@@ -959,6 +1146,35 @@ fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Val
         "jsonrpc": "2.0",
         "id": "motrix-fnos-tell-status",
         "method": "aria2.tellStatus",
+        "params": params,
+    })
+}
+
+fn build_tell_many_request(config: &Aria2Config, method: &str) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+    if method != "aria2.tellActive" {
+        params.push(serde_json::json!(0));
+        params.push(serde_json::json!(1000));
+    }
+    params.push(serde_json::json!([
+        "gid",
+        "status",
+        "totalLength",
+        "completedLength",
+        "downloadSpeed",
+        "errorCode",
+        "errorMessage",
+        "dir",
+        "files"
+    ]));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": format!("motrix-fnos-{}", method.replace('.', "-")),
+        "method": method,
         "params": params,
     })
 }
@@ -1427,6 +1643,64 @@ mod tests {
         assert!(!aria2_path.exists());
     }
 
+    fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatus {
+        Aria2TaskStatus {
+            gid: Some(gid.to_string()),
+            status: "paused".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "40".to_string(),
+            download_speed: "0".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: Some(dir.to_string()),
+            files: Some(vec![Aria2FileStatus {
+                path: path.to_string(),
+                uris: vec![Aria2UriStatus {
+                    uri: url.to_string(),
+                }],
+            }]),
+        }
+    }
+
+    #[test]
+    fn session_task_matches_by_url_dir_and_file() {
+        let task = sample_task(
+            Some("/downloads/file.zip".to_string()),
+            "/downloads".to_string(),
+        );
+        let session_task = session_status(
+            "newgid",
+            "https://example.com/file.zip",
+            "/downloads",
+            "/downloads/file.zip",
+        );
+
+        assert_eq!(find_matching_sqlite_task(&[task], &session_task), Some(0));
+    }
+
+    #[test]
+    fn session_task_does_not_match_unknown_url() {
+        let task = sample_task(None, "/downloads".to_string());
+        let session_task = session_status(
+            "newgid",
+            "https://example.com/other.zip",
+            "/downloads",
+            "/downloads/file.zip",
+        );
+
+        assert_eq!(find_matching_sqlite_task(&[task], &session_task), None);
+    }
+
+    #[test]
+    fn tell_many_request_uses_offsets_for_waiting_tasks() {
+        let config = test_config();
+        let request = build_tell_many_request(&config, "aria2.tellWaiting");
+
+        assert_eq!(request["method"], "aria2.tellWaiting");
+        assert_eq!(request["params"][0], 0);
+        assert_eq!(request["params"][1], 1000);
+    }
+
     #[test]
     fn is_stale_aria2_gid_error_detects_unrecoverable_resume_errors() {
         assert!(is_stale_aria2_gid_error("No URI available"));
@@ -1572,6 +1846,7 @@ mod tests {
         apply_aria2_status(
             &mut task,
             &Aria2TaskStatus {
+                gid: None,
                 status: "active".to_string(),
                 total_length: "100".to_string(),
                 completed_length: "40".to_string(),
@@ -1581,6 +1856,7 @@ mod tests {
                 dir: Some("/downloads".to_string()),
                 files: Some(vec![Aria2FileStatus {
                     path: "/downloads/file.zip".to_string(),
+                    uris: Vec::new(),
                 }]),
             },
         );
@@ -1612,6 +1888,7 @@ mod tests {
         };
 
         let status = Aria2TaskStatus {
+            gid: None,
             status: "complete".to_string(),
             total_length: "100".to_string(),
             completed_length: "100".to_string(),
@@ -1633,6 +1910,7 @@ mod tests {
     #[test]
     fn non_zero_aria2_error_code_is_error() {
         let status = Aria2TaskStatus {
+            gid: None,
             status: "error".to_string(),
             total_length: "0".to_string(),
             completed_length: "0".to_string(),
@@ -1655,6 +1933,7 @@ mod tests {
         let mut task = sample_task(None, "/downloads".to_string());
         task.status = DownloadTaskStatus::Paused;
         let status = Aria2TaskStatus {
+            gid: None,
             status: "active".to_string(),
             total_length: "0".to_string(),
             completed_length: "0".to_string(),
@@ -1679,6 +1958,7 @@ mod tests {
     fn apply_aria2_status_preserves_progress_when_error_has_no_lengths() {
         let mut task = sample_task(None, "/downloads".to_string());
         let status = Aria2TaskStatus {
+            gid: None,
             status: "error".to_string(),
             total_length: "0".to_string(),
             completed_length: "0".to_string(),
@@ -1797,6 +2077,7 @@ mod tests {
             "同步 Aria2 任务状态失败：No URI available."
         ));
         assert!(is_stale_aria2_gid_status(&Aria2TaskStatus {
+            gid: None,
             status: "error".to_string(),
             total_length: "0".to_string(),
             completed_length: "0".to_string(),

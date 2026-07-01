@@ -474,6 +474,16 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
                 format!("应用启动后 Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
             );
             drop(state);
+            if let Err(error) = sync_session_tasks_after_rpc_ready(&app_handle, &config).await {
+                let state = app_handle.state::<app::AppState>();
+                state.debug_logs.warn(
+                    "tasks.restore",
+                    format!(
+                        "Aria2 session 任务同步失败，保留 SQLite 恢复路径：{}",
+                        error
+                    ),
+                );
+            }
             if let Err(error) = refresh_persisted_tasks_after_rpc_ready(&app_handle, &config).await
             {
                 let state = app_handle.state::<app::AppState>();
@@ -541,6 +551,21 @@ async fn force_pause_unfinished_tasks_on_startup(app_handle: &tauri::AppHandle) 
             paused_tasks.len()
         ),
     );
+}
+
+async fn sync_session_tasks_after_rpc_ready(
+    app_handle: &tauri::AppHandle,
+    config: &Aria2Config,
+) -> Result<(), String> {
+    let state = app_handle.state::<app::AppState>();
+    let tasks = tasks::sync_session_tasks_from_aria2(
+        &state.download_tasks,
+        config,
+        Some(&state.debug_logs),
+    )
+    .await?;
+    persist_download_task_states(&state.database.pool, &tasks).await?;
+    Ok(())
 }
 
 async fn refresh_persisted_tasks_after_rpc_ready(
