@@ -32,6 +32,16 @@ pub struct Aria2RuntimeInfo {
 }
 
 pub const ARIA2_RUNTIME_FILE_NAME: &str = "aria2-runtime.json";
+pub const ARIA2_RUNTIME_DIR_NAME: &str = "aria2";
+pub const ARIA2_SESSION_FILE_NAME: &str = "aria2.session";
+pub const ARIA2_LOG_FILE_NAME: &str = "aria2.log";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Aria2RuntimePaths {
+    pub runtime_dir: PathBuf,
+    pub session_path: PathBuf,
+    pub log_path: PathBuf,
+}
 
 pub fn app_data_dir_from_database_path(database_path: &Path) -> PathBuf {
     database_path
@@ -45,6 +55,15 @@ pub fn aria2_runtime_path(database_path: &Path) -> PathBuf {
         .parent()
         .map(|parent| parent.join(ARIA2_RUNTIME_FILE_NAME))
         .unwrap_or_else(|| PathBuf::from(ARIA2_RUNTIME_FILE_NAME))
+}
+
+pub fn aria2_runtime_paths(app_data_dir: &Path) -> Aria2RuntimePaths {
+    let runtime_dir = app_data_dir.join(ARIA2_RUNTIME_DIR_NAME);
+    Aria2RuntimePaths {
+        session_path: runtime_dir.join(ARIA2_SESSION_FILE_NAME),
+        log_path: runtime_dir.join(ARIA2_LOG_FILE_NAME),
+        runtime_dir,
+    }
 }
 
 pub fn write_aria2_runtime_record(path: &Path, runtime: &Aria2RuntimeInfo) -> Result<(), String> {
@@ -197,8 +216,28 @@ impl AppState {
         if let Some(runtime) = self.aria2_runtime_snapshot() {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
+            config.session_path = runtime.aria2_session_path.clone();
+            config.log_path = runtime.aria2_log_path.clone();
         }
         config
+    }
+
+    pub fn with_aria2_runtime_paths(&self, mut config: Aria2Config) -> Result<Aria2Config, String> {
+        let paths = aria2_runtime_paths(&self.app_data_dir);
+        fs::create_dir_all(&paths.runtime_dir).map_err(|error| {
+            format!(
+                "创建 Aria2 runtime 目录失败：{}（{}）",
+                paths.runtime_dir.display(),
+                error
+            )
+        })?;
+        self.debug_logs.info(
+            "aria2.runtime",
+            format!("Aria2 runtime 目录已准备：{}", paths.runtime_dir.display()),
+        );
+        config.session_path = Some(paths.session_path.display().to_string());
+        config.log_path = Some(paths.log_path.display().to_string());
+        Ok(config)
     }
 
     pub fn build_aria2_runtime_info(
@@ -216,8 +255,8 @@ impl AppState {
             binary_source: source,
             sidecar_name: Some(config.sidecar_name.clone()),
             app_data_dir: Some(self.app_data_dir.display().to_string()),
-            aria2_session_path: None,
-            aria2_log_path: None,
+            aria2_session_path: config.session_path.clone(),
+            aria2_log_path: config.log_path.clone(),
             launch_args: Some(launch_args),
         }
     }
@@ -241,6 +280,16 @@ impl Drop for AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aria2_runtime_paths_use_app_data_aria2_directory() {
+        let app_data_dir = PathBuf::from("/tmp/motrix-fnos-app-data");
+        let paths = aria2_runtime_paths(&app_data_dir);
+
+        assert_eq!(paths.runtime_dir, app_data_dir.join("aria2"));
+        assert_eq!(paths.session_path, app_data_dir.join("aria2/aria2.session"));
+        assert_eq!(paths.log_path, app_data_dir.join("aria2/aria2.log"));
+    }
 
     #[test]
     fn old_runtime_record_without_identity_fields_still_reads() {
@@ -277,6 +326,7 @@ mod tests {
 
         remove_aria2_runtime_record(&path).expect("old runtime should remove");
     }
+
     #[test]
     fn runtime_record_round_trips_and_removes() {
         let path = std::env::temp_dir().join(format!(
@@ -294,8 +344,8 @@ mod tests {
             binary_source: Aria2BinarySource::Sidecar,
             sidecar_name: Some("aria2-next".to_string()),
             app_data_dir: Some("/tmp/motrix-fnos".to_string()),
-            aria2_session_path: None,
-            aria2_log_path: None,
+            aria2_session_path: Some("/tmp/motrix-fnos/aria2/aria2.session".to_string()),
+            aria2_log_path: Some("/tmp/motrix-fnos/aria2/aria2.log".to_string()),
             launch_args: Some(vec!["--enable-rpc=true".to_string()]),
         };
 

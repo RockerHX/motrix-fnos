@@ -30,7 +30,8 @@ pub fn start_aria2(
     let saved_runtime = state.load_saved_aria2_runtime();
     let port = select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
         .ok_or_else(crate::aria2::rpc_ports_exhausted_message)?;
-    let config = runtime_config(&base, port, generate_rpc_secret());
+    let config =
+        state.with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))?;
     let status = start_process(&app, &state.aria2_process, &config, &state.debug_logs)?;
     if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
         state.set_aria2_runtime(state.build_aria2_runtime_info(

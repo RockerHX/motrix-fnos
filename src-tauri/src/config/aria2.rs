@@ -21,6 +21,8 @@ pub struct Aria2Config {
     pub rpc_host: String,
     pub rpc_port: u16,
     pub rpc_secret: String,
+    pub session_path: Option<String>,
+    pub log_path: Option<String>,
 }
 
 impl Aria2Config {
@@ -41,6 +43,8 @@ impl Aria2Config {
             rpc_host: "127.0.0.1".to_string(),
             rpc_port: 6800,
             rpc_secret: String::new(),
+            session_path: None,
+            log_path: None,
         }
     }
 

@@ -1207,6 +1207,8 @@ mod tests {
             rpc_host: "127.0.0.1".to_string(),
             rpc_port: 6800,
             rpc_secret: String::new(),
+            session_path: None,
+            log_path: None,
         }
     }
 

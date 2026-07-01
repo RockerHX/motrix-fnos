@@ -393,7 +393,7 @@ fn runtime_aria2_config(app: &tauri::AppHandle) -> Result<Aria2Config, String> {
     let port =
         aria2::select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
             .ok_or_else(aria2::rpc_ports_exhausted_message)?;
-    Ok(aria2::runtime_config(
+    state.with_aria2_runtime_paths(aria2::runtime_config(
         &base,
         port,
         aria2::generate_rpc_secret(),

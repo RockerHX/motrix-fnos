@@ -64,7 +64,8 @@ async fn ensure_aria2_ready(
         let port =
             select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.debug_logs)
                 .ok_or_else(crate::aria2::rpc_ports_exhausted_message)?;
-        let config = runtime_config(&base, port, generate_rpc_secret());
+        let config =
+            state.with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))?;
         let status = start_process(app, &state.aria2_process, &config, &state.debug_logs)
             .map_err(|error| format!("启动 Aria2 Next 失败：{}", shorten_start_error(error)))?;
         if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
