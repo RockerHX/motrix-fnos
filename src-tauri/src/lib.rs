@@ -199,6 +199,70 @@ async fn sync_tasks_before_exit(app: &tauri::AppHandle) {
     }
 }
 
+
+async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
+    let config = Aria2Config::from_env();
+    let state = app.state::<app::AppState>();
+    let candidates = match tasks::list_tasks(&state.download_tasks) {
+        Ok(tasks) => tasks
+            .into_iter()
+            .filter(tasks::should_pause_task_on_exit)
+            .filter_map(|task| task.gid.map(|gid| (task.id, gid)))
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            state
+                .debug_logs
+                .error("runtime.exit", format!("退出前读取待暂停任务失败：{}", error));
+            return;
+        }
+    };
+
+    if candidates.is_empty() {
+        state
+            .debug_logs
+            .info("runtime.exit", "退出前没有需要暂停的未完成任务");
+        return;
+    }
+
+    let mut paused_tasks = Vec::new();
+    for (task_id, gid) in candidates {
+        match tasks::pause_task(&config, &gid, Some(&state.debug_logs)).await {
+            Ok(_) => match tasks::mark_task_paused_by_gid(&state.download_tasks, &gid) {
+                Ok(task) => paused_tasks.push(task),
+                Err(error) => state.debug_logs.warn(
+                    "runtime.exit",
+                    format!("退出前标记任务暂停失败，ID {}，GID {}：{}", task_id, gid, error),
+                ),
+            },
+            Err(error) => state.debug_logs.warn(
+                "runtime.exit",
+                format!("退出前暂停任务失败，ID {}，GID {}：{}", task_id, gid, error),
+            ),
+        }
+    }
+
+    let tasks = match tasks::list_tasks(&state.download_tasks) {
+        Ok(tasks) => tasks,
+        Err(error) => {
+            state
+                .debug_logs
+                .error("runtime.exit", format!("退出前读取暂停后任务状态失败：{}", error));
+            return;
+        }
+    };
+
+    if let Err(error) = persist_download_task_states(&state.database.pool, &tasks).await {
+        state
+            .debug_logs
+            .error("runtime.exit", format!("退出前保存暂停任务状态失败：{}", error));
+    } else {
+        state.debug_logs.info(
+            "runtime.exit",
+            format!("退出前已暂停 {} 个未完成任务并保存状态", paused_tasks.len()),
+        );
+    }
+}
+
 async fn run_application_exit(app: tauri::AppHandle) {
     {
         let state = app.state::<app::AppState>();
@@ -208,6 +272,7 @@ async fn run_application_exit(app: tauri::AppHandle) {
     }
 
     sync_tasks_before_exit(&app).await;
+    pause_unfinished_tasks_before_exit(&app).await;
 
     {
         let state = app.state::<app::AppState>();

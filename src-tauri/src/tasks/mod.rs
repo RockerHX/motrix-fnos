@@ -568,12 +568,31 @@ pub fn mark_task_paused(
     task_id: u64,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
-        task.status = DownloadTaskStatus::Paused;
-        task.download_speed = 0;
-        task.error_code = None;
-        task.error_message = None;
+        apply_paused_state(task);
         Ok(())
     })
+}
+
+pub fn mark_task_paused_by_gid(
+    tasks: &Mutex<Vec<DownloadTask>>,
+    gid: &str,
+) -> Result<DownloadTask, String> {
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let task = guard
+        .iter_mut()
+        .find(|task| task.gid.as_deref() == Some(gid))
+        .ok_or_else(|| format!("下载任务不存在，GID {}", gid))?;
+    apply_paused_state(task);
+    Ok(task.clone())
+}
+
+fn apply_paused_state(task: &mut DownloadTask) {
+    task.status = DownloadTaskStatus::Paused;
+    task.download_speed = 0;
+    task.error_code = None;
+    task.error_message = None;
 }
 
 pub fn mark_task_resumed(
@@ -1227,6 +1246,17 @@ mod tests {
         let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
 
         let task = mark_task_paused(&tasks, 1).expect("task should be paused");
+
+        assert_eq!(task.status, DownloadTaskStatus::Paused);
+        assert_eq!(task.download_speed, 0);
+        assert_eq!(task.error_message, None);
+    }
+
+    #[test]
+    fn mark_task_paused_by_gid_updates_matching_task() {
+        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+
+        let task = mark_task_paused_by_gid(&tasks, "abc123").expect("task should be paused");
 
         assert_eq!(task.status, DownloadTaskStatus::Paused);
         assert_eq!(task.download_speed, 0);
