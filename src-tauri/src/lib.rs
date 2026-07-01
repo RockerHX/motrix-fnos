@@ -9,6 +9,7 @@ pub mod tasks;
 
 use crate::config::aria2::Aria2Config;
 use std::io;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -49,16 +50,22 @@ pub fn run() {
             }
 
             if let WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.app_handle().state::<app::AppState>();
+                if state.is_exiting.load(Ordering::SeqCst) {
+                    state
+                        .debug_logs
+                        .info("runtime.window", "应用正在退出，允许关闭主窗口");
+                    return;
+                }
+
                 api.prevent_close();
                 if let Err(error) = window.hide() {
-                    let state = window.app_handle().state::<app::AppState>();
                     state
                         .debug_logs
                         .error("runtime.window", format!("隐藏主窗口失败：{}", error));
                     return;
                 }
 
-                let state = window.app_handle().state::<app::AppState>();
                 state
                     .debug_logs
                     .info("runtime.window", "主窗口已隐藏到后台，下载任务将继续运行");

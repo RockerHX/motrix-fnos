@@ -3,7 +3,7 @@ use crate::debug_logs::DebugLogStore;
 use crate::tasks::DownloadTask;
 use std::collections::HashSet;
 use std::process::Child;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Mutex;
 use tauri_plugin_shell::process::CommandChild;
 
@@ -39,6 +39,7 @@ pub struct AppState {
     pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
     pub notified_task_events: Mutex<HashSet<String>>,
+    pub is_exiting: AtomicBool,
 }
 
 impl AppState {
@@ -55,6 +56,7 @@ impl AppState {
             debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(next_task_id),
             notified_task_events: Mutex::new(HashSet::new()),
+            is_exiting: AtomicBool::new(false),
         };
         state
             .debug_logs
