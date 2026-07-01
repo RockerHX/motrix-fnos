@@ -8,3 +8,7 @@ export function getAppInfo(): Promise<AppInfo> {
 export function pingBackend(): Promise<BackendPing> {
   return invoke<BackendPing>("ping_backend");
 }
+
+export function quitApp(): Promise<void> {
+  return invoke<void>("quit_app");
+}

@@ -74,6 +74,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::app::get_app_info,
             commands::app::ping_backend,
+            commands::app::quit_app,
             commands::debug_logs::list_debug_logs,
             commands::debug_logs::clear_debug_logs,
             commands::aria2::get_aria2_config_status,
@@ -140,7 +141,7 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 
-fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
+pub(crate) fn request_application_exit(app: &tauri::AppHandle, reason: &str) {
     let state = app.state::<app::AppState>();
     if state.is_exiting.swap(true, Ordering::SeqCst) {
         state

@@ -1,6 +1,7 @@
 use crate::app::AppState;
+use crate::request_application_exit;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,4 +35,9 @@ pub fn ping_backend(state: State<'_, AppState>) -> BackendPing {
         ok: true,
         message: "Rust 后端通信正常".to_string(),
     }
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    request_application_exit(&app, "前端请求退出应用");
 }
