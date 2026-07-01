@@ -120,21 +120,70 @@ pub fn cleanup_saved_sidecar_if_owned(
 
 #[cfg(unix)]
 fn terminate_process(pid: u32) -> bool {
-    std::process::Command::new("kill")
+    let _ = std::process::Command::new("kill")
         .arg("-TERM")
+        .arg(pid.to_string())
+        .status();
+    if wait_until_process_exits(pid, Duration::from_millis(800)) {
+        return true;
+    }
+
+    let _ = std::process::Command::new("kill")
+        .arg("-KILL")
+        .arg(pid.to_string())
+        .status();
+    wait_until_process_exits(pid, Duration::from_millis(800))
+}
+
+#[cfg(unix)]
+fn process_is_running(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .arg("-0")
         .arg(pid.to_string())
         .status()
         .map(|status| status.success())
         .unwrap_or(false)
 }
 
+#[cfg(unix)]
+fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !process_is_running(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !process_is_running(pid)
+}
+
 #[cfg(windows)]
 fn terminate_process(pid: u32) -> bool {
-    std::process::Command::new("taskkill")
+    let _ = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()
-        .map(|status| status.success())
+        .status();
+    wait_until_process_exits(pid, Duration::from_millis(800))
+}
+
+#[cfg(windows)]
+fn process_is_running(pid: u32) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
         .unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !process_is_running(pid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !process_is_running(pid)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -305,8 +354,18 @@ pub fn stop_process(
     if let Some(child) = guard.take() {
         let pid = child.id();
         if let Err(error) = child.kill() {
-            debug_logs.error("aria2", format!("停止 Aria2 进程失败：{}", error));
-            return Err(format!("停止 Aria2 进程失败：{}", error));
+            debug_logs.warn(
+                "aria2",
+                format!(
+                    "停止 Aria2 进程句柄失败，尝试按 PID 兜底终止，PID {}：{}",
+                    pid, error
+                ),
+            );
+        }
+        if !wait_until_process_exits(pid, Duration::from_millis(800)) && !terminate_process(pid) {
+            let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
+            debug_logs.error("aria2", &error);
+            return Err(error);
         }
         debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
     } else {
@@ -416,7 +475,18 @@ pub fn select_rpc_port_with_saved_runtime(
             return Some(port);
         }
 
-        if cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
+        if classify_saved_sidecar(saved, port) == SidecarOwnership::OwnSidecar {
+            if !cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
+                debug_logs.error(
+                    "aria2.cleanup",
+                    format!(
+                        "检测到本应用残留 sidecar 占用端口 {}，但清理失败，停止启动新 Aria2 避免继续下载",
+                        port
+                    ),
+                );
+                return None;
+            }
+
             std::thread::sleep(Duration::from_millis(300));
             if !rpc_port_in_use(&candidate_config) {
                 return Some(port);

@@ -50,6 +50,10 @@ pub fn should_pause_task_on_exit(task: &DownloadTask) -> bool {
     )
 }
 
+pub fn should_force_pause_task_on_startup(task: &DownloadTask) -> bool {
+    should_pause_task_on_exit(task)
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
@@ -617,6 +621,24 @@ pub fn mark_task_paused_by_gid(
         .ok_or_else(|| format!("下载任务不存在，GID {}", gid))?;
     apply_paused_state(task);
     Ok(task.clone())
+}
+
+pub fn mark_unfinished_tasks_paused(
+    tasks: &Mutex<Vec<DownloadTask>>,
+) -> Result<Vec<DownloadTask>, String> {
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut updated = Vec::new();
+    for task in guard
+        .iter_mut()
+        .filter(|task| should_pause_task_on_exit(task))
+    {
+        apply_paused_state(task);
+        task.updated_at = current_timestamp_ms();
+        updated.push(task.clone());
+    }
+    Ok(updated)
 }
 
 fn apply_paused_state(task: &mut DownloadTask) {
@@ -1275,6 +1297,23 @@ mod tests {
         let error = task_gid(&tasks, 1).expect_err("removed task should be rejected");
 
         assert!(error.contains("已删除"));
+    }
+
+    #[test]
+    fn startup_force_pause_scope_matches_exit_pause_scope() {
+        let mut task = sample_task(None, "/downloads".to_string());
+
+        task.status = DownloadTaskStatus::Pending;
+        assert!(should_force_pause_task_on_startup(&task));
+
+        task.status = DownloadTaskStatus::Active;
+        assert!(should_force_pause_task_on_startup(&task));
+
+        task.status = DownloadTaskStatus::Paused;
+        assert!(!should_force_pause_task_on_startup(&task));
+
+        task.status = DownloadTaskStatus::Complete;
+        assert!(!should_force_pause_task_on_startup(&task));
     }
 
     #[test]

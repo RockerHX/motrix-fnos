@@ -9,7 +9,7 @@ pub mod tasks;
 
 use crate::app::Aria2RuntimeInfo;
 use crate::config::aria2::Aria2Config;
-use crate::database::tasks::persist_download_task_states;
+use crate::database::tasks::{persist_download_task_state, persist_download_task_states};
 use std::io;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -223,29 +223,33 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     if candidates.is_empty() {
         state
             .debug_logs
-            .info("runtime.exit", "退出前没有需要暂停的未完成任务");
-        return;
+            .info("runtime.exit", "退出前没有可通过 RPC 暂停的未完成任务");
     }
 
-    let mut paused_tasks = Vec::new();
+    let mut rpc_paused_count = 0;
     for (task_id, gid) in candidates {
         match tasks::pause_task(&config, &gid, Some(&state.debug_logs)).await {
-            Ok(_) => match tasks::mark_task_paused_by_gid(&state.download_tasks, &gid) {
-                Ok(task) => paused_tasks.push(task),
-                Err(error) => state.debug_logs.warn(
-                    "runtime.exit",
-                    format!(
-                        "退出前标记任务暂停失败，ID {}，GID {}：{}",
-                        task_id, gid, error
-                    ),
-                ),
-            },
+            Ok(_) => rpc_paused_count += 1,
             Err(error) => state.debug_logs.warn(
                 "runtime.exit",
-                format!("退出前暂停任务失败，ID {}，GID {}：{}", task_id, gid, error),
+                format!(
+                    "退出前 RPC 暂停任务失败，仍会把任务保存为暂停态，ID {}，GID {}：{}",
+                    task_id, gid, error
+                ),
             ),
         }
     }
+
+    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.download_tasks) {
+        Ok(tasks) => tasks,
+        Err(error) => {
+            state.debug_logs.error(
+                "runtime.exit",
+                format!("退出前标记未完成任务暂停失败：{}", error),
+            );
+            return;
+        }
+    };
 
     let tasks = match tasks::list_tasks(&state.download_tasks) {
         Ok(tasks) => tasks,
@@ -266,7 +270,11 @@ async fn pause_unfinished_tasks_before_exit(app: &tauri::AppHandle) {
     } else {
         state.debug_logs.info(
             "runtime.exit",
-            format!("退出前已暂停 {} 个未完成任务并保存状态", paused_tasks.len()),
+            format!(
+                "退出前已保存 {} 个未完成任务为暂停态，RPC 成功暂停 {} 个",
+                paused_tasks.len(),
+                rpc_paused_count
+            ),
         );
     }
 }
@@ -282,21 +290,30 @@ async fn run_application_exit(app: tauri::AppHandle) {
     sync_tasks_before_exit(&app).await;
     pause_unfinished_tasks_before_exit(&app).await;
 
-    {
+    let should_clear_runtime = {
         let state = app.state::<app::AppState>();
         match aria2::stop_process(&state.aria2_process, &state.debug_logs) {
-            Ok(status) => state.debug_logs.info(
-                "runtime.exit",
-                format!("退出流程已停止 Aria2：{}", status.message),
-            ),
-            Err(error) => state.debug_logs.warn(
-                "runtime.exit",
-                format!("退出流程停止 Aria2 失败：{}", error),
-            ),
+            Ok(status) => {
+                state.debug_logs.info(
+                    "runtime.exit",
+                    format!("退出流程已停止 Aria2：{}", status.message),
+                );
+                true
+            }
+            Err(error) => {
+                state.debug_logs.warn(
+                    "runtime.exit",
+                    format!(
+                        "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
+                        error
+                    ),
+                );
+                false
+            }
         }
-    }
+    };
 
-    {
+    if should_clear_runtime {
         let state = app.state::<app::AppState>();
         state.clear_aria2_runtime();
     }
@@ -357,6 +374,8 @@ fn runtime_aria2_config(app: &tauri::AppHandle) -> Result<Aria2Config, String> {
 async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
+
+    force_pause_unfinished_tasks_on_startup(&app_handle).await;
 
     let config = match runtime_aria2_config(&app_handle) {
         Ok(config) => config,
@@ -442,6 +461,41 @@ async fn start_aria2_after_app_launch(app_handle: tauri::AppHandle) {
         format!(
             "应用启动后 Aria2 RPC ready timeout：{}",
             normalize_startup_rpc_message(&last_message)
+        ),
+    );
+}
+
+async fn force_pause_unfinished_tasks_on_startup(app_handle: &tauri::AppHandle) {
+    let state = app_handle.state::<app::AppState>();
+    let paused_tasks = match tasks::mark_unfinished_tasks_paused(&state.download_tasks) {
+        Ok(tasks) => tasks,
+        Err(error) => {
+            state.debug_logs.error(
+                "tasks.restore",
+                format!("启动时兜底暂停未完成任务失败：{}", error),
+            );
+            return;
+        }
+    };
+
+    if paused_tasks.is_empty() {
+        return;
+    }
+
+    for task in &paused_tasks {
+        if let Err(error) = persist_download_task_state(&state.database.pool, task).await {
+            state.debug_logs.error(
+                "tasks.restore",
+                format!("启动时保存兜底暂停任务失败，ID {}：{}", task.id, error),
+            );
+        }
+    }
+
+    state.debug_logs.warn(
+        "tasks.restore",
+        format!(
+            "启动时已将 {} 个上次未完成任务兜底恢复为暂停态，避免自动继续下载",
+            paused_tasks.len()
         ),
     );
 }
