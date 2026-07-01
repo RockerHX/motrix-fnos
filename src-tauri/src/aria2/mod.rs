@@ -321,6 +321,11 @@ fn rpc_port_in_use(config: &Aria2Config) -> bool {
 }
 
 
+
+pub fn rpc_ports_exhausted_message() -> String {
+    "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+}
+
 pub fn rpc_port_candidates() -> Vec<u16> {
     std::iter::once(6800).chain(16800..=16820).collect()
 }
@@ -685,6 +690,27 @@ mod tests {
             select_available_rpc_port_from(&config, [occupied, free]),
             Some(free)
         );
+    }
+
+    #[test]
+    fn select_available_rpc_port_returns_none_when_candidates_are_occupied() {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("test listener should bind");
+        let occupied = listener
+            .local_addr()
+            .expect("test listener should have local addr")
+            .port();
+        let config = test_config(None);
+
+        assert_eq!(select_available_rpc_port_from(&config, [occupied]), None);
+    }
+
+    #[test]
+    fn rpc_ports_exhausted_message_mentions_candidate_range() {
+        let message = rpc_ports_exhausted_message();
+
+        assert!(message.contains("6800"));
+        assert!(message.contains("16800-16820"));
     }
 
     #[test]

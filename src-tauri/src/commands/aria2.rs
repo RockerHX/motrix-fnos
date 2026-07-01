@@ -27,7 +27,7 @@ pub fn start_aria2(
 ) -> Result<Aria2ProcessStatus, String> {
     let base = Aria2Config::from_env();
     let port = select_available_rpc_port(&base).ok_or_else(|| {
-        "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+        crate::aria2::rpc_ports_exhausted_message()
     })?;
     let config = runtime_config(&base, port, generate_rpc_secret());
     let status = start_process(&app, &state.aria2_process, &config, &state.debug_logs)?;

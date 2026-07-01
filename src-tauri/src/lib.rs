@@ -336,7 +336,7 @@ fn hide_main_window(app: &tauri::AppHandle) {
 fn runtime_aria2_config() -> Result<Aria2Config, String> {
     let base = Aria2Config::from_env();
     let port = aria2::select_available_rpc_port(&base).ok_or_else(|| {
-        "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
+        aria2::rpc_ports_exhausted_message()
     })?;
     Ok(aria2::runtime_config(
         &base,
