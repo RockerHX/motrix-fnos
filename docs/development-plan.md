@@ -59,7 +59,7 @@
 - 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
 - `server::settings::service` 与 `server::tasks::service` 已承接业务编排，`src-tauri` commands 已压薄为 Tauri 适配层。
 - 双轨验证通过：`server/` 可独立测试，`src-tauri` 仍可编译并通过现有测试。
-- 阶段 2 已建立执行清单与 API 契约初稿，接下来将按 P2-2 ~ P2-8 顺序落地 server 主线。
+- 阶段 2 已建立执行清单、独立 server 入口，并完成 server 侧 Aria2 进程管理；接下来继续落地 Axum 路由骨架与 HTTP 接口。
 
 当前阶段约束：
 
@@ -145,7 +145,7 @@
 
 - P2-1：阶段 2 执行清单与 API 契约初稿已建立。✅
 - P2-2：独立 server 启动入口与运行时配置已建立。✅
-- P2-3：server 侧 Aria2 进程管理。⬜
+- P2-3：server 侧 Aria2 进程管理。✅
 - P2-4：Axum 基础接口与统一错误响应。⬜
 - P2-5：设置与调试日志 HTTP 接口。⬜
 - P2-6：任务 HTTP 接口与自动拉起 Aria2。⬜

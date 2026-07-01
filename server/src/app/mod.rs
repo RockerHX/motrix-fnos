@@ -1,11 +1,11 @@
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{connect_database, tasks::list_download_tasks, tasks::max_download_task_id, DATABASE_FILE_NAME};
+use crate::runtime::ManagedAria2Process;
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use serde::Serialize;
 use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::Child;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast;
@@ -51,28 +51,6 @@ impl ServerRuntimeConfig {
             http_addr,
             aria2_path,
         })
-    }
-}
-
-pub enum ManagedAria2Process {
-    External(Child),
-}
-
-impl ManagedAria2Process {
-    pub fn id(&self) -> u32 {
-        match self {
-            Self::External(child) => child.id(),
-        }
-    }
-
-    pub fn kill(self) -> Result<(), String> {
-        match self {
-            Self::External(mut child) => {
-                child.kill().map_err(|error| error.to_string())?;
-                let _ = child.wait();
-                Ok(())
-            }
-        }
     }
 }
 
