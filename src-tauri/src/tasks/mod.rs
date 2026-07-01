@@ -1119,11 +1119,20 @@ fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
             return Err("拒绝删除保存目录外的文件".to_string());
         }
 
-        trash::delete(&file)
-            .map_err(|error| format!("移入回收站失败：{}（{}）", file.display(), error))?;
+        delete_local_file(&file)?;
     }
 
     Ok(())
+}
+
+#[cfg(not(test))]
+fn delete_local_file(file: &Path) -> Result<(), String> {
+    trash::delete(file).map_err(|error| format!("移入回收站失败：{}（{}）", file.display(), error))
+}
+
+#[cfg(test)]
+fn delete_local_file(file: &Path) -> Result<(), String> {
+    fs::remove_file(file).map_err(|error| format!("删除测试文件失败：{}（{}）", file.display(), error))
 }
 
 fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
