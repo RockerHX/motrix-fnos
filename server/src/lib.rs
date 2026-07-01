@@ -1,4 +1,5 @@
 pub mod app;
+pub mod api;
 pub mod aria2;
 pub mod config;
 pub mod database;

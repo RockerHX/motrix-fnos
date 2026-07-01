@@ -2,14 +2,14 @@ use crate::app::ServerRuntimeConfig;
 use crate::aria2::{process_args, summarize_args, terminate_process};
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Aria2ProcessStatus {
     pub running: bool,

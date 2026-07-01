@@ -8,6 +8,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
+use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 #[cfg(test)]
@@ -188,6 +189,10 @@ pub async fn bootstrap_http_app_state(
 pub async fn run_server() -> Result<(), String> {
     let runtime = ServerRuntimeConfig::from_env()?;
     let state = bootstrap_http_app_state(&runtime).await?;
+    let router = crate::api::router(state.clone());
+    let listener = TcpListener::bind(state.runtime.http_addr)
+        .await
+        .map_err(|error| format!("绑定 HTTP 监听地址失败：{}（{}）", state.runtime.http_addr, error))?;
     state.core.debug_logs.info(
         "app",
         format!(
@@ -196,15 +201,20 @@ pub async fn run_server() -> Result<(), String> {
             state.runtime.app_data_dir.display()
         ),
     );
+    axum::serve(listener, router)
+        .with_graceful_shutdown(wait_for_shutdown_signal(state.clone()))
+        .await
+        .map_err(|error| format!("HTTP 服务运行失败：{}", error))
+}
 
-    tokio::signal::ctrl_c().await.map_err(|error| {
-        format!(
-            "等待停止信号失败，监听地址 {}：{}",
-            state.runtime.http_addr, error
-        )
-    })?;
-    state.request_shutdown("收到停止信号");
-    Ok(())
+async fn wait_for_shutdown_signal(state: Arc<HttpAppState>) {
+    match tokio::signal::ctrl_c().await {
+        Ok(()) => state.request_shutdown("收到停止信号"),
+        Err(error) => state
+            .core
+            .debug_logs
+            .error("runtime.exit", format!("等待停止信号失败：{}", error)),
+    }
 }
 
 fn default_local_app_data_dir() -> PathBuf {
