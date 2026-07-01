@@ -35,9 +35,9 @@
 
 ## 3. 当前状态摘要
 
-更新时间：2026-07-01
+更新时间：2026-07-02
 
-当前阶段：**阶段 0：架构纠偏（已完成，待进入阶段 1）**
+当前阶段：**阶段 1：抽出 Rust 业务核心（已完成，待进入阶段 2）**
 
 已确认的可迁移资产：
 
@@ -48,22 +48,23 @@
 
 当前主要问题：
 
-- 历史文档仍带有明显的 Tauri 桌面应用表述，需要统一纠偏到 FPK-first。
 - 前端通信仍依赖 `invoke` / `listen`，尚未切到 HTTP API / SSE。
-- Rust 入口、生命周期和数据目录策略仍绑定 Tauri 运行模型。
-- 当前还没有 fnOS FPK 目录结构、manifest、cmd 脚本和打包链路。
+- 运行入口仍由 `src-tauri` 承载，`server/` 还没有独立的 HTTP server 二进制入口。
+- fnOS FPK 目录结构、manifest、cmd 脚本和打包链路仍未建立。
+- 数据目录默认值、服务生命周期和前端接口仍保留 legacy 兼容语义，后续阶段需逐步切到 FPK / Web UI 模型。
 
 当前阶段已完成摘要：
 
-- P0-1：阶段 0 执行清单已建立。
-- P0-2：架构目标与总体技术路线已切换到 FPK-first。
-- P0-3：架构分层、数据流和服务生命周期表述已切换到服务化模型。
+- 阶段 0 文档纠偏已完成，主线决策已统一到 FPK-first。
+- 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
+- `server::settings::service` 与 `server::tasks::service` 已承接业务编排，`src-tauri` commands 已压薄为 Tauri 适配层。
+- 双轨验证通过：`server/` 可独立测试，`src-tauri` 仍可编译并通过现有测试。
 
-当前冻结规则：
+当前阶段约束：
 
-- 阶段 0 完成前，不新增 Tauri 能力。
-- 阶段 0 完成前，不删除现有 Tauri 主线文件。
-- 阶段 0 完成前，不启动 server/API 迁移实现。
+- 阶段 2 开始前，继续保持 `server/` 与 `src-tauri/` 双轨可运行。
+- 在 HTTP API / SSE 替代完成前，不删除现有 Tauri command 和前端调用契约。
+- 在 FPK 打包链路建立前，不把 legacy Tauri 启动方式误写为最终交付形态。
 
 ## 4. 阶段 0：架构纠偏（✅ 已完成）
 
@@ -112,7 +113,7 @@
 - P1-5：`tasks` 领域核心已抽取到 `server/`。✅
 - P1-6：纯 `aria2` 核心与 Tauri 进程适配已拆分。✅
 - P1-7：`ServerState` 已抽取，`AppState` 已变为 Tauri 适配层。✅
-- P1-8：待拆分 `settings` / `tasks` 服务层并收口。⏳
+- P1-8：`settings` / `tasks` 服务层已拆分并完成阶段收口。✅
 
 核心任务：
 
@@ -124,7 +125,16 @@
 验收：
 
 - `cargo test` 可在 server crate 独立运行。
+- `src-tauri` 继续可编译并通过现有测试。
 - 核心业务不依赖 Tauri。
+
+阶段结论：
+
+- `server/` 已成为 Rust 业务核心承载地，后续可在其上继续引入 HTTP API 与 server 二进制入口。
+- `src-tauri` 已退化为 legacy 适配层，保留 Aria2 本地进程管理和 Tauri 运行时胶水。
+- 当前已满足阶段 2 启动条件，但仍需维持双轨运行直到 HTTP/SSE 与 Web UI 迁移完成。
+
+状态：✅ 已完成（2026-07-02）。
 
 ### 5.2 阶段 2：实现 HTTP API 和事件流
 
@@ -206,9 +216,9 @@
 
 ## 7. 当前优先级
 
-1. 完成阶段 0 剩余文档任务：README、文档骨架、一致性检查。
-2. 阶段 0 收口后，再启动 Rust 核心抽离。
-3. server 主线可运行后，再推进 HTTP API、前端迁移和 FPK 打包。
+1. 启动阶段 2：为 `server/` 建立 HTTP API、统一错误响应和 SSE 事件流。
+2. 在不破坏双轨运行的前提下，把前端调用从 `invoke` / `listen` 逐步切到 HTTP / SSE。
+3. 待服务入口稳定后，再推进 FPK 打包链路和飞牛实机验证。
 
 ## 8. 验收原则
 
@@ -221,4 +231,4 @@
 
 当前项目并非全部作废，而是需要把已经积累的前端和 Rust 业务资产从 Tauri 主线中抽离出来，转向 FPK-first 的服务化交付模型。
 
-阶段 0 的目标不是实现功能，而是统一后续所有功能开发的决策来源和验收标准。只有阶段 0 完成后，后续迁移工作才不会继续被旧路线拉偏。
+阶段 0 已完成文档纠偏，阶段 1 也已完成 Rust 核心抽离。接下来的关键不是继续堆叠 Tauri 能力，而是围绕 `server/` 主线推进 HTTP API、Web UI 和 FPK 交付闭环。

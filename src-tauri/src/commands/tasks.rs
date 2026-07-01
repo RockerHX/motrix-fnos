@@ -3,20 +3,9 @@ use crate::aria2::{
     generate_rpc_secret, ping_rpc, process_status, runtime_config,
     select_rpc_port_with_saved_runtime, start_process,
 };
-use crate::commands::settings::load_app_config_from_pool;
 use crate::config::aria2::Aria2Config;
-use crate::database::tasks::{
-    persist_download_task_state, persist_download_task_states, upsert_download_task,
-};
-use crate::tasks::{
-    add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_redownloaded,
-    mark_task_removed, mark_task_resumed, move_task_files_to_trash, pause_task,
-    prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    should_readd_task_after_resume_error, store_created_task,
-    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
-    task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
-};
-use std::sync::atomic::Ordering;
+use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
+use motrix_fnos_server::tasks::service::TaskService;
 use std::time::Duration;
 use tauri::{AppHandle, State};
 
@@ -26,39 +15,10 @@ pub async fn create_download_task(
     state: State<'_, AppState>,
     payload: CreateDownloadTaskRequest,
 ) -> Result<DownloadTask, String> {
-    ensure_not_exiting(&state)?;
-    let mut payload = payload;
-    if payload
-        .save_dir
-        .as_deref()
-        .map(|save_dir| save_dir.trim().is_empty())
-        .unwrap_or(true)
-    {
-        let app_config = load_app_config_from_pool(&state.core.database.pool).await?;
-        payload.save_dir = Some(app_config.default_download_dir);
-    }
-    let prepared = prepare_task_with_logs(payload, &state.core.debug_logs)?;
+    let service = task_service(&state);
+    service.ensure_not_exiting()?;
     let config = ensure_aria2_ready(&app, &state).await?;
-    let gid = add_uri_to_aria2(&config, &prepared, Some(&state.core.debug_logs)).await?;
-    let task = store_created_task(&state.core.download_tasks, &state.core.next_task_id, prepared, gid)?;
-    upsert_download_task(&state.core.database.pool, &task).await?;
-    state.core.debug_logs.info(
-        "tasks.create",
-        format!(
-            "下载任务已写入内存列表和 SQLite，ID {}，GID {}",
-            task.id,
-            task.gid.as_deref().unwrap_or("-")
-        ),
-    );
-    Ok(task)
-}
-
-fn ensure_not_exiting(state: &State<'_, AppState>) -> Result<(), String> {
-    if state.core.is_exiting.load(Ordering::SeqCst) {
-        Err("应用正在退出，不能执行任务操作".to_string())
-    } else {
-        Ok(())
-    }
+    service.create_download_task(&config, payload).await
 }
 
 async fn ensure_aria2_ready(
@@ -68,13 +28,17 @@ async fn ensure_aria2_ready(
     let process = process_status(&state.aria2_process)?;
     if !process.running {
         state
-            .core.debug_logs
+            .core
+            .debug_logs
             .info("aria2", "Aria2 进程未运行，准备自动启动");
         let base = Aria2Config::from_env();
         let saved_runtime = state.load_saved_aria2_runtime();
-        let port =
-            select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.core.debug_logs)
-                .ok_or_else(crate::aria2::rpc_ports_exhausted_message)?;
+        let port = select_rpc_port_with_saved_runtime(
+            &base,
+            saved_runtime.as_ref(),
+            &state.core.debug_logs,
+        )
+        .ok_or_else(crate::aria2::rpc_ports_exhausted_message)?;
         let config =
             state.with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))?;
         let status = start_process(app, &state.aria2_process, &config, &state.core.debug_logs)
@@ -167,29 +131,9 @@ fn shorten_start_error(message: String) -> String {
 
 #[tauri::command]
 pub async fn list_download_tasks(state: State<'_, AppState>) -> Result<Vec<DownloadTask>, String> {
-    if state.core.is_exiting.load(Ordering::SeqCst) {
-        state.core.debug_logs.info(
-            "tasks.list",
-            "应用正在退出，跳过 Aria2 刷新并返回内存任务快照",
-        );
-        return Ok(crate::tasks::list_tasks(&state.core.download_tasks)?
-            .into_iter()
-            .filter(|task| task.status != DownloadTaskStatus::Removed)
-            .collect());
-    }
-
-    let tasks = refresh_tasks_from_aria2(
-        &state.core.download_tasks,
-        &state.aria2_config(),
-        Some(&state.core.debug_logs),
-    )
-    .await?;
-    sync_tasks_to_database(&state, &tasks).await?;
-
-    Ok(tasks
-        .into_iter()
-        .filter(|task| task.status != DownloadTaskStatus::Removed)
-        .collect())
+    task_service(&state)
+        .list_download_tasks(&state.aria2_config())
+        .await
 }
 
 #[tauri::command]
@@ -198,33 +142,10 @@ pub async fn pause_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
-    ensure_not_exiting(&state)?;
+    let service = task_service(&state);
+    service.ensure_not_exiting()?;
     let config = ensure_aria2_ready(&app, &state).await?;
-    let gid = task_gid(&state.core.download_tasks, task_id)?;
-    pause_task(&config, &gid, Some(&state.core.debug_logs)).await?;
-    if let Err(error) = sync_task_progress_after_pause_by_gid(
-        &state.core.download_tasks,
-        &config,
-        &gid,
-        Some(&state.core.debug_logs),
-    )
-    .await
-    {
-        state.core.debug_logs.warn(
-            "tasks.control",
-            format!(
-                "暂停后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
-                task_id, gid, error
-            ),
-        );
-    }
-    let task = mark_task_paused(&state.core.download_tasks, task_id)?;
-    sync_task_to_database(&state, &task).await?;
-    state.core.debug_logs.info(
-        "tasks.control",
-        format!("任务已暂停，ID {}，GID {}", task_id, gid),
-    );
-    Ok(task)
+    service.pause_download_task(&config, task_id).await
 }
 
 #[tauri::command]
@@ -233,56 +154,10 @@ pub async fn resume_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
-    ensure_not_exiting(&state)?;
+    let service = task_service(&state);
+    service.ensure_not_exiting()?;
     let config = ensure_aria2_ready(&app, &state).await?;
-    let gid = task_gid(&state.core.download_tasks, task_id)?;
-    let task_before_resume = task_snapshot(&state.core.download_tasks, task_id)?;
-    let task = match unpause_task(&config, &gid, Some(&state.core.debug_logs)).await {
-        Ok(_) => {
-            if let Err(error) = sync_task_progress_from_aria2_by_gid(
-                &state.core.download_tasks,
-                &config,
-                &gid,
-                Some(&state.core.debug_logs),
-            )
-            .await
-            {
-                state.core.debug_logs.warn(
-                    "tasks.control",
-                    format!(
-                        "恢复后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
-                        task_id, gid, error
-                    ),
-                );
-            }
-            mark_task_resumed(&state.core.download_tasks, task_id)?
-        }
-        Err(error) if should_readd_task_after_resume_error(&task_before_resume, &error) => {
-            state.core.debug_logs.warn(
-                "tasks.restore",
-                format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
-            );
-            readd_task_to_aria2(
-                &state.core.download_tasks,
-                &config,
-                task_id,
-                Some(&state.core.debug_logs),
-            )
-            .await?
-        }
-        Err(error) => return Err(error),
-    };
-    sync_task_to_database(&state, &task).await?;
-    state.core.debug_logs.info(
-        "tasks.control",
-        format!(
-            "任务已恢复，ID {}，旧 GID {}，当前 GID {}",
-            task_id,
-            gid,
-            task.gid.as_deref().unwrap_or("-")
-        ),
-    );
-    Ok(task)
+    service.resume_download_task(&config, task_id).await
 }
 
 #[tauri::command]
@@ -291,30 +166,10 @@ pub async fn redownload_download_task(
     state: State<'_, AppState>,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
-    ensure_not_exiting(&state)?;
+    let service = task_service(&state);
+    service.ensure_not_exiting()?;
     let config = ensure_aria2_ready(&app, &state).await?;
-    let task = task_snapshot(&state.core.download_tasks, task_id)?;
-    if task.status != DownloadTaskStatus::Complete {
-        return Err("只有已完成任务可以重新下载".to_string());
-    }
-
-    move_task_files_to_trash(&task)?;
-    let prepared = crate::tasks::PreparedDownloadTask {
-        url: task.url.clone(),
-        file_name: task.file_name.clone(),
-        save_dir: task.save_dir.clone(),
-    };
-    let gid = add_uri_to_aria2(&config, &prepared, Some(&state.core.debug_logs)).await?;
-    let task = mark_task_redownloaded(&state.core.download_tasks, task_id, gid.clone())?;
-    sync_task_to_database(&state, &task).await?;
-    state.core.debug_logs.info(
-        "tasks.control",
-        format!(
-            "任务已重新下载，ID {}，GID {}，原本地文件已移入回收站",
-            task_id, gid
-        ),
-    );
-    Ok(task)
+    service.redownload_download_task(&config, task_id).await
 }
 
 #[tauri::command]
@@ -324,46 +179,20 @@ pub async fn delete_download_task(
     task_id: u64,
     delete_files: bool,
 ) -> Result<DownloadTask, String> {
-    ensure_not_exiting(&state)?;
+    let service = task_service(&state);
+    service.ensure_not_exiting()?;
     let config = ensure_aria2_ready(&app, &state).await?;
-    let gid = task_gid(&state.core.download_tasks, task_id)?;
-    if let Err(error) = remove_task(&config, &gid, Some(&state.core.debug_logs)).await {
-        if is_stale_aria2_gid_error(&error) {
-            state.core.debug_logs.warn(
-                "tasks.control",
-                format!(
-                    "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
-                    task_id, gid, error
-                ),
-            );
-        } else {
-            return Err(error);
-        }
-    }
-    let task = mark_task_removed(&state.core.download_tasks, task_id, delete_files)?;
-    sync_task_to_database(&state, &task).await?;
-    state.core.debug_logs.info(
-        "tasks.control",
-        format!(
-            "任务已删除，ID {}，GID {}，删除本地文件 {}",
-            task_id,
-            gid,
-            if delete_files { "是" } else { "否" }
-        ),
-    );
-    Ok(task)
+    service
+        .delete_download_task(&config, task_id, delete_files)
+        .await
 }
 
-async fn sync_tasks_to_database(
-    state: &State<'_, AppState>,
-    tasks: &[DownloadTask],
-) -> Result<(), String> {
-    persist_download_task_states(&state.core.database.pool, tasks).await
-}
-
-async fn sync_task_to_database(
-    state: &State<'_, AppState>,
-    task: &DownloadTask,
-) -> Result<(), String> {
-    persist_download_task_state(&state.core.database.pool, task).await
+fn task_service<'a>(state: &'a State<'_, AppState>) -> TaskService<'a> {
+    TaskService::new(
+        &state.core.database.pool,
+        &state.core.download_tasks,
+        &state.core.next_task_id,
+        &state.core.debug_logs,
+        &state.core.is_exiting,
+    )
 }
