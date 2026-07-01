@@ -73,18 +73,179 @@ pub enum SidecarOwnership {
 pub fn classify_saved_sidecar(
     saved: Option<&Aria2RuntimeInfo>,
     candidate_port: u16,
+    debug_logs: &DebugLogStore,
 ) -> SidecarOwnership {
-    match saved {
-        Some(runtime)
-            if runtime.binary_source == Aria2BinarySource::Sidecar
-                && runtime.actual_port == candidate_port
-                && !runtime.rpc_secret.trim().is_empty()
-                && runtime.pid > 0 =>
-        {
-            SidecarOwnership::OwnSidecar
+    let Some(runtime) = saved else {
+        return SidecarOwnership::ExternalOrUnknown;
+    };
+
+    let command_line = match read_process_command_line(runtime.pid) {
+        Ok(command_line) => command_line,
+        Err(error) => {
+            debug_logs.warn(
+                "aria2.cleanup",
+                format!("残留 sidecar 命令行读取失败，按未知进程处理：{}", error),
+            );
+            return SidecarOwnership::ExternalOrUnknown;
         }
-        _ => SidecarOwnership::ExternalOrUnknown,
+    };
+
+    classify_saved_sidecar_from_command_line(Some(runtime), candidate_port, Some(&command_line))
+}
+
+fn classify_saved_sidecar_from_command_line(
+    saved: Option<&Aria2RuntimeInfo>,
+    candidate_port: u16,
+    command_line: Option<&str>,
+) -> SidecarOwnership {
+    let Some(runtime) = saved else {
+        return SidecarOwnership::ExternalOrUnknown;
+    };
+
+    if runtime.binary_source != Aria2BinarySource::Sidecar
+        || runtime.actual_port != candidate_port
+        || runtime.rpc_secret.trim().is_empty()
+        || runtime.pid == 0
+    {
+        return SidecarOwnership::ExternalOrUnknown;
     }
+
+    let Some(command_line) = command_line else {
+        return SidecarOwnership::ExternalOrUnknown;
+    };
+    let evidence = analyze_sidecar_command_line(command_line, runtime, candidate_port);
+
+    if evidence.contains_sidecar_name
+        && evidence.contains_rpc_port
+        && evidence.contains_rpc_secret
+        && evidence.matched_count() >= 3
+    {
+        SidecarOwnership::OwnSidecar
+    } else {
+        SidecarOwnership::ExternalOrUnknown
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SidecarCommandLineEvidence {
+    pub contains_sidecar_name: bool,
+    pub contains_rpc_port: bool,
+    pub contains_rpc_secret: bool,
+    pub contains_app_data_path: bool,
+    pub contains_session_path: bool,
+    pub contains_log_path: bool,
+}
+
+impl SidecarCommandLineEvidence {
+    pub fn matched_count(&self) -> usize {
+        [
+            self.contains_sidecar_name,
+            self.contains_rpc_port,
+            self.contains_rpc_secret,
+            self.contains_app_data_path,
+            self.contains_session_path,
+            self.contains_log_path,
+        ]
+        .into_iter()
+        .filter(|matched| *matched)
+        .count()
+    }
+}
+
+pub(crate) fn analyze_sidecar_command_line(
+    command_line: &str,
+    runtime: &Aria2RuntimeInfo,
+    candidate_port: u16,
+) -> SidecarCommandLineEvidence {
+    let normalized_command = normalize_path_text(command_line);
+
+    SidecarCommandLineEvidence {
+        contains_sidecar_name: runtime
+            .sidecar_name
+            .as_deref()
+            .map(|name| !name.trim().is_empty() && command_line.contains(name))
+            .unwrap_or(false),
+        contains_rpc_port: command_line_contains_rpc_port(command_line, candidate_port),
+        contains_rpc_secret: !runtime.rpc_secret.trim().is_empty()
+            && command_line.contains(&format!("--rpc-secret={}", runtime.rpc_secret)),
+        contains_app_data_path: optional_path_matches(
+            &normalized_command,
+            runtime.app_data_dir.as_deref(),
+        ),
+        contains_session_path: optional_path_matches(
+            &normalized_command,
+            runtime.aria2_session_path.as_deref(),
+        ),
+        contains_log_path: optional_path_matches(
+            &normalized_command,
+            runtime.aria2_log_path.as_deref(),
+        ),
+    }
+}
+
+fn command_line_contains_rpc_port(command_line: &str, candidate_port: u16) -> bool {
+    let plain = format!("--rpc-listen-port={candidate_port}");
+    let quoted = format!("--rpc-listen-port=\"{candidate_port}\"");
+    command_line.contains(&plain) || command_line.contains(&quoted)
+}
+
+fn optional_path_matches(normalized_command: &str, path: Option<&str>) -> bool {
+    path.map(normalize_path_text)
+        .filter(|path| !path.trim().is_empty())
+        .map(|path| normalized_command.contains(&path))
+        .unwrap_or(false)
+}
+
+fn normalize_path_text(value: &str) -> String {
+    value.replace('\\', "/")
+}
+
+#[cfg(unix)]
+pub(crate) fn read_process_command_line(pid: u32) -> Result<String, String> {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map_err(|error| format!("读取进程命令行失败，PID {}：{}", pid, error))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "读取进程命令行失败，PID {}：ps 退出状态 {}",
+            pid, output.status
+        ));
+    }
+
+    let command_line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if command_line.is_empty() {
+        return Err(format!("读取进程命令行失败，PID {}：结果为空", pid));
+    }
+
+    Ok(command_line)
+}
+
+#[cfg(windows)]
+pub(crate) fn read_process_command_line(pid: u32) -> Result<String, String> {
+    let query = format!(
+        "(Get-CimInstance Win32_Process -Filter \"ProcessId = {}\").CommandLine",
+        pid
+    );
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &query])
+        .output()
+        .map_err(|error| format!("读取进程命令行失败，PID {}：{}", pid, error))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "读取进程命令行失败，PID {}：PowerShell 退出状态 {}",
+            pid, output.status
+        ));
+    }
+
+    let command_line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if command_line.is_empty() {
+        return Err(format!("读取进程命令行失败，PID {}：结果为空", pid));
+    }
+
+    Ok(command_line)
 }
 
 pub fn cleanup_saved_sidecar_if_owned(
@@ -92,13 +253,19 @@ pub fn cleanup_saved_sidecar_if_owned(
     candidate_port: u16,
     debug_logs: &DebugLogStore,
 ) -> bool {
-    if classify_saved_sidecar(saved, candidate_port) != SidecarOwnership::OwnSidecar {
-        return false;
-    }
-
     let Some(runtime) = saved else {
         return false;
     };
+    if runtime.actual_port != candidate_port {
+        debug_logs.warn(
+            "aria2.cleanup",
+            format!(
+                "跳过残留 sidecar 清理：运行态端口 {} 与候选端口 {} 不一致",
+                runtime.actual_port, candidate_port
+            ),
+        );
+        return false;
+    }
 
     if !terminate_process(runtime.pid) {
         debug_logs.warn(
@@ -476,21 +643,38 @@ pub fn select_rpc_port_with_saved_runtime(
             return Some(port);
         }
 
-        if classify_saved_sidecar(saved, port) == SidecarOwnership::OwnSidecar {
-            if !cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
-                debug_logs.error(
+        match classify_saved_sidecar(saved, port, debug_logs) {
+            SidecarOwnership::OwnSidecar => {
+                if !cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
+                    debug_logs.error(
+                        "aria2.cleanup",
+                        format!(
+                            "检测到本应用残留 sidecar 占用端口 {}，但清理失败，停止启动新 Aria2 避免继续下载",
+                            port
+                        ),
+                    );
+                    return None;
+                }
+
+                std::thread::sleep(Duration::from_millis(300));
+                if !rpc_port_in_use(&candidate_config) {
+                    return Some(port);
+                }
+
+                debug_logs.warn(
                     "aria2.cleanup",
-                    format!(
-                        "检测到本应用残留 sidecar 占用端口 {}，但清理失败，停止启动新 Aria2 避免继续下载",
-                        port
-                    ),
+                    format!("清理本应用残留 sidecar 后端口 {} 仍被占用", port),
                 );
                 return None;
             }
-
-            std::thread::sleep(Duration::from_millis(300));
-            if !rpc_port_in_use(&candidate_config) {
-                return Some(port);
+            SidecarOwnership::ExternalOrUnknown => {
+                debug_logs.info(
+                    "aria2.cleanup",
+                    format!(
+                        "端口 {} 已被占用但未确认属于本应用 sidecar，跳过该端口",
+                        port
+                    ),
+                );
             }
         }
     }
@@ -821,15 +1005,23 @@ mod tests {
         let runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
 
         assert_eq!(
-            classify_saved_sidecar(Some(&runtime), 6800),
+            classify_saved_sidecar_from_command_line(
+                Some(&runtime),
+                6800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=secret")
+            ),
             SidecarOwnership::OwnSidecar
         );
         assert_eq!(
-            classify_saved_sidecar(Some(&runtime), 16800),
+            classify_saved_sidecar_from_command_line(
+                Some(&runtime),
+                16800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=secret")
+            ),
             SidecarOwnership::ExternalOrUnknown
         );
         assert_eq!(
-            classify_saved_sidecar(None, 6800),
+            classify_saved_sidecar_from_command_line(None, 6800, None),
             SidecarOwnership::ExternalOrUnknown
         );
     }
@@ -841,13 +1033,99 @@ mod tests {
         missing_secret.rpc_secret.clear();
 
         assert_eq!(
-            classify_saved_sidecar(Some(&external), 6800),
+            classify_saved_sidecar_from_command_line(
+                Some(&external),
+                6800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=secret")
+            ),
             SidecarOwnership::ExternalOrUnknown
         );
         assert_eq!(
-            classify_saved_sidecar(Some(&missing_secret), 6800),
+            classify_saved_sidecar_from_command_line(
+                Some(&missing_secret),
+                6800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=secret")
+            ),
             SidecarOwnership::ExternalOrUnknown
         );
+    }
+
+    #[test]
+    fn saved_sidecar_requires_matching_command_line_identity() {
+        let runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+
+        assert_eq!(
+            classify_saved_sidecar_from_command_line(
+                Some(&runtime),
+                6800,
+                Some("/tmp/other-aria2 --rpc-listen-port=6800 --rpc-secret=wrong")
+            ),
+            SidecarOwnership::ExternalOrUnknown
+        );
+        assert_eq!(
+            classify_saved_sidecar_from_command_line(
+                Some(&runtime),
+                6800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=wrong")
+            ),
+            SidecarOwnership::ExternalOrUnknown
+        );
+    }
+
+    #[test]
+    fn old_runtime_without_sidecar_name_is_low_confidence() {
+        let mut runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+        runtime.sidecar_name = None;
+
+        assert_eq!(
+            classify_saved_sidecar_from_command_line(
+                Some(&runtime),
+                6800,
+                Some("./aria2-next --rpc-listen-port=6800 --rpc-secret=secret")
+            ),
+            SidecarOwnership::ExternalOrUnknown
+        );
+    }
+
+    #[test]
+    fn command_line_evidence_matches_sidecar_identity() {
+        let mut runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+        runtime.aria2_session_path = Some("/tmp/motrix-fnos/aria2/aria2.session".to_string());
+        runtime.aria2_log_path = Some("/tmp/motrix-fnos/aria2/aria2.log".to_string());
+        let command_line = "./aria2-next --enable-rpc=true --rpc-listen-port=6800 --rpc-secret=secret --input-file=/tmp/motrix-fnos/aria2/aria2.session --log=/tmp/motrix-fnos/aria2/aria2.log";
+
+        let evidence = analyze_sidecar_command_line(command_line, &runtime, 6800);
+
+        assert!(evidence.contains_sidecar_name);
+        assert!(evidence.contains_rpc_port);
+        assert!(evidence.contains_rpc_secret);
+        assert!(evidence.contains_app_data_path);
+        assert!(evidence.contains_session_path);
+        assert!(evidence.contains_log_path);
+        assert_eq!(evidence.matched_count(), 6);
+    }
+
+    #[test]
+    fn command_line_evidence_rejects_unrelated_process() {
+        let runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+        let evidence =
+            analyze_sidecar_command_line("/usr/bin/python3 -m http.server 6800", &runtime, 6800);
+
+        assert_eq!(evidence.matched_count(), 0);
+    }
+
+    #[test]
+    fn command_line_evidence_matches_windows_style_paths() {
+        let mut runtime = runtime_info(6800, Aria2BinarySource::Sidecar);
+        runtime.app_data_dir = Some("C:/Users/test/AppData/Roaming/motrix-fnos".to_string());
+        runtime.aria2_session_path =
+            Some("C:/Users/test/AppData/Roaming/motrix-fnos/aria2/aria2.session".to_string());
+        let command_line = "aria2-next.exe --rpc-listen-port=6800 --rpc-secret=secret --input-file=C:\\Users\\test\\AppData\\Roaming\\motrix-fnos\\aria2\\aria2.session";
+
+        let evidence = analyze_sidecar_command_line(command_line, &runtime, 6800);
+
+        assert!(evidence.contains_app_data_path);
+        assert!(evidence.contains_session_path);
     }
 
     #[test]
