@@ -37,7 +37,7 @@
 
 更新时间：2026-07-02
 
-当前阶段：**阶段 4：建立 FPK 打包链路（已完成）**
+当前阶段：**阶段 5：飞牛实机安装和基础功能验证（进行中）**
 
 已确认的可迁移资产：
 
@@ -51,7 +51,8 @@
 - 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
 - `src-tauri/` legacy Rust 入口继续保留，作为 FPK 主线外的回归参照。
 - 阶段 4 已完成：FPK 目录骨架、基础图标、Linux x86_64 server 构建入口、Web UI 打包输出、Aria2 sidecar 放置规则、启动/停止/状态脚本、manifest/UI 入口配置以及本地/CI 统一打包入口已建立，且已生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
-- 当前尚未完成飞牛实机安装、启动、停止、卸载与下载闭环验证，下一阶段转入阶段 5 实机测试。
+- 当前进入阶段 5 实机测试：已确认 x86 包无法安装到 OES / A311D 等 ARM 飞牛设备，需生成 `aarch64-unknown-linux-gnu` 目标的 ARM FPK 后继续验证。
+- 尚未完成飞牛实机安装、启动、停止、卸载与下载闭环验证。
 
 当前阶段已完成摘要：
 
@@ -66,9 +67,9 @@
 
 当前阶段约束：
 
-- 阶段 2 期间，继续保持 `server/` 与 `src-tauri/` 双轨可运行。
-- 在 HTTP API / SSE 替代完成前，不删除现有 Tauri command 和前端调用契约。
-- 在 FPK 打包链路建立前，不把 legacy Tauri 启动方式误写为最终交付形态。
+- 阶段 5 期间，优先验证真实飞牛安装和最小下载闭环，不新增非必要功能。
+- FPK 必须与设备 CPU 架构匹配；x86 包只用于 x86 飞牛，OES / A311D 等 ARM 设备必须使用 ARM 包。
+- `src-tauri/` legacy Rust 入口继续保留为回归参照，但不再作为目标交付路线。
 
 ## 4. 阶段 0：架构纠偏（✅ 已完成）
 
@@ -248,11 +249,11 @@
 
 目标：确认最小可用闭环。
 
-当前状态：未开始（等待基于 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk` 进行实机安装验证）。
+当前状态：进行中。已生成 x86 FPK，但在 OES / A311D ARM 飞牛上安装失败，原因是包平台与设备架构不匹配；下一步应构建 `aarch64-unknown-linux-gnu` 目标的 ARM FPK 继续实机验证。
 
 核心任务：
 
-- 安装 `.fpk`。
+- 按设备架构构建并安装 `.fpk`：x86 设备使用 x86 包，ARM 设备使用 ARM 包。
 - 启动服务并打开 Web UI。
 - 验证 HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看。
 - 验证停止服务后的 session 保存和重启恢复。
@@ -278,9 +279,9 @@
 
 ## 7. 当前优先级
 
-1. 启动阶段 4：建立 FPK 打包目录、manifest、cmd 脚本与 fnpack 构建链路。
-2. 在保持 `server/` 与 `src-tauri/` 双轨可回归的前提下，准备 server 二进制、Web `dist/` 与 Linux Aria2 sidecar 的打包收敛。
-3. 待 FPK 产物可构建后，再推进飞牛实机安装与基础功能验证。
+1. 为 OES / A311D 等 ARM 飞牛构建 `aarch64-unknown-linux-gnu` 目标 FPK，并确认可安装。
+2. 在真实飞牛上完成启动、停止、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看和 session 恢复验证。
+3. 根据实机失败项修正 FPK manifest、权限、运行目录、端口或服务脚本，并同步更新手测清单。
 
 ## 8. 验收原则
 
@@ -293,4 +294,4 @@
 
 当前项目并非全部作废，而是需要把已经积累的前端和 Rust 业务资产从 Tauri 主线中抽离出来，转向 FPK-first 的服务化交付模型。
 
-阶段 0 已完成文档纠偏，阶段 1 也已完成 Rust 核心抽离。接下来的关键不是继续堆叠 Tauri 能力，而是围绕 `server/` 主线推进 HTTP API、Web UI 和 FPK 交付闭环。
+阶段 0 到阶段 4 已完成，当前关键不是继续堆叠 Tauri 能力，而是在真实飞牛设备上验证 `server`、Web UI、Aria2 sidecar 和 FPK 生命周期是否形成可交付闭环。

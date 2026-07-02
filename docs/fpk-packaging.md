@@ -2,34 +2,235 @@
 
 ## 目的
 
-记录飞牛 fnOS 下的 FPK 包结构、`fnpack` 使用方式、构建输入和安装调试流程。
+记录飞牛 fnOS 下的 FPK 包结构、`fnpack` 使用方式、构建输入、安装调试和排障流程。
 
 ## 当前状态
 
-阶段 4 已完成，当前已明确 Linux x86_64 server 的标准构建入口与产物位置，并已成功生成首个 x86 FPK 产物：
+阶段 4 已完成，当前已经建立 FPK 打包链路并可生成 `.fpk` 产物。阶段 5 正在进行飞牛实机安装和基础功能验证。
 
-- 构建命令：`pnpm run build:server:linux:x64`
+已验证的默认产物：
+
+- 默认构建命令：`pnpm run build:fpk`
 - 默认目标：`x86_64-unknown-linux-gnu`
-- 产物路径：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
-- 非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机可直接使用 `cargo build`。
-- 已验证产物：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
+- 默认 FPK：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`
+- 默认 server 产物：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
 
-## 后续填充范围
+注意：默认 x86 包不能安装到 ARM 飞牛设备。OES / A311D 等 ARM 设备应构建 ARM 包：
 
-- `packaging/fnos/` 目录结构（当前已补齐 `manifest`、`config/resource`、`config/privilege`、`cmd/main`、`app/ui/config`）
-- manifest、config、cmd 脚本约定
-- 启动脚本：`packaging/fnos/cmd/start`，优先使用 `TRIM_APPDEST`、`TRIM_PKGVAR`、`TRIM_SERVICE_PORT`，本地回退到仓库内相对路径；本机验证可通过 `MOTRIX_FNOS_SERVER_BIN` / `MOTRIX_FNOS_ARIA2_PATH` 覆写到 native 二进制。
-- 停止脚本：`packaging/fnos/cmd/stop`，通过 `SIGINT` 触发 server 统一退出流程，并等待最多 20 秒完成收口。
-- 状态脚本：`packaging/fnos/cmd/status`，运行中返回 0，未运行返回 1，并输出 PID 与监听地址。
-- manifest 当前默认产出 x86 包，Web 入口键名为 `motrix.fnos.main`，后续打包脚本可按目标架构改写 `platform` 与 `port` 字段。
-- 一键打包脚本：`node scripts/build-fpk.mjs [--target <triple>] [--prepare-only]`，默认生成 x86 FPK，`--prepare-only` 仅验证组装流程不执行 `fnpack build`。
-- 统一入口：本地使用 `pnpm run build:fpk:prepare` / `pnpm run build:fpk`，CI 复用同一 `build-fpk` 脚本做预组装验证。
-- 最终打包前会清空 `packaging/fnos/app/data/` 的本地运行态残留，避免把 SQLite WAL、PID、日志误打入 FPK。
-- Rust server 与 Web UI 构建产物放置方式
-- Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
-- Aria2 sidecar 集成方式
-- Aria2 sidecar 放置命令：`pnpm run stage:aria2:x64` / `pnpm run stage:aria2:arm64`，统一输出到 `packaging/fnos/app/bin/aria2-next`。
-- `fnpack build`、安装、调试和排障流程
+```bash
+rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+```
+
+输出：
+
+```text
+packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
+```
+
+## 架构与产物对应关系
+
+| 飞牛设备架构 | `uname -m` | Rust target | FPK platform | FPK 输出 |
+| --- | --- | --- | --- | --- |
+| x86_64 | `x86_64` | `x86_64-unknown-linux-gnu` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
+| ARM64 | `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
+
+如果平台不匹配，飞牛应用中心会拒绝安装，并提示类似“应用包不符合系统要求”。这不是 FPK-first 架构问题，而是包内 `manifest platform` 与设备 CPU 架构不匹配。
+
+## FPK 目录结构
+
+当前 FPK 目录位于 `packaging/fnos/`：
+
+```text
+packaging/fnos/
+  manifest
+  ICON.PNG
+  ICON_256.PNG
+  cmd/
+    main
+    start
+    stop
+    status
+    common.sh
+    install_init
+    install_callback
+    uninstall_init
+    uninstall_callback
+    upgrade_init
+    upgrade_callback
+    config_init
+    config_callback
+  config/
+    resource
+    privilege
+  wizard/
+    install
+    config
+  app/
+    bin/
+      motrix-fnos-server
+      aria2-next
+    data/
+    ui/
+      config
+      images/
+  ui/
+    dist/
+```
+
+说明：
+
+- `manifest` 定义应用名、版本、平台、服务端口、Web 入口和 stop 控制能力。
+- `cmd/main` 统一分发 `start` / `stop` / `status`。
+- `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 sidecar 路径。
+- `cmd/stop` 通过 `SIGINT` 触发 server 统一退出流程，并最多等待 20 秒。
+- `cmd/status` 返回服务运行状态，运行中返回 0，未运行返回 1。
+- `app/bin/motrix-fnos-server` 是 Rust 后端服务。
+- `app/bin/aria2-next` 是 Linux Aria2 Next sidecar。
+- `ui/dist/` 是 Vue Web UI 静态资源。
+- `app/data/` 是运行时数据目录，打包前会清理本地残留。
+
+## 构建入口
+
+安装依赖：
+
+```bash
+rtk pnpm install
+```
+
+预组装验证，不执行 `fnpack build`：
+
+```bash
+rtk pnpm run build:fpk:prepare
+```
+
+构建默认 x86 FPK：
+
+```bash
+rtk pnpm run build:fpk
+```
+
+构建 ARM FPK：
+
+```bash
+rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+```
+
+指定端口构建：
+
+```bash
+rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu --service-port 17080
+```
+
+脚本参数：
+
+| 参数 | 说明 |
+| --- | --- |
+| `--target <triple>` | 指定 Rust target；默认 `x86_64-unknown-linux-gnu` |
+| `--prepare-only` | 只完成构建和组装，不执行 `fnpack build` |
+| `--service-port <port>` | 改写 `manifest service_port` 和 Web UI 入口端口 |
+| `--fnpack <path>` | 使用指定 `fnpack` 可执行文件 |
+
+## 构建输入
+
+### Rust server
+
+标准构建入口：
+
+```bash
+rtk pnpm run build:server:linux:x64
+```
+
+底层脚本：
+
+```bash
+rtk node scripts/build-server-linux.mjs --target x86_64-unknown-linux-gnu
+rtk node scripts/build-server-linux.mjs --target aarch64-unknown-linux-gnu
+```
+
+非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机在 x86 目标下可直接使用 `cargo build`。
+
+交叉构建依赖示例：
+
+```bash
+rtk python3 -m pip install --user cargo-zigbuild ziglang
+```
+
+### Web UI
+
+```bash
+rtk pnpm run build:web:fpk
+```
+
+输出会同步到：
+
+```text
+packaging/fnos/ui/dist/
+```
+
+### Aria2 Next sidecar
+
+```bash
+rtk pnpm run stage:aria2:x64
+rtk pnpm run stage:aria2:arm64
+```
+
+统一输出到：
+
+```text
+packaging/fnos/app/bin/aria2-next
+```
+
+## 运行时环境变量
+
+`cmd/common.sh` 会设置以下运行时变量：
+
+| 变量 | 说明 |
+| --- | --- |
+| `TRIM_APPDEST` | fnOS 注入的应用安装目录；未设置时回退到本地 `packaging/fnos/app` |
+| `TRIM_PKGVAR` | fnOS 注入的应用数据目录；未设置时回退到本地 `packaging/fnos/app/data` |
+| `TRIM_SERVICE_PORT` | fnOS 注入的服务端口；未设置时默认 `17080` |
+| `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 |
+| `MOTRIX_FNOS_HTTP_ADDR` | server 监听地址，默认 `127.0.0.1:17080` |
+| `MOTRIX_FNOS_ARIA2_PATH` | Aria2 sidecar 路径 |
+| `MOTRIX_FNOS_SERVER_BIN` | 本地调试时可覆写 server 二进制路径 |
+
+## 本地脚本调试
+
+在本机调试 `cmd/start` / `cmd/stop` / `cmd/status` 时，可先执行预组装：
+
+```bash
+rtk pnpm run build:fpk:prepare
+```
+
+再运行：
+
+```bash
+rtk packaging/fnos/cmd/start
+rtk packaging/fnos/cmd/status
+rtk packaging/fnos/cmd/stop
+```
+
+日志位置：
+
+```text
+packaging/fnos/app/data/logs/server.log
+```
+
+PID 位置：
+
+```text
+packaging/fnos/app/data/run/motrix-fnos-server.pid
+```
+
+## 实机安装排障
+
+| 现象 | 优先判断 | 处理 |
+| --- | --- | --- |
+| 安装失败：“应用包不符合系统要求” | FPK 平台与设备架构不匹配 | ARM 设备使用 `--target aarch64-unknown-linux-gnu` 重新构建 ARM 包 |
+| 安装失败但架构匹配 | manifest、权限或 fnpack 产物格式问题 | 查看 fnOS 安装日志，并检查 `manifest platform`、`service_port`、`desktop_uidir` |
+| 启动失败 | server 或 sidecar 不可执行、路径错误、端口占用 | 查看 `logs/server.log` 和 `cmd/start` 输出 |
+| Web UI 打不开 | 服务未运行或端口配置不一致 | 检查 `cmd/status`、`manifest service_port`、`app/ui/config` |
+| 下载失败 | 保存目录权限、Aria2 sidecar 或网络问题 | 查看诊断日志和 server 日志 |
 
 ## 与其他文档关系
 

@@ -1,29 +1,69 @@
 # Motrix FNOS
 
-飞牛 fnOS 下载管理应用，当前处于 **FPK-first 架构整改期**。
+飞牛 fnOS 下载管理应用，当前处于 **阶段 5：飞牛实机安装和基础功能验证**。
 
-本仓库的目标不是继续完善 Tauri 桌面应用，而是把现有前端和 Rust 业务资产迁移为：
+本仓库的目标不是继续完善 Tauri 桌面应用，而是交付一个可在飞牛 fnOS 中安装、启动、停止、升级和卸载的 FPK-first 下载管理应用：
 
 - `FPK` 交付形态
 - `Rust server + Axum` 后端主线
 - `Vue Web UI + Naive UI + Pinia` 前端主线
 - `Aria2 Next sidecar + SQLite` 运行时基础设施
+- `HTTP API + SSE` 前后端通信
 
 ## 当前状态
 
-当前仓库 **还不能直接产出最终 FPK 交付物**。
+截至 2026-07-02，阶段 4 FPK 打包链路已完成：
 
-现阶段正在进行“阶段 0：文档先行，冻结 Tauri 主线”整改，目标是先统一：
+- 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
+- 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
+- 已可生成 x86 包：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
+- 当前尚未完成飞牛实机安装、启动、停止、卸载与基础下载闭环验证。
 
-- 架构决策来源
-- 后续阶段顺序
-- 文档与验收口径
+注意：`pnpm run build:fpk` 默认生成 **x86_64 / x86 平台** FPK。ARM 飞牛设备，例如 OES / A311D，需要构建 ARM 包，否则安装时会提示“应用包不符合系统要求”。
 
-在阶段 0 完成前：
+## FPK 构建
 
-- 不新增 Tauri 能力
-- 不删除现有 Tauri 主线文件
-- 不启动 server/API 迁移实现
+安装依赖：
+
+```bash
+rtk pnpm install
+```
+
+构建默认 x86 包：
+
+```bash
+rtk pnpm run build:fpk
+```
+
+输出：
+
+```text
+packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk
+```
+
+构建 ARM64 / aarch64 包：
+
+```bash
+rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+```
+
+输出：
+
+```text
+packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
+```
+
+非 Linux x86_64 主机进行交叉构建时，需要先安装 `cargo-zigbuild` / `ziglang`：
+
+```bash
+rtk python3 -m pip install --user cargo-zigbuild ziglang
+```
+
+如果只想验证 FPK 组装目录，不执行 `fnpack build`：
+
+```bash
+rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu --prepare-only
+```
 
 ## 当前仓库中哪些内容可复用
 
@@ -36,7 +76,7 @@
 
 ## Legacy 说明
 
-当前仓库仍保留 `src-tauri/`、Tauri 脚本和 `@tauri-apps/*` 依赖。这些内容仅作为 **legacy 迁移来源**：
+当前仓库仍保留 `src-tauri/`、Tauri 脚本和 `@tauri-apps/cli` 依赖。这些内容仅作为 **legacy 迁移来源和回归参照**：
 
 - 可用于复用业务逻辑和现有资产
 - 不再代表最终交付路线
@@ -52,27 +92,29 @@
 - FPK 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
 - 飞牛实机测试清单：[`docs/fnos-manual-test-checklist.md`](docs/fnos-manual-test-checklist.md)
 
-## 本地开发说明（Legacy 链路）
+## 本地开发说明
 
-以下命令仅用于查看和维护当前 legacy 代码，不代表最终 FPK 交付方式：
+Web UI 类型检查与构建：
 
 ```bash
-rtk pnpm install
-rtk pnpm tauri:dev
-rtk pnpm build
+rtk pnpm run typecheck
+rtk pnpm run build
+```
+
+Server 测试：
+
+```bash
+rtk cargo test --manifest-path server/Cargo.toml
+```
+
+Legacy Tauri 回归测试：
+
+```bash
 rtk cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-最终交付链路将切换到：
+Legacy Tauri 启动命令仅用于维护旧链路，不代表最终 FPK 交付方式：
 
-- Rust server 独立运行
-- 前端纯 Web 静态资源构建
-- `fnpack` FPK 打包
-
-## 当前阶段完成标准
-
-阶段 0 完成后，仓库需要满足：
-
-- 主文档不再把 Tauri 写成当前交付主线
-- 后续阶段全部以 FPK / Rust server / Web UI 为验收方向
-- 新的 FPK 架构、API 契约、打包说明和实机测试文档骨架已建立
+```bash
+rtk pnpm tauri:dev
+```
