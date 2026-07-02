@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DownloadTaskStatus {
     Pending,
@@ -56,7 +56,7 @@ pub fn should_force_pause_task_on_startup(task: &DownloadTask) -> bool {
     should_pause_task_on_exit(task)
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
     pub id: u64,

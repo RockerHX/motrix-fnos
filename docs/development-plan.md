@@ -59,7 +59,7 @@
 - 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
 - `server::settings::service` 与 `server::tasks::service` 已承接业务编排，`src-tauri` commands 已压薄为 Tauri 适配层。
 - 双轨验证通过：`server/` 可独立测试，`src-tauri` 仍可编译并通过现有测试。
-- 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志 HTTP 接口；下一步进入任务接口与自动拉起 Aria2。
+- 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口；下一步进入 SSE 事件流与 Tokio 后台同步。
 
 当前阶段约束：
 
@@ -148,7 +148,7 @@
 - P2-3：server 侧 Aria2 进程管理。✅
 - P2-4：Axum 基础接口与统一错误响应。✅
 - P2-5：设置与调试日志 HTTP 接口。✅
-- P2-6：任务 HTTP 接口与自动拉起 Aria2。⬜
+- P2-6：任务 HTTP 接口与自动拉起 Aria2。✅
 - P2-7：SSE 事件流与后台任务同步。⬜
 - P2-8：优雅关闭与阶段收口。⬜
 

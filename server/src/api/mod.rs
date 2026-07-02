@@ -4,6 +4,7 @@ mod debug_logs;
 pub mod error;
 mod extract;
 mod settings;
+mod tasks;
 
 use crate::app::HttpAppState;
 use axum::Router;
@@ -26,6 +27,7 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", aria2::routes())
         .nest("/api", settings::routes())
         .nest("/api", debug_logs::routes())
+        .nest("/api", tasks::routes())
         .with_state(state)
 }
 
