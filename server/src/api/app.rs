@@ -27,9 +27,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/app/ping", get(ping_backend))
 }
 
-async fn get_app_info(
-    State(state): State<Arc<HttpAppState>>,
-) -> Result<Json<AppInfo>, ApiError> {
+async fn get_app_info(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
     state.core.debug_logs.info("app", "读取应用信息");
     Ok(Json(AppInfo {
         name: "Motrix FNOS".to_string(),

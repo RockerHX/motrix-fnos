@@ -2,6 +2,7 @@ mod app;
 mod aria2;
 mod debug_logs;
 pub mod error;
+mod events;
 mod extract;
 mod settings;
 mod tasks;
@@ -28,6 +29,7 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", settings::routes())
         .nest("/api", debug_logs::routes())
         .nest("/api", tasks::routes())
+        .nest("/api", events::routes())
         .with_state(state)
 }
 
@@ -38,8 +40,8 @@ mod tests {
     use crate::api::error::ErrorResponse;
     use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
     use crate::debug_logs::DebugLogEntry;
-    use crate::settings::service::{AppConfig, UiPreferences};
     use crate::runtime::Aria2ProcessStatus;
+    use crate::settings::service::{AppConfig, UiPreferences};
     use serde::de::DeserializeOwned;
     use std::collections::BTreeMap;
     use std::sync::atomic::Ordering;
@@ -107,7 +109,10 @@ mod tests {
         .await;
         assert!(config.configured);
         assert!(config.path_exists);
-        assert_eq!(config.path.as_deref(), Some(explicit_path.to_string_lossy().as_ref()));
+        assert_eq!(
+            config.path.as_deref(),
+            Some(explicit_path.to_string_lossy().as_ref())
+        );
 
         let process = response_json::<Aria2ProcessStatus>(
             app.clone()

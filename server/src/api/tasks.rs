@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::runtime::ensure_aria2_ready;
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::service::TaskService;
 use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
 use axum::extract::{Path, Query, State};
@@ -26,7 +26,9 @@ struct DeleteTaskQuery {
     delete_files: Option<bool>,
 }
 
-async fn list_tasks(State(state): State<Arc<HttpAppState>>) -> Result<Json<Vec<DownloadTask>>, ApiError> {
+async fn list_tasks(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<Json<Vec<DownloadTask>>, ApiError> {
     let service = task_service(&state);
     let config = if state.core.is_exiting.load(Ordering::SeqCst) {
         state.aria2_config()
@@ -55,6 +57,8 @@ async fn create_task(
         .create_download_task(&config, payload)
         .await
         .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
 }
 
@@ -71,6 +75,8 @@ async fn pause_task(
         .pause_download_task(&config, task_id)
         .await
         .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
 }
 
@@ -87,6 +93,8 @@ async fn resume_task(
         .resume_download_task(&config, task_id)
         .await
         .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
 }
 
@@ -103,6 +111,8 @@ async fn redownload_task(
         .redownload_download_task(&config, task_id)
         .await
         .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
 }
 
@@ -120,6 +130,8 @@ async fn delete_task(
         .delete_download_task(&config, task_id, query.delete_files.unwrap_or(false))
         .await
         .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
 }
 
@@ -172,11 +184,11 @@ mod tests {
     use crate::runtime::ManagedAria2Process;
     use crate::tasks::DownloadTaskStatus;
     use axum::response::Response;
+    use axum::routing::post;
     use axum::{
         body::{to_bytes, Body},
         http::{Request, StatusCode},
     };
-    use axum::routing::post;
     use serde::de::DeserializeOwned;
     use serde::Serialize;
     use serde_json::json;
@@ -495,7 +507,9 @@ mod tests {
                 .expect("listener should bind");
             let addr = listener.local_addr().expect("local addr should exist");
             let handle = tokio::spawn(async move {
-                axum::serve(listener, app).await.expect("mock server should serve");
+                axum::serve(listener, app)
+                    .await
+                    .expect("mock server should serve");
             });
 
             Self { addr, handle }
@@ -557,18 +571,14 @@ mod tests {
                     .unwrap_or("archive.zip")
                     .to_string();
                 let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
-                state
-                    .tasks
-                    .lock()
-                    .expect("tasks should lock")
-                    .insert(
-                        gid.clone(),
-                        MockTask {
-                            status: "active".to_string(),
-                            dir,
-                            file_name,
-                        },
-                    );
+                state.tasks.lock().expect("tasks should lock").insert(
+                    gid.clone(),
+                    MockTask {
+                        status: "active".to_string(),
+                        dir,
+                        file_name,
+                    },
+                );
                 json!({ "result": gid })
             }
             "aria2.pause" => {
@@ -592,7 +602,13 @@ mod tests {
             }
             "aria2.tellStatus" => {
                 let gid = gid_param(&params);
-                if let Some(task) = state.tasks.lock().expect("tasks should lock").get(&gid).cloned() {
+                if let Some(task) = state
+                    .tasks
+                    .lock()
+                    .expect("tasks should lock")
+                    .get(&gid)
+                    .cloned()
+                {
                     json!({
                         "result": {
                             "gid": gid,

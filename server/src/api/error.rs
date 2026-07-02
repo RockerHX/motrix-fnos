@@ -29,11 +29,7 @@ impl ApiError {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)
     }
 
-    fn new(
-        status: StatusCode,
-        code: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
+    fn new(status: StatusCode, code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             status,
             code: code.into(),

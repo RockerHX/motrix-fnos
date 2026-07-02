@@ -80,7 +80,8 @@ async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig)
         config.download_limit,
         config.upload_limit,
     );
-    if let Err(error) = apply_global_options(&aria2_config, &options, Some(&state.core.debug_logs)).await
+    if let Err(error) =
+        apply_global_options(&aria2_config, &options, Some(&state.core.debug_logs)).await
     {
         state
             .core

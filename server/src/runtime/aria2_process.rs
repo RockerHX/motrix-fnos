@@ -240,11 +240,13 @@ pub fn stop_process(
         } else {
             debug_logs.info("aria2", format!("准备停止 Aria2 进程，PID {}", pid));
             if let Err(error) = child.kill() {
-                debug_logs.warn("aria2", format!("{}，尝试按 PID 兜底终止，PID {}", error, pid));
+                debug_logs.warn(
+                    "aria2",
+                    format!("{}，尝试按 PID 兜底终止，PID {}", error, pid),
+                );
             }
             child.wait();
-            if !wait_until_process_exits(pid, Duration::from_millis(800))
-                && !terminate_process(pid)
+            if !wait_until_process_exits(pid, Duration::from_millis(800)) && !terminate_process(pid)
             {
                 let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
                 debug_logs.error("aria2", &error);
@@ -329,7 +331,10 @@ fn resolve_explicit_binary_path(path: &Path) -> Result<ResolvedAria2Binary, Stri
     })
 }
 
-async fn wait_for_rpc_ready(config: &Aria2Config, debug_logs: &DebugLogStore) -> Result<(), String> {
+async fn wait_for_rpc_ready(
+    config: &Aria2Config,
+    debug_logs: &DebugLogStore,
+) -> Result<(), String> {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
 
@@ -405,7 +410,10 @@ fn repo_debug_binary_path(repo_root: &Path, config: &Aria2Config) -> PathBuf {
 }
 
 fn platform_binary_name(sidecar_name: &str) -> String {
-    format!("{sidecar_name}{}", executable_suffix_for_target(std::env::consts::OS))
+    format!(
+        "{sidecar_name}{}",
+        executable_suffix_for_target(std::env::consts::OS)
+    )
 }
 
 fn executable_suffix_for_target(target: &str) -> &'static str {
@@ -547,8 +555,12 @@ mod tests {
         let repo_root = temp_dir.join("repo");
         let repo_path = repo_debug_binary_path(&repo_root, &sample_config());
 
-        std::fs::create_dir_all(packaged_path.parent().expect("packaged parent should exist"))
-            .expect("packaged dir should create");
+        std::fs::create_dir_all(
+            packaged_path
+                .parent()
+                .expect("packaged parent should exist"),
+        )
+        .expect("packaged dir should create");
         std::fs::write(&packaged_path, b"").expect("packaged path should exist");
         std::fs::create_dir_all(repo_path.parent().expect("repo path should have parent"))
             .expect("repo dir should create");

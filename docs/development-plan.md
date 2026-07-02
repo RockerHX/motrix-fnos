@@ -49,7 +49,7 @@
 当前主要问题：
 
 - 前端通信仍依赖 `invoke` / `listen`，尚未切到 HTTP API / SSE。
-- 运行入口仍由 `src-tauri` 承载，`server/` 还没有独立的 HTTP server 二进制入口。
+- `server/` 已具备独立 HTTP server 入口，但优雅关闭、session 保存和退出收口仍未迁完。
 - fnOS FPK 目录结构、manifest、cmd 脚本和打包链路仍未建立。
 - 数据目录默认值、服务生命周期和前端接口仍保留 legacy 兼容语义，后续阶段需逐步切到 FPK / Web UI 模型。
 
@@ -59,7 +59,8 @@
 - 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
 - `server::settings::service` 与 `server::tasks::service` 已承接业务编排，`src-tauri` commands 已压薄为 Tauri 适配层。
 - 双轨验证通过：`server/` 可独立测试，`src-tauri` 仍可编译并通过现有测试。
-- 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口；下一步进入 SSE 事件流与 Tokio 后台同步。
+- 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口。
+- `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件流与 Tokio 后台任务同步已落地；下一步进入优雅关闭与阶段收口。
 
 当前阶段约束：
 
@@ -149,7 +150,7 @@
 - P2-4：Axum 基础接口与统一错误响应。✅
 - P2-5：设置与调试日志 HTTP 接口。✅
 - P2-6：任务 HTTP 接口与自动拉起 Aria2。✅
-- P2-7：SSE 事件流与后台任务同步。⬜
+- P2-7：SSE 事件流与后台任务同步。✅
 - P2-8：优雅关闭与阶段收口。⬜
 
 核心任务：
@@ -170,6 +171,7 @@
 - 事件流固定采用 SSE，不引入 WebSocket。
 - 首版 SSE 采用“整包任务快照 + 退出事件”模型，避免在阶段 2 提前引入前后端增量同步复杂度。
 - `server/src/main.rs`、`ServerRuntimeConfig` 与 `HttpAppState` 已建立，独立 server 主线现在可以完成状态初始化并等待停止信号。
+- `server` 已新增 `/api/events`，连接建立后立即推送 `tasks.snapshot`，后台 monitor 每 5 秒同步可见任务变化并广播快照。
 
 ### 5.3 阶段 3：前端迁移到 HTTP API
 

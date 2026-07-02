@@ -453,12 +453,12 @@ FPK 下必须重新设计：
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
 | P2-1 | 细化阶段 2 执行清单与 API 契约 | 为阶段 2 增加编号、跟踪规则和状态表；补全 `docs/api-contract.md` 初稿 | 文档中出现完整阶段 2 编号、路由清单、错误响应和 SSE 契约 | `docs: 细化阶段2HTTP API执行清单` | 已完成 | `docs: 细化阶段2HTTP API执行清单`（`34b5dbe`） |
-| P2-2 | 新增独立 server 启动入口与运行时配置 | 新增 `server/src/main.rs` 与运行时配置加载，建立 `HttpAppState` | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新增独立server启动入口与运行时配置` | 已完成 | `feat: 新增独立server启动入口与运行时配置` |
-| P2-3 | 新增 server 侧 Aria2 进程管理 | 在 `server/` 内承接 Aria2 启停、状态、残留清理和路径解析 | 新增进程管理单测，双轨测试通过 | `feat: 新增server侧Aria2进程管理` | 已完成 | `feat: 新增server侧Aria2进程管理` |
-| P2-4 | 新增 Axum 基础接口与统一错误响应 | 建立 `server/src/api`、router 组装、`ApiError` 与 app/aria2 路由 | 新增 handler/router 集成测试 | `feat: 新增Axum基础接口与统一错误响应` | 已完成 | `feat: 新增Axum基础接口与统一错误响应` |
-| P2-5 | 新增设置与调试日志 HTTP 接口 | 落地 `settings`、`ui-preferences`、`debug-logs` 路由 | 新增 GET/PUT/DELETE handler 测试，双轨测试通过 | `feat: 新增设置与调试日志HTTP接口` | 已完成 | `feat: 新增设置与调试日志HTTP接口` |
-| P2-6 | 新增任务 HTTP 接口与自动拉起 Aria2 | 落地 `tasks` 全套路由，并迁移 `ensure_aria2_ready` | 覆盖创建、暂停、继续、删除、退出中拒绝操作 | `feat: 新增任务HTTP接口与自动拉起Aria2` | 已完成 | `feat: 新增任务HTTP接口与自动拉起Aria2` |
-| P2-7 | 新增 SSE 事件流与后台任务同步 | 落地 `/api/events` 与 Tokio monitor loop | 新增 SSE 与 monitor 集成测试，双轨测试通过 | `feat: 新增SSE事件流与后台任务同步` | 未开始 | - |
+| P2-2 | 新增独立 server 启动入口与运行时配置 | 新增 `server/src/main.rs` 与运行时配置加载，建立 `HttpAppState` | `cargo test --manifest-path server/Cargo.toml` 与 `cargo test --manifest-path src-tauri/Cargo.toml` 通过 | `feat: 新增独立server启动入口与运行时配置` | 已完成 | `feat: 新增独立server启动入口与运行时配置`（`30f61ab`） |
+| P2-3 | 新增 server 侧 Aria2 进程管理 | 在 `server/` 内承接 Aria2 启停、状态、残留清理和路径解析 | 新增进程管理单测，双轨测试通过 | `feat: 新增server侧Aria2进程管理` | 已完成 | `feat: 新增server侧Aria2进程管理`（`4a5905f`） |
+| P2-4 | 新增 Axum 基础接口与统一错误响应 | 建立 `server/src/api`、router 组装、`ApiError` 与 app/aria2 路由 | 新增 handler/router 集成测试 | `feat: 新增Axum基础接口与统一错误响应` | 已完成 | `feat: 新增Axum基础接口与统一错误响应`（`3b96fca`） |
+| P2-5 | 新增设置与调试日志 HTTP 接口 | 落地 `settings`、`ui-preferences`、`debug-logs` 路由 | 新增 GET/PUT/DELETE handler 测试，双轨测试通过 | `feat: 新增设置与调试日志HTTP接口` | 已完成 | `feat: 新增设置与调试日志HTTP接口`（`5cb4fc9`） |
+| P2-6 | 新增任务 HTTP 接口与自动拉起 Aria2 | 落地 `tasks` 全套路由，并迁移 `ensure_aria2_ready` | 覆盖创建、暂停、继续、删除、退出中拒绝操作 | `feat: 新增任务HTTP接口与自动拉起Aria2` | 已完成 | `feat: 新增任务HTTP接口与自动拉起Aria2`（`9147360`） |
+| P2-7 | 新增 SSE 事件流与后台任务同步 | 落地 `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件与 Tokio monitor loop | 新增 SSE 与 monitor 集成测试，双轨测试通过 | `feat: 新增SSE事件流与后台任务同步` | 已完成 | `feat: 新增SSE事件流与后台任务同步` |
 | P2-8 | 完善服务退出清理并收口阶段 2 | 落地优雅关闭、session 保存、Aria2 停止与阶段状态更新 | shutdown 测试与完整回归通过 | `fix: 完善服务退出清理并收口阶段2状态` | 未开始 | - |
 
 验收：

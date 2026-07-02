@@ -1,7 +1,10 @@
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
-use crate::database::{connect_database, tasks::list_download_tasks, tasks::max_download_task_id, DATABASE_FILE_NAME};
+use crate::database::{
+    connect_database, tasks::list_download_tasks, tasks::max_download_task_id, DATABASE_FILE_NAME,
+};
 use crate::runtime::ManagedAria2Process;
 use crate::state::{Aria2RuntimeInfo, ServerState};
+use crate::tasks::DownloadTask;
 use serde::Serialize;
 use std::env;
 use std::net::SocketAddr;
@@ -62,8 +65,15 @@ pub struct RuntimeExitingPayload {
     pub timestamp: u64,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TasksSnapshotPayload {
+    pub tasks: Vec<DownloadTask>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEvent {
+    TasksSnapshot(TasksSnapshotPayload),
     RuntimeExiting(RuntimeExitingPayload),
 }
 
@@ -79,9 +89,10 @@ impl RuntimeEventHub {
     }
 
     pub fn send(&self, event: RuntimeEvent) -> Result<usize, String> {
-        self.sender
-            .send(event)
-            .map_err(|error| format!("发送运行时事件失败：{}", error))
+        match self.sender.send(event) {
+            Ok(count) => Ok(count),
+            Err(_) => Ok(0),
+        }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<RuntimeEvent> {
@@ -180,7 +191,9 @@ pub async fn bootstrap_http_app_state(
 ) -> Result<Arc<HttpAppState>, String> {
     let database = connect_database(runtime.database_path.clone()).await?;
     let restored_tasks = list_download_tasks(&database.pool).await?;
-    let next_task_id = max_download_task_id(&database.pool).await?.saturating_add(1);
+    let next_task_id = max_download_task_id(&database.pool)
+        .await?
+        .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
 
     Ok(Arc::new(HttpAppState::new(state, runtime.clone())))
@@ -192,7 +205,13 @@ pub async fn run_server() -> Result<(), String> {
     let router = crate::api::router(state.clone());
     let listener = TcpListener::bind(state.runtime.http_addr)
         .await
-        .map_err(|error| format!("绑定 HTTP 监听地址失败：{}（{}）", state.runtime.http_addr, error))?;
+        .map_err(|error| {
+            format!(
+                "绑定 HTTP 监听地址失败：{}（{}）",
+                state.runtime.http_addr, error
+            )
+        })?;
+    crate::runtime::spawn_task_monitor(state.clone());
     state.core.debug_logs.info(
         "app",
         format!(
@@ -232,7 +251,10 @@ fn default_local_app_data_dir() -> PathBuf {
         return path.join("motrix-fnos");
     }
 
-    home_dir_fallback().join(".local").join("share").join("motrix-fnos")
+    home_dir_fallback()
+        .join(".local")
+        .join("share")
+        .join("motrix-fnos")
 }
 
 fn home_dir_fallback() -> PathBuf {
@@ -273,7 +295,10 @@ mod tests {
         let config = ServerRuntimeConfig::from_env().expect("config should load");
 
         assert_eq!(config.app_data_dir, temp_dir);
-        assert_eq!(config.database_path, config.app_data_dir.join(DATABASE_FILE_NAME));
+        assert_eq!(
+            config.database_path,
+            config.app_data_dir.join(DATABASE_FILE_NAME)
+        );
         assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
         assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
 

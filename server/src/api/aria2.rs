@@ -53,11 +53,9 @@ async fn get_aria2_process_status(
 async fn get_aria2_rpc_status(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<crate::aria2::Aria2RpcStatus>, ApiError> {
-    Ok(Json(ping_rpc(
-        &state.aria2_config(),
-        Some(&state.core.debug_logs),
-    )
-    .await))
+    Ok(Json(
+        ping_rpc(&state.aria2_config(), Some(&state.core.debug_logs)).await,
+    ))
 }
 
 async fn start_aria2_process(
@@ -68,8 +66,12 @@ async fn start_aria2_process(
     let base = state.base_aria2_config.clone();
     let saved_runtime = state.load_saved_aria2_runtime();
     let saved_runtime = saved_runtime.as_ref().map(saved_runtime_info);
-    let port = select_rpc_port_with_saved_runtime(&base, saved_runtime.as_ref(), &state.core.debug_logs)
-        .ok_or_else(|| ApiError::conflict("aria2_port_conflict", rpc_ports_exhausted_message()))?;
+    let port = select_rpc_port_with_saved_runtime(
+        &base,
+        saved_runtime.as_ref(),
+        &state.core.debug_logs,
+    )
+    .ok_or_else(|| ApiError::conflict("aria2_port_conflict", rpc_ports_exhausted_message()))?;
     let config = state
         .with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))
         .map_err(|error| ApiError::internal("aria2_runtime_prepare_failed", error))?;
