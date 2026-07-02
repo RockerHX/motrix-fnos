@@ -16,7 +16,8 @@
     "tauri:dev:raw": "tauri dev",
     "prepare": "git config core.hooksPath .githooks || true",
     "hooks:install": "git config core.hooksPath .githooks",
-    "build:server:linux:x64": "node scripts/build-server-linux.mjs"
+    "build:server:linux:x64": "node scripts/build-server-linux.mjs",
+    "build:web:fpk": "node scripts/build-web-ui-fpk.mjs"
   },
   "dependencies": {
     "naive-ui": "^2.44.1",

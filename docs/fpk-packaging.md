@@ -18,6 +18,7 @@
 - `packaging/fnos/` 目录结构
 - manifest、config、cmd 脚本约定
 - Rust server 与 Web UI 构建产物放置方式
+- Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
 - Aria2 sidecar 集成方式
 - `fnpack build`、安装、调试和排障流程
 

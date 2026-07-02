@@ -50,7 +50,7 @@
 
 - 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
 - `src-tauri/` legacy Rust 入口继续保留，用于阶段 4 之前的双轨回归。
-- 阶段 4 已启动：FPK 目录骨架、基础图标和 Linux x86_64 server 构建入口已建立，manifest、cmd 脚本和一键打包链路仍在补齐。
+- 阶段 4 已启动：FPK 目录骨架、基础图标、Linux x86_64 server 构建入口和 Web UI 打包输出已建立，manifest、cmd 脚本和一键打包链路仍在补齐。
 - 数据目录默认值、服务生命周期和前端接口仍保留 legacy 兼容语义，后续阶段需逐步切到 FPK / Web UI 模型。
 
 当前阶段已完成摘要：
@@ -220,7 +220,7 @@
 - P4-1.1：生成基准 FPK 目录结构。已完成
 - P4-1.2：补齐基础图标与资源占位。已完成
 - P4-2.1：补齐 Linux x86_64 server 构建产物。已完成
-- P4-2.2：打通 Vue `dist/` 输出。未开始
+- P4-2.2：打通 Vue `dist/` 输出。已完成
 - P4-2.3：整理 Aria2 Next sidecar 放置规则。未开始
 - P4-3.1：编写 FPK 启动脚本。未开始
 - P4-3.2：编写 FPK 停止脚本。未开始
