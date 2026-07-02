@@ -76,8 +76,8 @@ packaging/fnos/
 
 职责边界：
 
-- `manifest`：声明应用名、版本、平台、服务端口、Web 入口和控制能力。
-- `config/privilege`：声明当前运行权限。现阶段默认 `run-as: root`，后续实机验证后再收敛最小权限。
+- `manifest`：声明应用名、版本、平台、最低系统版本、服务端口、Web 入口和控制能力。
+- `config/privilege`：声明当前运行权限。第三方应用默认使用 `run-as: package`，避免申请 root 权限导致应用中心拒绝安装。
 - `cmd/main`：fnOS 控制入口，分发到 `start` / `stop` / `status`。
 - `cmd/common.sh`：统一解析 fnOS 注入路径、数据目录、端口、日志和 PID 路径。
 - `app/bin/`：放置 Rust server 和 Aria2 sidecar。
