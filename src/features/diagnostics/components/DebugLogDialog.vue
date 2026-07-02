@@ -69,10 +69,43 @@ async function copyAllLogs() {
   }
 
   try {
-    await navigator.clipboard.writeText(logs.value.map(formatLogLine).join("\n"));
+    await copyText(logs.value.map(formatLogLine).join("\n"));
     message.success("调试日志已复制");
   } catch (error) {
     message.error(`复制调试日志失败：${getErrorMessage(error)}`);
+  }
+}
+
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+
+  const selection = document.getSelection();
+  const previousRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+
+  try {
+    textarea.focus();
+    textarea.select();
+    if (!document.execCommand("copy")) {
+      throw new Error("当前飞牛窗口不允许写入剪贴板");
+    }
+  } finally {
+    document.body.removeChild(textarea);
+    if (selection && previousRange) {
+      selection.removeAllRanges();
+      selection.addRange(previousRange);
+    }
   }
 }
 
