@@ -526,8 +526,8 @@ FPK 下必须重新设计：
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
 | P4-1.1 | 生成基准 FPK 目录结构 | 新建 `packaging/fnos/` 基础目录骨架，并补充阶段 4 跟踪表 | `packaging/fnos/` 下存在 `app/`、`cmd/`、`config/`、`ui/`、`wizard/` 结构 | `feat: 新建FPK打包目录骨架` | 已完成 | `feat: 新建FPK打包目录骨架`（`0eaa0d3`） |
-| P4-1.2 | 补齐基础图标与资源占位 | 放入 fnOS 图标资源，占位 manifest 引用所需文件名 | 图标文件存在，且 FPK 主线不再依赖 Tauri 图标集合 | `feat: 补齐FPK基础图标资源` | 已完成 | `feat: 补齐FPK基础图标资源` |
-| P4-2.1 | 补齐 Linux x86_64 server 构建产物 | 固定 server release 产物命名与打包输入路径 | `cargo build --manifest-path server/Cargo.toml --release --target x86_64-unknown-linux-gnu` 通过 | `feat: 补齐Linux x86_64服务端构建产物` | 未开始 |  |
+| P4-1.2 | 补齐基础图标与资源占位 | 放入 fnOS 图标资源，占位 manifest 引用所需文件名 | 图标文件存在，且 FPK 主线不再依赖 Tauri 图标集合 | `feat: 补齐FPK基础图标资源` | 已完成 | `feat: 补齐FPK基础图标资源`（`c433f9f`） |
+| P4-2.1 | 补齐 Linux x86_64 server 构建产物 | 固定 server release 产物命名与打包输入路径 | `pnpm run build:server:linux:x64` 通过，并生成标准产物路径 | `feat: 补齐Linux x86_64服务端构建产物` | 已完成 | `feat: 补齐Linux x86_64服务端构建产物` |
 | P4-2.2 | 打通 Vue `dist/` 输出 | 固定 Web UI 构建与拷贝目标目录 | `pnpm run build` 通过且产物可复制到 FPK 目录 | `feat: 打通Web UI构建产物输出` | 未开始 |  |
 | P4-2.3 | 整理 Aria2 Next sidecar 放置规则 | 固定 Linux sidecar 打包路径与命名 | Linux sidecar 可被打包脚本找到，非 Linux 目标不进入 FPK 主线 | `feat: 整理Aria2 Next sidecar打包规则` | 未开始 |  |
 | P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 未开始 |  |

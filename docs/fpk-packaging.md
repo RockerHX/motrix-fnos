@@ -6,7 +6,12 @@
 
 ## 当前状态
 
-阶段 0 仅建立文档骨架，待 server / Web UI 主线明确后补全具体目录、命令和产物要求。
+阶段 4 已启动，当前已明确 Linux x86_64 server 的标准构建入口与产物位置：
+
+- 构建命令：`pnpm run build:server:linux:x64`
+- 默认目标：`x86_64-unknown-linux-gnu`
+- 产物路径：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
+- 非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机可直接使用 `cargo build`。
 
 ## 后续填充范围
 

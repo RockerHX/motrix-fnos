@@ -15,7 +15,8 @@
     "verify:pre-commit": "node scripts/verify.mjs --quick",
     "tauri:dev:raw": "tauri dev",
     "prepare": "git config core.hooksPath .githooks || true",
-    "hooks:install": "git config core.hooksPath .githooks"
+    "hooks:install": "git config core.hooksPath .githooks",
+    "build:server:linux:x64": "node scripts/build-server-linux.mjs"
   },
   "dependencies": {
     "naive-ui": "^2.44.1",
