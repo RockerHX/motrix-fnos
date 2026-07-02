@@ -99,8 +99,11 @@ export const useTaskStore = defineStore("tasks", () => {
     try {
       const task = await operation();
       if (!isRuntimeExiting.value) {
-        upsertTask(task);
-        await refreshTasks({ showError: true });
+        if (task.status === "removed") {
+          removeTask(task.id);
+        } else {
+          upsertTask(task);
+        }
       }
       return task;
     } finally {
@@ -154,6 +157,10 @@ export const useTaskStore = defineStore("tasks", () => {
     }
 
     tasks.value = tasks.value.map((item) => (item.id === task.id ? task : item));
+  }
+
+  function removeTask(taskId: number) {
+    tasks.value = tasks.value.filter((item) => item.id !== taskId);
   }
 
   function applyResolvedTasks(nextTasks: DownloadTask[], taskErrorMessages: string[]) {
