@@ -490,8 +490,8 @@ FPK 下必须重新设计：
 | P3-4 | 迁移任务服务并降级目录选择交互 | `tasks` 服务改为 HTTP；移除 Tauri 目录选择插件调用；任务新建弹窗改为手动输入保存路径 | `pnpm run typecheck`、`pnpm run build` | `feat: 迁移任务服务并降级目录选择交互` | 已完成 | `feat: 迁移任务服务并降级目录选择交互`（`1e221a6`） |
 | P3-5 | 新增前端 SSE 运行时事件服务 | 用 `EventSource` 替换 Tauri `listen`；新增/重命名为 `runtimeEvents` 服务，消费 `tasks.snapshot` 与 `runtime.exiting` | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端SSE运行时事件订阅` | 已完成 | `feat: 新增前端SSE运行时事件订阅`（`0dabd6a`） |
 | P3-6 | 切换任务刷新主路径到 SSE 快照 | `taskStore` 增加快照应用逻辑；`App.vue` / `MainWindow.vue` 改为“首次拉取 + SSE 持续更新”；移除 2 秒轮询主路径 | `pnpm run typecheck`、`pnpm run build`、`rg -n "listen\(|invoke\(" src` 为空 | `refactor: 切换任务刷新主路径到SSE快照` | 已完成 | `refactor: 切换任务刷新主路径到SSE快照`（`917ae12`） |
-| P3-7 | 将系统集成功能降级为 Web 安全行为 | `settingsStore` 不再调用 autostart/notification 插件；设置弹窗保留开关但改成“仅保存配置”的 Web 文案 | `pnpm run typecheck`、`pnpm run build` | `fix: 将系统集成功能降级为Web安全行为` | 已完成 | `fix: 将系统集成功能降级为Web安全行为` |
-| P3-8 | 清理前端 Tauri 直连依赖并收口阶段 3 | `src/` 内移除 `@tauri-apps/api` 相关导入；删除 `package.json` 中 `@tauri-apps/api` 依赖；完成阶段 3 文档状态更新与最终回归 | `pnpm run typecheck`、`pnpm run build`、`cargo test --manifest-path server/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`rg -n "@tauri-apps|invoke\(|listen\(" src` 为空 | `chore: 清理前端Tauri直连依赖并收口阶段3` | 未开始 | - |
+| P3-7 | 将系统集成功能降级为 Web 安全行为 | `settingsStore` 不再调用 autostart/notification 插件；设置弹窗保留开关但改成“仅保存配置”的 Web 文案 | `pnpm run typecheck`、`pnpm run build` | `fix: 将系统集成功能降级为Web安全行为` | 已完成 | `fix: 将系统集成功能降级为Web安全行为`（`83f98a2`） |
+| P3-8 | 清理前端 Tauri 直连依赖并收口阶段 3 | `src/` 内移除 `@tauri-apps/api` 相关导入；删除 `package.json` 中 `@tauri-apps/api` 依赖；完成阶段 3 文档状态更新与最终回归 | `pnpm run typecheck`、`pnpm run build`、`cargo test --manifest-path server/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`rg -n "@tauri-apps|invoke\(|listen\(" src` 为空 | `chore: 清理前端Tauri直连依赖并收口阶段3` | 已完成 | `chore: 清理前端Tauri直连依赖并收口阶段3` |
 
 补充约定：
 

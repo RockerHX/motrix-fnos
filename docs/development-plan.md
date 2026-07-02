@@ -37,7 +37,7 @@
 
 更新时间：2026-07-02
 
-当前阶段：**阶段 3：前端迁移到 HTTP API（进行中）**
+当前阶段：**阶段 3：前端迁移到 HTTP API（已完成）**
 
 已确认的可迁移资产：
 
@@ -48,8 +48,8 @@
 
 当前主要问题：
 
-- 前端主路径仍存在 `invoke` / `listen` 与 Tauri plugin 直连，阶段 3 需切到 HTTP API / SSE 并完成 Web 降级。
-- `src-tauri/` legacy 入口仍需保留到阶段 3 完成后再逐步下线。
+- 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
+- `src-tauri/` legacy Rust 入口继续保留，用于阶段 4 之前的双轨回归。
 - fnOS FPK 目录结构、manifest、cmd 脚本和打包链路仍未建立。
 - 数据目录默认值、服务生命周期和前端接口仍保留 legacy 兼容语义，后续阶段需逐步切到 FPK / Web UI 模型。
 
@@ -62,7 +62,7 @@
 - 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口。
 - `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件流与 Tokio 后台任务同步已落地。
 - server 退出流程已具备“广播退出事件 → 同步任务 → 暂停未完成任务并持久化 → 保存 Aria2 session → 停止受管进程 → 成功后清理运行态记录”的收口顺序，阶段 2 验收项已闭环。
-- 阶段 3 已启动，当前先补齐前端 HTTP/SSE 迁移清单、Web 降级约定与阶段追踪基线。
+- 阶段 3 已完成：前端服务层、任务流和运行时事件已切换到 HTTP / SSE，Web 降级与前端 Tauri 直连依赖清理已收口。
 
 当前阶段约束：
 
@@ -189,7 +189,7 @@
 - P3-5：新增前端 SSE 运行时事件服务。已完成
 - P3-6：切换任务刷新主路径到 SSE 快照。已完成
 - P3-7：将系统集成功能降级为 Web 安全行为。已完成
-- P3-8：清理前端 Tauri 直连依赖并收口阶段 3。未开始
+- P3-8：清理前端 Tauri 直连依赖并收口阶段 3。已完成
 
 核心任务：
 
@@ -209,7 +209,7 @@
 - 阶段 3 不新增后端 API，完全复用阶段 2 已落地的 `/api/*` 与 `/api/events` 契约。
 - 前端事件流固定采用浏览器原生 `EventSource`，只消费 `tasks.snapshot` 与 `runtime.exiting` 两类事件。
 - Web 版系统集成采用“保留并降级”策略：目录选择改为手填；开机自启/通知开关仅保存配置，不再调用宿主插件；不提供 HTTP 版 `quit_app`。
-- 阶段收口前继续保持 `server/` 与 `src-tauri/` 双轨可回归。
+- 阶段 3 验收已闭环：前端源码中已无 `@tauri-apps/api`、`invoke(`、`listen(` 直连痕迹，双轨回归通过。
 
 ### 5.4 阶段 4：建立 FPK 打包链路
 
@@ -259,9 +259,9 @@
 
 ## 7. 当前优先级
 
-1. 推进阶段 3：把前端服务层、任务流和运行时事件从 `invoke` / `listen` 迁到 HTTP / SSE。
-2. 在不破坏双轨运行的前提下，完成 Web 降级与前端 Tauri 直连依赖清理。
-3. 待浏览器主线稳定后，再推进 FPK 打包链路和飞牛实机验证。
+1. 启动阶段 4：建立 FPK 打包目录、manifest、cmd 脚本与 fnpack 构建链路。
+2. 在保持 `server/` 与 `src-tauri/` 双轨可回归的前提下，准备 server 二进制、Web `dist/` 与 Linux Aria2 sidecar 的打包收敛。
+3. 待 FPK 产物可构建后，再推进飞牛实机安装与基础功能验证。
 
 ## 8. 验收原则
 
