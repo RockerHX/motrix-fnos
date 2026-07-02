@@ -9,20 +9,23 @@ mod tasks;
 
 use crate::app::HttpAppState;
 use axum::Router;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tower_http::services::{ServeDir, ServeFile};
 
 #[cfg(test)]
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{DEFAULT_HTTP_ADDR, ServerRuntimeConfig, bootstrap_http_app_state};
 #[cfg(test)]
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 #[cfg(test)]
 use axum::http::{Request, StatusCode};
-#[cfg(test)]
-use std::path::PathBuf;
 #[cfg(test)]
 use tower::ServiceExt;
 
 pub fn router(state: Arc<HttpAppState>) -> Router {
+    let static_dir = static_assets_dir();
+    let index_file = static_dir.join("index.html");
+
     Router::new()
         .nest("/api", app::routes())
         .nest("/api", aria2::routes())
@@ -30,7 +33,38 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", debug_logs::routes())
         .nest("/api", tasks::routes())
         .nest("/api", events::routes())
+        .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
         .with_state(state)
+}
+
+fn static_assets_dir() -> PathBuf {
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(app_dir) = current_exe.parent().and_then(|bin_dir| bin_dir.parent()) {
+            let packaged = app_dir.join("ui").join("dist");
+            if packaged.join("index.html").is_file() {
+                return packaged;
+            }
+        }
+    }
+
+    if let Some(repo_root) = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent() {
+        let staged = repo_root
+            .join("packaging")
+            .join("fnos")
+            .join("app")
+            .join("ui")
+            .join("dist");
+        if staged.join("index.html").is_file() {
+            return staged;
+        }
+
+        let dev_dist = repo_root.join("dist");
+        if dev_dist.join("index.html").is_file() {
+            return dev_dist;
+        }
+    }
+
+    PathBuf::from("dist")
 }
 
 #[cfg(test)]

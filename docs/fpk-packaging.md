@@ -86,7 +86,7 @@ packaging/fnos/
 - `cmd/status` 返回服务运行状态，运行中返回 0，未运行返回 1。
 - `app/bin/motrix-fnos-server` 是 Rust 后端服务。
 - `app/bin/aria2-next` 是 Linux Aria2 Next sidecar。
-- `ui/dist/` 是 Vue Web UI 静态资源。
+- `app/ui/dist/` 是 Vue Web UI 静态资源，由 Rust server 作为静态文件托管。
 - `app/data/` 是运行时数据目录，打包前会清理本地残留。
 
 ## 构建入口
@@ -179,7 +179,7 @@ rtk pnpm run build:web:fpk
 输出会同步到：
 
 ```text
-packaging/fnos/ui/dist/
+packaging/fnos/app/ui/dist/
 ```
 
 ### Aria2 Next sidecar
@@ -195,6 +195,10 @@ rtk pnpm run stage:aria2:arm64
 packaging/fnos/app/bin/aria2-next
 ```
 
+## Web 入口方式
+
+当前 Web 入口使用 `iframe` 类型，让应用在飞牛桌面窗口内打开。由于现阶段仍直接访问 Rust server 的 HTTP 端口，FPK 启动脚本默认把 server 绑定到 `0.0.0.0:${TRIM_SERVICE_PORT}`。后续如改为 CGI / Unix Socket 代理，可再收敛为仅本机监听。
+
 ## 运行时环境变量
 
 `cmd/common.sh` 会设置以下运行时变量：
@@ -205,7 +209,7 @@ packaging/fnos/app/bin/aria2-next
 | `TRIM_PKGVAR` | fnOS 注入的应用数据目录；未设置时回退到本地 `packaging/fnos/app/data` |
 | `TRIM_SERVICE_PORT` | fnOS 注入的服务端口；未设置时默认 `17080` |
 | `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 |
-| `MOTRIX_FNOS_HTTP_ADDR` | server 监听地址，默认 `127.0.0.1:17080` |
+| `MOTRIX_FNOS_HTTP_ADDR` | server 监听地址，FPK 默认 `0.0.0.0:17080`，server 本地默认仍为 `127.0.0.1:17080` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 sidecar 路径 |
 | `MOTRIX_FNOS_SERVER_BIN` | 本地调试时可覆写 server 二进制路径 |
 

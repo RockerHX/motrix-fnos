@@ -131,10 +131,10 @@ server 由 `cmd/stop` 停止：
 Web UI 构建为静态资源，输出到：
 
 ```text
-packaging/fnos/ui/dist/
+packaging/fnos/app/ui/dist/
 ```
 
-前端通过同源相对路径访问后端：
+前端通过 iframe 打开 Rust server Web UI，并通过相对路径访问后端：
 
 - JSON API：`/api/*`
 - SSE：`/api/events`

@@ -6,7 +6,7 @@ import process from 'node:process';
 
 const repoRoot = process.cwd();
 const sourceDir = path.join(repoRoot, 'dist');
-const targetDir = path.join(repoRoot, 'packaging', 'fnos', 'ui', 'dist');
+const targetDir = path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'dist');
 
 run('pnpm', ['run', 'build']);
 resetDir(targetDir);

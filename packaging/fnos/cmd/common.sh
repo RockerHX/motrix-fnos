@@ -15,7 +15,7 @@ RUNTIME_DIR="${PKG_VAR}/run"
 LOG_DIR="${PKG_VAR}/logs"
 PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
 SERVER_LOG="${LOG_DIR}/server.log"
-HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"127.0.0.1:${SERVICE_PORT}"}
+HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 
 prepare_runtime_dirs() {
   mkdir -p "${APP_DATA_DIR}" "${RUNTIME_DIR}" "${LOG_DIR}"

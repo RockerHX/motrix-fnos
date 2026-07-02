@@ -79,6 +79,7 @@ uname -m
 
 ```bash
 curl http://127.0.0.1:17080/api/app/ping
+curl http://<NAS_IP>:17080/api/app/ping
 curl http://127.0.0.1:17080/api/app/info
 ```
 
@@ -86,7 +87,7 @@ curl http://127.0.0.1:17080/api/app/info
 
 | 检查项 | 预期结果 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| 打开应用入口 | Web UI 正常加载 |  |  |
+| 打开应用入口 | Web UI 在飞牛桌面窗口内以 iframe 正常加载 |  |  |
 | 任务列表首屏 | 空任务或历史任务正常显示 |  |  |
 | SSE 连接 | 页面能接收 `tasks.snapshot`，任务状态自动刷新 |  |  |
 | 退出态提示 | 服务停止时页面进入退出/不可操作状态 |  |  |
