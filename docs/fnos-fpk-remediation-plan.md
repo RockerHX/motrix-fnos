@@ -513,16 +513,31 @@ FPK 下必须重新设计：
 
 目标：生成可在飞牛应用中心安装的 `.fpk`。
 
-任务：
+执行规则：
 
-1. 使用 `fnpack create` 生成基准项目结构。
-2. 新增 `packaging/fnos/`。
-3. 编译 Linux x86_64 server 二进制。
-4. 打包 Vue `dist/`。
-5. 放入 Linux Aria2 Next sidecar。
-6. 编写 `cmd/start`、`cmd/stop`、`cmd/status`。
-7. 配置 `manifest`、应用入口、端口、图标、权限。
-8. 新增 `scripts/build-fpk.mjs` 或 shell 脚本。
+- 本阶段保持 server / Web UI 主线可构建，legacy `src-tauri/` 仅继续承担回归参照，不新增 Tauri-only 打包能力。
+- 提交粒度固定为“小任务一提交”。
+- 代码提交前缀按变更类型使用中文 Conventional Commit，例如 `feat:`、`fix:`、`chore:`、`docs:`。
+- 完成状态双写：`docs/fnos-fpk-remediation-plan.md` 记录细项，`docs/development-plan.md` 记录阶段摘要。
+- 默认在同一提交中更新小任务状态；受 Git 提交哈希自引用限制，`提交记录` 字段允许先写提交主题，并在后续提交中回填前一项短哈希。
+
+执行清单：
+
+| 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
+| --- | --- | --- | --- | --- | --- | --- |
+| P4-1.1 | 生成基准 FPK 目录结构 | 新建 `packaging/fnos/` 基础目录骨架，并补充阶段 4 跟踪表 | `packaging/fnos/` 下存在 `app/`、`cmd/`、`config/`、`ui/`、`wizard/` 结构 | `feat: 新建FPK打包目录骨架` | 已完成 | `feat: 新建FPK打包目录骨架` |
+| P4-1.2 | 补齐基础图标与资源占位 | 放入 fnOS 图标资源，占位 manifest 引用所需文件名 | 图标文件存在，且 FPK 主线不再依赖 Tauri 图标集合 | `feat: 补齐FPK基础图标资源` | 未开始 |  |
+| P4-2.1 | 补齐 Linux x86_64 server 构建产物 | 固定 server release 产物命名与打包输入路径 | `cargo build --manifest-path server/Cargo.toml --release --target x86_64-unknown-linux-gnu` 通过 | `feat: 补齐Linux x86_64服务端构建产物` | 未开始 |  |
+| P4-2.2 | 打通 Vue `dist/` 输出 | 固定 Web UI 构建与拷贝目标目录 | `pnpm run build` 通过且产物可复制到 FPK 目录 | `feat: 打通Web UI构建产物输出` | 未开始 |  |
+| P4-2.3 | 整理 Aria2 Next sidecar 放置规则 | 固定 Linux sidecar 打包路径与命名 | Linux sidecar 可被打包脚本找到，非 Linux 目标不进入 FPK 主线 | `feat: 整理Aria2 Next sidecar打包规则` | 未开始 |  |
+| P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 未开始 |  |
+| P4-3.2 | 编写 FPK 停止脚本 | 新增 `cmd/stop`，停止服务并清理运行态 | 手动执行 `packaging/fnos/cmd/stop` 后进程退出 | `fix: 新增FPK停止脚本与清理逻辑` | 未开始 |  |
+| P4-3.3 | 编写 FPK 状态脚本 | 新增 `cmd/status`，输出服务状态和退出码 | 服务运行/停止时状态输出与退出码正确 | `feat: 新增FPK状态查询脚本` | 未开始 |  |
+| P4-3.4 | 补齐 manifest 与权限配置 | 配置应用入口、端口、图标、权限 | manifest 字段可被 `fnpack` 接受，且与脚本入口一致 | `feat: 配置FPK manifest与权限` | 未开始 |  |
+| P4-4.1 | 新增 FPK 一键打包脚本 | 串联前端构建、server 构建、sidecar 拷贝和 `fnpack build` | 单脚本可完成全流程，失败时有明确报错 | `feat: 新增FPK一键打包脚本` | 未开始 |  |
+| P4-4.2 | 统一脚本与 CI 构建入口 | 本地与 CI 复用同一套 FPK 构建入口 | 本地验证入口可运行，CI 命令不冲突 | `chore: 统一FPK构建入口` | 未开始 |  |
+| P4-5.1 | 执行完整打包验证 | 生成并检查 `.fpk` 产物内容 | 本地运行 `fnpack build` 成功生成 `.fpk` | `fix: 修复FPK打包链路校验问题` | 未开始 |  |
+| P4-5.2 | 更新阶段 4 文档状态 | 同步整改计划与开发计划的阶段 4 完成状态 | 文档状态与代码状态一致，可进入阶段 5 | `docs: 收口阶段4FPK打包链路状态` | 未开始 |  |
 
 验收：
 
