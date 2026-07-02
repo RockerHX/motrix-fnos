@@ -1,119 +1,24 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed } from "vue";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
   task: DownloadTask;
 }>();
 
-const estimatedCompletedLength = ref(clampCompletedLength(props.task.completedLength));
-let animationFrame = 0;
-let sampleStartedAt = performance.now();
-let sampleCompletedLength = props.task.completedLength;
+const completedLength = computed(() => clampCompletedLength(props.task.completedLength));
 
 const displayPercentage = computed(() => {
   if (props.task.totalLength <= 0) {
     return 0;
   }
 
-  return Math.min(100, (estimatedCompletedLength.value / props.task.totalLength) * 100);
+  return Math.min(100, (completedLength.value / props.task.totalLength) * 100);
 });
 
 const progressFillStyle = computed(() => ({
   transform: `scaleX(${displayPercentage.value / 100})`,
 }));
-
-watch(
-  () =>
-    [
-      props.task.id,
-      props.task.gid ?? "",
-      props.task.completedLength,
-      props.task.totalLength,
-      props.task.downloadSpeed,
-      props.task.status,
-    ] as const,
-  (_, previousSnapshot) => {
-    sampleStartedAt = performance.now();
-    const snapshotCompletedLength = clampCompletedLength(props.task.completedLength);
-
-    sampleCompletedLength = snapshotCompletedLength;
-    estimatedCompletedLength.value = shouldKeepActiveProgressMonotonic(previousSnapshot)
-      ? Math.max(clampCompletedLength(estimatedCompletedLength.value), snapshotCompletedLength)
-      : snapshotCompletedLength;
-    restartProgressLoop();
-  },
-  { immediate: true },
-);
-
-onBeforeUnmount(() => {
-  cancelAnimationFrame(animationFrame);
-});
-
-function restartProgressLoop() {
-  cancelAnimationFrame(animationFrame);
-
-  if (!canEstimateProgress()) {
-    syncEstimatedCompletedLength();
-    return;
-  }
-
-  animationFrame = requestAnimationFrame(updateEstimatedProgress);
-}
-
-function updateEstimatedProgress(now: number) {
-  if (!canEstimateProgress()) {
-    syncEstimatedCompletedLength();
-    return;
-  }
-
-  const elapsedSeconds = Math.max(0, (now - sampleStartedAt) / 1000);
-  const nextEstimatedCompletedLength = clampCompletedLength(
-    sampleCompletedLength + props.task.downloadSpeed * elapsedSeconds,
-  );
-  estimatedCompletedLength.value = Math.max(
-    clampCompletedLength(estimatedCompletedLength.value),
-    nextEstimatedCompletedLength,
-  );
-
-  if (estimatedCompletedLength.value < props.task.totalLength) {
-    animationFrame = requestAnimationFrame(updateEstimatedProgress);
-  }
-}
-
-function canEstimateProgress() {
-  return (
-    props.task.status === "active" &&
-    props.task.totalLength > 0 &&
-    props.task.downloadSpeed > 0 &&
-    props.task.completedLength < props.task.totalLength
-  );
-}
-
-function syncEstimatedCompletedLength() {
-  const snapshotCompletedLength = clampCompletedLength(props.task.completedLength);
-  estimatedCompletedLength.value =
-    props.task.status === "active"
-      ? Math.max(clampCompletedLength(estimatedCompletedLength.value), snapshotCompletedLength)
-      : snapshotCompletedLength;
-}
-
-function shouldKeepActiveProgressMonotonic(
-  previousSnapshot?: readonly [number, string, number, number, number, DownloadTask["status"]],
-) {
-  if (!previousSnapshot || props.task.status !== "active") {
-    return false;
-  }
-
-  const [previousTaskId, previousGid, , previousTotalLength] = previousSnapshot;
-  return (
-    previousTaskId === props.task.id &&
-    previousGid === (props.task.gid ?? "") &&
-    previousTotalLength > 0 &&
-    props.task.totalLength === previousTotalLength &&
-    props.task.completedLength > 0
-  );
-}
 
 function clampCompletedLength(value: number) {
   if (props.task.totalLength <= 0) {

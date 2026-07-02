@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-const TASK_MONITOR_INTERVAL: Duration = Duration::from_secs(1);
+const TASK_MONITOR_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
     tokio::spawn(async move {
