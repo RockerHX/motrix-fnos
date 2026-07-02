@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,7 @@ const repoRoot = process.cwd();
 const packagingRoot = path.join(repoRoot, 'packaging', 'fnos');
 const manifestPath = path.join(packagingRoot, 'manifest');
 const uiConfigPath = path.join(packagingRoot, 'app', 'ui', 'config');
+const portConfigPath = path.join(packagingRoot, 'MotrixFNOS.sc');
 const outputDir = path.join(packagingRoot, 'dist');
 const buildTarget = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
 const platform = buildTarget === 'aarch64-unknown-linux-gnu' ? 'arm' : 'x86';
@@ -23,6 +24,7 @@ const env = {
 
 const manifestOriginal = readFileSync(manifestPath, 'utf8');
 const uiConfigOriginal = readFileSync(uiConfigPath, 'utf8');
+const portConfigOriginal = readFileSync(portConfigPath, 'utf8');
 
 try {
   resetAppDataDir();
@@ -33,6 +35,7 @@ try {
   syncUiIcons();
   patchManifest(platform, servicePort);
   patchUiConfig(servicePort);
+  patchPortConfig(servicePort);
   removeGitKeepFiles(packagingRoot);
 
   if (prepareOnly) {
@@ -46,6 +49,7 @@ try {
 } finally {
   writeFileSync(manifestPath, manifestOriginal);
   writeFileSync(uiConfigPath, uiConfigOriginal);
+  writeFileSync(portConfigPath, portConfigOriginal);
 }
 
 function removeGitKeepFiles(dir) {
@@ -140,6 +144,14 @@ function patchUiConfig(servicePort) {
   writeFileSync(uiConfigPath, JSON.stringify(config, null, 2) + '\n');
 }
 
+function patchPortConfig(servicePort) {
+  const port = `${servicePort}/tcp`;
+  let config = readFileSync(portConfigPath, 'utf8');
+  config = config.replace(/^src\.ports=.*$/m, `src.ports="${port}"`);
+  config = config.replace(/^dst\.ports=.*$/m, `dst.ports="${port}"`);
+  writeFileSync(portConfigPath, config);
+}
+
 function ensureFnpack(env) {
   const direct = readOption('--fnpack');
   if (direct) return direct;
@@ -165,6 +177,7 @@ function moveOutputFile() {
   if (!existsSync(source)) {
     fail(`fnpack 未生成预期产物：${source}`);
   }
+  injectPackageRootFiles(source);
   mkdirSync(outputDir, { recursive: true });
   if (!keepDist) {
     resetDir(outputDir);
@@ -172,6 +185,18 @@ function moveOutputFile() {
   const target = path.join(outputDir, `${manifest.appname}_${manifest.version}_${platform}.fpk`);
   copyFileSync(source, target);
   console.log(`FPK 已输出到 ${target}`);
+}
+
+function injectPackageRootFiles(fpkPath) {
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'motrix-fnos-fpk-'));
+  try {
+    run('tar', ['-xzf', fpkPath, '-C', workDir], env);
+    copyFileSync(portConfigPath, path.join(workDir, path.basename(portConfigPath)));
+    const entries = readdirSync(workDir);
+    run('tar', ['-czf', fpkPath, ...entries], env, workDir);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
 }
 
 function parseManifest(content) {

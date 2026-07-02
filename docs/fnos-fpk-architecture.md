@@ -42,6 +42,7 @@ packaging/fnos/
   manifest
   ICON.PNG
   ICON_256.PNG
+  MotrixFNOS.sc
   config/
     resource
     privilege
@@ -70,19 +71,20 @@ packaging/fnos/
     ui/
       config
       images/
-  ui/
-    dist/
+      dist/
 ```
 
 职责边界：
 
 - `manifest`：声明应用名、版本、官方模板架构字段 `arch`、分发平台字段 `platform`、最低系统版本、服务端口、Web 入口和控制能力。
+- `MotrixFNOS.sc`：声明服务端口转发资源，配合 `config/resource` 的 `port-config` 使用。
+- `config/resource`：声明应用共享目录、端口资源和服务型应用资源；外部个人文件夹仍需要用户在 fnOS 应用设置中授权。
 - `config/privilege`：声明当前运行权限。第三方应用默认使用 `run-as: package`，避免申请 root 权限导致应用中心拒绝安装。
 - `cmd/main`：fnOS 控制入口，分发到 `start` / `stop` / `status`。
 - `cmd/common.sh`：统一解析 fnOS 注入路径、数据目录、端口、日志和 PID 路径。
 - `app/bin/`：放置 Rust server 和 Aria2 sidecar。
 - `app/data/`：运行时数据目录，保存 SQLite、session、日志、PID 等运行态文件。
-- `ui/dist/`：Web UI 静态资源。
+- `app/ui/dist/`：Web UI 静态资源，由 Rust server 托管。
 - `app/ui/config`：fnOS Web 入口配置。
 
 ## 平台架构策略

@@ -45,6 +45,7 @@ packaging/fnos/
   manifest
   ICON.PNG
   ICON_256.PNG
+  MotrixFNOS.sc
   cmd/
     main
     start
@@ -80,6 +81,7 @@ packaging/fnos/
 说明：
 
 - `manifest` 定义应用名、版本、官方模板架构字段 `arch`、分发平台字段 `platform`、最低系统版本、服务端口、Web 入口和 stop 控制能力。
+- `MotrixFNOS.sc` 配合 `config/resource` 的 `port-config` 声明服务端口资源。
 - `cmd/main` 统一分发 `start` / `stop` / `status`。
 - `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 sidecar 路径。
 - `cmd/stop` 通过 `SIGINT` 触发 server 统一退出流程，并最多等待 20 秒。
@@ -88,6 +90,7 @@ packaging/fnos/
 - `app/bin/aria2-next` 是 Linux Aria2 Next sidecar。
 - `app/ui/dist/` 是 Vue Web UI 静态资源，由 Rust server 作为静态文件托管。
 - `app/data/` 是运行时数据目录，打包前会清理本地残留。
+- `config/resource` 同时声明 `data-share`、`port-config` 和 `systemd-unit`，用于让 fnOS 识别应用端口、服务型应用资源和外部文件夹授权入口。
 
 ## 构建入口
 
@@ -134,7 +137,7 @@ rtk node scripts/build-fpk-all.mjs --service-port 17080
 | `--target <triple>` | 低层单架构脚本 `scripts/build-fpk.mjs` 使用；指定 Rust target，默认 `x86_64-unknown-linux-gnu` |
 | `--prepare-only` | 只完成构建和组装，不执行 `fnpack build` |
 | `--keep-dist` | 低层单架构脚本内部参数；双架构构建时保留已有 dist 产物 |
-| `--service-port <port>` | 改写 `manifest service_port` 和 Web UI 入口端口 |
+| `--service-port <port>` | 改写 `manifest service_port`、Web UI 入口端口和 `MotrixFNOS.sc` 端口 |
 | `--fnpack <path>` | 使用指定 `fnpack` 可执行文件 |
 
 ## 脚本分层
@@ -198,6 +201,12 @@ packaging/fnos/app/bin/aria2-next
 ## Web 入口方式
 
 当前 Web 入口使用 `iframe` 类型，让应用在飞牛桌面窗口内打开。由于现阶段仍直接访问 Rust server 的 HTTP 端口，FPK 启动脚本默认把 server 绑定到 `0.0.0.0:${TRIM_SERVICE_PORT}`。后续如改为 CGI / Unix Socket 代理，可再收敛为仅本机监听。
+
+## 外部下载目录权限
+
+Motrix FNOS 以应用账号 `motrix_fnos` 运行。应用默认只能写入自己的应用数据目录和 `config/resource` 声明的应用共享目录；如果用户希望下载到 `/vol1/1000/tmp` 等个人文件夹，需要在 fnOS 应用设置中为 Motrix FNOS 添加“允许访问以下文件夹”的读写授权。
+
+`config/resource` 必须包含 `port-config` 和服务资源声明，否则部分 fnOS 版本的应用设置页可能只显示桌面入口配置，不显示外部文件夹授权入口。
 
 ## 运行时环境变量
 
