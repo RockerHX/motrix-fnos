@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+
+CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ACTION=${1:-status}
+
+case "${ACTION}" in
+  start)
+    exec "${CMD_DIR}/start"
+    ;;
+  stop)
+    exec "${CMD_DIR}/stop"
+    ;;
+  status)
+    exec "${CMD_DIR}/status"
+    ;;
+  *)
+    echo "用法: $0 {start|stop|status}" >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,13 @@
+appname               = motrix.fnos
+version               = 0.1.0
+display_name          = Motrix FNOS
+desc                  = 基于 Rust server、Vue Web UI 和 Aria2 Next 的 fnOS 下载管理应用
+platform              = x86
+source                = thirdparty
+maintainer            = rockerhx
+distributor           = rockerhx
+service_port          = 17080
+checkport             = true
+desktop_uidir         = ui
+desktop_applaunchname = motrix.fnos.main
+ctl_stop              = true

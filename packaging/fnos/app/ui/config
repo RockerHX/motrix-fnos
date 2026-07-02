@@ -1,0 +1,13 @@
+{
+  ".url": {
+    "motrix.fnos.main": {
+      "title": "Motrix FNOS",
+      "icon": "images/icon-{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "17080",
+      "url": "/",
+      "allUsers": true
+    }
+  }
+}

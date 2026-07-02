@@ -15,11 +15,12 @@
 
 ## 后续填充范围
 
-- `packaging/fnos/` 目录结构
+- `packaging/fnos/` 目录结构（当前已补齐 `manifest`、`config/resource`、`config/privilege`、`cmd/main`、`app/ui/config`）
 - manifest、config、cmd 脚本约定
 - 启动脚本：`packaging/fnos/cmd/start`，优先使用 `TRIM_APPDEST`、`TRIM_PKGVAR`、`TRIM_SERVICE_PORT`，本地回退到仓库内相对路径；本机验证可通过 `MOTRIX_FNOS_SERVER_BIN` / `MOTRIX_FNOS_ARIA2_PATH` 覆写到 native 二进制。
 - 停止脚本：`packaging/fnos/cmd/stop`，通过 `SIGINT` 触发 server 统一退出流程，并等待最多 20 秒完成收口。
 - 状态脚本：`packaging/fnos/cmd/status`，运行中返回 0，未运行返回 1，并输出 PID 与监听地址。
+- manifest 当前默认产出 x86 包，Web 入口键名为 `motrix.fnos.main`，后续打包脚本可按目标架构改写 `platform` 与 `port` 字段。
 - Rust server 与 Web UI 构建产物放置方式
 - Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
 - Aria2 sidecar 集成方式
