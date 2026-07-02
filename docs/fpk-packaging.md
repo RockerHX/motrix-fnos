@@ -4,6 +4,29 @@
 
 记录飞牛 fnOS 下的 FPK 包结构、`fnpack` 使用方式、构建输入、安装调试和排障流程。
 
+## 资料查证原则
+
+FPK 是飞牛平台专有交付形态。涉及以下内容时，必须先查证再实现或下结论，不能只靠通用 Linux 经验猜测：
+
+- manifest 字段，例如 `platform`、`arch`、`os_min_version`、`service_port`、`desktop_uidir`、`desktop_applaunchname`、`disable_authorization_path`。
+- `config/resource`、`config/privilege`、端口协议 `.sc` 文件、文件夹授权入口。
+- `cmd/*` 生命周期、安装/升级/卸载回调、`TRIM_*` 环境变量。
+- fnOS 应用中心 UI、桌面入口、iframe/url 行为、应用账号、文件权限和授权目录。
+- `fnpack` 打包结果、FPK 根目录结构和实机安装校验。
+
+查证顺序：
+
+1. 优先搜索飞牛官方开发者平台、官方论坛、帮助中心和官方工具说明。
+2. 官方资料不足时，参考可安装的第三方 FPK、活跃第三方仓库和社区开发指南，并通过解包或实机验证确认。
+3. 如果仍只能推断，必须在结论中标注“推断”，并给出最小验证步骤。
+
+当前已用过的参考资料：
+
+- 飞牛官方开发者平台入口：`https://developer.fnnas.com/`
+- 飞牛官方论坛：`https://club.fnnas.com/`
+- 第三方 fnOS 应用与开发指南：`https://github.com/conversun/fnos-apps`
+- FnDepot FPK 对照包：`https://github.com/EWEDLCM/FnDepot/releases/tag/fndepot`
+
 ## 当前状态
 
 阶段 4 已完成，当前已经建立 FPK 打包链路并可生成 `.fpk` 产物。阶段 5 正在进行飞牛实机安装和基础功能验证。
