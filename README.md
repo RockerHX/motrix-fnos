@@ -60,10 +60,10 @@ rtk pnpm run build:fpk:arm64
 packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
 ```
 
-非 Linux x86_64 主机进行交叉构建时，需要先安装 `cargo-zigbuild` / `ziglang`：
+非 Linux x86_64 主机进行交叉构建时，脚本会自动检查并安装缺失的 Rust target；仍需要先安装 `cargo-zigbuild` / `ziglang`：
 
 ```bash
-rtk python3 -m pip install --user cargo-zigbuild ziglang
+rtk python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang
 ```
 
 如果只想验证 FPK 组装目录，不执行 `fnpack build`：

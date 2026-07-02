@@ -162,12 +162,12 @@ rtk node scripts/build-server-linux.mjs --target x86_64-unknown-linux-gnu
 rtk node scripts/build-server-linux.mjs --target aarch64-unknown-linux-gnu
 ```
 
-非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机在 x86 目标下可直接使用 `cargo build`。
+非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机在 x86 目标下可直接使用 `cargo build`。脚本会自动检查并安装缺失的 Rust target；如果 `ziglang` 只提供 `python-zig`，脚本会生成临时 `zig` 包装器供 `cargo-zigbuild` 使用。
 
-交叉构建依赖示例：
+交叉构建依赖示例（Homebrew Python 如遇 PEP 668 限制，需要保留 `--break-system-packages`）：
 
 ```bash
-rtk python3 -m pip install --user cargo-zigbuild ziglang
+rtk python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang
 ```
 
 ### Web UI
