@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "stepTitle": "安装确认",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "Motrix FNOS 将启动本地 Rust 服务和 Aria2 Next 下载引擎，请确认安装来源可信。"
+      }
+    ]
+  }
+]

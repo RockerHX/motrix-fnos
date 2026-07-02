@@ -1,1 +1,22 @@
-{}
+{
+  "data-share": {
+    "shares": [
+      {
+        "name": "motrix_fnos",
+        "permission": {
+          "rw": [
+            "motrix_fnos"
+          ]
+        }
+      },
+      {
+        "name": "motrix_fnos/data",
+        "permission": {
+          "rw": [
+            "motrix_fnos"
+          ]
+        }
+      }
+    ]
+  }
+}

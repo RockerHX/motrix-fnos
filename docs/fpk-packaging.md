@@ -241,7 +241,7 @@ packaging/fnos/app/data/run/motrix-fnos-server.pid
 
 | 现象 | 优先判断 | 处理 |
 | --- | --- | --- |
-| 安装失败：“应用包不符合系统要求” | FPK 平台、最低系统版本或权限要求不符合应用中心校验 | 确认包内存在官方模板字段 `arch = x86_64`，`platform` 与设备架构匹配，`os_min_version` 不高于当前系统，并避免第三方应用申请 root 运行 |
+| 安装失败：“应用包不符合系统要求” | FPK 平台、最低系统版本或权限要求不符合应用中心校验 | ARM 包按社区可安装示例使用 `platform = arm`、`os_min_version = 1.1.3100`、不写 `arch`；x86 包按官方模板使用 `arch = x86_64`。同时避免第三方应用申请 root 运行 |
 | 安装失败但架构匹配 | manifest、权限或 fnpack 产物格式问题 | 查看 fnOS 安装日志，并检查 `manifest platform`、`service_port`、`desktop_uidir` |
 | 启动失败 | server 或 sidecar 不可执行、路径错误、端口占用 | 查看 `logs/server.log` 和 `cmd/start` 输出 |
 | Web UI 打不开 | 服务未运行或端口配置不一致 | 检查 `cmd/status`、`manifest service_port`、`app/ui/config` |

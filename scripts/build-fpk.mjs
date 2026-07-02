@@ -33,6 +33,7 @@ try {
   syncUiIcons();
   patchManifest(platform, servicePort);
   patchUiConfig(servicePort);
+  removeGitKeepFiles(packagingRoot);
 
   if (prepareOnly) {
     console.log('FPK 预组装完成，已跳过 fnpack build');
@@ -45,6 +46,17 @@ try {
 } finally {
   writeFileSync(manifestPath, manifestOriginal);
   writeFileSync(uiConfigPath, uiConfigOriginal);
+}
+
+function removeGitKeepFiles(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const target = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removeGitKeepFiles(target);
+    } else if (entry.name === '.gitkeep') {
+      rmSync(target, { force: true });
+    }
+  }
 }
 
 function resetAppDataDir() {
@@ -76,10 +88,50 @@ function syncUiIcons() {
 }
 
 function patchManifest(platform, servicePort) {
-  const manifest = readFileSync(manifestPath, 'utf8')
-    .replace(/^platform\s*=.*$/m, `platform              = ${platform}`)
-    .replace(/^service_port\s*=.*$/m, `service_port          = ${servicePort}`);
+  let manifest = readFileSync(manifestPath, 'utf8');
+  const isArm = platform === 'arm';
+
+  if (isArm) {
+    manifest = upsertManifestField(manifest, 'platform', 'arm');
+    manifest = removeManifestField(manifest, 'arch');
+    manifest = upsertManifestField(manifest, 'os_min_version', '1.1.3100');
+    manifest = upsertManifestField(manifest, 'disable_authorization_path', 'true');
+  } else {
+    manifest = upsertManifestField(manifest, 'arch', 'x86_64');
+    manifest = upsertManifestField(manifest, 'platform', 'x86');
+    manifest = upsertManifestField(manifest, 'os_min_version', '0.9.0');
+    manifest = removeManifestField(manifest, 'disable_authorization_path');
+  }
+
+  manifest = upsertManifestField(manifest, 'service_port', servicePort);
   writeFileSync(manifestPath, manifest);
+}
+
+function upsertManifestField(content, key, value) {
+  const line = `${key.padEnd(22, ' ')}= ${value}`;
+  const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, 'm');
+  if (pattern.test(content)) {
+    return content.replace(pattern, line);
+  }
+
+  const sourcePattern = /^source\s*=.*$/m;
+  if (sourcePattern.test(content)) {
+    return content.replace(sourcePattern, (sourceLine) => `${sourceLine}
+${line}`);
+  }
+
+  return `${content.trimEnd()}
+${line}
+`;
+}
+
+function removeManifestField(content, key) {
+  const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*\\r?\\n?`, 'm');
+  return content.replace(pattern, '');
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function patchUiConfig(servicePort) {
