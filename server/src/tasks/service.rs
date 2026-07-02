@@ -6,7 +6,7 @@ use crate::debug_logs::DebugLogStore;
 use crate::settings::service::load_app_config_from_pool;
 use crate::tasks::{
     add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_redownloaded,
-    mark_task_removed, mark_task_resumed, move_task_files_to_trash, pause_task,
+    delete_task_files, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
     should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
@@ -196,7 +196,7 @@ impl<'a> TaskService<'a> {
             return Err("只有已完成任务可以重新下载".to_string());
         }
 
-        move_task_files_to_trash(&task)?;
+        delete_task_files(&task)?;
         let prepared = crate::tasks::PreparedDownloadTask {
             url: task.url.clone(),
             file_name: task.file_name.clone(),
@@ -208,7 +208,7 @@ impl<'a> TaskService<'a> {
         self.debug_logs.info(
             "tasks.control",
             format!(
-                "任务已重新下载，ID {}，GID {}，原本地文件已移入回收站或本地归档",
+                "任务已重新下载，ID {}，GID {}，原本地文件已删除",
                 task_id, gid
             ),
         );

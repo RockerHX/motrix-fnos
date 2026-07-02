@@ -746,7 +746,7 @@ pub async fn readd_task_to_aria2(
     Ok(task.clone())
 }
 
-pub fn move_task_files_to_trash(task: &DownloadTask) -> Result<(), String> {
+pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
     delete_task_file(task)
 }
 
@@ -1130,77 +1130,8 @@ fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(test))]
 fn delete_local_file(file: &Path) -> Result<(), String> {
-    if let Err(error) = trash::delete(file) {
-        let _archived = move_file_to_local_trash(file).map_err(|fallback_error| {
-            format!(
-                "移入系统回收站失败：{}（{}）；本地归档也失败：{}",
-                file.display(),
-                error,
-                fallback_error
-            )
-        })?;
-        return Ok(());
-    }
-
-    Ok(())
-}
-
-#[cfg(test)]
-fn delete_local_file(file: &Path) -> Result<(), String> {
-    fs::remove_file(file).map_err(|error| format!("删除测试文件失败：{}（{}）", file.display(), error))
-}
-
-#[cfg(not(test))]
-fn move_file_to_local_trash(file: &Path) -> Result<PathBuf, String> {
-    let parent = file
-        .parent()
-        .ok_or_else(|| format!("无法确定文件所在目录：{}", file.display()))?;
-    let file_name = file
-        .file_name()
-        .ok_or_else(|| format!("无法确定文件名：{}", file.display()))?;
-    let trash_dir = parent.join(".motrix-fnos-trash");
-    fs::create_dir_all(&trash_dir).map_err(|error| {
-        format!(
-            "创建本地归档目录失败：{}（{}）",
-            trash_dir.display(),
-            error
-        )
-    })?;
-    let target = unique_local_trash_path(&trash_dir, file_name);
-    fs::rename(file, &target).map_err(|error| {
-        format!(
-            "移动到本地归档目录失败：{} -> {}（{}）",
-            file.display(),
-            target.display(),
-            error
-        )
-    })?;
-    Ok(target)
-}
-
-#[cfg(not(test))]
-fn unique_local_trash_path(trash_dir: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
-    let timestamp = current_timestamp_ms();
-    let base = file_name.to_string_lossy();
-    for index in 0..1000 {
-        let name = if index == 0 {
-            format!("{timestamp}-{base}")
-        } else {
-            format!("{timestamp}-{index}-{base}")
-        };
-        let target = trash_dir.join(name);
-        if !target.exists() {
-            return target;
-        }
-    }
-    trash_dir.join(format!(
-        "{}-{}-{}",
-        timestamp,
-        std::process::id(),
-        base
-    ))
+    fs::remove_file(file).map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
 }
 
 fn cleanup_aria2_control_file(task: &DownloadTask) {
@@ -1861,8 +1792,8 @@ mod tests {
     }
 
     #[test]
-    fn move_task_files_to_trash_removes_completed_file_before_redownload() {
-        let save_dir = PathBuf::from(temp_download_dir("redownload-trash"));
+    fn delete_task_files_removes_completed_file_before_redownload() {
+        let save_dir = PathBuf::from(temp_download_dir("redownload-delete"));
         fs::create_dir_all(&save_dir).expect("save dir should be created");
         let file_path = save_dir.join("file.zip");
         fs::write(&file_path, b"completed").expect("file should be written");
@@ -1874,7 +1805,7 @@ mod tests {
         );
         task.status = DownloadTaskStatus::Complete;
 
-        move_task_files_to_trash(&task).expect("files should move to trash");
+        delete_task_files(&task).expect("files should delete");
 
         assert!(!file_path.exists());
         assert!(!aria2_path.exists());
@@ -1984,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_task_removed_moves_file_under_save_dir_to_trash() {
+    fn mark_task_removed_deletes_file_under_save_dir() {
         let save_dir = PathBuf::from(temp_download_dir("delete-file"));
         fs::create_dir_all(&save_dir).expect("save dir should be created");
         let file_path = save_dir.join("file.zip");
@@ -2004,7 +1935,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_task_removed_moves_orphan_aria2_control_file_to_trash() {
+    fn mark_task_removed_deletes_orphan_aria2_control_file() {
         let save_dir = PathBuf::from(temp_download_dir("delete-orphan-aria2"));
         fs::create_dir_all(&save_dir).expect("save dir should be created");
         let file_path = save_dir.join("file.zip");
