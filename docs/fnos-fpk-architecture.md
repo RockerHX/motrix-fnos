@@ -79,6 +79,7 @@ packaging/fnos/
 - `manifest`：声明应用名、版本、官方模板架构字段 `arch`、分发平台字段 `platform`、最低系统版本、服务端口、Web 入口和控制能力。
 - `MotrixFNOS.sc`：声明服务端口转发资源，配合 `config/resource` 的 `port-config` 使用。
 - `config/resource`：声明应用共享目录、端口资源和服务型应用资源；外部个人文件夹仍需要用户在 fnOS 应用设置中授权。
+- manifest 必须保持 `disable_authorization_path` 缺省或为 `false`，否则 fnOS 会隐藏外部文件夹授权入口。
 - `config/privilege`：声明当前运行权限。第三方应用默认使用 `run-as: package`，避免申请 root 权限导致应用中心拒绝安装。
 - `cmd/main`：fnOS 控制入口，分发到 `start` / `stop` / `status`。
 - `cmd/common.sh`：统一解析 fnOS 注入路径、数据目录、端口、日志和 PID 路径。

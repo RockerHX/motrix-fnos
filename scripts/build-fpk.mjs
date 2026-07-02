@@ -99,14 +99,13 @@ function patchManifest(platform, servicePort) {
     manifest = upsertManifestField(manifest, 'platform', 'arm');
     manifest = removeManifestField(manifest, 'arch');
     manifest = upsertManifestField(manifest, 'os_min_version', '1.1.3100');
-    manifest = upsertManifestField(manifest, 'disable_authorization_path', 'true');
   } else {
     manifest = upsertManifestField(manifest, 'arch', 'x86_64');
     manifest = upsertManifestField(manifest, 'platform', 'x86');
     manifest = upsertManifestField(manifest, 'os_min_version', '0.9.0');
-    manifest = removeManifestField(manifest, 'disable_authorization_path');
   }
 
+  manifest = removeManifestField(manifest, 'disable_authorization_path');
   manifest = upsertManifestField(manifest, 'service_port', servicePort);
   writeFileSync(manifestPath, manifest);
 }

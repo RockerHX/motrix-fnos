@@ -208,6 +208,8 @@ Motrix FNOS 以应用账号 `motrix_fnos` 运行。应用默认只能写入自�
 
 `config/resource` 必须包含 `port-config` 和服务资源声明，否则部分 fnOS 版本的应用设置页可能只显示桌面入口配置，不显示外部文件夹授权入口。
 
+manifest 不能设置 `disable_authorization_path = true`。该字段为 `true` 时，fnOS 会隐藏应用设置页里的授权目录操作；下载器需要保持该字段缺省或 `false`。
+
 ## 运行时环境变量
 
 `cmd/common.sh` 会设置以下运行时变量：
