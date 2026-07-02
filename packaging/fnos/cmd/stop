@@ -1,0 +1,40 @@
+#!/bin/sh
+
+set -eu
+
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+export_runtime_env
+clear_stale_pid
+
+pid=$(read_pid || true)
+if [ -z "${pid}" ]; then
+  log_msg "motrix-fnos-server 未运行，无需停止"
+  echo "motrix-fnos-server 未运行"
+  exit 0
+fi
+
+if ! is_running_pid "${pid}"; then
+  rm -f "${PID_FILE}"
+  log_msg "检测到陈旧 PID 文件，已清理：${pid}"
+  echo "motrix-fnos-server 未运行（已清理陈旧 PID）"
+  exit 0
+fi
+
+log_msg "准备停止 motrix-fnos-server，PID ${pid}"
+kill -INT "${pid}"
+
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  if ! is_running_pid "${pid}"; then
+    rm -f "${PID_FILE}"
+    log_msg "motrix-fnos-server 已停止，PID ${pid}"
+    echo "motrix-fnos-server 已停止，PID ${pid}"
+    exit 0
+  fi
+  sleep 1
+done
+
+log_msg "motrix-fnos-server 停止超时，PID ${pid}"
+echo "motrix-fnos-server 停止超时，PID ${pid}" >&2
+exit 1

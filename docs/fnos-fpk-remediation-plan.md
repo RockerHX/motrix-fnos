@@ -530,8 +530,8 @@ FPK 下必须重新设计：
 | P4-2.1 | 补齐 Linux x86_64 server 构建产物 | 固定 server release 产物命名与打包输入路径 | `pnpm run build:server:linux:x64` 通过，并生成标准产物路径 | `feat: 补齐Linux x86_64服务端构建产物` | 已完成 | `feat: 补齐Linux x86_64服务端构建产物`（`7ec9d75`） |
 | P4-2.2 | 打通 Vue `dist/` 输出 | 固定 Web UI 构建与拷贝目标目录 | `pnpm run build:web:fpk` 通过，且 `packaging/fnos/ui/dist/index.html` 存在 | `feat: 打通Web UI构建产物输出` | 已完成 | `feat: 打通Web UI构建产物输出`（`487b041`） |
 | P4-2.3 | 整理 Aria2 Next sidecar 放置规则 | 固定 Linux sidecar 打包路径与命名 | `pnpm run stage:aria2:x64` 成功，且脚本支持 `aarch64-unknown-linux-gnu` dry-run 校验 | `feat: 整理Aria2 Next sidecar打包规则` | 已完成 | `feat: 整理Aria2 Next sidecar打包规则`（`56b3bbc`） |
-| P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 已完成 | `feat: 新增FPK启动脚本` |
-| P4-3.2 | 编写 FPK 停止脚本 | 新增 `cmd/stop`，停止服务并清理运行态 | 手动执行 `packaging/fnos/cmd/stop` 后进程退出 | `fix: 新增FPK停止脚本与清理逻辑` | 未开始 |  |
+| P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 已完成 | `feat: 新增FPK启动脚本`（`cbdb085`） |
+| P4-3.2 | 编写 FPK 停止脚本 | 新增 `cmd/stop`，停止服务并清理运行态 | 手动执行 `packaging/fnos/cmd/stop` 后进程退出 | `fix: 新增FPK停止脚本与清理逻辑` | 已完成 | `fix: 新增FPK停止脚本与清理逻辑` |
 | P4-3.3 | 编写 FPK 状态脚本 | 新增 `cmd/status`，输出服务状态和退出码 | 服务运行/停止时状态输出与退出码正确 | `feat: 新增FPK状态查询脚本` | 未开始 |  |
 | P4-3.4 | 补齐 manifest 与权限配置 | 配置应用入口、端口、图标、权限 | manifest 字段可被 `fnpack` 接受，且与脚本入口一致 | `feat: 配置FPK manifest与权限` | 未开始 |  |
 | P4-4.1 | 新增 FPK 一键打包脚本 | 串联前端构建、server 构建、sidecar 拷贝和 `fnpack build` | 单脚本可完成全流程，失败时有明确报错 | `feat: 新增FPK一键打包脚本` | 未开始 |  |
