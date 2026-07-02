@@ -19,7 +19,9 @@
     "build:server:linux:x64": "node scripts/build-server-linux.mjs",
     "build:web:fpk": "node scripts/build-web-ui-fpk.mjs",
     "stage:aria2:x64": "node scripts/stage-aria2-sidecar.mjs --target x86_64-unknown-linux-gnu",
-    "stage:aria2:arm64": "node scripts/stage-aria2-sidecar.mjs --target aarch64-unknown-linux-gnu"
+    "stage:aria2:arm64": "node scripts/stage-aria2-sidecar.mjs --target aarch64-unknown-linux-gnu",
+    "build:fpk:prepare": "node scripts/build-fpk.mjs --prepare-only",
+    "build:fpk": "node scripts/build-fpk.mjs"
   },
   "dependencies": {
     "naive-ui": "^2.44.1",

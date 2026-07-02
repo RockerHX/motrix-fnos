@@ -22,6 +22,7 @@
 - 状态脚本：`packaging/fnos/cmd/status`，运行中返回 0，未运行返回 1，并输出 PID 与监听地址。
 - manifest 当前默认产出 x86 包，Web 入口键名为 `motrix.fnos.main`，后续打包脚本可按目标架构改写 `platform` 与 `port` 字段。
 - 一键打包脚本：`node scripts/build-fpk.mjs [--target <triple>] [--prepare-only]`，默认生成 x86 FPK，`--prepare-only` 仅验证组装流程不执行 `fnpack build`。
+- 统一入口：本地使用 `pnpm run build:fpk:prepare` / `pnpm run build:fpk`，CI 复用同一 `build-fpk` 脚本做预组装验证。
 - Rust server 与 Web UI 构建产物放置方式
 - Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
 - Aria2 sidecar 集成方式

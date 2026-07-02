@@ -47,3 +47,6 @@ jobs:
 
       - name: Run verification
         run: pnpm run verify
+
+      - name: Verify FPK packaging preparation
+        run: pnpm run build:fpk:prepare
