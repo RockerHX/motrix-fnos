@@ -50,8 +50,13 @@ jobs:
 
       - name: Install FPK cross build dependencies
         run: |
-          python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang
+          cargo install --locked cargo-zigbuild
+          python3 -m pip install --user --break-system-packages ziglang
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cargo zigbuild --version
+          command -v python-zig
 
       - name: Verify FPK packaging preparation
         run: pnpm run build:fpk:prepare
