@@ -484,8 +484,8 @@ FPK 下必须重新设计：
 
 | 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
 | --- | --- | --- | --- | --- | --- | --- |
-| P3-1 | 文档清单与前端迁移矩阵落表 | 为阶段 3 增加执行表、提交规则、迁移范围；在 `docs/api-contract.md` 补充“前端消费方式”说明 | 文档出现完整阶段 3 编号、迁移对象清单、降级策略、验收口径 | `docs: 细化阶段3前端HTTP迁移执行清单` | 已完成 | `docs: 细化阶段3前端HTTP迁移执行清单` |
-| P3-2 | Web HTTP 基础设施与开发代理 | 新增 `src/services/http.ts`；把 Vite 配置从 Tauri 偏置改为 Web 主线，增加 `/api` 与 SSE 开发代理 | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端HTTP客户端与Web开发代理` | 未开始 | - |
+| P3-1 | 文档清单与前端迁移矩阵落表 | 为阶段 3 增加执行表、提交规则、迁移范围；在 `docs/api-contract.md` 补充“前端消费方式”说明 | 文档出现完整阶段 3 编号、迁移对象清单、降级策略、验收口径 | `docs: 细化阶段3前端HTTP迁移执行清单`（`7a3cd5b`） | 已完成 | `docs: 细化阶段3前端HTTP迁移执行清单` |
+| P3-2 | Web HTTP 基础设施与开发代理 | 新增 `src/services/http.ts`；把 Vite 配置从 Tauri 偏置改为 Web 主线，增加 `/api` 与 SSE 开发代理 | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端HTTP客户端与Web开发代理` | 已完成 | `feat: 新增前端HTTP客户端与Web开发代理` |
 | P3-3 | 迁移基础服务到 HTTP | `app`、`aria2`、`settings`、`debug-logs` 服务层改为 HTTP；删除未使用的 `quitApp` 前端出口 | `pnpm run typecheck`、`pnpm run build` | `feat: 迁移基础服务到HTTP接口` | 未开始 | - |
 | P3-4 | 迁移任务服务并降级目录选择交互 | `tasks` 服务改为 HTTP；移除 Tauri 目录选择插件调用；任务新建弹窗改为手动输入保存路径 | `pnpm run typecheck`、`pnpm run build` | `feat: 迁移任务服务并降级目录选择交互` | 未开始 | - |
 | P3-5 | 新增前端 SSE 运行时事件服务 | 用 `EventSource` 替换 Tauri `listen`；新增/重命名为 `runtimeEvents` 服务，消费 `tasks.snapshot` 与 `runtime.exiting` | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端SSE运行时事件订阅` | 未开始 | - |
