@@ -14,6 +14,14 @@
 - `MOTRIX_FNOS_HTTP_ADDR`：监听地址；未设置时回退到 `127.0.0.1:17080`
 - `MOTRIX_FNOS_ARIA2_PATH`：显式指定 Aria2 可执行文件；未设置时按“打包路径优先、仓库调试路径兜底”解析
 
+## 前端消费方式
+
+- 前端阶段 3 起默认通过相对路径消费 HTTP API：`/api/*`。
+- 浏览器端不额外引入运行时 base URL 配置；开发态通过 Vite proxy 把 `/api` 与 `/api/events` 转发到 `http://127.0.0.1:17080`。
+- 前端统一使用浏览器原生 `fetch` 消费 JSON 接口，统一解析 `204 No Content` 与 `{ code, message }` 错误体，优先展示 `message`。
+- 前端事件流固定使用浏览器原生 `EventSource` 连接 `/api/events`；依赖浏览器自动重连能力，不额外引入 WebSocket 协议。
+- Web 版系统集成采用“保留并降级”策略：保存路径保留文本输入但取消 Tauri 目录选择器；开机自启/通知开关仅保存配置，不再调用宿主系统插件；不提供 HTTP 版 `quit_app`。
+
 ## 错误响应
 
 统一错误响应：
@@ -140,8 +148,8 @@
 
 ## 兼容策略
 
-- 阶段 2 不替换现有前端 `invoke` / `listen` 调用；HTTP / SSE 契约先服务于 `server/` 主线
-- `src-tauri` 继续保留 legacy command 与事件实现，直到阶段 3 前端迁移完成
+- 阶段 2 保留 legacy `invoke` / `listen`；阶段 3 起前端主线切换为 HTTP / SSE，`src-tauri` 仅保留 Rust legacy 适配层
+- 在阶段 3 收口前，不提前删除 `src-tauri` command 与事件实现，确保双轨可回归
 - 首版 SSE 采用“整包快照”而非增量 diff，避免协议在前后端同时复杂化
 
 ## 与其他文档关系

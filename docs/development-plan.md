@@ -37,7 +37,7 @@
 
 更新时间：2026-07-02
 
-当前阶段：**阶段 2：实现 HTTP API 和事件流（已完成）**
+当前阶段：**阶段 3：前端迁移到 HTTP API（进行中）**
 
 已确认的可迁移资产：
 
@@ -48,8 +48,8 @@
 
 当前主要问题：
 
-- 前端通信仍依赖 `invoke` / `listen`，尚未切到 HTTP API / SSE。
-- `src-tauri/` legacy 入口仍需保留到阶段 3 前端迁移完成后再逐步下线。
+- 前端主路径仍存在 `invoke` / `listen` 与 Tauri plugin 直连，阶段 3 需切到 HTTP API / SSE 并完成 Web 降级。
+- `src-tauri/` legacy 入口仍需保留到阶段 3 完成后再逐步下线。
 - fnOS FPK 目录结构、manifest、cmd 脚本和打包链路仍未建立。
 - 数据目录默认值、服务生命周期和前端接口仍保留 legacy 兼容语义，后续阶段需逐步切到 FPK / Web UI 模型。
 
@@ -62,6 +62,7 @@
 - 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口。
 - `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件流与 Tokio 后台任务同步已落地。
 - server 退出流程已具备“广播退出事件 → 同步任务 → 暂停未完成任务并持久化 → 保存 Aria2 session → 停止受管进程 → 成功后清理运行态记录”的收口顺序，阶段 2 验收项已闭环。
+- 阶段 3 已启动，当前先补齐前端 HTTP/SSE 迁移清单、Web 降级约定与阶段追踪基线。
 
 当前阶段约束：
 
@@ -177,19 +178,38 @@
 
 ### 5.3 阶段 3：前端迁移到 HTTP API
 
-目标：让 Vue 前端以普通 Web UI 形态运行。
+目标：把前端主线切到 HTTP + SSE，让 Vue UI 可作为普通 Web UI 运行，同时不新增后端协议、不提前删除 `src-tauri/` Rust legacy 主线。
+
+当前小任务状态：
+
+- P3-1：文档清单与前端迁移矩阵落表。已完成
+- P3-2：Web HTTP 基础设施与开发代理。未开始
+- P3-3：迁移基础服务到 HTTP。未开始
+- P3-4：迁移任务服务并降级目录选择交互。未开始
+- P3-5：新增前端 SSE 运行时事件服务。未开始
+- P3-6：切换任务刷新主路径到 SSE 快照。未开始
+- P3-7：将系统集成功能降级为 Web 安全行为。未开始
+- P3-8：清理前端 Tauri 直连依赖并收口阶段 3。未开始
 
 核心任务：
 
-- 新增统一 HTTP client。
-- 替换 `invoke` / `listen` 依赖。
-- 把运行时退出、状态变更改为 SSE 订阅。
-- 清理 Tauri 前端依赖和桌面系统集成功能。
+- 新增统一 HTTP client，并把开发态切换到浏览器 + Vite proxy 主线。
+- 替换 `invoke` / `listen` 依赖，消费阶段 2 已有 `/api/*` 与 `/api/events`。
+- 把任务列表刷新改为“首次拉取 + SSE 快照驱动 + 操作后必要补刷”。
+- 清理前端 Tauri 直连依赖，并把系统集成功能降级为纯 Web 安全行为。
 
 验收：
 
 - `pnpm run build` 生成纯 Web 静态资源。
 - 浏览器可直接访问 Web UI 并调用后端。
+- `src/` 内不再出现 `@tauri-apps/api`、`invoke(`、`listen(`。
+
+阶段进展说明：
+
+- 阶段 3 不新增后端 API，完全复用阶段 2 已落地的 `/api/*` 与 `/api/events` 契约。
+- 前端事件流固定采用浏览器原生 `EventSource`，只消费 `tasks.snapshot` 与 `runtime.exiting` 两类事件。
+- Web 版系统集成采用“保留并降级”策略：目录选择改为手填；开机自启/通知开关仅保存配置，不再调用宿主插件；不提供 HTTP 版 `quit_app`。
+- 阶段收口前继续保持 `server/` 与 `src-tauri/` 双轨可回归。
 
 ### 5.4 阶段 4：建立 FPK 打包链路
 
@@ -239,9 +259,9 @@
 
 ## 7. 当前优先级
 
-1. 启动阶段 2：为 `server/` 建立 HTTP API、统一错误响应和 SSE 事件流。
-2. 在不破坏双轨运行的前提下，把前端调用从 `invoke` / `listen` 逐步切到 HTTP / SSE。
-3. 待服务入口稳定后，再推进 FPK 打包链路和飞牛实机验证。
+1. 推进阶段 3：把前端服务层、任务流和运行时事件从 `invoke` / `listen` 迁到 HTTP / SSE。
+2. 在不破坏双轨运行的前提下，完成 Web 降级与前端 Tauri 直连依赖清理。
+3. 待浏览器主线稳定后，再推进 FPK 打包链路和飞牛实机验证。
 
 ## 8. 验收原则
 

@@ -469,22 +469,45 @@ FPK 下必须重新设计：
 
 ### 阶段 3：前端从 Tauri API 迁移到 HTTP API
 
-目标：Vue 前端可作为普通 Web UI 运行。
+目标：把前端主线切到 HTTP + SSE，让 Vue UI 可作为普通 Web UI 运行，同时不新增后端协议、不提前删除 `src-tauri/` Rust legacy 主线。
 
-任务：
+执行规则：
 
-1. 新增 `src/services/http.ts`。
-2. 替换所有 `invoke` 调用。
-3. 替换 `listen("runtime://exiting")` 为 SSE/WebSocket 订阅。
-4. 删除 `@tauri-apps/api` 直接依赖。
-5. 删除或替换 Tauri 系统集成功能。
-6. 前端构建产物作为 FPK UI 静态资源。
+- 本阶段以 `/api/*` 与 `/api/events` 为唯一前后端通信主线，不新增后端路由。
+- 提交粒度固定为“小任务一提交”。
+- 代码提交前缀按变更类型使用中文 Conventional Commit，例如 `feat:`、`fix:`、`refactor:`、`docs:`、`chore:`。
+- 完成状态双写：`docs/fnos-fpk-remediation-plan.md` 记录细项，`docs/development-plan.md` 记录阶段摘要。
+- 默认在同一提交中更新小任务状态；受 Git 提交哈希自引用限制，`提交记录` 字段允许先写提交主题，并在后续提交中回填前一项短哈希。
+- Web 版系统集成采用“保留并降级”策略：保存路径保留输入框但取消 Tauri 目录选择器；开机自启/通知开关继续保留为配置项，但不再调用宿主系统插件；不提供 HTTP 版 `quit_app`。
+
+执行清单：
+
+| 编号 | 小任务 | 产出 | 验证 | 建议提交 | 状态 | 提交记录 |
+| --- | --- | --- | --- | --- | --- | --- |
+| P3-1 | 文档清单与前端迁移矩阵落表 | 为阶段 3 增加执行表、提交规则、迁移范围；在 `docs/api-contract.md` 补充“前端消费方式”说明 | 文档出现完整阶段 3 编号、迁移对象清单、降级策略、验收口径 | `docs: 细化阶段3前端HTTP迁移执行清单` | 已完成 | `docs: 细化阶段3前端HTTP迁移执行清单` |
+| P3-2 | Web HTTP 基础设施与开发代理 | 新增 `src/services/http.ts`；把 Vite 配置从 Tauri 偏置改为 Web 主线，增加 `/api` 与 SSE 开发代理 | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端HTTP客户端与Web开发代理` | 未开始 | - |
+| P3-3 | 迁移基础服务到 HTTP | `app`、`aria2`、`settings`、`debug-logs` 服务层改为 HTTP；删除未使用的 `quitApp` 前端出口 | `pnpm run typecheck`、`pnpm run build` | `feat: 迁移基础服务到HTTP接口` | 未开始 | - |
+| P3-4 | 迁移任务服务并降级目录选择交互 | `tasks` 服务改为 HTTP；移除 Tauri 目录选择插件调用；任务新建弹窗改为手动输入保存路径 | `pnpm run typecheck`、`pnpm run build` | `feat: 迁移任务服务并降级目录选择交互` | 未开始 | - |
+| P3-5 | 新增前端 SSE 运行时事件服务 | 用 `EventSource` 替换 Tauri `listen`；新增/重命名为 `runtimeEvents` 服务，消费 `tasks.snapshot` 与 `runtime.exiting` | `pnpm run typecheck`、`pnpm run build` | `feat: 新增前端SSE运行时事件订阅` | 未开始 | - |
+| P3-6 | 切换任务刷新主路径到 SSE 快照 | `taskStore` 增加快照应用逻辑；`App.vue` / `MainWindow.vue` 改为“首次拉取 + SSE 持续更新”；移除 2 秒轮询主路径 | `pnpm run typecheck`、`pnpm run build`、`rg -n "listen\(|invoke\(" src` 为空 | `refactor: 切换任务刷新主路径到SSE快照` | 未开始 | - |
+| P3-7 | 将系统集成功能降级为 Web 安全行为 | `settingsStore` 不再调用 autostart/notification 插件；设置弹窗保留开关但改成“仅保存配置”的 Web 文案 | `pnpm run typecheck`、`pnpm run build` | `fix: 将系统集成功能降级为Web安全行为` | 未开始 | - |
+| P3-8 | 清理前端 Tauri 直连依赖并收口阶段 3 | `src/` 内移除 `@tauri-apps/api` 相关导入；删除 `package.json` 中 `@tauri-apps/api` 依赖；完成阶段 3 文档状态更新与最终回归 | `pnpm run typecheck`、`pnpm run build`、`cargo test --manifest-path server/Cargo.toml`、`cargo test --manifest-path src-tauri/Cargo.toml`、`rg -n "@tauri-apps|invoke\(|listen\(" src` 为空 | `chore: 清理前端Tauri直连依赖并收口阶段3` | 未开始 | - |
+
+补充约定：
+
+- HTTP 客户端默认请求相对路径 `/api/*`，统一处理 JSON、`204 No Content` 与 `{ code, message }` 错误响应。
+- Vite 开发代理固定转发 `/api` 与 SSE 到 `http://127.0.0.1:17080`，前端构建态默认同源，不引入新的浏览器端 base URL 配置。
+- 运行时事件只消费 `tasks.snapshot` 与 `runtime.exiting`；任务列表刷新切换为“首屏拉取一次 + SSE 快照驱动 + 操作后必要补刷”，不再保留 2 秒固定轮询。
+- 阶段 3 收口后，`src/` 内不再出现 `@tauri-apps/api`、`invoke(`、`listen(`。
 
 验收：
 
-- `pnpm run build` 生成纯 Web 静态资源。
-- 浏览器打开 Web UI 可正常调用后端。
-- 代码中不再依赖 `@tauri-apps/api`。
+- `pnpm run build` 生成纯 Web 静态资源，且构建过程不依赖 Tauri 前端 API。
+- 浏览器打开 Web UI 后可完成读取应用信息、任务列表、创建/暂停/继续/重下/删除任务、读取/保存设置、查看/清空调试日志。
+- 页面启动后先拉取一次任务列表，后续通过 SSE 接收 `tasks.snapshot`。
+- 收到 `runtime.exiting` 后，前端会进入退出态并禁用任务操作。
+- `rg -n "@tauri-apps|invoke\(|listen\(" src` 结果为空。
+- `src-tauri` Rust 仍可测试通过，未提前删除 legacy 后端入口。
 
 ### 阶段 4：建立 FPK 打包链路
 
