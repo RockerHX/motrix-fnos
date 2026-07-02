@@ -14,6 +14,7 @@ const buildTarget = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
 const platform = buildTarget === 'aarch64-unknown-linux-gnu' ? 'arm' : 'x86';
 const sidecarTarget = buildTarget;
 const prepareOnly = process.argv.includes('--prepare-only');
+const keepDist = process.argv.includes('--keep-dist');
 const servicePort = readOption('--service-port') ?? '17080';
 const env = {
   ...process.env,
@@ -113,7 +114,9 @@ function moveOutputFile() {
     fail(`fnpack 未生成预期产物：${source}`);
   }
   mkdirSync(outputDir, { recursive: true });
-  resetDir(outputDir);
+  if (!keepDist) {
+    resetDir(outputDir);
+  }
   const target = path.join(outputDir, `${manifest.appname}_${manifest.version}_${platform}.fpk`);
   copyFileSync(source, target);
   console.log(`FPK 已输出到 ${target}`);

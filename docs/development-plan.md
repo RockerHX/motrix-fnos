@@ -51,7 +51,7 @@
 - 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
 - `src-tauri/` legacy Rust 入口继续保留，作为 FPK 主线外的回归参照。
 - 阶段 4 已完成：FPK 目录骨架、基础图标、Linux x86_64 server 构建入口、Web UI 打包输出、Aria2 sidecar 放置规则、启动/停止/状态脚本、manifest/UI 入口配置以及本地/CI 统一打包入口已建立，且已生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
-- 当前进入阶段 5 实机测试：已确认 x86 包无法安装到 OES / A311D 等 ARM 飞牛设备，需生成 `aarch64-unknown-linux-gnu` 目标的 ARM FPK 后继续验证。
+- 当前进入阶段 5 实机测试：已确认 x86 包无法安装到 OES / A311D 等 ARM 飞牛设备，已补充双架构构建入口，需使用 ARM FPK 继续验证。
 - 尚未完成飞牛实机安装、启动、停止、卸载与下载闭环验证。
 
 当前阶段已完成摘要：
@@ -249,7 +249,7 @@
 
 目标：确认最小可用闭环。
 
-当前状态：进行中。已生成 x86 FPK，但在 OES / A311D ARM 飞牛上安装失败，原因是包平台与设备架构不匹配；下一步应构建 `aarch64-unknown-linux-gnu` 目标的 ARM FPK 继续实机验证。
+当前状态：进行中。已生成 x86 FPK，但在 OES / A311D ARM 飞牛上安装失败，原因是包平台与设备架构不匹配；下一步应使用双架构构建产物中的 ARM FPK 继续实机验证。
 
 核心任务：
 
@@ -279,7 +279,7 @@
 
 ## 7. 当前优先级
 
-1. 为 OES / A311D 等 ARM 飞牛构建 `aarch64-unknown-linux-gnu` 目标 FPK，并确认可安装。
+1. 运行双架构 FPK 构建，使用 `motrix.fnos_0.1.0_arm.fpk` 在 OES / A311D 等 ARM 飞牛上确认可安装。
 2. 在真实飞牛上完成启动、停止、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看和 session 恢复验证。
 3. 根据实机失败项修正 FPK manifest、权限、运行目录、端口或服务脚本，并同步更新手测清单。
 

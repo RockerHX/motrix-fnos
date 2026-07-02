@@ -8,7 +8,7 @@
 
 阶段 4 已完成，项目已从文档骨架推进到可生成 FPK 的实现状态。当前进入阶段 5：飞牛实机安装和基础功能验证。
 
-当前默认构建产物是 x86 FPK；ARM 飞牛设备（例如 OES / A311D）需要使用 `aarch64-unknown-linux-gnu` 目标构建 ARM FPK。
+当前默认构建命令会同时生成 x86 与 ARM FPK；ARM 飞牛设备（例如 OES / A311D）必须安装 ARM FPK。
 
 ## 目标部署形态
 
@@ -94,12 +94,18 @@ FPK 必须与设备 CPU 架构匹配。
 | x86 飞牛 | x86_64 | `x86_64-unknown-linux-gnu` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
 | OES / A311D 等 ARM 飞牛 | aarch64 / arm64 | `aarch64-unknown-linux-gnu` | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
 
-`pnpm run build:fpk` 默认生成 x86 包。ARM 设备安装 x86 包失败是预期结果，不代表 FPK-first 架构方向错误。
+`pnpm run build:fpk` 默认同时生成 x86 与 ARM 包。ARM 设备安装 x86 包失败是预期结果，不代表 FPK-first 架构方向错误。
 
-ARM 构建命令：
+双架构构建命令：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+rtk pnpm run build:fpk
+```
+
+仅构建 ARM 包：
+
+```bash
+rtk pnpm run build:fpk:arm64
 ```
 
 ## Rust server 进程模型

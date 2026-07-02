@@ -16,10 +16,10 @@
 
 - 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
 - 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
-- 已可生成 x86 包：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
+- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`、`packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`。
 - 当前尚未完成飞牛实机安装、启动、停止、卸载与基础下载闭环验证。
 
-注意：`pnpm run build:fpk` 默认生成 **x86_64 / x86 平台** FPK。ARM 飞牛设备，例如 OES / A311D，需要构建 ARM 包，否则安装时会提示“应用包不符合系统要求”。
+注意：FPK 必须与设备 CPU 架构匹配。x86 包不能安装到 ARM 飞牛设备；OES / A311D 等 ARM 飞牛应安装 ARM 包，否则会提示“应用包不符合系统要求”。
 
 ## FPK 构建
 
@@ -29,7 +29,7 @@
 rtk pnpm install
 ```
 
-构建默认 x86 包：
+同时构建 x86 和 ARM 包：
 
 ```bash
 rtk pnpm run build:fpk
@@ -39,12 +39,19 @@ rtk pnpm run build:fpk
 
 ```text
 packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk
+packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
 ```
 
-构建 ARM64 / aarch64 包：
+如需只构建 x86 包：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+rtk pnpm run build:fpk:x64
+```
+
+如需只构建 ARM64 / aarch64 包：
+
+```bash
+rtk pnpm run build:fpk:arm64
 ```
 
 输出：
@@ -62,7 +69,7 @@ rtk python3 -m pip install --user cargo-zigbuild ziglang
 如果只想验证 FPK 组装目录，不执行 `fnpack build`：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu --prepare-only
+rtk pnpm run build:fpk:prepare
 ```
 
 ## 当前仓库中哪些内容可复用

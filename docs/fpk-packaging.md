@@ -8,17 +8,17 @@
 
 阶段 4 已完成，当前已经建立 FPK 打包链路并可生成 `.fpk` 产物。阶段 5 正在进行飞牛实机安装和基础功能验证。
 
-已验证的默认产物：
+默认构建命令 `pnpm run build:fpk` 会连续构建 x86 与 ARM 两个 FPK：
 
-- 默认构建命令：`pnpm run build:fpk`
-- 默认目标：`x86_64-unknown-linux-gnu`
-- 默认 FPK：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`
-- 默认 server 产物：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
+- x86 FPK：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`
+- ARM FPK：`packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`
+- x86 server 产物：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
+- ARM server 产物：`server/target/aarch64-unknown-linux-gnu/release/motrix-fnos-server`
 
-注意：默认 x86 包不能安装到 ARM 飞牛设备。OES / A311D 等 ARM 设备应构建 ARM 包：
+注意：x86 包不能安装到 ARM 飞牛设备。OES / A311D 等 ARM 设备应安装 ARM 包；如需只构建 ARM 包：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+rtk pnpm run build:fpk:arm64
 ```
 
 输出：
@@ -97,38 +97,53 @@ packaging/fnos/
 rtk pnpm install
 ```
 
-预组装验证，不执行 `fnpack build`：
+双架构预组装验证，不执行 `fnpack build`：
 
 ```bash
 rtk pnpm run build:fpk:prepare
 ```
 
-构建默认 x86 FPK：
+同时构建 x86 与 ARM FPK：
 
 ```bash
 rtk pnpm run build:fpk
 ```
 
-构建 ARM FPK：
+只构建 x86 FPK：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu
+rtk pnpm run build:fpk:x64
+```
+
+只构建 ARM FPK：
+
+```bash
+rtk pnpm run build:fpk:arm64
 ```
 
 指定端口构建：
 
 ```bash
-rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu --service-port 17080
+rtk node scripts/build-fpk-all.mjs --service-port 17080
 ```
 
 脚本参数：
 
 | 参数 | 说明 |
 | --- | --- |
-| `--target <triple>` | 指定 Rust target；默认 `x86_64-unknown-linux-gnu` |
+| `--target <triple>` | 低层单架构脚本 `scripts/build-fpk.mjs` 使用；指定 Rust target，默认 `x86_64-unknown-linux-gnu` |
 | `--prepare-only` | 只完成构建和组装，不执行 `fnpack build` |
+| `--keep-dist` | 低层单架构脚本内部参数；双架构构建时保留已有 dist 产物 |
 | `--service-port <port>` | 改写 `manifest service_port` 和 Web UI 入口端口 |
 | `--fnpack <path>` | 使用指定 `fnpack` 可执行文件 |
+
+## 脚本分层
+
+- `scripts/build-fpk-all.mjs`：双架构入口，默认构建 `x86_64-unknown-linux-gnu` 和 `aarch64-unknown-linux-gnu`。
+- `scripts/build-fpk.mjs`：单架构底层入口，负责构建指定 target、改写临时 manifest、执行 `fnpack build` 并输出对应平台 FPK。
+- `scripts/build-server-linux.mjs`：构建 Linux server。
+- `scripts/build-web-ui-fpk.mjs`：构建并同步 Web UI。
+- `scripts/stage-aria2-sidecar.mjs`：按 target 放置 Aria2 Next sidecar。
 
 ## 构建输入
 

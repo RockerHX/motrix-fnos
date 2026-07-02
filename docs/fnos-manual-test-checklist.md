@@ -10,9 +10,9 @@
 
 已知注意事项：
 
-- `pnpm run build:fpk` 默认生成 x86 包：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
+- `pnpm run build:fpk` 默认同时生成 x86 与 ARM 包。
 - ARM 飞牛设备（例如 OES / A311D）不能安装 x86 包，安装时会提示“应用包不符合系统要求”。
-- ARM 设备应使用 `aarch64-unknown-linux-gnu` 目标构建：`packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`。
+- ARM 设备应安装 `packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`。
 
 ## 测试前准备
 
@@ -40,8 +40,8 @@ uname -m
 
 | `uname -m` | 应安装的 FPK | 构建命令 |
 | --- | --- | --- |
-| `x86_64` | `motrix.fnos_0.1.0_x86.fpk` | `rtk pnpm run build:fpk` |
-| `aarch64` / `arm64` | `motrix.fnos_0.1.0_arm.fpk` | `rtk node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu` |
+| `x86_64` | `motrix.fnos_0.1.0_x86.fpk` | `rtk pnpm run build:fpk` 或 `rtk pnpm run build:fpk:x64` |
+| `aarch64` / `arm64` | `motrix.fnos_0.1.0_arm.fpk` | `rtk pnpm run build:fpk` 或 `rtk pnpm run build:fpk:arm64` |
 
 ## 构建验证
 
