@@ -20,9 +20,10 @@ export function initializeRuntimeEvents() {
   const source = new EventSource("/api/events");
   const taskStore = useTaskStore();
 
-  source.addEventListener("tasks.snapshot", () => {
-    if (!taskStore.isRuntimeExiting) {
-      void taskStore.refreshTasks();
+  source.addEventListener("tasks.snapshot", (event) => {
+    const payload = parseEventPayload<TasksSnapshotPayload>(event);
+    if (payload && !taskStore.isRuntimeExiting) {
+      taskStore.applyTaskSnapshot(payload);
     }
   });
 

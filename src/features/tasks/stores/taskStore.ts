@@ -8,7 +8,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
-import type { RuntimeExitingPayload } from "../../../services/runtimeEvents";
+import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
 interface RefreshTasksOptions {
@@ -28,6 +28,7 @@ export const useTaskStore = defineStore("tasks", () => {
   const lastRefreshErrorAt = ref(0);
   const notifiedErrorTaskKeys = new Set<string>();
   const hasLoadedTasks = ref(false);
+  const pendingTaskErrorMessages = ref<string[]>([]);
   const isRuntimeExiting = ref(false);
   const runtimeExitReason = ref("");
 
@@ -45,9 +46,7 @@ export const useTaskStore = defineStore("tasks", () => {
       const taskErrorMessages = hasLoadedTasks.value
         ? collectNewTaskErrorMessages(tasks.value, nextTasks)
         : [];
-      rememberErrorTasks(nextTasks);
-      tasks.value = nextTasks;
-      hasLoadedTasks.value = true;
+      applyResolvedTasks(nextTasks, taskErrorMessages);
       return { taskErrorMessages };
     } catch (error) {
       const now = Date.now();
@@ -109,6 +108,19 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
+
+  function applyTaskSnapshot(payload: TasksSnapshotPayload) {
+    if (isRuntimeExiting.value) {
+      return;
+    }
+
+    const nextTasks = payload.tasks;
+    const taskErrorMessages = hasLoadedTasks.value
+      ? collectNewTaskErrorMessages(tasks.value, nextTasks)
+      : [];
+    applyResolvedTasks(nextTasks, taskErrorMessages);
+  }
+
   function markRuntimeExiting(payload: RuntimeExitingPayload) {
     isRuntimeExiting.value = true;
     runtimeExitReason.value = payload.reason || "应用正在退出";
@@ -144,6 +156,21 @@ export const useTaskStore = defineStore("tasks", () => {
     tasks.value = tasks.value.map((item) => (item.id === task.id ? task : item));
   }
 
+  function applyResolvedTasks(nextTasks: DownloadTask[], taskErrorMessages: string[]) {
+    rememberErrorTasks(nextTasks);
+    tasks.value = nextTasks;
+    hasLoadedTasks.value = true;
+    if (taskErrorMessages.length > 0) {
+      pendingTaskErrorMessages.value = [...pendingTaskErrorMessages.value, ...taskErrorMessages];
+    }
+  }
+
+  function consumeTaskErrorMessages() {
+    const messages = [...pendingTaskErrorMessages.value];
+    pendingTaskErrorMessages.value = [];
+    return messages;
+  }
+
   function collectNewTaskErrorMessages(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
     const previousStatus = new Map(previousTasks.map((task) => [taskKey(task), task.status]));
     const messages: string[] = [];
@@ -176,6 +203,7 @@ export const useTaskStore = defineStore("tasks", () => {
     isCreating,
     isRefreshing,
     operatingTaskIds,
+    pendingTaskErrorMessages,
     isRuntimeExiting,
     runtimeExitReason,
     createTask,
@@ -184,7 +212,9 @@ export const useTaskStore = defineStore("tasks", () => {
     redownloadTask,
     deleteTask,
     refreshTasks,
+    applyTaskSnapshot,
     markRuntimeExiting,
+    consumeTaskErrorMessages,
     isTaskOperating,
   };
 });

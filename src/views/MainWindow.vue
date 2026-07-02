@@ -7,7 +7,6 @@ import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
-import { useTaskPolling } from "../features/tasks/composables/useTaskPolling";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
@@ -29,11 +28,6 @@ const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
 const showSettings = ref(false);
 
-const { refresh: refreshTasks } = useTaskPolling({
-  onRefreshError: (errorMessage) => message.error(errorMessage),
-  onTaskError: (errorMessage) => message.error(errorMessage),
-});
-
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
   aria2Process.value = process;
@@ -47,7 +41,20 @@ function openCreateDialog() {
 async function handleTaskCreated() {
   message.success("任务已添加");
   void refreshPhaseStatus();
-  await refreshTasks();
+}
+
+async function refreshTasks(showError = false) {
+  const result = await taskStore.refreshTasks({ showError });
+  if (result.refreshError) {
+    message.error(result.refreshError);
+  }
+  flushTaskErrorMessages();
+}
+
+function flushTaskErrorMessages() {
+  for (const errorMessage of taskStore.consumeTaskErrorMessages()) {
+    message.error(errorMessage);
+  }
 }
 
 watch(
@@ -59,8 +66,18 @@ watch(
   },
 );
 
+watch(
+  () => taskStore.pendingTaskErrorMessages.length,
+  (count) => {
+    if (count > 0) {
+      flushTaskErrorMessages();
+    }
+  },
+);
+
 onMounted(() => {
   void refreshPhaseStatus();
+  void refreshTasks(true);
 });
 </script>
 
