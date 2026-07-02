@@ -535,8 +535,8 @@ FPK 下必须重新设计：
 | P4-3.3 | 编写 FPK 状态脚本 | 新增 `cmd/status`，输出服务状态和退出码 | 服务运行/停止时状态输出与退出码正确 | `feat: 新增FPK状态查询脚本` | 已完成 | `feat: 新增FPK状态查询脚本`（`a3632a3`） |
 | P4-3.4 | 补齐 manifest 与权限配置 | 配置应用入口、端口、图标、权限 | manifest、`app/ui/config`、`cmd/main` 与 `start/stop/status` 入口一致 | `feat: 配置FPK manifest与权限` | 已完成 | `feat: 配置FPK manifest与权限`（`424106d`） |
 | P4-4.1 | 新增 FPK 一键打包脚本 | 串联前端构建、server 构建、sidecar 拷贝和 `fnpack build` | `node scripts/build-fpk.mjs --prepare-only` 通过，且生成标准组装目录 | `feat: 新增FPK一键打包脚本` | 已完成 | `feat: 新增FPK一键打包脚本`（`120d8f7`） |
-| P4-4.2 | 统一脚本与 CI 构建入口 | 本地与 CI 复用同一套 FPK 构建入口 | `pnpm run build:fpk:prepare` 可本地运行，`.github/workflows/verify.yml` 已复用同一入口 | `chore: 统一FPK构建入口` | 已完成 | `chore: 统一FPK构建入口` |
-| P4-5.1 | 执行完整打包验证 | 生成并检查 `.fpk` 产物内容 | 本地运行 `fnpack build` 成功生成 `.fpk` | `fix: 修复FPK打包链路校验问题` | 未开始 |  |
+| P4-4.2 | 统一脚本与 CI 构建入口 | 本地与 CI 复用同一套 FPK 构建入口 | `pnpm run build:fpk:prepare` 可本地运行，`.github/workflows/verify.yml` 已复用同一入口 | `chore: 统一FPK构建入口` | 已完成 | `chore: 统一FPK构建入口`（`4b3d050`） |
+| P4-5.1 | 执行完整打包验证 | 生成并检查 `.fpk` 产物内容 | `pnpm run build:fpk` 成功生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`，且包内包含 server、UI、sidecar、manifest、cmd | `fix: 修复FPK打包链路校验问题` | 已完成 | `fix: 修复FPK打包链路校验问题` |
 | P4-5.2 | 更新阶段 4 文档状态 | 同步整改计划与开发计划的阶段 4 完成状态 | 文档状态与代码状态一致，可进入阶段 5 | `docs: 收口阶段4FPK打包链路状态` | 未开始 |  |
 
 验收：

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
+fi
+exit 0

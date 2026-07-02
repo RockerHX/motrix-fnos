@@ -24,6 +24,7 @@ const manifestOriginal = readFileSync(manifestPath, 'utf8');
 const uiConfigOriginal = readFileSync(uiConfigPath, 'utf8');
 
 try {
+  resetAppDataDir();
   run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
   run('node', ['scripts/build-web-ui-fpk.mjs'], env);
   run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
@@ -43,6 +44,15 @@ try {
 } finally {
   writeFileSync(manifestPath, manifestOriginal);
   writeFileSync(uiConfigPath, uiConfigOriginal);
+}
+
+function resetAppDataDir() {
+  const dataDir = path.join(packagingRoot, 'app', 'data');
+  mkdirSync(dataDir, { recursive: true });
+  for (const entry of readdirSync(dataDir)) {
+    rmSync(path.join(dataDir, entry), { recursive: true, force: true });
+  }
+  writeFileSync(path.join(dataDir, '.gitkeep'), '# 占位文件，供 Git 跟踪空目录\n');
 }
 
 function stageServerBinary(target) {
