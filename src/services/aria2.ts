@@ -1,22 +1,22 @@
-import { invoke } from "@tauri-apps/api/core";
+import { httpGet, httpPost } from "./http";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
 export function getAria2ConfigStatus(): Promise<Aria2ConfigStatus> {
-  return invoke<Aria2ConfigStatus>("get_aria2_config_status");
+  return httpGet<Aria2ConfigStatus>("/api/aria2/config");
 }
 
 export function getAria2ProcessStatus(): Promise<Aria2ProcessStatus> {
-  return invoke<Aria2ProcessStatus>("get_aria2_process_status");
+  return httpGet<Aria2ProcessStatus>("/api/aria2/process");
 }
 
 export function startAria2(): Promise<Aria2ProcessStatus> {
-  return invoke<Aria2ProcessStatus>("start_aria2");
+  return httpPost<Aria2ProcessStatus>("/api/aria2/start");
 }
 
 export function stopAria2(): Promise<Aria2ProcessStatus> {
-  return invoke<Aria2ProcessStatus>("stop_aria2");
+  return httpPost<Aria2ProcessStatus>("/api/aria2/stop");
 }
 
 export function pingAria2Rpc(): Promise<Aria2RpcStatus> {
-  return invoke<Aria2RpcStatus>("ping_aria2_rpc");
+  return httpGet<Aria2RpcStatus>("/api/aria2/rpc");
 }

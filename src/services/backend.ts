@@ -1,14 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { httpGet } from "./http";
 import type { AppInfo, BackendPing } from "../types/app";
 
 export function getAppInfo(): Promise<AppInfo> {
-  return invoke<AppInfo>("get_app_info");
+  return httpGet<AppInfo>("/api/app/info");
 }
 
 export function pingBackend(): Promise<BackendPing> {
-  return invoke<BackendPing>("ping_backend");
-}
-
-export function quitApp(): Promise<void> {
-  return invoke<void>("quit_app");
+  return httpGet<BackendPing>("/api/app/ping");
 }

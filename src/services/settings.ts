@@ -1,18 +1,18 @@
-import { invoke } from "@tauri-apps/api/core";
+import { httpGet, httpPut } from "./http";
 import type { AppConfig, UiPreferences } from "../types/settings";
 
 export function getAppConfig(): Promise<AppConfig> {
-  return invoke<AppConfig>("get_app_config");
+  return httpGet<AppConfig>("/api/settings");
 }
 
 export function saveAppConfig(payload: AppConfig): Promise<AppConfig> {
-  return invoke<AppConfig>("save_app_config", { payload });
+  return httpPut<AppConfig>("/api/settings", payload);
 }
 
 export function getUiPreferences(): Promise<UiPreferences> {
-  return invoke<UiPreferences>("get_ui_preferences");
+  return httpGet<UiPreferences>("/api/ui-preferences");
 }
 
 export function saveUiPreferences(payload: UiPreferences): Promise<UiPreferences> {
-  return invoke<UiPreferences>("save_ui_preferences", { payload });
+  return httpPut<UiPreferences>("/api/ui-preferences", payload);
 }
