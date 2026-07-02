@@ -17,6 +17,9 @@ const message = useMessage();
 const debugLogStore = useDebugLogStore();
 const { logs, isLoading, isClearing } = storeToRefs(debugLogStore);
 const logListRef = ref<HTMLElement | null>(null);
+const manualCopyRef = ref<HTMLTextAreaElement | null>(null);
+const showManualCopy = ref(false);
+const manualCopyText = ref("");
 
 watch(
   () => props.show,
@@ -68,11 +71,13 @@ async function copyAllLogs() {
     return;
   }
 
+  const text = formatAllLogs();
   try {
-    await copyText(logs.value.map(formatLogLine).join("\n"));
+    await copyText(text);
     message.success("调试日志已复制");
   } catch (error) {
-    message.error(`复制调试日志失败：${getErrorMessage(error)}`);
+    showManualCopyDialog(text);
+    message.warning(`飞牛窗口限制自动复制：${getErrorMessage(error)}`);
   }
 }
 
@@ -82,31 +87,42 @@ async function copyText(text: string) {
     return;
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.top = "0";
-  textarea.style.left = "-9999px";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
+  throw new Error("当前飞牛窗口不提供剪贴板写入 API");
+}
 
-  const selection = document.getSelection();
-  const previousRange = selection?.rangeCount ? selection.getRangeAt(0) : null;
+function showManualCopyDialog(text: string) {
+  manualCopyText.value = text;
+  showManualCopy.value = true;
+  void nextTick(() => {
+    manualCopyRef.value?.focus();
+    manualCopyRef.value?.select();
+  });
+}
 
-  try {
-    textarea.focus();
-    textarea.select();
-    if (!document.execCommand("copy")) {
-      throw new Error("当前飞牛窗口不允许写入剪贴板");
-    }
-  } finally {
-    document.body.removeChild(textarea);
-    if (selection && previousRange) {
-      selection.removeAllRanges();
-      selection.addRange(previousRange);
-    }
+function closeManualCopyDialog() {
+  showManualCopy.value = false;
+}
+
+function downloadAllLogs() {
+  if (logs.value.length === 0) {
+    message.warning("当前没有可下载的调试日志");
+    return;
   }
+
+  const blob = new Blob([formatAllLogs()], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `motrix-fnos-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  message.success("调试日志已导出");
+}
+
+function formatAllLogs() {
+  return logs.value.map(formatLogLine).join("\n");
 }
 
 async function scrollToBottom() {
@@ -166,6 +182,7 @@ function getErrorMessage(error: unknown) {
         <div class="header-actions">
           <NButton size="small" secondary :loading="isLoading" @click="refreshLogs">刷新</NButton>
           <NButton size="small" secondary @click="copyAllLogs">复制全部</NButton>
+          <NButton size="small" secondary @click="downloadAllLogs">下载日志</NButton>
           <NButton size="small" secondary type="warning" :loading="isClearing" @click="clearLogs">清空</NButton>
           <NButton quaternary circle @click="closeDialog">×</NButton>
         </div>
@@ -184,12 +201,37 @@ function getErrorMessage(error: unknown) {
       </div>
     </NCard>
   </NModal>
+
+  <NModal :show="showManualCopy" @update:show="showManualCopy = $event">
+    <NCard class="manual-copy-dialog" role="dialog" aria-modal="true">
+      <template #header>
+        <div>
+          <p class="eyebrow">Manual Copy</p>
+          <h2>手动复制调试日志</h2>
+        </div>
+      </template>
+      <template #header-extra>
+        <NButton quaternary circle @click="closeManualCopyDialog">×</NButton>
+      </template>
+
+      <p class="manual-copy-hint">飞牛内嵌窗口限制了自动写入剪贴板。下面文本已自动选中，请按 Command+C 或 Ctrl+C 手动复制；也可以使用“下载日志”。</p>
+      <textarea ref="manualCopyRef" class="manual-copy-textarea" readonly :value="manualCopyText" />
+      <div class="manual-copy-actions">
+        <NButton secondary @click="downloadAllLogs">下载日志</NButton>
+        <NButton type="primary" @click="closeManualCopyDialog">完成</NButton>
+      </div>
+    </NCard>
+  </NModal>
 </template>
 
 <style scoped>
 .debug-log-dialog {
   width: min(980px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
+}
+
+.manual-copy-dialog {
+  width: min(900px, calc(100vw - 48px));
 }
 
 .eyebrow {
@@ -254,5 +296,30 @@ h2 {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.manual-copy-hint {
+  margin: 0 0 12px;
+  color: #b8c4be;
+  line-height: 1.6;
+}
+
+.manual-copy-textarea {
+  width: 100%;
+  min-height: min(460px, calc(100vh - 260px));
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px;
+  color: #edf5ef;
+  background: rgba(0, 0, 0, 0.28);
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.manual-copy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
 </style>
