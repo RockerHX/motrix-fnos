@@ -6,12 +6,13 @@
 
 ## 当前状态
 
-阶段 4 已启动，当前已明确 Linux x86_64 server 的标准构建入口与产物位置：
+阶段 4 已完成，当前已明确 Linux x86_64 server 的标准构建入口与产物位置，并已成功生成首个 x86 FPK 产物：
 
 - 构建命令：`pnpm run build:server:linux:x64`
 - 默认目标：`x86_64-unknown-linux-gnu`
 - 产物路径：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
 - 非 Linux x86_64 主机默认通过 `cargo-zigbuild` 执行交叉构建；Linux x86_64 主机可直接使用 `cargo build`。
+- 已验证产物：`packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
 
 ## 后续填充范围
 
