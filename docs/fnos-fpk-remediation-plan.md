@@ -528,8 +528,8 @@ FPK 下必须重新设计：
 | P4-1.1 | 生成基准 FPK 目录结构 | 新建 `packaging/fnos/` 基础目录骨架，并补充阶段 4 跟踪表 | `packaging/fnos/` 下存在 `app/`、`cmd/`、`config/`、`ui/`、`wizard/` 结构 | `feat: 新建FPK打包目录骨架` | 已完成 | `feat: 新建FPK打包目录骨架`（`0eaa0d3`） |
 | P4-1.2 | 补齐基础图标与资源占位 | 放入 fnOS 图标资源，占位 manifest 引用所需文件名 | 图标文件存在，且 FPK 主线不再依赖 Tauri 图标集合 | `feat: 补齐FPK基础图标资源` | 已完成 | `feat: 补齐FPK基础图标资源`（`c433f9f`） |
 | P4-2.1 | 补齐 Linux x86_64 server 构建产物 | 固定 server release 产物命名与打包输入路径 | `pnpm run build:server:linux:x64` 通过，并生成标准产物路径 | `feat: 补齐Linux x86_64服务端构建产物` | 已完成 | `feat: 补齐Linux x86_64服务端构建产物`（`7ec9d75`） |
-| P4-2.2 | 打通 Vue `dist/` 输出 | 固定 Web UI 构建与拷贝目标目录 | `pnpm run build:web:fpk` 通过，且 `packaging/fnos/ui/dist/index.html` 存在 | `feat: 打通Web UI构建产物输出` | 已完成 | `feat: 打通Web UI构建产物输出` |
-| P4-2.3 | 整理 Aria2 Next sidecar 放置规则 | 固定 Linux sidecar 打包路径与命名 | Linux sidecar 可被打包脚本找到，非 Linux 目标不进入 FPK 主线 | `feat: 整理Aria2 Next sidecar打包规则` | 未开始 |  |
+| P4-2.2 | 打通 Vue `dist/` 输出 | 固定 Web UI 构建与拷贝目标目录 | `pnpm run build:web:fpk` 通过，且 `packaging/fnos/ui/dist/index.html` 存在 | `feat: 打通Web UI构建产物输出` | 已完成 | `feat: 打通Web UI构建产物输出`（`487b041`） |
+| P4-2.3 | 整理 Aria2 Next sidecar 放置规则 | 固定 Linux sidecar 打包路径与命名 | `pnpm run stage:aria2:x64` 成功，且脚本支持 `aarch64-unknown-linux-gnu` dry-run 校验 | `feat: 整理Aria2 Next sidecar打包规则` | 已完成 | `feat: 整理Aria2 Next sidecar打包规则` |
 | P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 未开始 |  |
 | P4-3.2 | 编写 FPK 停止脚本 | 新增 `cmd/stop`，停止服务并清理运行态 | 手动执行 `packaging/fnos/cmd/stop` 后进程退出 | `fix: 新增FPK停止脚本与清理逻辑` | 未开始 |  |
 | P4-3.3 | 编写 FPK 状态脚本 | 新增 `cmd/status`，输出服务状态和退出码 | 服务运行/停止时状态输出与退出码正确 | `feat: 新增FPK状态查询脚本` | 未开始 |  |

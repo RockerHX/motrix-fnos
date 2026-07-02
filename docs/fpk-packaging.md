@@ -20,6 +20,7 @@
 - Rust server 与 Web UI 构建产物放置方式
 - Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
 - Aria2 sidecar 集成方式
+- Aria2 sidecar 放置命令：`pnpm run stage:aria2:x64` / `pnpm run stage:aria2:arm64`，统一输出到 `packaging/fnos/app/bin/aria2-next`。
 - `fnpack build`、安装、调试和排障流程
 
 ## 与其他文档关系
