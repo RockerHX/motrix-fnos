@@ -533,8 +533,8 @@ FPK 下必须重新设计：
 | P4-3.1 | 编写 FPK 启动脚本 | 新增 `cmd/start`，注入数据目录、端口、日志等运行参数 | 手动执行 `packaging/fnos/cmd/start` 可启动服务并产生日志 | `feat: 新增FPK启动脚本` | 已完成 | `feat: 新增FPK启动脚本`（`cbdb085`） |
 | P4-3.2 | 编写 FPK 停止脚本 | 新增 `cmd/stop`，停止服务并清理运行态 | 手动执行 `packaging/fnos/cmd/stop` 后进程退出 | `fix: 新增FPK停止脚本与清理逻辑` | 已完成 | `fix: 新增FPK停止脚本与清理逻辑`（`ee5b80b`） |
 | P4-3.3 | 编写 FPK 状态脚本 | 新增 `cmd/status`，输出服务状态和退出码 | 服务运行/停止时状态输出与退出码正确 | `feat: 新增FPK状态查询脚本` | 已完成 | `feat: 新增FPK状态查询脚本`（`a3632a3`） |
-| P4-3.4 | 补齐 manifest 与权限配置 | 配置应用入口、端口、图标、权限 | manifest、`app/ui/config`、`cmd/main` 与 `start/stop/status` 入口一致 | `feat: 配置FPK manifest与权限` | 已完成 | `feat: 配置FPK manifest与权限` |
-| P4-4.1 | 新增 FPK 一键打包脚本 | 串联前端构建、server 构建、sidecar 拷贝和 `fnpack build` | 单脚本可完成全流程，失败时有明确报错 | `feat: 新增FPK一键打包脚本` | 未开始 |  |
+| P4-3.4 | 补齐 manifest 与权限配置 | 配置应用入口、端口、图标、权限 | manifest、`app/ui/config`、`cmd/main` 与 `start/stop/status` 入口一致 | `feat: 配置FPK manifest与权限` | 已完成 | `feat: 配置FPK manifest与权限`（`424106d`） |
+| P4-4.1 | 新增 FPK 一键打包脚本 | 串联前端构建、server 构建、sidecar 拷贝和 `fnpack build` | `node scripts/build-fpk.mjs --prepare-only` 通过，且生成标准组装目录 | `feat: 新增FPK一键打包脚本` | 已完成 | `feat: 新增FPK一键打包脚本` |
 | P4-4.2 | 统一脚本与 CI 构建入口 | 本地与 CI 复用同一套 FPK 构建入口 | 本地验证入口可运行，CI 命令不冲突 | `chore: 统一FPK构建入口` | 未开始 |  |
 | P4-5.1 | 执行完整打包验证 | 生成并检查 `.fpk` 产物内容 | 本地运行 `fnpack build` 成功生成 `.fpk` | `fix: 修复FPK打包链路校验问题` | 未开始 |  |
 | P4-5.2 | 更新阶段 4 文档状态 | 同步整改计划与开发计划的阶段 4 完成状态 | 文档状态与代码状态一致，可进入阶段 5 | `docs: 收口阶段4FPK打包链路状态` | 未开始 |  |
