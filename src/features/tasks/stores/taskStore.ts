@@ -8,7 +8,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
-import type { RuntimeExitingPayload } from "../../../services/runtime";
+import type { RuntimeExitingPayload } from "../../../services/runtimeEvents";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
 interface RefreshTasksOptions {
