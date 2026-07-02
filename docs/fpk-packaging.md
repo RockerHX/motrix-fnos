@@ -210,6 +210,8 @@ Motrix FNOS 以应用账号 `motrix_fnos` 运行。应用默认只能写入自�
 
 manifest 不能设置 `disable_authorization_path = true`。该字段为 `true` 时，fnOS 会隐藏应用设置页里的授权目录操作；下载器需要保持该字段缺省或 `false`。
 
+服务进程环境可能没有 `HOME` / `XDG_DATA_HOME`，系统回收站不可用时，删除或重新下载会把原文件移动到下载目录下的 `.motrix-fnos-trash/` 隐藏归档目录。下载完成后同名 `.aria2` 控制文件由 server 主动清理。
+
 ## 运行时环境变量
 
 `cmd/common.sh` 会设置以下运行时变量：

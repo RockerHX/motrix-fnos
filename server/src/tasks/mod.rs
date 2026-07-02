@@ -1044,6 +1044,9 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
                     .to_string(),
             )
         });
+    if task.status == DownloadTaskStatus::Complete {
+        cleanup_aria2_control_file(task);
+    }
     task.updated_at = current_timestamp_ms();
 }
 
@@ -1129,12 +1132,105 @@ fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
 
 #[cfg(not(test))]
 fn delete_local_file(file: &Path) -> Result<(), String> {
-    trash::delete(file).map_err(|error| format!("移入回收站失败：{}（{}）", file.display(), error))
+    if let Err(error) = trash::delete(file) {
+        let _archived = move_file_to_local_trash(file).map_err(|fallback_error| {
+            format!(
+                "移入系统回收站失败：{}（{}）；本地归档也失败：{}",
+                file.display(),
+                error,
+                fallback_error
+            )
+        })?;
+        return Ok(());
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 fn delete_local_file(file: &Path) -> Result<(), String> {
     fs::remove_file(file).map_err(|error| format!("删除测试文件失败：{}（{}）", file.display(), error))
+}
+
+#[cfg(not(test))]
+fn move_file_to_local_trash(file: &Path) -> Result<PathBuf, String> {
+    let parent = file
+        .parent()
+        .ok_or_else(|| format!("无法确定文件所在目录：{}", file.display()))?;
+    let file_name = file
+        .file_name()
+        .ok_or_else(|| format!("无法确定文件名：{}", file.display()))?;
+    let trash_dir = parent.join(".motrix-fnos-trash");
+    fs::create_dir_all(&trash_dir).map_err(|error| {
+        format!(
+            "创建本地归档目录失败：{}（{}）",
+            trash_dir.display(),
+            error
+        )
+    })?;
+    let target = unique_local_trash_path(&trash_dir, file_name);
+    fs::rename(file, &target).map_err(|error| {
+        format!(
+            "移动到本地归档目录失败：{} -> {}（{}）",
+            file.display(),
+            target.display(),
+            error
+        )
+    })?;
+    Ok(target)
+}
+
+#[cfg(not(test))]
+fn unique_local_trash_path(trash_dir: &Path, file_name: &std::ffi::OsStr) -> PathBuf {
+    let timestamp = current_timestamp_ms();
+    let base = file_name.to_string_lossy();
+    for index in 0..1000 {
+        let name = if index == 0 {
+            format!("{timestamp}-{base}")
+        } else {
+            format!("{timestamp}-{index}-{base}")
+        };
+        let target = trash_dir.join(name);
+        if !target.exists() {
+            return target;
+        }
+    }
+    trash_dir.join(format!(
+        "{}-{}-{}",
+        timestamp,
+        std::process::id(),
+        base
+    ))
+}
+
+fn cleanup_aria2_control_file(task: &DownloadTask) {
+    let Some(file_path) = task
+        .file_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    else {
+        return;
+    };
+
+    let control_file = PathBuf::from(format!("{}.aria2", file_path));
+    if !control_file.is_file() || !control_file_is_under_save_dir(&control_file, &task.save_dir) {
+        return;
+    }
+
+    let _ = fs::remove_file(control_file);
+}
+
+fn control_file_is_under_save_dir(control_file: &Path, save_dir: &str) -> bool {
+    let Ok(save_dir) = Path::new(save_dir).canonicalize() else {
+        return false;
+    };
+    let Some(parent) = control_file.parent() else {
+        return false;
+    };
+    parent
+        .canonicalize()
+        .map(|parent| parent.starts_with(save_dir))
+        .unwrap_or(false)
 }
 
 fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
@@ -2007,6 +2103,38 @@ mod tests {
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
         assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+    }
+
+    #[test]
+    fn apply_aria2_status_removes_completed_control_file() {
+        let save_dir = PathBuf::from(temp_download_dir("complete-cleanup"));
+        fs::create_dir_all(&save_dir).expect("save dir should create");
+        let file_path = save_dir.join("file.zip");
+        let control_path = save_dir.join("file.zip.aria2");
+        fs::write(&file_path, b"complete").expect("downloaded file should write");
+        fs::write(&control_path, b"control").expect("control file should write");
+
+        let mut task = sample_task(None, save_dir.display().to_string());
+        apply_aria2_status(
+            &mut task,
+            &Aria2TaskStatus {
+                gid: None,
+                status: "complete".to_string(),
+                total_length: "8".to_string(),
+                completed_length: "8".to_string(),
+                download_speed: "0".to_string(),
+                error_code: None,
+                error_message: None,
+                dir: Some(save_dir.display().to_string()),
+                files: Some(vec![Aria2FileStatus {
+                    path: file_path.display().to_string(),
+                    uris: Vec::new(),
+                }]),
+            },
+        );
+
+        assert!(file_path.exists());
+        assert!(!control_path.exists());
     }
 
     #[test]

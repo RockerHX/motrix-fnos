@@ -72,7 +72,7 @@ async function confirmRedownloadTask() {
   try {
     await taskStore.redownloadTask(props.task.id);
     showRedownloadConfirm.value = false;
-    message.success("任务已重新下载，原文件已移入回收站");
+    message.success("任务已重新下载，原文件已移入回收站或本地归档");
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -175,7 +175,7 @@ function formatTimestamp(timestamp: number) {
   <NModal v-model:show="showRedownloadConfirm" :mask-closable="!isOperating">
     <NCard class="redownload-confirm-card" role="dialog" aria-modal="true" title="重新下载任务">
       <p class="delete-confirm-text">
-        重新下载会把“{{ task.fileName }}”当前本地文件移入回收站，然后从 0 开始下载。确定继续吗？
+        重新下载会把“{{ task.fileName }}”当前本地文件移入回收站；如果系统回收站不可用，会移动到下载目录下的 .motrix-fnos-trash，然后从 0 开始下载。确定继续吗？
       </p>
 
       <template #footer>

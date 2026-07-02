@@ -208,7 +208,7 @@ impl<'a> TaskService<'a> {
         self.debug_logs.info(
             "tasks.control",
             format!(
-                "任务已重新下载，ID {}，GID {}，原本地文件已移入回收站",
+                "任务已重新下载，ID {}，GID {}，原本地文件已移入回收站或本地归档",
                 task_id, gid
             ),
         );
