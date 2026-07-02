@@ -24,16 +24,23 @@ const progressFillStyle = computed(() => ({
 }));
 
 watch(
-  () => [
-    props.task.completedLength,
-    props.task.totalLength,
-    props.task.downloadSpeed,
-    props.task.status,
-  ],
-  () => {
+  () =>
+    [
+      props.task.id,
+      props.task.gid ?? "",
+      props.task.completedLength,
+      props.task.totalLength,
+      props.task.downloadSpeed,
+      props.task.status,
+    ] as const,
+  (_, previousSnapshot) => {
     sampleStartedAt = performance.now();
-    sampleCompletedLength = clampCompletedLength(props.task.completedLength);
-    estimatedCompletedLength.value = sampleCompletedLength;
+    const snapshotCompletedLength = clampCompletedLength(props.task.completedLength);
+
+    sampleCompletedLength = snapshotCompletedLength;
+    estimatedCompletedLength.value = shouldKeepActiveProgressMonotonic(previousSnapshot)
+      ? Math.max(clampCompletedLength(estimatedCompletedLength.value), snapshotCompletedLength)
+      : snapshotCompletedLength;
     restartProgressLoop();
   },
   { immediate: true },
@@ -47,7 +54,7 @@ function restartProgressLoop() {
   cancelAnimationFrame(animationFrame);
 
   if (!canEstimateProgress()) {
-    estimatedCompletedLength.value = clampCompletedLength(props.task.completedLength);
+    syncEstimatedCompletedLength();
     return;
   }
 
@@ -56,13 +63,17 @@ function restartProgressLoop() {
 
 function updateEstimatedProgress(now: number) {
   if (!canEstimateProgress()) {
-    estimatedCompletedLength.value = clampCompletedLength(props.task.completedLength);
+    syncEstimatedCompletedLength();
     return;
   }
 
   const elapsedSeconds = Math.max(0, (now - sampleStartedAt) / 1000);
-  estimatedCompletedLength.value = clampCompletedLength(
+  const nextEstimatedCompletedLength = clampCompletedLength(
     sampleCompletedLength + props.task.downloadSpeed * elapsedSeconds,
+  );
+  estimatedCompletedLength.value = Math.max(
+    clampCompletedLength(estimatedCompletedLength.value),
+    nextEstimatedCompletedLength,
   );
 
   if (estimatedCompletedLength.value < props.task.totalLength) {
@@ -76,6 +87,31 @@ function canEstimateProgress() {
     props.task.totalLength > 0 &&
     props.task.downloadSpeed > 0 &&
     props.task.completedLength < props.task.totalLength
+  );
+}
+
+function syncEstimatedCompletedLength() {
+  const snapshotCompletedLength = clampCompletedLength(props.task.completedLength);
+  estimatedCompletedLength.value =
+    props.task.status === "active"
+      ? Math.max(clampCompletedLength(estimatedCompletedLength.value), snapshotCompletedLength)
+      : snapshotCompletedLength;
+}
+
+function shouldKeepActiveProgressMonotonic(
+  previousSnapshot?: readonly [number, string, number, number, number, DownloadTask["status"]],
+) {
+  if (!previousSnapshot || props.task.status !== "active") {
+    return false;
+  }
+
+  const [previousTaskId, previousGid, , previousTotalLength] = previousSnapshot;
+  return (
+    previousTaskId === props.task.id &&
+    previousGid === (props.task.gid ?? "") &&
+    previousTotalLength > 0 &&
+    props.task.totalLength === previousTotalLength &&
+    props.task.completedLength > 0
   );
 }
 

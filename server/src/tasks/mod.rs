@@ -1015,11 +1015,22 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
         next_completed_length,
         task.total_length,
     );
+    let should_keep_completed_length = should_keep_non_decreasing_completed_length(
+        &status.status,
+        next_total_length,
+        next_completed_length,
+        task.total_length,
+        task.completed_length,
+    );
 
     task.status = map_aria2_status(&status.status);
     if !should_preserve_progress {
         task.total_length = next_total_length;
-        task.completed_length = next_completed_length;
+        task.completed_length = if should_keep_completed_length {
+            task.completed_length
+        } else {
+            next_completed_length
+        };
     }
     task.download_speed = parse_aria2_u64(&status.download_speed);
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
@@ -1060,6 +1071,19 @@ fn should_preserve_existing_progress(
         && next_completed_length == 0
         && current_total_length > 0
         && matches!(status, "active" | "waiting" | "paused" | "error")
+}
+
+fn should_keep_non_decreasing_completed_length(
+    status: &str,
+    next_total_length: u64,
+    next_completed_length: u64,
+    current_total_length: u64,
+    current_completed_length: u64,
+) -> bool {
+    current_total_length > 0
+        && next_total_length == current_total_length
+        && next_completed_length < current_completed_length
+        && matches!(status, "active" | "waiting" | "paused")
 }
 
 fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
@@ -2034,6 +2058,33 @@ mod tests {
         assert_eq!(task.completed_length, 40);
         assert_eq!(task.download_speed, 20);
         assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+    }
+
+    #[test]
+    fn apply_aria2_status_keeps_active_progress_non_decreasing() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        task.total_length = 100;
+        task.completed_length = 65;
+
+        apply_aria2_status(
+            &mut task,
+            &Aria2TaskStatus {
+                gid: None,
+                status: "active".to_string(),
+                total_length: "100".to_string(),
+                completed_length: "63".to_string(),
+                download_speed: "20".to_string(),
+                error_code: None,
+                error_message: None,
+                dir: None,
+                files: None,
+            },
+        );
+
+        assert_eq!(task.status, DownloadTaskStatus::Active);
+        assert_eq!(task.total_length, 100);
+        assert_eq!(task.completed_length, 65);
+        assert_eq!(task.download_speed, 20);
     }
 
     #[test]
