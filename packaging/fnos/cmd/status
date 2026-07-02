@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -eu
+
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+export_runtime_env
+clear_stale_pid
+
+pid=$(read_pid || true)
+if [ -n "${pid}" ] && is_running_pid "${pid}"; then
+  log_msg "查询运行状态：运行中，PID ${pid}，监听 ${HTTP_ADDR}"
+  echo "motrix-fnos-server 运行中，PID ${pid}，监听 ${HTTP_ADDR}"
+  exit 0
+fi
+
+rm -f "${PID_FILE}"
+log_msg "查询运行状态：未运行"
+echo "motrix-fnos-server 未运行"
+exit 1
