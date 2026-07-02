@@ -17,7 +17,6 @@ import {
   NTabs,
   useMessage,
 } from "naive-ui";
-import { selectDownloadDirectory } from "../services/taskService";
 import { useTaskStore } from "../stores/taskStore";
 
 const props = defineProps<{
@@ -54,17 +53,6 @@ watch(
     }
   },
 );
-
-async function selectSaveDir() {
-  if (taskStore.isRuntimeExiting) {
-    message.warning("应用正在退出，请稍候");
-    return;
-  }
-  const selected = await selectDownloadDirectory();
-  if (selected) {
-    form.saveDir = selected;
-  }
-}
 
 async function submitCreateTask() {
   if (taskStore.isRuntimeExiting) {
@@ -151,8 +139,8 @@ function getErrorMessage(error: unknown) {
 
         <NFormItem label="保存路径">
           <NSpace vertical class="full-width">
-            <NInput v-model:value="form.saveDir" placeholder="留空使用 ~/Downloads，也可输入或选择目录" />
-            <NButton secondary :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="selectSaveDir">选择目录</NButton>
+            <NInput v-model:value="form.saveDir" placeholder="留空使用服务端默认目录；Web 版请手动输入保存路径" />
+            <span class="field-hint">Web 版已移除目录选择器，请手动输入可访问的保存路径。</span>
           </NSpace>
         </NFormItem>
 
@@ -210,6 +198,12 @@ h2 {
 
 .full-width {
   width: 100%;
+}
+
+.field-hint {
+  color: #83958e;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .form-alert {

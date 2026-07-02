@@ -1,37 +1,26 @@
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { httpDelete, httpGet, httpPost } from "../../../services/http";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
 export function createDownloadTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
-  return invoke<DownloadTask>("create_download_task", { payload });
+  return httpPost<DownloadTask>("/api/tasks", payload);
 }
 
 export function listDownloadTasks(): Promise<DownloadTask[]> {
-  return invoke<DownloadTask[]>("list_download_tasks");
+  return httpGet<DownloadTask[]>("/api/tasks");
 }
 
 export function pauseDownloadTask(taskId: number): Promise<DownloadTask> {
-  return invoke<DownloadTask>("pause_download_task", { taskId });
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/pause`);
 }
 
 export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
-  return invoke<DownloadTask>("resume_download_task", { taskId });
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/resume`);
 }
 
 export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
-  return invoke<DownloadTask>("redownload_download_task", { taskId });
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`);
 }
 
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
-  return invoke<DownloadTask>("delete_download_task", { taskId, deleteFiles });
-}
-
-export async function selectDownloadDirectory(): Promise<string | null> {
-  const selected = await open({
-    directory: true,
-    multiple: false,
-    title: "选择下载目录",
-  });
-
-  return typeof selected === "string" ? selected : null;
+  return httpDelete<DownloadTask>(`/api/tasks/${taskId}?deleteFiles=${deleteFiles ? "true" : "false"}`);
 }
