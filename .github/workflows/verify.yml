@@ -48,5 +48,10 @@ jobs:
       - name: Run verification
         run: pnpm run verify
 
+      - name: Install FPK cross build dependencies
+        run: |
+          python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Verify FPK packaging preparation
         run: pnpm run build:fpk:prepare
