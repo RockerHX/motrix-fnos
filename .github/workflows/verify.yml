@@ -55,7 +55,8 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-          cargo zigbuild --version
+          cargo-zigbuild --version
+          cargo zigbuild --help >/dev/null
           command -v python-zig
 
       - name: Verify FPK packaging preparation
