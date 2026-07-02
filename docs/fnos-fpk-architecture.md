@@ -76,7 +76,7 @@ packaging/fnos/
 
 职责边界：
 
-- `manifest`：声明应用名、版本、平台、最低系统版本、服务端口、Web 入口和控制能力。
+- `manifest`：声明应用名、版本、官方模板架构字段 `arch`、分发平台字段 `platform`、最低系统版本、服务端口、Web 入口和控制能力。
 - `config/privilege`：声明当前运行权限。第三方应用默认使用 `run-as: package`，避免申请 root 权限导致应用中心拒绝安装。
 - `cmd/main`：fnOS 控制入口，分发到 `start` / `stop` / `status`。
 - `cmd/common.sh`：统一解析 fnOS 注入路径、数据目录、端口、日志和 PID 路径。
@@ -89,10 +89,10 @@ packaging/fnos/
 
 FPK 必须与设备 CPU 架构匹配。
 
-| 设备 | CPU 架构 | Rust target | `manifest platform` | 输出包 |
+| 设备 | CPU 架构 | Rust target | `manifest arch` | `manifest platform` | 输出包 |
 | --- | --- | --- | --- | --- |
-| x86 飞牛 | x86_64 | `x86_64-unknown-linux-gnu` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
-| OES / A311D 等 ARM 飞牛 | aarch64 / arm64 | `aarch64-unknown-linux-gnu` | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
+| x86 飞牛 | x86_64 | `x86_64-unknown-linux-gnu` | `x86_64` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
+| OES / A311D 等 ARM 飞牛 | aarch64 / arm64 | `aarch64-unknown-linux-gnu` | `x86_64`（官方模板固定字段） | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
 
 `pnpm run build:fpk` 默认同时生成 x86 与 ARM 包。ARM 设备安装 x86 包失败是预期结果，不代表 FPK-first 架构方向错误。
 

@@ -29,12 +29,12 @@ packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
 
 ## 架构与产物对应关系
 
-| 飞牛设备架构 | `uname -m` | Rust target | FPK platform | FPK 输出 |
+| 飞牛设备架构 | `uname -m` | Rust target | manifest `arch` | manifest `platform` | FPK 输出 |
 | --- | --- | --- | --- | --- |
-| x86_64 | `x86_64` | `x86_64-unknown-linux-gnu` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
-| ARM64 | `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
+| x86_64 | `x86_64` | `x86_64-unknown-linux-gnu` | `x86_64` | `x86` | `motrix.fnos_0.1.0_x86.fpk` |
+| ARM64 | `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `x86_64`（官方模板固定字段） | `arm` | `motrix.fnos_0.1.0_arm.fpk` |
 
-如果平台不匹配，飞牛应用中心会拒绝安装，并提示类似“应用包不符合系统要求”。这不是 FPK-first 架构问题，而是包内 `manifest platform` 与设备 CPU 架构不匹配。
+如果平台或 manifest 格式不匹配，飞牛应用中心会拒绝安装，并提示类似“应用包格式不符合系统版本要求”。当前 manifest 同时保留官方模板必带的 `arch = x86_64` 和用于 x86/ARM 分发的 `platform` 字段。
 
 ## FPK 目录结构
 
@@ -79,7 +79,7 @@ packaging/fnos/
 
 说明：
 
-- `manifest` 定义应用名、版本、平台、最低系统版本、服务端口、Web 入口和 stop 控制能力。
+- `manifest` 定义应用名、版本、官方模板架构字段 `arch`、分发平台字段 `platform`、最低系统版本、服务端口、Web 入口和 stop 控制能力。
 - `cmd/main` 统一分发 `start` / `stop` / `status`。
 - `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 sidecar 路径。
 - `cmd/stop` 通过 `SIGINT` 触发 server 统一退出流程，并最多等待 20 秒。
@@ -241,7 +241,7 @@ packaging/fnos/app/data/run/motrix-fnos-server.pid
 
 | 现象 | 优先判断 | 处理 |
 | --- | --- | --- |
-| 安装失败：“应用包不符合系统要求” | FPK 平台、最低系统版本或权限要求不符合应用中心校验 | 确认包内 `platform` 与设备架构匹配，`os_min_version` 不高于当前系统，并避免第三方应用申请 root 运行 |
+| 安装失败：“应用包不符合系统要求” | FPK 平台、最低系统版本或权限要求不符合应用中心校验 | 确认包内存在官方模板字段 `arch = x86_64`，`platform` 与设备架构匹配，`os_min_version` 不高于当前系统，并避免第三方应用申请 root 运行 |
 | 安装失败但架构匹配 | manifest、权限或 fnpack 产物格式问题 | 查看 fnOS 安装日志，并检查 `manifest platform`、`service_port`、`desktop_uidir` |
 | 启动失败 | server 或 sidecar 不可执行、路径错误、端口占用 | 查看 `logs/server.log` 和 `cmd/start` 输出 |
 | Web UI 打不开 | 服务未运行或端口配置不一致 | 检查 `cmd/status`、`manifest service_port`、`app/ui/config` |
