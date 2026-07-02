@@ -1,0 +1,34 @@
+#!/bin/sh
+
+set -eu
+
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+export_runtime_env
+clear_stale_pid
+require_file "${SERVER_BIN}" "server 二进制"
+require_file "${ARIA2_BIN}" "Aria2 sidecar"
+
+existing_pid=$(read_pid || true)
+if [ -n "${existing_pid}" ] && is_running_pid "${existing_pid}"; then
+  echo "motrix-fnos-server 已在运行，PID ${existing_pid}"
+  exit 0
+fi
+
+log_msg "准备启动 motrix-fnos-server，监听 ${HTTP_ADDR}，数据目录 ${APP_DATA_DIR}"
+nohup "${SERVER_BIN}" >>"${SERVER_LOG}" 2>&1 &
+pid=$!
+printf '%s\n' "${pid}" > "${PID_FILE}"
+
+sleep 2
+if is_running_pid "${pid}"; then
+  log_msg "motrix-fnos-server 启动成功，PID ${pid}，监听 ${HTTP_ADDR}"
+echo "motrix-fnos-server 启动成功，PID ${pid}，监听 ${HTTP_ADDR}"
+  exit 0
+fi
+
+rm -f "${PID_FILE}"
+log_msg "motrix-fnos-server 启动失败，请检查日志：${SERVER_LOG}"
+echo "motrix-fnos-server 启动失败，请检查日志：${SERVER_LOG}" >&2
+exit 1

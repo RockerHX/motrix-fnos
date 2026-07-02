@@ -17,6 +17,7 @@
 
 - `packaging/fnos/` 目录结构
 - manifest、config、cmd 脚本约定
+- 启动脚本：`packaging/fnos/cmd/start`，优先使用 `TRIM_APPDEST`、`TRIM_PKGVAR`、`TRIM_SERVICE_PORT`，本地回退到仓库内相对路径；本机验证可通过 `MOTRIX_FNOS_SERVER_BIN` / `MOTRIX_FNOS_ARIA2_PATH` 覆写到 native 二进制。
 - Rust server 与 Web UI 构建产物放置方式
 - Web UI 构建命令：`pnpm run build:web:fpk`，同步输出到 `packaging/fnos/ui/dist/`。
 - Aria2 sidecar 集成方式
