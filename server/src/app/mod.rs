@@ -228,7 +228,10 @@ pub async fn run_server() -> Result<(), String> {
 
 async fn wait_for_shutdown_signal(state: Arc<HttpAppState>) {
     match tokio::signal::ctrl_c().await {
-        Ok(()) => state.request_shutdown("收到停止信号"),
+        Ok(()) => {
+            state.request_shutdown("收到停止信号");
+            crate::runtime::run_shutdown_cleanup(&state).await;
+        }
         Err(error) => state
             .core
             .debug_logs

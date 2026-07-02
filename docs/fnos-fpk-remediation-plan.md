@@ -458,8 +458,8 @@ FPK 下必须重新设计：
 | P2-4 | 新增 Axum 基础接口与统一错误响应 | 建立 `server/src/api`、router 组装、`ApiError` 与 app/aria2 路由 | 新增 handler/router 集成测试 | `feat: 新增Axum基础接口与统一错误响应` | 已完成 | `feat: 新增Axum基础接口与统一错误响应`（`3b96fca`） |
 | P2-5 | 新增设置与调试日志 HTTP 接口 | 落地 `settings`、`ui-preferences`、`debug-logs` 路由 | 新增 GET/PUT/DELETE handler 测试，双轨测试通过 | `feat: 新增设置与调试日志HTTP接口` | 已完成 | `feat: 新增设置与调试日志HTTP接口`（`5cb4fc9`） |
 | P2-6 | 新增任务 HTTP 接口与自动拉起 Aria2 | 落地 `tasks` 全套路由，并迁移 `ensure_aria2_ready` | 覆盖创建、暂停、继续、删除、退出中拒绝操作 | `feat: 新增任务HTTP接口与自动拉起Aria2` | 已完成 | `feat: 新增任务HTTP接口与自动拉起Aria2`（`9147360`） |
-| P2-7 | 新增 SSE 事件流与后台任务同步 | 落地 `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件与 Tokio monitor loop | 新增 SSE 与 monitor 集成测试，双轨测试通过 | `feat: 新增SSE事件流与后台任务同步` | 已完成 | `feat: 新增SSE事件流与后台任务同步` |
-| P2-8 | 完善服务退出清理并收口阶段 2 | 落地优雅关闭、session 保存、Aria2 停止与阶段状态更新 | shutdown 测试与完整回归通过 | `fix: 完善服务退出清理并收口阶段2状态` | 未开始 | - |
+| P2-7 | 新增 SSE 事件流与后台任务同步 | 落地 `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件与 Tokio monitor loop | 新增 SSE 与 monitor 集成测试，双轨测试通过 | `feat: 新增SSE事件流与后台任务同步` | 已完成 | `feat: 新增SSE事件流与后台任务同步`（`4f1be6c`） |
+| P2-8 | 完善服务退出清理并收口阶段 2 | 落地优雅关闭、session 保存、Aria2 停止与阶段状态更新 | shutdown 测试与完整回归通过 | `fix: 完善服务退出清理并收口阶段2状态` | 已完成 | `fix: 完善服务退出清理并收口阶段2状态` |
 
 验收：
 
