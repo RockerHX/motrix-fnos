@@ -1023,10 +1023,10 @@ fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     }
     task.download_speed = parse_aria2_u64(&status.download_speed);
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
-    task.error_message = status
-        .error_message
-        .clone()
-        .filter(|message| !message.trim().is_empty());
+    task.error_message = readable_aria2_error_message(
+        task.error_code.as_deref(),
+        status.error_message.as_deref(),
+    );
     if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
         task.save_dir = dir;
     }
@@ -1194,6 +1194,24 @@ fn normalize_aria2_error_code(error_code: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|code| !code.is_empty() && *code != "0")
         .map(ToOwned::to_owned)
+}
+
+fn readable_aria2_error_message(
+    error_code: Option<&str>,
+    error_message: Option<&str>,
+) -> Option<String> {
+    let message = error_message
+        .map(str::trim)
+        .filter(|message| !message.is_empty());
+
+    match (error_code, message) {
+        (Some("16"), Some("Download aborted.")) => Some(
+            "Download aborted. 可能原因：Aria2 无法创建或写入目标文件，请检查下载目录权限和同名文件权限。"
+                .to_string(),
+        ),
+        (_, Some(message)) => Some(message.to_string()),
+        _ => None,
+    }
 }
 
 fn map_aria2_status(status: &str) -> DownloadTaskStatus {
@@ -1415,6 +1433,12 @@ fn resolve_save_dir_with_logs(
         log_error(debug_logs, "tasks.path", &error);
         return Err(error);
     }
+
+    if let Err(error) = verify_save_dir_writable(&path) {
+        log_error(debug_logs, "tasks.path", &error);
+        return Err(error);
+    }
+
     log_info(
         debug_logs,
         "tasks.path",
@@ -1422,6 +1446,36 @@ fn resolve_save_dir_with_logs(
     );
 
     Ok(path.display().to_string())
+}
+
+fn verify_save_dir_writable(path: &Path) -> Result<(), String> {
+    let probe_path = path.join(format!(
+        ".motrix-fnos-write-test-{}-{}",
+        std::process::id(),
+        current_timestamp_ms()
+    ));
+
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+    {
+        Ok(_) => {
+            if let Err(error) = fs::remove_file(&probe_path) {
+                return Err(format!(
+                    "下载目录写入探测文件清理失败：{}（{}）",
+                    probe_path.display(),
+                    error
+                ));
+            }
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "下载目录不可写，应用无法在该目录创建文件：{}（{}）",
+            path.display(),
+            error
+        )),
+    }
 }
 
 fn default_download_dir() -> Result<PathBuf, String> {
@@ -2065,6 +2119,32 @@ mod tests {
     }
 
     #[test]
+    fn aria2_error_16_gets_readable_hint() {
+        let mut task = sample_task(None, "/downloads".to_string());
+        let status = Aria2TaskStatus {
+            gid: None,
+            status: "error".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: Some("16".to_string()),
+            error_message: Some("Download aborted.".to_string()),
+            dir: None,
+            files: None,
+        };
+
+        apply_aria2_status(&mut task, &status);
+
+        assert_eq!(task.error_code.as_deref(), Some("16"));
+        assert!(
+            task.error_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("无法创建或写入目标文件")
+        );
+    }
+
+    #[test]
     fn apply_aria2_status_preserves_progress_when_active_status_is_temporarily_empty() {
         let mut task = sample_task(None, "/downloads".to_string());
         task.status = DownloadTaskStatus::Paused;
@@ -2160,6 +2240,19 @@ mod tests {
 
         assert_eq!(resolved, dir);
         assert!(Path::new(&resolved).is_dir());
+    }
+
+    #[test]
+    fn resolve_save_dir_rejects_file_path() {
+        let dir = PathBuf::from(temp_download_dir("file-path"));
+        fs::create_dir_all(&dir).expect("temp dir should create");
+        let file = dir.join("not-a-dir");
+        fs::write(&file, b"content").expect("temp file should create");
+
+        let error = resolve_save_dir_with_logs(Some(file.display().to_string()), None)
+            .expect_err("file path should be rejected");
+
+        assert!(error.contains("创建下载目录失败"));
     }
 
     #[test]
