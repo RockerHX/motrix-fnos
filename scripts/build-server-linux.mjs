@@ -37,8 +37,12 @@ function readOption(name) {
 }
 
 function hasCargoSubcommand(name, env) {
-  const result = spawnSync('cargo', ['--list'], { cwd: repoRoot, env, encoding: 'utf8' });
-  return result.status === 0 && result.stdout.includes(`    ${name}`);
+  if (which(`cargo-${name}`, env)) {
+    return true;
+  }
+
+  const result = spawnSync('cargo', [name, '--help'], { cwd: repoRoot, env, encoding: 'utf8' });
+  return result.status === 0;
 }
 
 function ensureZig(env) {
