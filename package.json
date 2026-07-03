@@ -7,13 +7,9 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:dev": "node scripts/tauri-dev.mjs",
-    "tauri:build": "tauri build",
     "typecheck": "vue-tsc --noEmit",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
-    "tauri:dev:raw": "tauri dev",
     "prepare": "git config core.hooksPath .githooks || true",
     "hooks:install": "git config core.hooksPath .githooks",
     "build:server:linux:x64": "node scripts/build-server-linux.mjs",
@@ -31,7 +27,6 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
