@@ -148,7 +148,8 @@ mod tests {
         let app_data_dir = temp_dir("monitor-state");
         let runtime = ServerRuntimeConfig {
             database_path: app_data_dir.join("motrix-fnos.sqlite"),
-            app_data_dir,
+            accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+            app_data_dir: app_data_dir.clone(),
             http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
             aria2_path: None,
         };

@@ -649,6 +649,7 @@ mod tests {
         let app_data_dir = temp_dir("runtime");
         ServerRuntimeConfig {
             database_path: app_data_dir.join("motrix-fnos.db"),
+            accessible_paths_path: app_data_dir.join("accessible-paths.json"),
             app_data_dir,
             http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
             aria2_path,

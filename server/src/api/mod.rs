@@ -5,6 +5,7 @@ pub mod error;
 mod events;
 mod extract;
 mod settings;
+mod storage;
 mod tasks;
 
 use crate::app::HttpAppState;
@@ -14,9 +15,9 @@ use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
 #[cfg(test)]
-use crate::app::{DEFAULT_HTTP_ADDR, ServerRuntimeConfig, bootstrap_http_app_state};
+use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
 #[cfg(test)]
-use axum::body::{Body, to_bytes};
+use axum::body::{to_bytes, Body};
 #[cfg(test)]
 use axum::http::{Request, StatusCode};
 #[cfg(test)]
@@ -30,6 +31,7 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", app::routes())
         .nest("/api", aria2::routes())
         .nest("/api", settings::routes())
+        .nest("/api", storage::routes())
         .nest("/api", debug_logs::routes())
         .nest("/api", tasks::routes())
         .nest("/api", events::routes())
@@ -72,6 +74,7 @@ mod tests {
     use super::*;
     use crate::api::app::{AppInfo, BackendPing};
     use crate::api::error::ErrorResponse;
+    use crate::api::storage::AccessiblePathsResponse;
     use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
     use crate::debug_logs::DebugLogEntry;
     use crate::runtime::Aria2ProcessStatus;
@@ -321,6 +324,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn storage_route_returns_accessible_paths_from_runtime_file() {
+        let state = test_state(None).await;
+        std::fs::write(
+            &state.runtime.accessible_paths_path,
+            r#"{"paths":["/vol1/downloads"," /vol1/media ","","/vol1/downloads"]}"#,
+        )
+        .expect("accessible paths file should write");
+        let app = router(state);
+
+        let response = response_json::<AccessiblePathsResponse>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/storage/accessible-paths")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+
+        assert_eq!(
+            response.paths,
+            vec!["/vol1/downloads".to_string(), "/vol1/media".to_string()]
+        );
+    }
+
+    #[tokio::test]
     async fn debug_log_routes_list_and_clear_entries() {
         let state = test_state(None).await;
         state.core.debug_logs.info("test", "first");
@@ -384,7 +416,8 @@ mod tests {
         let app_data_dir = temp_dir("api-state");
         let runtime = ServerRuntimeConfig {
             database_path: app_data_dir.join("motrix-fnos.sqlite"),
-            app_data_dir,
+            accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+            app_data_dir: app_data_dir.clone(),
             http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
             aria2_path: aria2_path.map(PathBuf::from),
         };

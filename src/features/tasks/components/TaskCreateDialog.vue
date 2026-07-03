@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import {
   NAlert,
   NButton,
@@ -12,12 +12,16 @@ import {
   NGrid,
   NInput,
   NModal,
+  NSelect,
   NSpace,
   NTabPane,
   NTabs,
   useMessage,
 } from "naive-ui";
+import { getAccessiblePaths } from "../../../services/storage";
 import { useTaskStore } from "../stores/taskStore";
+
+const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
 
 const props = defineProps<{
   show: boolean;
@@ -40,19 +44,41 @@ const form = reactive({
 });
 const activeInputType = ref("URL 下载");
 const formErrorMessage = ref("");
+const accessiblePaths = ref<string[]>([]);
+const isLoadingAccessiblePaths = ref(false);
+const accessiblePathsError = ref("");
 
 const isUrlValid = computed(() => /^https?:\/\/.+/i.test(form.url.trim()));
 const urlFeedback = computed(() => (form.url && !isUrlValid.value ? "当前仅支持 HTTP / HTTPS 链接" : undefined));
 const urlValidationStatus = computed(() => (form.url && !isUrlValid.value ? "error" : undefined));
+const accessiblePathOptions = computed(() =>
+  accessiblePaths.value.map((path) => ({
+    label: path,
+    value: path,
+  })),
+);
+const canSubmit = computed(
+  () =>
+    isUrlValid.value &&
+    !!form.saveDir &&
+    !taskStore.isCreating &&
+    !taskStore.isRuntimeExiting &&
+    !isLoadingAccessiblePaths.value,
+);
 
 watch(
   () => props.show,
   (show) => {
     if (show) {
       formErrorMessage.value = "";
+      void refreshAccessiblePaths();
     }
   },
 );
+
+onMounted(() => {
+  void refreshAccessiblePaths();
+});
 
 async function submitCreateTask() {
   if (taskStore.isRuntimeExiting) {
@@ -63,6 +89,10 @@ async function submitCreateTask() {
     formErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
     return;
   }
+  if (!form.saveDir) {
+    formErrorMessage.value = "请选择已授权的保存目录";
+    return;
+  }
 
   formErrorMessage.value = "";
 
@@ -70,8 +100,9 @@ async function submitCreateTask() {
     await taskStore.createTask({
       url: form.url,
       fileName: form.fileName || null,
-      saveDir: form.saveDir || null,
+      saveDir: form.saveDir,
     });
+    rememberSaveDir(form.saveDir);
     resetForm();
     emit("update:show", false);
     emit("created");
@@ -96,6 +127,41 @@ function resetForm() {
   form.note = "";
   activeInputType.value = "URL 下载";
   formErrorMessage.value = "";
+}
+
+async function refreshAccessiblePaths() {
+  isLoadingAccessiblePaths.value = true;
+  accessiblePathsError.value = "";
+
+  try {
+    const response = await getAccessiblePaths();
+    accessiblePaths.value = response.paths;
+    syncSelectedSaveDir();
+  } catch (error) {
+    accessiblePaths.value = [];
+    form.saveDir = "";
+    accessiblePathsError.value = getErrorMessage(error);
+  } finally {
+    isLoadingAccessiblePaths.value = false;
+  }
+}
+
+function syncSelectedSaveDir() {
+  if (form.saveDir && accessiblePaths.value.includes(form.saveDir)) {
+    return;
+  }
+
+  const remembered = readRememberedSaveDir();
+  form.saveDir =
+    remembered && accessiblePaths.value.includes(remembered) ? remembered : accessiblePaths.value[0] || "";
+}
+
+function rememberSaveDir(path: string) {
+  localStorage.setItem(LAST_SAVE_DIR_KEY, path);
+}
+
+function readRememberedSaveDir() {
+  return localStorage.getItem(LAST_SAVE_DIR_KEY) || "";
 }
 
 function getErrorMessage(error: unknown) {
@@ -139,8 +205,21 @@ function getErrorMessage(error: unknown) {
 
         <NFormItem label="保存路径">
           <NSpace vertical class="full-width">
-            <NInput v-model:value="form.saveDir" placeholder="留空使用服务端默认目录；Web 版请手动输入保存路径" />
-            <span class="field-hint">Web 版已移除目录选择器，请手动输入可访问的保存路径。</span>
+            <NSelect
+              v-model:value="form.saveDir"
+              :options="accessiblePathOptions"
+              :loading="isLoadingAccessiblePaths"
+              :disabled="isLoadingAccessiblePaths || accessiblePaths.length === 0"
+              filterable
+              placeholder="请选择已授权的保存目录"
+            />
+            <span class="field-hint">目录来自飞牛应用设置中的文件夹授权；如刚修改授权，请重新打开新建任务或刷新页面。</span>
+            <NAlert v-if="accessiblePathsError" type="error" class="inline-alert">
+              读取授权目录失败：{{ accessiblePathsError }}
+            </NAlert>
+            <NAlert v-else-if="!isLoadingAccessiblePaths && accessiblePaths.length === 0" type="warning" class="inline-alert">
+              未检测到已授权目录，请先在飞牛应用设置中为 Motrix FNOS 添加读写文件夹授权，然后重新打开新建任务。
+            </NAlert>
           </NSpace>
         </NFormItem>
 
@@ -170,7 +249,7 @@ function getErrorMessage(error: unknown) {
 
         <NSpace justify="end" class="dialog-actions">
           <NButton :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">取消</NButton>
-          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!isUrlValid || taskStore.isRuntimeExiting">开始下载</NButton>
+          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!canSubmit">开始下载</NButton>
         </NSpace>
       </NForm>
     </NCard>
@@ -204,6 +283,10 @@ h2 {
   color: #83958e;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.inline-alert {
+  width: 100%;
 }
 
 .form-alert {

@@ -19,7 +19,9 @@ use std::sync::OnceLock;
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
+pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
 pub const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:17080";
+pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +30,7 @@ pub struct ServerRuntimeConfig {
     pub database_path: PathBuf,
     pub http_addr: SocketAddr,
     pub aria2_path: Option<PathBuf>,
+    pub accessible_paths_path: PathBuf,
 }
 
 impl ServerRuntimeConfig {
@@ -48,12 +51,18 @@ impl ServerRuntimeConfig {
             .filter(|value| !value.trim().is_empty())
             .map(PathBuf::from);
         let database_path = app_data_dir.join(DATABASE_FILE_NAME);
+        let accessible_paths_path = env::var(ACCESSIBLE_PATHS_FILE_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME));
 
         Ok(Self {
             app_data_dir,
             database_path,
             http_addr,
             aria2_path,
+            accessible_paths_path,
         })
     }
 }
@@ -294,6 +303,7 @@ mod tests {
         std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
         std::env::set_var(HTTP_ADDR_ENV, "127.0.0.1:18080");
         std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
+        std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
 
         let config = ServerRuntimeConfig::from_env().expect("config should load");
 
@@ -302,12 +312,17 @@ mod tests {
             config.database_path,
             config.app_data_dir.join(DATABASE_FILE_NAME)
         );
+        assert_eq!(
+            config.accessible_paths_path,
+            config.app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME)
+        );
         assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
         assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
 
         std::env::remove_var(APP_DATA_DIR_ENV);
         std::env::remove_var(HTTP_ADDR_ENV);
         std::env::remove_var(ARIA2_PATH_ENV);
+        std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
     }
 
     #[test]
@@ -319,6 +334,7 @@ mod tests {
                     std::env::temp_dir().join(format!("motrix-fnos-http-app-state-{}", now_ms()));
                 let runtime = ServerRuntimeConfig {
                     database_path: app_data_dir.join(DATABASE_FILE_NAME),
+                    accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
                     app_data_dir: app_data_dir.clone(),
                     http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                     aria2_path: None,
@@ -361,6 +377,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join(format!("motrix-fnos-shutdown-{}", now_ms()));
         let runtime = ServerRuntimeConfig {
             database_path: temp_dir.join(DATABASE_FILE_NAME),
+            accessible_paths_path: temp_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
             app_data_dir: temp_dir,
             http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
             aria2_path: None,

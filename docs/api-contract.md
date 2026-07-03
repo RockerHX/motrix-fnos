@@ -9,6 +9,9 @@
 | `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 | 用户本地数据目录下的 `motrix-fnos` |
 | `MOTRIX_FNOS_HTTP_ADDR` | HTTP 监听地址 | `127.0.0.1:17080` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
+| `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
+
+FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录，并写入 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`。后端以该文件为主，文件不存在时才回退读取当前进程环境变量。
 
 ## 2. 前端消费约定
 
@@ -17,7 +20,7 @@
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用浏览器原生 `EventSource`。
 - 错误提示优先展示响应体中的 `message`。
-- 目录选择、系统通知、开机自启等系统集成能力在 Web UI 中只保留安全降级行为。
+- 下载保存目录只允许从后端返回的 fnOS 已授权目录中选择；Web UI 不提供任意本地路径选择器。
 
 ## 3. 错误响应
 
@@ -88,9 +91,11 @@
 {
   "url": "https://example.com/file.zip",
   "fileName": "file.zip",
-  "saveDir": "/downloads"
+  "saveDir": "/vol1/downloads"
 }
 ```
+
+`saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
 
 ### 4.4 设置
 
@@ -107,6 +112,26 @@
 | --- | --- | --- |
 | `GET` | `/api/debug-logs` | `DebugLogEntry[]` |
 | `DELETE` | `/api/debug-logs` | `204 No Content` |
+
+### 4.6 存储目录
+
+| 方法 | 路径 | 响应 |
+| --- | --- | --- |
+| `GET` | `/api/storage/accessible-paths` | `AccessiblePathsResponse` |
+
+`AccessiblePathsResponse`：
+
+```json
+{
+  "paths": ["/vol1/downloads", "/vol1/media"]
+}
+```
+
+约定：
+
+- `paths` 来自 fnOS 应用设置中授予 Motrix FNOS 的文件夹访问权限。
+- 返回值会去掉空路径和重复路径。
+- 前端新建任务时必须从 `paths` 中选择保存目录；如果列表为空，应提示用户先在 fnOS 应用设置中添加读写文件夹授权。
 
 ## 5. SSE 事件流
 

@@ -1,6 +1,13 @@
 #!/bin/sh
 set -eu
+
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+write_accessible_paths_file
+
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "已同步授权目录列表" >> "${TRIM_TEMP_LOGFILE}"
 fi
 exit 0

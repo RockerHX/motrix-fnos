@@ -28,6 +28,7 @@
 - 前端已切到 HTTP API / SSE 主线，浏览器可通过 `/api/*` 与 `/api/events` 调用后端。
 - 后端已落地 Axum API、SSE 事件流、Aria2 进程管理、SQLite 持久化、任务同步和退出收口。
 - FPK 目录、manifest、权限配置、Web UI 入口、启动/停止/状态脚本已建立。
+- 新建任务保存目录已改为读取 fnOS 已授权目录下拉选择，不再要求用户手动复制路径。
 - 打包脚本可输出 x86 与 ARM FPK：
   - `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`
   - `packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`
@@ -147,7 +148,8 @@
    - ARM 设备：`motrix.fnos_0.1.0_arm.fpk`
 2. 重新打包并回归卸载流程，确认卸载后重装不会恢复旧任务。
 3. 完成卸载后的端口、进程、SQLite、Aria2 session、日志和 PID 残留检查。
-4. 若仍有实机失败项，继续从 FPK manifest、权限、运行目录、端口、服务脚本或文件夹授权排查，并同步更新手测清单。
+4. 回归新建任务保存目录下拉，确认 fnOS 文件夹授权变更后可读取最新目录列表。
+5. 若仍有实机失败项，继续从 FPK manifest、权限、运行目录、端口、服务脚本或文件夹授权排查，并同步更新手测清单。
 
 ## 5. 验证记录
 
@@ -156,7 +158,7 @@
 - `rtk pnpm run typecheck` 通过。
 - `rtk cargo test --manifest-path server/Cargo.toml` 通过。
 
-本次文档更新不新增、不删除、不修改 HTTP API、SSE 事件、环境变量、FPK manifest 字段或构建命令。
+本次目录选择优化新增 `/api/storage/accessible-paths` 和 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`，不修改既有任务 API、SSE 事件、FPK manifest 字段或构建命令。
 
 ## 6. 文档关系
 

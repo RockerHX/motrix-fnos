@@ -50,6 +50,7 @@ async fn create_task(
 ) -> Result<Json<DownloadTask>, ApiError> {
     let service = task_service(&state);
     service.ensure_not_exiting().map_err(classify_task_error)?;
+    ensure_authorized_save_dir(&state, payload.save_dir.as_deref())?;
     let config = ensure_aria2_ready(&state)
         .await
         .map_err(classify_aria2_ready_error)?;
@@ -145,6 +146,32 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
     )
 }
 
+fn ensure_authorized_save_dir(
+    state: &HttpAppState,
+    save_dir: Option<&str>,
+) -> Result<(), ApiError> {
+    let save_dir = save_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| ApiError::bad_request("save_dir_required", "请选择已授权的保存目录"))?;
+    let accessible_paths = super::storage::load_accessible_paths(state)?;
+
+    if accessible_paths.is_empty() {
+        return Err(ApiError::bad_request(
+            "no_accessible_paths",
+            "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
+        ));
+    }
+    if !accessible_paths.iter().any(|path| path == save_dir) {
+        return Err(ApiError::bad_request(
+            "save_dir_not_authorized",
+            "保存目录不在飞牛已授权目录列表中",
+        ));
+    }
+
+    Ok(())
+}
+
 fn classify_aria2_ready_error(error: String) -> ApiError {
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
@@ -205,7 +232,8 @@ mod tests {
         let mock = MockAria2Server::spawn().await;
         let (state, child_pid) = ready_state(&mock).await;
         let app = test_router(state.clone());
-        let save_dir = temp_dir("task-downloads");
+        let save_dir = temp_dir("task-downloads").display().to_string();
+        write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
         let created = response_json::<DownloadTask>(
             app.clone()
@@ -251,7 +279,8 @@ mod tests {
         let mock = MockAria2Server::spawn().await;
         let (state, child_pid) = ready_state(&mock).await;
         let app = test_router(state.clone());
-        let save_dir = temp_dir("task-downloads");
+        let save_dir = temp_dir("task-downloads").display().to_string();
+        write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
         let _ = app
             .clone()
@@ -377,6 +406,31 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn create_route_rejects_unauthorized_save_dir() {
+        let state = test_state().await;
+        write_accessible_paths(&state, &["/vol1/authorized".to_string()]);
+        let app = test_router(state);
+
+        let error = response_json::<ErrorResponse>(
+            app.oneshot(json_request(
+                "POST",
+                "/api/tasks",
+                &json!({
+                    "url": "https://example.com/archive.zip",
+                    "fileName": "archive.zip",
+                    "saveDir": "/vol1/other"
+                }),
+            ))
+            .await
+            .expect("response should succeed"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        assert_eq!(error.code, "save_dir_not_authorized");
+    }
+
     fn test_router(state: Arc<HttpAppState>) -> Router {
         Router::new().nest("/api", routes()).with_state(state)
     }
@@ -385,7 +439,8 @@ mod tests {
         let app_data_dir = temp_dir("tasks-api");
         let runtime = ServerRuntimeConfig {
             database_path: app_data_dir.join("motrix-fnos.sqlite"),
-            app_data_dir,
+            accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+            app_data_dir: app_data_dir.clone(),
             http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
             aria2_path: None,
         };
@@ -393,6 +448,14 @@ mod tests {
         bootstrap_http_app_state(&runtime)
             .await
             .expect("state should bootstrap")
+    }
+
+    fn write_accessible_paths(state: &Arc<HttpAppState>, paths: &[String]) {
+        std::fs::write(
+            &state.runtime.accessible_paths_path,
+            serde_json::to_vec(&json!({ "paths": paths })).expect("paths should serialize"),
+        )
+        .expect("accessible paths should write");
     }
 
     async fn ready_state(mock: &MockAria2Server) -> (Arc<HttpAppState>, u32) {

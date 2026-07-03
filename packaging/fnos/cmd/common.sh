@@ -15,6 +15,7 @@ RUNTIME_DIR="${PKG_VAR}/run"
 LOG_DIR="${PKG_VAR}/logs"
 PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
 SERVER_LOG="${LOG_DIR}/server.log"
+ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 
 prepare_runtime_dirs() {
@@ -25,6 +26,7 @@ export_runtime_env() {
   export MOTRIX_FNOS_APP_DATA_DIR="${APP_DATA_DIR}"
   export MOTRIX_FNOS_HTTP_ADDR="${HTTP_ADDR}"
   export MOTRIX_FNOS_ARIA2_PATH="${ARIA2_BIN}"
+  export MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE="${ACCESSIBLE_PATHS_FILE}"
 }
 
 read_pid() {
@@ -64,4 +66,33 @@ require_file() {
 log_msg() {
   mkdir -p "${LOG_DIR}"
   printf "%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" >> "${SERVER_LOG}"
+}
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+write_accessible_paths_file() {
+  mkdir -p "${PKG_VAR}"
+  tmp_file="${ACCESSIBLE_PATHS_FILE}.tmp"
+  printf '{"paths":[' > "${tmp_file}"
+
+  old_ifs="${IFS}"
+  IFS=':'
+  first=1
+  for accessible_path in ${TRIM_DATA_ACCESSIBLE_PATHS:-}; do
+    if [ -z "${accessible_path}" ]; then
+      continue
+    fi
+    if [ "${first}" -eq 0 ]; then
+      printf ',' >> "${tmp_file}"
+    fi
+    printf '"%s"' "$(json_escape "${accessible_path}")" >> "${tmp_file}"
+    first=0
+  done
+  IFS="${old_ifs}"
+
+  printf ']}\n' >> "${tmp_file}"
+  mv "${tmp_file}" "${ACCESSIBLE_PATHS_FILE}"
+  log_msg "已同步授权目录列表到 ${ACCESSIBLE_PATHS_FILE}"
 }
