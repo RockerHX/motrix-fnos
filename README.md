@@ -63,7 +63,8 @@ packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk
 非 Linux x86_64 主机进行交叉构建时，脚本会自动检查并安装缺失的 Rust target；仍需要先安装 `cargo-zigbuild` / `ziglang`：
 
 ```bash
-rtk python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang
+rtk cargo install --locked cargo-zigbuild
+rtk python3 -m pip install --user --break-system-packages ziglang
 ```
 
 如果只想验证 FPK 组装目录，不执行 `fnpack build`：
@@ -80,14 +81,6 @@ rtk pnpm run build:fpk:prepare
 - Pinia 状态管理与任务运行态管理模式
 - Rust 中的下载任务模型、Aria2 管理、SQLite 持久化、日志与 session 恢复逻辑
 - Linux x86_64 / ARM64 的 Aria2 Next sidecar 资产
-
-## Legacy 说明
-
-当前仓库仍保留 `src-tauri/`、Tauri 脚本和 `@tauri-apps/cli` 依赖。这些内容仅作为 **legacy 迁移来源和回归参照**：
-
-- 可用于复用业务逻辑和现有资产
-- 不再代表最终交付路线
-- 不应继续作为主线能力扩展
 
 ## 文档入口
 
@@ -112,16 +105,4 @@ Server 测试：
 
 ```bash
 rtk cargo test --manifest-path server/Cargo.toml
-```
-
-Legacy Tauri 回归测试：
-
-```bash
-rtk cargo test --manifest-path src-tauri/Cargo.toml
-```
-
-Legacy Tauri 启动命令仅用于维护旧链路，不代表最终 FPK 交付方式：
-
-```bash
-rtk pnpm tauri:dev
 ```
