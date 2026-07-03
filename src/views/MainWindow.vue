@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
@@ -12,6 +12,8 @@ import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
+import type { MainNavCategory } from "../types/navigation";
+import type { DownloadTask } from "../types/tasks";
 
 const props = defineProps<{
   appInfo: AppInfo | null;
@@ -27,6 +29,8 @@ const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
 const showSettings = ref(false);
+const activeCategory = ref<MainNavCategory>("downloading");
+const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
 
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
@@ -36,6 +40,10 @@ async function refreshPhaseStatus() {
 
 function openCreateDialog() {
   showCreateDialog.value = true;
+}
+
+function selectCategory(category: MainNavCategory) {
+  activeCategory.value = category;
 }
 
 async function handleTaskCreated() {
@@ -79,12 +87,32 @@ onMounted(() => {
   void refreshPhaseStatus();
   void refreshTasks(true);
 });
+
+function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCategory) {
+  switch (category) {
+    case "downloading":
+      return nextTasks.filter((task) => task.status === "pending" || task.status === "active");
+    case "completed":
+      return nextTasks.filter((task) => task.status === "complete");
+    case "stopped":
+      return nextTasks.filter((task) => task.status === "paused" || task.status === "error");
+    case "trash":
+    case "extensions":
+      return [];
+  }
+}
 </script>
 
 <template>
-  <AppShell :app-info="appInfo" @open-diagnostics="showDiagnostics = true" @open-settings="showSettings = true">
-    <TaskEmptyState v-if="tasks.length === 0" @create="openCreateDialog" />
-    <TaskTable v-else :tasks="tasks" />
+  <AppShell
+    :app-info="appInfo"
+    :active-category="activeCategory"
+    @open-diagnostics="showDiagnostics = true"
+    @open-settings="showSettings = true"
+    @select-category="selectCategory"
+  >
+    <TaskEmptyState v-if="visibleTasks.length === 0" @create="openCreateDialog" />
+    <TaskTable v-else :tasks="visibleTasks" />
 
     <template #overlay>
       <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>

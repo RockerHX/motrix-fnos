@@ -2,14 +2,17 @@
 import SidebarNav from "./SidebarNav.vue";
 import Topbar from "./Topbar.vue";
 import type { AppInfo } from "../types/app";
+import type { MainNavCategory } from "../types/navigation";
 
 defineProps<{
   appInfo: AppInfo | null;
+  activeCategory: MainNavCategory;
 }>();
 
 const emit = defineEmits<{
   openDiagnostics: [];
   openSettings: [];
+  selectCategory: [category: MainNavCategory];
 }>();
 
 function openDiagnostics() {
@@ -19,11 +22,20 @@ function openDiagnostics() {
 function openSettings() {
   emit("openSettings");
 }
+
+function selectCategory(category: MainNavCategory) {
+  emit("selectCategory", category);
+}
 </script>
 
 <template>
   <div class="window-shell">
-    <SidebarNav :app-info="appInfo" @open-settings="openSettings" />
+    <SidebarNav
+      :app-info="appInfo"
+      :active-category="activeCategory"
+      @open-settings="openSettings"
+      @select-category="selectCategory"
+    />
 
     <section class="main-area">
       <Topbar @open-diagnostics="openDiagnostics" />

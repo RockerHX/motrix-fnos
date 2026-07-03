@@ -1,16 +1,36 @@
 <script setup lang="ts">
 import type { AppInfo } from "../types/app";
+import type { MainNavCategory } from "../types/navigation";
 
 defineProps<{
   appInfo: AppInfo | null;
+  activeCategory: MainNavCategory;
 }>();
 
 const emit = defineEmits<{
   openSettings: [];
+  selectCategory: [category: MainNavCategory];
 }>();
+
+const navItems: Array<{
+  key: MainNavCategory;
+  icon: string;
+  label: string;
+  spaced?: boolean;
+}> = [
+  { key: "downloading", icon: "⇩", label: "Downloading" },
+  { key: "completed", icon: "✓", label: "Completed" },
+  { key: "stopped", icon: "Ⅱ", label: "Stopped" },
+  { key: "trash", icon: "♜", label: "Trash", spaced: true },
+  { key: "extensions", icon: "♧", label: "Extensions" },
+];
 
 function openSettings() {
   emit("openSettings");
+}
+
+function selectCategory(category: MainNavCategory) {
+  emit("selectCategory", category);
 }
 </script>
 
@@ -25,25 +45,15 @@ function openSettings() {
     </div>
 
     <nav class="category-list" aria-label="任务分类">
-      <button type="button" class="active">
-        <span class="nav-icon">⇩</span>
-        <span>Downloading</span>
-      </button>
-      <button type="button">
-        <span class="nav-icon">✓</span>
-        <span>Completed</span>
-      </button>
-      <button type="button">
-        <span class="nav-icon">Ⅱ</span>
-        <span>Stopped</span>
-      </button>
-      <button type="button" class="nav-spaced">
-        <span class="nav-icon">♜</span>
-        <span>Trash</span>
-      </button>
-      <button type="button">
-        <span class="nav-icon">♧</span>
-        <span>Extensions</span>
+      <button
+        v-for="item in navItems"
+        :key="item.key"
+        type="button"
+        :class="{ active: activeCategory === item.key, 'nav-spaced': item.spaced }"
+        @click="selectCategory(item.key)"
+      >
+        <span class="nav-icon">{{ item.icon }}</span>
+        <span>{{ item.label }}</span>
       </button>
     </nav>
 
