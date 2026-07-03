@@ -1,10 +1,30 @@
 <script setup lang="ts">
+withDefaults(
+  defineProps<{
+    title?: string;
+    description?: string;
+    showCreateAction?: boolean;
+    showSettingsAction?: boolean;
+  }>(),
+  {
+    title: "暂无任务",
+    description: "点击下方按钮或粘贴 HTTP / HTTPS 链接开始您的第一次下载。",
+    showCreateAction: true,
+    showSettingsAction: true,
+  },
+);
+
 const emit = defineEmits<{
   create: [];
+  openSettings: [];
 }>();
 
 function createTask() {
   emit("create");
+}
+
+function openSettings() {
+  emit("openSettings");
 }
 </script>
 
@@ -16,14 +36,14 @@ function createTask() {
         <span>+</span>
       </div>
     </div>
-    <h1>暂无任务</h1>
-    <p>点击下方按钮或粘贴 HTTP / HTTPS 链接开始您的第一次下载。</p>
-    <div class="empty-actions">
-      <button type="button" class="primary" @click="createTask">
+    <h1>{{ title }}</h1>
+    <p>{{ description }}</p>
+    <div v-if="showCreateAction || showSettingsAction" class="empty-actions">
+      <button v-if="showCreateAction" type="button" class="primary" @click="createTask">
         <span>＋</span>
         添加任务
       </button>
-      <button type="button" class="secondary">
+      <button v-if="showSettingsAction" type="button" class="secondary" @click="openSettings">
         <span>⚙</span>
         打开设置
       </button>

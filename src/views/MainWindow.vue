@@ -31,6 +31,51 @@ const showDiagnostics = ref(false);
 const showSettings = ref(false);
 const activeCategory = ref<MainNavCategory>("downloading");
 const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
+const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
+const showFloatingAdd = computed(() =>
+  ["downloading", "completed", "stopped"].includes(activeCategory.value),
+);
+
+const emptyStateByCategory: Record<
+  MainNavCategory,
+  {
+    title: string;
+    description: string;
+    showCreateAction: boolean;
+    showSettingsAction: boolean;
+  }
+> = {
+  downloading: {
+    title: "暂无下载中任务",
+    description: "点击添加任务，或粘贴 HTTP / HTTPS 链接开始下载。",
+    showCreateAction: true,
+    showSettingsAction: true,
+  },
+  completed: {
+    title: "暂无已完成任务",
+    description: "任务下载完成后会显示在这里。",
+    showCreateAction: false,
+    showSettingsAction: false,
+  },
+  stopped: {
+    title: "暂无已停止任务",
+    description: "暂停或下载失败的任务会显示在这里，可从列表中继续处理。",
+    showCreateAction: false,
+    showSettingsAction: false,
+  },
+  trash: {
+    title: "回收站暂无任务",
+    description: "删除后的任务记录会显示在这里。",
+    showCreateAction: false,
+    showSettingsAction: false,
+  },
+  extensions: {
+    title: "暂无扩展",
+    description: "扩展页面将在后续步骤提供说明。",
+    showCreateAction: false,
+    showSettingsAction: false,
+  },
+};
 
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
@@ -111,11 +156,27 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
     @open-settings="showSettings = true"
     @select-category="selectCategory"
   >
-    <TaskEmptyState v-if="visibleTasks.length === 0" @create="openCreateDialog" />
+    <TaskEmptyState
+      v-if="visibleTasks.length === 0"
+      :title="emptyState.title"
+      :description="emptyState.description"
+      :show-create-action="emptyState.showCreateAction"
+      :show-settings-action="emptyState.showSettingsAction"
+      @create="openCreateDialog"
+      @open-settings="showSettings = true"
+    />
     <TaskTable v-else :tasks="visibleTasks" />
 
     <template #overlay>
-      <button type="button" class="floating-add" aria-label="添加任务" @click="openCreateDialog">＋</button>
+      <button
+        v-if="showFloatingAdd"
+        type="button"
+        class="floating-add"
+        aria-label="添加任务"
+        @click="openCreateDialog"
+      >
+        ＋
+      </button>
 
       <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
       <SettingsDialog v-model:show="showSettings" />
