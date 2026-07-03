@@ -52,7 +52,7 @@ uname -m
 | 组装目录清理 | `packaging/fnos/app/data/` 不包含本地 SQLite/WAL/PID/日志残留 |  |  |
 | 包内包含 server | `app/bin/motrix-fnos-server` 存在且可执行 |  |  |
 | 包内包含 Aria2 | `app/bin/aria2-next` 存在且可执行 |  |  |
-| 包内包含 Web UI | `ui/dist/index.html` 存在 |  |  |
+| 包内包含 Web UI | `app/ui/dist/index.html` 存在 |  |  |
 
 ## 安装验证
 

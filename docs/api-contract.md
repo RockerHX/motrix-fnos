@@ -146,10 +146,9 @@
 }
 ```
 
-## 兼容策略
+## 协议策略
 
-- 阶段 2 保留 legacy `invoke` / `listen`；阶段 3 起前端主线切换为 HTTP / SSE，`src-tauri` 仅保留 Rust legacy 适配层
-- 在阶段 3 收口前，不提前删除 `src-tauri` command 与事件实现，确保双轨可回归
+- 当前前端主线固定采用 HTTP / SSE，不再保留 Tauri `invoke` / `listen` 兼容层
 - 首版 SSE 采用“整包快照”而非增量 diff，避免协议在前后端同时复杂化
 
 ## 与其他文档关系

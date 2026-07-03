@@ -171,7 +171,7 @@ packaging/fnos/app/data/
 
 ## 与 legacy Tauri 资产的边界
 
-`src-tauri/` 仍保留为 legacy 迁移来源和回归参照，但不再作为目标交付主线：
+legacy Tauri 资产已完成下线，当前仓库只保留 FPK 主线：
 
 - 不再把 Tauri window / tray / Dock / notification 作为长期运行模型。
 - 不再把 `tauri build` 作为 FPK 交付入口。
