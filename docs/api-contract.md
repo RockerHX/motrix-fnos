@@ -1,28 +1,25 @@
 # 前后端 HTTP / SSE API 契约
 
-## 目的
+> 本文档定义 Rust server 与 Vue Web UI 之间的接口边界。总体架构见 `docs/architecture.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；实机验证项见 `docs/fnos-manual-test-checklist.md`。
 
-定义 Rust server 与 Vue Web UI 之间的 HTTP API、SSE 事件流和错误响应约定。
+## 1. 运行时约定
 
-## 当前状态
+| 环境变量 | 作用 | 默认值 |
+| --- | --- | --- |
+| `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 | 用户本地数据目录下的 `motrix-fnos` |
+| `MOTRIX_FNOS_HTTP_ADDR` | HTTP 监听地址 | `127.0.0.1:17080` |
+| `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 
-阶段 2 / 阶段 3 已完成，HTTP API 与 SSE 已落地并被 Web UI 主线消费。当前文档作为阶段 5 飞牛实机验证时的接口验收依据。
+## 2. 前端消费约定
 
-## 运行时约定
+- Web UI 通过相对路径访问后端：`/api/*` 和 `/api/events`。
+- 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
+- JSON 接口使用浏览器原生 `fetch`。
+- SSE 使用浏览器原生 `EventSource`。
+- 错误提示优先展示响应体中的 `message`。
+- 目录选择、系统通知、开机自启等系统集成能力在 Web UI 中只保留安全降级行为。
 
-- `MOTRIX_FNOS_APP_DATA_DIR`：server 数据目录；未设置时回退到用户本地数据目录下的 `motrix-fnos`
-- `MOTRIX_FNOS_HTTP_ADDR`：监听地址；未设置时回退到 `127.0.0.1:17080`
-- `MOTRIX_FNOS_ARIA2_PATH`：显式指定 Aria2 可执行文件；未设置时按“打包路径优先、仓库调试路径兜底”解析
-
-## 前端消费方式
-
-- 前端阶段 3 起默认通过相对路径消费 HTTP API：`/api/*`。
-- 浏览器端不额外引入运行时 base URL 配置；开发态通过 Vite proxy 把 `/api` 与 `/api/events` 转发到 `http://127.0.0.1:17080`。
-- 前端统一使用浏览器原生 `fetch` 消费 JSON 接口，统一解析 `204 No Content` 与 `{ code, message }` 错误体，优先展示 `message`。
-- 前端事件流固定使用浏览器原生 `EventSource` 连接 `/api/events`；依赖浏览器自动重连能力，不额外引入 WebSocket 协议。
-- Web 版系统集成采用“保留并降级”策略：保存路径保留文本输入；开机自启/通知开关仅保存配置；不提供 HTTP 版 `quit_app`。
-
-## 错误响应
+## 3. 错误响应
 
 统一错误响应：
 
@@ -33,24 +30,28 @@
 }
 ```
 
-约定：
+状态码约定：
 
-- `400 Bad Request`：业务校验失败、请求参数非法
-- `409 Conflict`：运行时冲突，例如应用退出中、资源状态不允许当前操作
-- `500 Internal Server Error`：未预期内部错误
+| 状态码 | 含义 |
+| --- | --- |
+| `400 Bad Request` | 请求参数非法或业务校验失败 |
+| `409 Conflict` | 当前运行状态不允许执行该操作 |
+| `500 Internal Server Error` | 未预期内部错误 |
 
-## HTTP API
+`204 No Content` 响应不带 JSON body。
 
-所有 HTTP 路由均以 `/api` 为前缀，首版不做显式版本号。
+## 4. HTTP API
 
-### 应用信息
+所有 HTTP 路由均以 `/api` 为前缀，当前不设置显式版本号。
+
+### 4.1 应用信息
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
 | `GET` | `/api/app/info` | `AppInfo` |
 | `GET` | `/api/app/ping` | `BackendPing` |
 
-`AppInfo`
+示例：
 
 ```json
 {
@@ -60,26 +61,17 @@
 }
 ```
 
-`BackendPing`
-
-```json
-{
-  "ok": true,
-  "message": "Rust 后端通信正常"
-}
-```
-
-### Aria2
+### 4.2 Aria2
 
 | 方法 | 路径 | 说明 | 响应 |
 | --- | --- | --- | --- |
-| `GET` | `/api/aria2/config` | 读取当前 Aria2 配置状态 | `Aria2ConfigStatus` |
-| `GET` | `/api/aria2/process` | 读取当前受管进程状态 | `Aria2ProcessStatus` |
+| `GET` | `/api/aria2/config` | 读取 Aria2 配置状态 | `Aria2ConfigStatus` |
+| `GET` | `/api/aria2/process` | 读取受管进程状态 | `Aria2ProcessStatus` |
 | `GET` | `/api/aria2/rpc` | 读取 RPC 连通状态 | `Aria2RpcStatus` |
 | `POST` | `/api/aria2/start` | 启动受管 Aria2 | `Aria2ProcessStatus` |
 | `POST` | `/api/aria2/stop` | 停止受管 Aria2 | `Aria2ProcessStatus` |
 
-### 任务
+### 4.3 任务
 
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
@@ -88,9 +80,9 @@
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
-| `DELETE` | `/api/tasks/:id` | `?deleteFiles=true\|false` | `DownloadTask` |
+| `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
 
-`CreateDownloadTaskRequest`
+`CreateDownloadTaskRequest`：
 
 ```json
 {
@@ -100,7 +92,7 @@
 }
 ```
 
-### 设置
+### 4.4 设置
 
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
@@ -109,14 +101,14 @@
 | `GET` | `/api/ui-preferences` | - | `UiPreferences` |
 | `PUT` | `/api/ui-preferences` | `UiPreferences` | `UiPreferences` |
 
-### 调试日志
+### 4.5 调试日志
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
 | `GET` | `/api/debug-logs` | `DebugLogEntry[]` |
 | `DELETE` | `/api/debug-logs` | `204 No Content` |
 
-## SSE 事件流
+## 5. SSE 事件流
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -124,12 +116,13 @@
 
 约定：
 
-- 事件流格式使用标准 SSE
-- 连接建立后立即推送一次 `tasks.snapshot`
-- 仅当可见任务列表发生变化时再次推送 `tasks.snapshot`
-- 服务进入退出流程时推送一次 `runtime.exiting`
+- 格式使用标准 SSE。
+- 连接建立后立即推送一次 `tasks.snapshot`。
+- 可见任务列表发生变化时推送 `tasks.snapshot`。
+- 服务进入退出流程时推送 `runtime.exiting`。
+- 当前事件模型使用整包快照，不使用增量 diff。
 
-`tasks.snapshot`
+`tasks.snapshot`：
 
 ```json
 {
@@ -137,7 +130,7 @@
 }
 ```
 
-`runtime.exiting`
+`runtime.exiting`：
 
 ```json
 {
@@ -145,14 +138,3 @@
   "timestamp": 1760000000000
 }
 ```
-
-## 协议策略
-
-- 当前前端主线固定采用 HTTP / SSE
-- 首版 SSE 采用“整包快照”而非增量 diff，避免协议在前后端同时复杂化
-
-## 与其他文档关系
-
-- 总体架构边界见 `docs/architecture.md`。
-- FPK 交付与部署要求见 `docs/fpk-packaging.md`。
-- 实机验证项见 `docs/fnos-manual-test-checklist.md`。
