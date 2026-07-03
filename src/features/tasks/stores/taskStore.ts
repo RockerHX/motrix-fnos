@@ -4,6 +4,7 @@ import {
   createDownloadTask,
   deleteDownloadTask,
   listDownloadTasks,
+  listRemovedDownloadTasks,
   pauseDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
@@ -22,10 +23,12 @@ interface RefreshTasksResult {
 
 export const useTaskStore = defineStore("tasks", () => {
   const tasks = ref<DownloadTask[]>([]);
+  const removedTasks = ref<DownloadTask[]>([]);
   const isCreating = ref(false);
   const isRefreshing = ref(false);
   const operatingTaskIds = ref<number[]>([]);
   const lastRefreshErrorAt = ref(0);
+  const lastRemovedRefreshErrorAt = ref(0);
   const notifiedErrorTaskKeys = new Set<string>();
   const hasLoadedTasks = ref(false);
   const pendingTaskErrorMessages = ref<string[]>([]);
@@ -53,6 +56,28 @@ export const useTaskStore = defineStore("tasks", () => {
       const shouldReport = options.showError || now - lastRefreshErrorAt.value > 10000;
       if (shouldReport) {
         lastRefreshErrorAt.value = now;
+        return { refreshError: getErrorMessage(error), taskErrorMessages: [] };
+      }
+      return { taskErrorMessages: [] };
+    } finally {
+      isRefreshing.value = false;
+    }
+  }
+
+  async function refreshRemovedTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
+    if (isRuntimeExiting.value) {
+      return { taskErrorMessages: [] };
+    }
+
+    try {
+      isRefreshing.value = true;
+      removedTasks.value = await listRemovedDownloadTasks();
+      return { taskErrorMessages: [] };
+    } catch (error) {
+      const now = Date.now();
+      const shouldReport = options.showError || now - lastRemovedRefreshErrorAt.value > 10000;
+      if (shouldReport) {
+        lastRemovedRefreshErrorAt.value = now;
         return { refreshError: getErrorMessage(error), taskErrorMessages: [] };
       }
       return { taskErrorMessages: [] };
@@ -207,6 +232,7 @@ export const useTaskStore = defineStore("tasks", () => {
 
   return {
     tasks,
+    removedTasks,
     isCreating,
     isRefreshing,
     operatingTaskIds,
@@ -219,6 +245,7 @@ export const useTaskStore = defineStore("tasks", () => {
     redownloadTask,
     deleteTask,
     refreshTasks,
+    refreshRemovedTasks,
     applyTaskSnapshot,
     markRuntimeExiting,
     consumeTaskErrorMessages,

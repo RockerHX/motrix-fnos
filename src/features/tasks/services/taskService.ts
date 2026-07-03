@@ -9,6 +9,10 @@ export function listDownloadTasks(): Promise<DownloadTask[]> {
   return httpGet<DownloadTask[]>("/api/tasks");
 }
 
+export function listRemovedDownloadTasks(): Promise<DownloadTask[]> {
+  return httpGet<DownloadTask[]>("/api/tasks?status=removed");
+}
+
 export function pauseDownloadTask(taskId: number): Promise<DownloadTask> {
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/pause`);
 }

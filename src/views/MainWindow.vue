@@ -23,7 +23,7 @@ const props = defineProps<{
 
 const message = useMessage();
 const taskStore = useTaskStore();
-const { tasks } = storeToRefs(taskStore);
+const { tasks, removedTasks } = storeToRefs(taskStore);
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
@@ -89,6 +89,9 @@ function openCreateDialog() {
 
 function selectCategory(category: MainNavCategory) {
   activeCategory.value = category;
+  if (category === "trash") {
+    void refreshRemovedTasks(true);
+  }
 }
 
 async function handleTaskCreated() {
@@ -102,6 +105,13 @@ async function refreshTasks(showError = false) {
     message.error(result.refreshError);
   }
   flushTaskErrorMessages();
+}
+
+async function refreshRemovedTasks(showError = false) {
+  const result = await taskStore.refreshRemovedTasks({ showError });
+  if (result.refreshError) {
+    message.error(result.refreshError);
+  }
 }
 
 function flushTaskErrorMessages() {
@@ -141,9 +151,10 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
       return nextTasks.filter((task) => task.status === "complete");
     case "stopped":
       return nextTasks.filter((task) => task.status === "paused" || task.status === "error");
-    case "trash":
     case "extensions":
       return [];
+    case "trash":
+      return removedTasks.value;
   }
 }
 </script>
