@@ -1,292 +1,161 @@
-# 飞牛版 Motrix 阶段性开发计划
+# 飞牛版 Motrix 开发计划
 
-> 本文档只负责记录阶段目标、具体任务、完成状态、优先级和验收标准。整体技术架构、前后端职责边界、UI 组件策略和目录规范见 `docs/architecture.md`。
-
-> 当前主线为 FPK-first，长期维护范围仅保留 `server/`、`src/` 与 `packaging/fnos/`。
+> 本文档记录当前阶段状态、已完成里程碑、优先级和验收标准。长期架构边界见 `docs/architecture.md`；HTTP / SSE 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；实机验收记录见 `docs/fnos-manual-test-checklist.md`。
 
 ## 1. 项目目标
 
-本项目的最终目标是在飞牛 fnOS 上交付一个可安装、可运行、可维护的 **FPK 下载管理应用**。
+在飞牛 fnOS 上交付一个可安装、可运行、可维护的 **FPK 下载管理应用**。
 
-当前确定方向：
+当前主线：
 
-- 最终交付形态：**FPK + fnOS 服务 + Web UI**
-- 后端主线：**Rust server + Axum**
-- 前端主线：**Vue 3 + TypeScript + Vite + Naive UI + Pinia**
-- 核心下载引擎：**Aria2 Next sidecar**
-- 本地持久化：**SQLite**
-- 运行时事件：**HTTP API + SSE（或等价事件流）**
+- 交付形态：FPK + fnOS 服务 + Web UI。
+- 后端：Rust server + Axum。
+- 前端：Vue 3 + TypeScript + Vite + Naive UI + Pinia。
+- 下载引擎：Aria2 Next sidecar。
+- 本地持久化：SQLite。
+- 通信：HTTP API + SSE。
 
-## 2. 产品阶段目标
+长期维护范围以 `server/`、`src/`、`packaging/fnos/` 为主。
 
-### 2.1 当前阶段目标
+## 2. 当前状态
 
-先完成架构纠偏，统一文档和验收口径。
-
-### 2.2 中期阶段目标
-
-完成 Rust 核心抽离、HTTP/SSE 通信改造和前端 Web UI 化，形成可独立运行的服务化下载应用。
-
-### 2.3 最终阶段目标
-
-建立 FPK 打包链路并完成飞牛实机验证，满足安装、启动、停止、卸载和基础下载闭环要求。
-
-## 3. 当前状态摘要
-
-更新时间：2026-07-02
+更新时间：2026-07-03
 
 当前阶段：**阶段 5：飞牛实机安装和基础功能验证（进行中）**
 
-已确认的可迁移资产：
+已完成：
 
-- Vue 3 + Naive UI 的任务管理、诊断和设置界面结构。
-- Pinia 状态管理与任务轮询/运行态管理模式。
-- Rust 中的下载任务模型、Aria2 管理、SQLite 持久化、日志队列和 session 恢复逻辑。
-- Linux x86_64 / ARM64 的 Aria2 Next sidecar 资产与下载脚本。
+- 前端已切到 HTTP API / SSE 主线，浏览器可通过 `/api/*` 与 `/api/events` 调用后端。
+- 后端已落地 Axum API、SSE 事件流、Aria2 进程管理、SQLite 持久化、任务同步和退出收口。
+- FPK 目录、manifest、权限配置、Web UI 入口、启动/停止/状态脚本已建立。
+- 打包脚本可输出 x86 与 ARM FPK：
+  - `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`
+  - `packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`
+- 已确认 FPK 必须与设备 CPU 架构匹配；x86 包不能安装到 OES / A311D 等 ARM 飞牛设备。
 
-当前主要问题：
+未完成：
 
-- 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
-- 阶段 4 已完成：FPK 目录骨架、基础图标、Linux x86_64 server 构建入口、Web UI 打包输出、Aria2 sidecar 放置规则、启动/停止/状态脚本、manifest/UI 入口配置以及本地/CI 统一打包入口已建立，且已生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
-- 当前进入阶段 5 实机测试：已确认 x86 包无法安装到 OES / A311D 等 ARM 飞牛设备，已补充双架构构建入口，需使用 ARM FPK 继续验证。
-- 尚未完成飞牛实机安装、启动、停止、卸载与下载闭环验证。
+- 尚未完成真实飞牛设备上的安装、启动、停止、卸载和基础下载闭环验证。
+- 尚未完成 HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看和 session 恢复的实机验收。
 
-当前阶段已完成摘要：
+当前约束：
 
-- 阶段 0 文档纠偏已完成，主线决策已统一到 FPK-first。
-- 阶段 1 已建立 `server/` 核心库，并完成 `config`、`debug_logs`、`database`、`tasks`、纯 `aria2`、`ServerState` 抽离。
-- `server::settings::service` 与 `server::tasks::service` 已承接业务编排，Rust 主线已完全收口到 `server/`。
-- `server/` 可独立测试，Web UI 与 FPK 打包链路已完成统一验证。
-- 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口。
-- `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件流与 Tokio 后台任务同步已落地。
-- server 退出流程已具备“广播退出事件 → 同步任务 → 暂停未完成任务并持久化 → 保存 Aria2 session → 停止受管进程 → 成功后清理运行态记录”的收口顺序，阶段 2 验收项已闭环。
-- 阶段 3 已完成：前端服务层、任务流和运行时事件已切换到 HTTP / SSE，Web 降级策略已收口。
+- 阶段 5 期间优先做实机验证和打包稳定性收尾，不新增非必要功能。
+- x86 设备安装 `motrix.fnos_0.1.0_x86.fpk`。
+- `aarch64` / `arm64` 设备安装 `motrix.fnos_0.1.0_arm.fpk`。
+- 实机失败项优先从 manifest、权限、运行目录、端口、服务脚本和文件夹授权排查。
 
-当前阶段约束：
+## 3. 阶段里程碑
 
-- 阶段 5 期间，优先验证真实飞牛安装和最小下载闭环，不新增非必要功能。
-- FPK 必须与设备 CPU 架构匹配；x86 包只用于 x86 飞牛，OES / A311D 等 ARM 设备必须使用 ARM 包。
-- 当前剩余工作集中在实机验证与打包稳定性收尾。
+### 阶段 0：架构纠偏（✅ 已完成）
 
-## 4. 阶段 0：架构纠偏（✅ 已完成）
+目标：统一项目方向、文档边界和验收口径，明确 FPK-first 主线。
 
-### 4.1 目标
+完成结论：
 
-先修正文档、阶段定义和验收标准，确保后续实现围绕 FPK 交付模型推进。
-
-### 4.2 已完成小任务
-
-- P0-1：阶段 0 执行清单已建立。✅
-- P0-2：架构目标与总体技术路线已切换到 FPK-first。✅
-- P0-3：架构分层、数据流和运行时表述已切换到服务化模型。✅
-- P0-4：开发计划的目标与现状描述已重置。✅
-- P0-5：已新增纠偏阶段并重排后续路线。✅
-- P0-6：README 已与整改方向对齐。✅
-- P0-7：阶段 0 文档骨架已建立。✅
-- P0-8：文档一致性检查与阶段收口已完成。✅
-
-### 4.3 本阶段完成结论
-
-- 主文档已切换到 FPK / Rust server / Web UI 的统一叙述。
-- README 已收口为 FPK 主线说明。
-- API 契约、打包说明和实机测试文档骨架已建立。
-- 下一阶段应继续围绕 FPK 主线的实机安装、下载闭环与体验问题推进。
-
-### 4.4 完成标准
-
-- 主文档统一为 FPK 主线叙述。
-- 后续阶段全部以 FPK / Rust server / Web UI 为验收方向。
-- README 与新增文档骨架完成后，可进入 Rust 核心抽离阶段。
+- 架构文档已收口为 FPK / Rust server / Web UI 模型。
+- 开发计划、README、API 契约、打包说明和实机测试清单已建立。
+- 后续工作统一围绕 fnOS FPK 交付推进。
 
 状态：✅ 已完成（2026-07-01）。
 
-## 5. 后续阶段路线
+### 阶段 1：抽出 Rust 业务核心（✅ 已完成）
 
-### 5.1 阶段 1：抽出 Rust 业务核心
+目标：把 Rust 业务能力收口到独立 server 主线。
 
-目标：把可复用业务抽离到独立 server 主线。
+完成结论：
 
-当前小任务状态：
-
-- P1-1：阶段 1 执行清单已建立。✅
-- P1-2：`server/` 核心库 crate 已建立。✅
-- P1-3：`config` 与 `debug_logs` 已抽取到 `server/`。✅
-- P1-4：`database` 已抽取到 `server/`。✅
-- P1-5：`tasks` 领域核心已抽取到 `server/`。✅
-- P1-6：纯 `aria2` 核心与旧进程适配已拆分。✅
-- P1-7：`ServerState` 已抽取，`AppState` 已变为薄适配层。✅
-- P1-8：`settings` / `tasks` 服务层已拆分并完成阶段收口。✅
-
-核心任务：
-
-- 建立 `server/` 或等价 Rust crate。
-- 迁移 `tasks`、`aria2`、`database`、`debug_logs`、`config`。
-- 去掉核心业务对应用壳状态对象与句柄的依赖。
-- 改造数据目录为 FPK/server config 注入。
-
-验收：
-
-- `cargo test` 可在 server crate 独立运行。
-- 核心业务可在 server crate 独立运行。
-
-阶段结论：
-
-- `server/` 已成为 Rust 业务核心承载地，后续可在其上继续引入 HTTP API 与 server 二进制入口。
-- `server/` 已完全承接 Rust 主线职责。
-- 当前已满足阶段 2 启动条件。
+- `server/` 已成为 Rust 业务核心承载地。
+- `config`、`debug_logs`、`database`、`tasks`、`aria2`、`settings` 等核心能力已进入 server 主线。
+- 业务编排已由 service 层承接，后续可在其上继续扩展 HTTP API 与 FPK 运行时能力。
 
 状态：✅ 已完成（2026-07-02）。
 
-### 5.2 阶段 2：实现 HTTP API 和事件流
+### 阶段 2：实现 HTTP API 和事件流（✅ 已完成）
 
-目标：建立 Axum + SSE 的 HTTP API 与事件机制。
+目标：建立 Axum + SSE 的后端服务接口。
 
-当前小任务状态：
+完成结论：
 
-- P2-1：阶段 2 执行清单与 API 契约初稿已建立。✅
-- P2-2：独立 server 启动入口与运行时配置已建立。✅
-- P2-3：server 侧 Aria2 进程管理。✅
-- P2-4：Axum 基础接口与统一错误响应。✅
-- P2-5：设置与调试日志 HTTP 接口。✅
-- P2-6：任务 HTTP 接口与自动拉起 Aria2。✅
-- P2-7：SSE 事件流与后台任务同步。✅
-- P2-8：优雅关闭与阶段收口。✅
+- `/api/*` 路由、统一错误响应、设置接口、调试日志接口、任务接口和 Aria2 管理接口已落地。
+- `/api/events` 已提供 `tasks.snapshot` 与 `runtime.exiting` 事件。
+- 后台任务同步与退出收口已迁入 Tokio runtime。
+- server 停止时可广播退出事件、同步任务、保存 Aria2 session，并停止当前管理的 Aria2 实例。
 
-核心任务：
+状态：✅ 已完成（2026-07-02）。
 
-- 建立 `/api/*` 路由。
-- 提供统一错误响应。
-- 建立 SSE 运行时事件流。
-- 把后台任务同步迁移为 Tokio task。
+### 阶段 3：前端迁移到 HTTP API（✅ 已完成）
 
-验收：
+目标：让 Vue UI 作为普通 Web UI 运行，消费 HTTP API 与 SSE。
 
-- 可通过 HTTP 管理下载任务。
-- 服务停止时可保存 session 并停止当前管理的 Aria2。
+完成结论：
 
-阶段进展说明：
+- 前端服务层已切换到 `fetch` + 相对路径 API。
+- 运行时事件已切换到浏览器原生 `EventSource`。
+- 任务列表刷新主路径已切到 SSE 快照。
+- 目录选择、通知、开机自启等系统集成能力已按 Web 安全边界降级。
 
-- 已先锁定阶段 2 的运行时约定：`MOTRIX_FNOS_APP_DATA_DIR`、`MOTRIX_FNOS_HTTP_ADDR`、`MOTRIX_FNOS_ARIA2_PATH`。
-- 事件流固定采用 SSE，不引入 WebSocket。
-- 首版 SSE 采用“整包任务快照 + 退出事件”模型，避免在阶段 2 提前引入前后端增量同步复杂度。
-- `server/src/main.rs`、`ServerRuntimeConfig` 与 `HttpAppState` 已建立，独立 server 主线现在可以完成状态初始化并等待停止信号。
-- `server` 已新增 `/api/events`，连接建立后立即推送 `tasks.snapshot`，后台 monitor 每 5 秒同步可见任务变化并广播快照。
-- server 停止信号处理已迁入统一 shutdown cleanup，可在退出时广播 `runtime.exiting` 并完成任务/Aria2 收尾。
+状态：✅ 已完成（2026-07-02）。
 
-### 5.3 阶段 3：前端迁移到 HTTP API
+### 阶段 4：建立 FPK 打包链路（✅ 已完成）
 
-目标：把前端主线切到 HTTP + SSE，让 Vue UI 可作为普通 Web UI 运行，同时不新增后端协议。
+目标：生成可用于 fnOS 安装验证的 FPK 产物。
 
-当前小任务状态：
+完成结论：
 
-- P3-1：文档清单与前端迁移矩阵落表。已完成
-- P3-2：Web HTTP 基础设施与开发代理。已完成
-- P3-3：迁移基础服务到 HTTP。已完成
-- P3-4：迁移任务服务并降级目录选择交互。已完成
-- P3-5：新增前端 SSE 运行时事件服务。已完成
-- P3-6：切换任务刷新主路径到 SSE 快照。已完成
-- P3-7：将系统集成功能降级为 Web 安全行为。已完成
-- P3-8：收口前端主线路径并完成阶段 3 验收。已完成
+- `packaging/fnos/` 目录、manifest、config、cmd、wizard、图标和 Web UI 入口已建立。
+- Rust server、Web UI 静态资源和 Aria2 Next sidecar 已纳入 FPK 组装流程。
+- `cmd/start`、`cmd/stop`、`cmd/status` 已建立服务生命周期入口。
+- `pnpm run build:fpk` 可执行双架构构建；也可分别执行 `build:fpk:x64` 与 `build:fpk:arm64`。
 
-核心任务：
+状态：✅ 已完成（2026-07-02）。
 
-- 新增统一 HTTP client，并把开发态切换到浏览器 + Vite proxy 主线。
-- 替换 `invoke` / `listen` 依赖，消费阶段 2 已有 `/api/*` 与 `/api/events`。
-- 把任务列表刷新改为“首次拉取 + SSE 快照驱动 + 操作后必要补刷”。
-- 收口前端调用路径，并把系统集成功能降级为纯 Web 安全行为。
-
-验收：
-
-- `pnpm run build` 生成纯 Web 静态资源。
-- 浏览器可直接访问 Web UI 并调用后端。
-- `src/` 内仅保留 HTTP / SSE 主线路径。
-
-阶段进展说明：
-
-- 阶段 3 不新增后端 API，完全复用阶段 2 已落地的 `/api/*` 与 `/api/events` 契约。
-- 前端事件流固定采用浏览器原生 `EventSource`，只消费 `tasks.snapshot` 与 `runtime.exiting` 两类事件。
-- Web 版系统集成采用“保留并降级”策略：目录选择改为手填；开机自启/通知开关仅保存配置；不提供 HTTP 版 `quit_app`。
-- 阶段 3 验收已闭环：前端源码已统一收口到 HTTP / SSE 主线，主线验证通过。
-
-### 5.4 阶段 4：建立 FPK 打包链路
-
-目标：生成可在飞牛应用中心安装的 `.fpk`。
-
-当前小任务状态：
-
-- P4-1.1：生成基准 FPK 目录结构。已完成
-- P4-1.2：补齐基础图标与资源占位。已完成
-- P4-2.1：补齐 Linux x86_64 server 构建产物。已完成
-- P4-2.2：打通 Vue `dist/` 输出。已完成
-- P4-2.3：整理 Aria2 Next sidecar 放置规则。已完成
-- P4-3.1：编写 FPK 启动脚本。已完成
-- P4-3.2：编写 FPK 停止脚本。已完成
-- P4-3.3：编写 FPK 状态脚本。已完成
-- P4-3.4：补齐 manifest 与权限配置。已完成
-- P4-4.1：新增 FPK 一键打包脚本。已完成
-- P4-4.2：统一脚本与 CI 构建入口。已完成
-- P4-5.1：执行完整打包验证。已完成
-- P4-5.2：更新阶段 4 文档状态。已完成
-
-核心任务：
-
-- 建立 `packaging/fnos/` 目录与 `fnpack` 链路。
-- 放入 Rust server 二进制、Web UI `dist/` 和 Linux Aria2 sidecar。
-- 编写 `cmd/start`、`cmd/stop`、`cmd/status`。
-- 配置 manifest、入口、端口、权限和图标。
-
-验收：
-
-- `pnpm run build:fpk` / `fnpack build` 可生成 `.fpk`。
-- 已生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
-- 下一阶段进入飞牛实机安装与基础功能验证。
-
-### 5.5 阶段 5：飞牛实机安装和基础功能验证
+### 阶段 5：飞牛实机安装和基础功能验证（进行中）
 
 目标：确认最小可用闭环。
 
-当前状态：进行中。已生成 x86 FPK，但在 OES / A311D ARM 飞牛上安装失败，原因是包平台与设备架构不匹配；下一步应使用双架构构建产物中的 ARM FPK 继续实机验证。
+当前任务：
 
-核心任务：
-
-- 按设备架构构建并安装 `.fpk`：x86 设备使用 x86 包，ARM 设备使用 ARM 包。
+- 按设备架构构建并安装 FPK。
 - 启动服务并打开 Web UI。
-- 验证 HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看。
+- 验证 `/api/app/ping`、任务列表、SSE 刷新和退出态提示。
+- 验证 HTTP/HTTPS 下载、暂停、继续、删除。
+- 验证设置保存、诊断日志查看与清空。
 - 验证停止服务后的 session 保存和重启恢复。
+- 验证卸载后端口、进程和运行态文件无明显残留。
 
-验收：
+验收标准：
 
-- 基础下载闭环在飞牛上可用。
-- FPK 安装、启动、停止、卸载无明显残留。
+- 匹配架构的 FPK 可安装。
+- 应用可启动、停止、查询状态。
+- Web UI 可打开并调用后端 API。
+- HTTP/HTTPS 下载、暂停、继续、删除可用。
+- 设置、日志和 session 恢复可用。
+- 卸载无明显残留。
 
-## 6. 已有基础与可复用能力
+状态：进行中。
 
-以下内容构成当前主线的直接基础：
+## 4. 当前优先级
 
-- 已完成的任务列表 UI、诊断日志 UI、设置 UI 和 Naive UI / Pinia 分层。
-- Rust 侧下载任务模型、Aria2 管理、SQLite 持久化、调试日志与退出清理经验。
-- 已验证的 Aria2 Next sidecar 资产管理与多平台下载脚本。
+1. 使用匹配架构的 FPK 完成真实飞牛安装验证：
+   - x86 设备：`motrix.fnos_0.1.0_x86.fpk`
+   - ARM 设备：`motrix.fnos_0.1.0_arm.fpk`
+2. 完成启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看和 session 恢复验证。
+3. 完成卸载残留检查。
+4. 根据实机失败项修正 FPK manifest、权限、运行目录、端口、服务脚本或文件夹授权，并同步更新手测清单。
 
-说明：
+## 5. 验证记录
 
-- 这些成果已经纳入当前 FPK 主线，可直接继续演进。
-- 如需查阅历史行为，以现有代码和提交记录为准。
+最近一次文档更新前已确认：
 
-## 7. 当前优先级
+- `rtk pnpm run typecheck` 通过。
+- `rtk cargo test --manifest-path server/Cargo.toml` 通过。
 
-1. 运行双架构 FPK 构建，使用 `motrix.fnos_0.1.0_arm.fpk` 在 OES / A311D 等 ARM 飞牛上确认可安装。
-2. 在真实飞牛上完成启动、停止、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置保存、日志查看和 session 恢复验证。
-3. 根据实机失败项修正 FPK manifest、权限、运行目录、端口或服务脚本，并同步更新手测清单。
+本次文档更新不新增、不删除、不修改 HTTP API、SSE 事件、环境变量、FPK manifest 字段或构建命令。
 
-## 8. 验收原则
+## 6. 文档关系
 
-- 优先验证方向是否正确，再验证实现是否完整。
-- 阶段 0 只做文档与验收口径治理，不把代码迁移混入其中。
-- 每个后续阶段都必须有可独立验证的交付物，不允许长期停留在“半迁移状态”。
-- 若架构文档、开发计划和整改计划冲突，以 `docs/architecture.md` 的长期边界和整改计划的当前优先级为准。
-
-## 9. 总体判断
-
-当前项目已经形成完整的 FPK-first 服务化主线，具备继续收敛交付与实机验证的基础。
-
-阶段 0 到阶段 4 已完成，当前关键是在真实飞牛设备上验证 `server`、Web UI、Aria2 sidecar 和 FPK 生命周期是否形成可交付闭环。
+- `docs/architecture.md`：长期架构边界。
+- `docs/api-contract.md`：前后端接口契约。
+- `docs/fpk-packaging.md`：FPK 构建命令、产物路径和排障入口。
+- `docs/fnos-manual-test-checklist.md`：阶段 5 实机验收记录模板。
