@@ -273,6 +273,8 @@ mod tests {
     use std::sync::Mutex;
     use tower::ServiceExt;
 
+    static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     #[tokio::test]
     async fn create_and_list_routes_work_with_ready_aria2() {
         let mock = MockAria2Server::spawn().await;
@@ -733,9 +735,12 @@ mod tests {
     }
 
     fn temp_dir(label: &str) -> PathBuf {
+        let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
         std::env::temp_dir().join(format!(
-            "motrix-fnos-{}-{}",
+            "motrix-fnos-{}-{}-{}-{}",
             label,
+            std::process::id(),
+            counter,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time should be valid")
