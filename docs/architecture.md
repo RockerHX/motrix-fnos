@@ -37,7 +37,7 @@
 
 - 可复用其中的业务逻辑、前端 UI、状态管理、Aria2 管理和 SQLite 资产。
 - 不再把 Tauri 2 写作当前正式应用壳。
-- 不再把 `tauri build`、窗口/托盘能力或 Tauri command 作为目标交付路线。
+- 不再把桌面壳构建链路、窗口/托盘能力或 Tauri command 作为目标交付路线。
 
 ## 3. 总体目标架构
 
@@ -303,7 +303,7 @@ server/
 - `api/` 只负责 HTTP handler 和请求/响应转换。
 - `services/` 负责业务流程编排。
 - `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持清晰边界。
-- 现有 `src-tauri/` 目录在迁移完成前仅作为 legacy 参考来源，不再承载长期架构决策。
+- legacy Tauri 工程目录已下线，不再承载任何长期架构决策。
 
 ## 8. 标准数据流与事件流
 

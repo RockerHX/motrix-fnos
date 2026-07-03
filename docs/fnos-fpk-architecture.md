@@ -174,7 +174,7 @@ packaging/fnos/app/data/
 legacy Tauri 资产已完成下线，当前仓库只保留 FPK 主线：
 
 - 不再把 Tauri window / tray / Dock / notification 作为长期运行模型。
-- 不再把 `tauri build` 作为 FPK 交付入口。
+- 不再把桌面壳构建链路作为 FPK 交付入口。
 - 不新增 Tauri-only 主线能力。
 - server、Web UI 和 FPK 脚本才是当前交付闭环。
 
