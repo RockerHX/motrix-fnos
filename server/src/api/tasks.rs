@@ -26,10 +26,41 @@ struct DeleteTaskQuery {
     delete_files: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+struct ListTasksQuery {
+    status: Option<String>,
+}
+
+enum ListTasksFilter {
+    Visible,
+    Removed,
+}
+
+impl ListTasksQuery {
+    fn filter(&self) -> Result<ListTasksFilter, ApiError> {
+        match self.status.as_deref().map(str::trim) {
+            None | Some("") => Ok(ListTasksFilter::Visible),
+            Some("removed") => Ok(ListTasksFilter::Removed),
+            Some(status) => Err(ApiError::bad_request(
+                "task_status_filter_invalid",
+                format!("不支持的任务状态筛选：{}", status),
+            )),
+        }
+    }
+}
+
 async fn list_tasks(
     State(state): State<Arc<HttpAppState>>,
+    Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<DownloadTask>>, ApiError> {
     let service = task_service(&state);
+    if matches!(query.filter()?, ListTasksFilter::Removed) {
+        let tasks = service
+            .list_removed_download_tasks()
+            .map_err(classify_task_error)?;
+        return Ok(Json(tasks));
+    }
+
     let config = if state.core.is_exiting.load(Ordering::SeqCst) {
         state.aria2_config()
     } else {
@@ -345,18 +376,34 @@ mod tests {
         assert_eq!(removed.status, DownloadTaskStatus::Removed);
 
         let listed = response_json::<Vec<DownloadTask>>(
-            app.oneshot(
-                Request::builder()
-                    .uri("/api/tasks")
-                    .body(Body::empty())
-                    .expect("list request should build"),
-            )
-            .await
-            .expect("list response should succeed"),
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/tasks")
+                        .body(Body::empty())
+                        .expect("list request should build"),
+                )
+                .await
+                .expect("list response should succeed"),
             StatusCode::OK,
         )
         .await;
         assert!(listed.is_empty());
+
+        let removed_list = response_json::<Vec<DownloadTask>>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/tasks?status=removed")
+                    .body(Body::empty())
+                    .expect("removed list request should build"),
+            )
+            .await
+            .expect("removed list response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(removed_list.len(), 1);
+        assert_eq!(removed_list[0].status, DownloadTaskStatus::Removed);
 
         cleanup_state(&state, child_pid);
         mock.abort();
@@ -404,6 +451,59 @@ mod tests {
             .await;
             assert_eq!(error.code, "runtime_exiting");
         }
+    }
+
+    #[tokio::test]
+    async fn list_removed_tasks_does_not_require_ready_aria2() {
+        let state = test_state().await;
+        state
+            .core
+            .download_tasks
+            .lock()
+            .expect("tasks should lock")
+            .extend([
+                sample_task(1, DownloadTaskStatus::Active),
+                sample_task(2, DownloadTaskStatus::Removed),
+            ]);
+        let app = test_router(state);
+
+        let removed_list = response_json::<Vec<DownloadTask>>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/tasks?status=removed")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+
+        assert_eq!(removed_list.len(), 1);
+        assert_eq!(removed_list[0].id, 2);
+        assert_eq!(removed_list[0].status, DownloadTaskStatus::Removed);
+    }
+
+    #[tokio::test]
+    async fn list_tasks_rejects_unsupported_status_filter() {
+        let state = test_state().await;
+        let app = test_router(state);
+
+        let error = response_json::<ErrorResponse>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/tasks?status=active")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        assert_eq!(error.code, "task_status_filter_invalid");
     }
 
     #[tokio::test]
@@ -525,6 +625,25 @@ mod tests {
                 serde_json::to_vec(payload).expect("payload should serialize"),
             ))
             .expect("request should build")
+    }
+
+    fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
+        DownloadTask {
+            id,
+            url: format!("https://example.com/archive-{id}.zip"),
+            file_name: format!("archive-{id}.zip"),
+            save_dir: "/downloads".to_string(),
+            gid: Some(format!("gid-{id}")),
+            status,
+            total_length: 1024,
+            completed_length: 256,
+            download_speed: 0,
+            error_code: None,
+            error_message: None,
+            file_path: Some(format!("/downloads/archive-{id}.zip")),
+            created_at: id,
+            updated_at: id,
+        }
     }
 
     fn temp_dir(label: &str) -> PathBuf {

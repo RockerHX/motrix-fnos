@@ -5,8 +5,8 @@ use crate::database::tasks::{
 use crate::debug_logs::DebugLogStore;
 use crate::settings::service::load_app_config_from_pool;
 use crate::tasks::{
-    add_uri_to_aria2, is_stale_aria2_gid_error, mark_task_paused, mark_task_redownloaded,
-    delete_task_files, mark_task_removed, mark_task_resumed, pause_task,
+    add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error, mark_task_paused,
+    mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
     should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
@@ -99,6 +99,11 @@ impl<'a> TaskService<'a> {
         self.sync_tasks_to_database(&tasks).await?;
 
         Ok(visible_tasks(tasks))
+    }
+
+    pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {
+        let tasks = crate::tasks::list_tasks(self.download_tasks)?;
+        Ok(removed_tasks(tasks))
     }
 
     pub async fn pause_download_task(
@@ -263,5 +268,12 @@ fn visible_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
     tasks
         .into_iter()
         .filter(|task| task.status != DownloadTaskStatus::Removed)
+        .collect()
+}
+
+fn removed_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
+    tasks
+        .into_iter()
+        .filter(|task| task.status == DownloadTaskStatus::Removed)
         .collect()
 }

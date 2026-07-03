@@ -79,11 +79,18 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/tasks` | - | `DownloadTask[]` |
+| `GET` | `/api/tasks?status=removed` | - | `DownloadTask[]` |
 | `POST` | `/api/tasks` | `CreateDownloadTaskRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
+
+约定：
+
+- `GET /api/tasks` 只返回未删除任务。
+- `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
+- `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 
 `CreateDownloadTaskRequest`：
 
