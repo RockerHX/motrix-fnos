@@ -11,12 +11,12 @@ const rustEnv = {
 
 const steps = quick
   ? [
-      { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "src-tauri/Cargo.toml"], env: rustEnv },
+      { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端类型检查", command: packageManager, args: ["run", "typecheck"] },
     ]
   : [
-      { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "src-tauri/Cargo.toml"], env: rustEnv },
-      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "src-tauri/Cargo.toml"], env: rustEnv },
+      { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
+      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端类型检查", command: packageManager, args: ["run", "typecheck"] },
       { title: "前端构建", command: packageManager, args: ["run", "build"] },
     ];
