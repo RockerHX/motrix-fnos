@@ -21,7 +21,7 @@
 
 更新时间：2026-07-03
 
-当前阶段：**阶段 5：飞牛实机安装和基础功能验证（收尾回归）**
+当前阶段：**阶段 6：侧栏分类菜单功能化（计划中）**
 
 已完成：
 
@@ -34,17 +34,14 @@
   - `packaging/fnos/dist/motrix.fnos_0.1.0_arm.fpk`
 - 已确认 FPK 必须与设备 CPU 架构匹配；x86 包不能安装到 OES / A311D 等 ARM 飞牛设备。
 - 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
-
-未完成：
-
-- 卸载后重装曾出现旧任务仍存在的问题；已改为卸载成功回调清理 `TRIM_PKGVAR` 应用私有数据目录，仍需重新打包并在实机回归。
+- 阶段 5 飞牛实机安装和基础功能验证已完成，未发现阻塞问题。
 
 当前约束：
 
-- 阶段 5 期间优先做实机验证和打包稳定性收尾，不新增非必要功能。
+- 阶段 6 优先补齐截图中侧栏菜单的基础可用性，不引入插件运行时、复杂路由或非必要后端重构。
 - x86 设备安装 `motrix.fnos_0.1.0_x86.fpk`。
 - `aarch64` / `arm64` 设备安装 `motrix.fnos_0.1.0_arm.fpk`。
-- 实机失败项优先从 manifest、权限、运行目录、端口、服务脚本和文件夹授权排查。
+- 侧栏菜单功能继续遵守 `docs/architecture.md` 的分层边界：Vue 组件只做交互编排，任务数据经 Pinia store / feature service / HTTP API / SSE 流转。
 
 ## 3. 阶段里程碑
 
@@ -111,7 +108,7 @@
 
 状态：✅ 已完成（2026-07-02）。
 
-### 阶段 5：飞牛实机安装和基础功能验证（收尾回归）
+### 阶段 5：飞牛实机安装和基础功能验证（✅ 已完成）
 
 目标：确认最小可用闭环。
 
@@ -124,12 +121,6 @@
 - 验证设置保存、诊断日志查看与清空。
 - 验证停止服务后的 session 保存和重启恢复。
 
-待回归：
-
-- 卸载后端口、进程和运行态文件无明显残留。
-- 卸载后重新安装，旧任务不应从 SQLite / Aria2 session 恢复。
-- 卸载清理只删除应用私有数据目录，不删除用户下载目录中的已下载文件。
-
 验收标准：
 
 - 匹配架构的 FPK 可安装。
@@ -139,17 +130,78 @@
 - 设置、日志和 session 恢复可用。
 - 卸载无明显残留。
 
-状态：收尾回归中。
+状态：✅ 已完成（2026-07-03）。
+
+### 阶段 6：侧栏分类菜单功能化（计划中）
+
+目标：让侧栏中的 `Downloading`、`Completed`、`Stopped`、`Trash` 和 `Extensions` 都可以选择，并展示与当前架构匹配的基础功能。
+
+现状判断：
+
+- `src/layouts/SidebarNav.vue` 里的分类按钮目前是静态按钮，只有 `Downloading` 写死为 `active`。
+- `src/views/MainWindow.vue` 当前直接把全量 `tasks` 传给 `TaskTable`，没有分类状态、筛选结果或分类空态。
+- 后端 `TaskService::list_download_tasks` 当前会过滤 `removed` 任务，因此 `Trash` 需要补齐 API / service / persistence 层语义，不能只靠前端筛选。
+- 当前架构没有插件运行时，`Extensions` 阶段 6 只做可进入的说明页和后续能力入口，不在本阶段实现真实插件安装、加载或执行。
+
+功能范围：
+
+1. 侧栏导航状态
+   - 在 `SidebarNav` 增加当前分类入参和 `selectCategory` 事件。
+   - 在 `AppShell` / `MainWindow` 保存当前分类状态，点击菜单后更新高亮。
+   - 保持 `Settings`、`Diagnostics` 现有弹窗入口不受影响。
+2. 任务分类筛选
+   - `Downloading`：展示 `pending`、`active` 任务。
+   - `Completed`：展示 `complete` 任务。
+   - `Stopped`：展示 `paused`、`error` 任务，保留继续、删除和详情操作。
+   - 分类内无任务时展示对应空态，不再统一显示“暂无任务”。
+3. Trash 基础能力
+   - 后端补充获取已删除任务的能力，例如 `GET /api/tasks?status=removed` 或等价查询参数，并同步更新 `docs/api-contract.md`。
+   - `Trash` 展示 `removed` 任务，不混入普通任务列表。
+   - 提供最小操作闭环：查看删除记录、永久删除任务记录；是否恢复任务需按 Aria2 GID / 文件存在性设计清楚后再落地。
+   - 永久删除只清理 Motrix FNOS 的任务记录；删除用户下载文件必须继续保持显式确认，不做隐式删除。
+4. Extensions 基础页
+   - 点击 `Extensions` 后进入可见页面，说明当前 FPK Web 版暂未提供插件运行时。
+   - 页面预留后续扩展入口，但不接入第三方脚本、不联网拉取插件、不增加新的安全边界。
+5. UI 细节
+   - 分类菜单可用鼠标点击，当前项高亮与截图风格一致。
+   - 可选增加分类计数：下载中、已完成、已停止、回收站数量。
+   - 浮动添加按钮只在任务分类页显示，`Extensions` 页不显示。
+
+实施顺序：
+
+1. 前端先实现分类类型、侧栏事件、高亮状态和本地筛选，完成 `Downloading` / `Completed` / `Stopped`。
+2. 增加分类空态组件文案，避免不同分类共用不准确的“暂无任务”。
+3. 设计并实现 Trash 后端查询 / 永久删除接口，同时更新 `docs/api-contract.md`。
+4. 前端接入 Trash 数据源和 Trash 操作按钮。
+5. 实现 Extensions 占位页。
+6. 做类型检查、后端测试和一次浏览器手动回归。
+
+验收标准：
+
+- 点击 `Downloading`、`Completed`、`Stopped`、`Trash`、`Extensions` 均有响应，当前菜单高亮正确。
+- `Downloading` 只显示排队和下载中任务。
+- `Completed` 只显示已完成任务，可继续使用重新下载和删除入口。
+- `Stopped` 只显示暂停和错误任务，可继续使用恢复和删除入口。
+- `Trash` 能看到已删除任务记录，且不污染普通任务列表。
+- `Extensions` 有明确页面，不再表现为不可点击。
+- 任务新增、暂停、继续、删除、SSE 快照刷新和设置/诊断弹窗不回退。
+
+验证：
+
+- `rtk pnpm run typecheck`
+- `rtk cargo test --manifest-path server/Cargo.toml`
+- 浏览器手动验证五个侧栏菜单切换、分类筛选、空态、Trash 和 Extensions 页面。
+
+状态：计划中。
 
 ## 4. 当前优先级
 
-1. 使用匹配架构的 FPK 完成真实飞牛安装验证：
-   - x86 设备：`motrix.fnos_0.1.0_x86.fpk`
-   - ARM 设备：`motrix.fnos_0.1.0_arm.fpk`
-2. 重新打包并回归卸载流程，确认卸载后重装不会恢复旧任务。
-3. 完成卸载后的端口、进程、SQLite、Aria2 session、日志和 PID 残留检查。
-4. 回归新建任务保存目录下拉，确认 fnOS 文件夹授权变更后可读取最新目录列表。
-5. 若仍有实机失败项，继续从 FPK manifest、权限、运行目录、端口、服务脚本或文件夹授权排查，并同步更新手测清单。
+1. 先完成前端侧栏分类状态、高亮和 `Downloading` / `Completed` / `Stopped` 筛选。
+2. 补齐分类空态和添加按钮显示规则。
+3. 设计并实现 Trash 的后端查询 / 永久删除语义，同步更新 `docs/api-contract.md`。
+4. 接入 Trash 前端页面和操作按钮。
+5. 实现 Extensions 占位页。
+6. 完成类型检查、后端测试和浏览器手动回归。
 
 ## 5. 验证记录
 
@@ -158,7 +210,7 @@
 - `rtk pnpm run typecheck` 通过。
 - `rtk cargo test --manifest-path server/Cargo.toml` 通过。
 
-本次目录选择优化新增 `/api/storage/accessible-paths` 和 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`，不修改既有任务 API、SSE 事件、FPK manifest 字段或构建命令。
+阶段 6 预计会修改前端侧栏 / 任务展示组件，并为 Trash 补充任务查询或清理接口；新增或调整接口时必须同步更新 `docs/api-contract.md`。
 
 ## 6. 文档关系
 
