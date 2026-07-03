@@ -100,6 +100,7 @@ rtk packaging/fnos/cmd/stop
 - 启动失败：先看 `server.log`
 - Web UI 打不开：先看 `cmd/status` 和 `service_port`
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
+- 卸载后重装仍有旧任务：检查 `cmd/uninstall_callback` 是否清理了 `TRIM_PKGVAR` 应用私有数据目录
 
 ## 相关文档
 

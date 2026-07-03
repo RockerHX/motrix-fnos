@@ -3,4 +3,10 @@ set -eu
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
 fi
+
+CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "${CMD_DIR}/stop" ]; then
+  "${CMD_DIR}/stop" >> "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>&1 || true
+fi
+
 exit 0

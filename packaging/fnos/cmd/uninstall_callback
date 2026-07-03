@@ -3,4 +3,35 @@ set -eu
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
 fi
+
+log_uninstall() {
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "${TRIM_TEMP_LOGFILE}"
+  fi
+}
+
+clear_dir_contents() {
+  target="$1"
+  case "${target}" in
+    ""|"/"|"/."|"/.."|"/var"|"/usr"|"/usr/local"|"/vol"*"/@appdata"|"/vol"*"/@appcenter")
+      log_uninstall "拒绝清理高风险目录：${target}"
+      return 1
+      ;;
+  esac
+
+  if [ ! -d "${target}" ]; then
+    log_uninstall "卸载清理跳过，不存在：${target}"
+    return 0
+  fi
+
+  find "${target}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  log_uninstall "卸载清理完成：${target}"
+}
+
+CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PACKAGE_ROOT=$(CDPATH= cd -- "${CMD_DIR}/.." && pwd)
+PKG_VAR=${TRIM_PKGVAR:-"${PACKAGE_ROOT}/app/data"}
+
+clear_dir_contents "${PKG_VAR}" || true
+
 exit 0
