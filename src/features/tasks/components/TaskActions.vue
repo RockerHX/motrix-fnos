@@ -20,6 +20,7 @@ const props = defineProps<{
 const taskStore = useTaskStore();
 const message = useMessage();
 const showDeleteConfirm = ref(false);
+const showPermanentDeleteConfirm = ref(false);
 const showRedownloadConfirm = ref(false);
 const showDetails = ref(false);
 const deleteFiles = ref(false);
@@ -30,6 +31,7 @@ const canPause = computed(() => props.task.status === "active" || props.task.sta
 const canResume = computed(() => props.task.status === "paused" || props.task.status === "error");
 const canRedownload = computed(() => props.task.status === "complete");
 const canDelete = computed(() => props.task.status !== "removed");
+const canPermanentDelete = computed(() => props.task.status === "removed");
 const progressText = computed(() => {
   if (props.task.totalLength <= 0) {
     return "0.00%";
@@ -95,6 +97,22 @@ async function confirmDeleteTask() {
   }
 }
 
+function openPermanentDeleteConfirm() {
+  if (!ensureCanOperate()) return;
+  showPermanentDeleteConfirm.value = true;
+}
+
+async function confirmPermanentDeleteTask() {
+  if (!ensureCanOperate()) return;
+  try {
+    await taskStore.permanentlyDeleteTask(props.task.id);
+    showPermanentDeleteConfirm.value = false;
+    message.success("任务记录已永久删除");
+  } catch (error) {
+    message.error(getErrorMessage(error));
+  }
+}
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message;
@@ -140,6 +158,17 @@ function formatTimestamp(timestamp: number) {
     </NButton>
     <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isActionDisabled" @click="openDeleteConfirm">
       删除
+    </NButton>
+    <NButton
+      v-if="canPermanentDelete"
+      size="small"
+      secondary
+      type="error"
+      :loading="isOperating"
+      :disabled="isActionDisabled"
+      @click="openPermanentDeleteConfirm"
+    >
+      永久删除
     </NButton>
   </NSpace>
 
@@ -200,10 +229,28 @@ function formatTimestamp(timestamp: number) {
       </template>
     </NCard>
   </NModal>
+
+  <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!isOperating">
+    <NCard class="permanent-delete-confirm-card" role="dialog" aria-modal="true" title="永久删除任务记录">
+      <p class="delete-confirm-text">
+        确定要永久删除“{{ task.fileName }}”的任务记录吗？该操作只删除 Motrix FNOS 的数据库记录，不会删除用户下载文件。
+      </p>
+
+      <template #footer>
+        <NSpace justify="end">
+          <NButton :disabled="isActionDisabled" @click="showPermanentDeleteConfirm = false">取消</NButton>
+          <NButton type="error" :loading="isOperating" :disabled="isActionDisabled" @click="confirmPermanentDeleteTask">
+            永久删除
+          </NButton>
+        </NSpace>
+      </template>
+    </NCard>
+  </NModal>
 </template>
 
 <style scoped>
 .delete-confirm-card,
+.permanent-delete-confirm-card,
 .redownload-confirm-card {
   width: min(420px, calc(100vw - 48px));
 }

@@ -28,3 +28,7 @@ export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
   return httpDelete<DownloadTask>(`/api/tasks/${taskId}?deleteFiles=${deleteFiles ? "true" : "false"}`);
 }
+
+export function permanentlyDeleteDownloadTask(taskId: number): Promise<void> {
+  return httpDelete<void>(`/api/tasks/${taskId}/permanent`);
+}

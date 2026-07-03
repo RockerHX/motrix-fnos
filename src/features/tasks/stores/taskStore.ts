@@ -6,6 +6,7 @@ import {
   listDownloadTasks,
   listRemovedDownloadTasks,
   pauseDownloadTask,
+  permanentlyDeleteDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
@@ -113,6 +114,17 @@ export const useTaskStore = defineStore("tasks", () => {
 
   async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
     return runTaskOperation(taskId, () => deleteDownloadTask(taskId, deleteFiles));
+  }
+
+  async function permanentlyDeleteTask(taskId: number): Promise<void> {
+    ensureRuntimeActive();
+    beginTaskOperation(taskId);
+    try {
+      await permanentlyDeleteDownloadTask(taskId);
+      removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+    } finally {
+      endTaskOperation(taskId);
+    }
   }
 
   async function runTaskOperation(
@@ -244,6 +256,7 @@ export const useTaskStore = defineStore("tasks", () => {
     resumeTask,
     redownloadTask,
     deleteTask,
+    permanentlyDeleteTask,
     refreshTasks,
     refreshRemovedTasks,
     applyTaskSnapshot,
