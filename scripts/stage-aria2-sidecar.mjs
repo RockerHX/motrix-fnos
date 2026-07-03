@@ -11,8 +11,8 @@ const destinationDir = path.join(repoRoot, 'packaging', 'fnos', 'app', 'bin');
 const destinationPath = path.join(destinationDir, outputName);
 
 const sourceMap = {
-  'x86_64-unknown-linux-gnu': path.join(repoRoot, 'src-tauri', 'binaries', 'aria2-next-x86_64-unknown-linux-gnu'),
-  'aarch64-unknown-linux-gnu': path.join(repoRoot, 'src-tauri', 'binaries', 'aria2-next-aarch64-unknown-linux-gnu'),
+  'x86_64-unknown-linux-gnu': path.join(repoRoot, 'assets', 'aria2', 'aria2-next-x86_64-unknown-linux-gnu'),
+  'aarch64-unknown-linux-gnu': path.join(repoRoot, 'assets', 'aria2', 'aria2-next-aarch64-unknown-linux-gnu'),
 };
 
 const sourcePath = sourceMap[target];

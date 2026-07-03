@@ -401,7 +401,7 @@ fn packaged_binary_path(current_exe: &Path, sidecar_name: &str) -> Option<PathBu
 }
 
 fn repo_debug_binary_path(repo_root: &Path, config: &Aria2Config) -> PathBuf {
-    repo_root.join("src-tauri").join("binaries").join(format!(
+    repo_root.join("assets").join("aria2").join(format!(
         "{}-{}{}",
         config.sidecar_name,
         config.target_triple,

@@ -9,13 +9,9 @@ const VERSION = "2.4.9";
 const TAG = `v${VERSION}`;
 const BASE_URL = `https://github.com/AnInsomniacy/aria2-next/releases/download/${TAG}`;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const BIN_DIR = join(ROOT, "src-tauri", "binaries");
+const BIN_DIR = join(ROOT, "assets", "aria2");
 
 const assets = [
-  {
-    asset: `aria2-next-${VERSION}-macos-arm64`,
-    target: "aria2-next-aarch64-apple-darwin",
-  },
   {
     asset: `aria2-next-${VERSION}-linux-x86_64`,
     target: "aria2-next-x86_64-unknown-linux-gnu",
