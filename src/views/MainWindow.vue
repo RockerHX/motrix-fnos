@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
+import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
 import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
@@ -167,16 +168,19 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
     @open-settings="showSettings = true"
     @select-category="selectCategory"
   >
-    <TaskEmptyState
-      v-if="visibleTasks.length === 0"
-      :title="emptyState.title"
-      :description="emptyState.description"
-      :show-create-action="emptyState.showCreateAction"
-      :show-settings-action="emptyState.showSettingsAction"
-      @create="openCreateDialog"
-      @open-settings="showSettings = true"
-    />
-    <TaskTable v-else :tasks="visibleTasks" />
+    <ExtensionsPlaceholder v-if="activeCategory === 'extensions'" />
+    <template v-else>
+      <TaskEmptyState
+        v-if="visibleTasks.length === 0"
+        :title="emptyState.title"
+        :description="emptyState.description"
+        :show-create-action="emptyState.showCreateAction"
+        :show-settings-action="emptyState.showSettingsAction"
+        @create="openCreateDialog"
+        @open-settings="showSettings = true"
+      />
+      <TaskTable v-else :tasks="visibleTasks" />
+    </template>
 
     <template #overlay>
       <button
