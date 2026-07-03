@@ -33,8 +33,5 @@ export default defineConfig({
         rewrite: () => "/api/events",
       },
     },
-    watch: {
-      ignored: ["**/src-tauri/**"],
-    },
   },
 });
