@@ -169,14 +169,13 @@ packaging/fnos/app/data/
 
 打包脚本会在最终组装前清空 `app/data/` 的本地运行态残留，避免把 SQLite WAL、PID 或日志误打进 FPK。
 
-## 与 legacy Tauri 资产的边界
+## 当前交付闭环
 
-legacy Tauri 资产已完成下线，当前仓库只保留 FPK 主线：
+当前仓库的交付闭环由以下部分组成：
 
-- 不再把 Tauri window / tray / Dock / notification 作为长期运行模型。
-- 不再把桌面壳构建链路作为 FPK 交付入口。
-- 不新增 Tauri-only 主线能力。
-- server、Web UI 和 FPK 脚本才是当前交付闭环。
+- `server/`：Rust server 与 HTTP / SSE 接口
+- `src/`：Vue Web UI
+- `packaging/fnos/`：FPK 打包目录、启动脚本和资源配置
 
 ## 与其他文档关系
 

@@ -110,20 +110,20 @@ function getErrorMessage(error: unknown) {
     <NCard class="settings-card" role="dialog" aria-modal="true" title="设置">
       <NForm label-placement="left" label-width="150px" :disabled="settingsStore.isLoading">
         <NFormItem label="后台驻留">
-          <NText depth="3">Web 版不控制宿主窗口生命周期，服务是否持续运行由 fnOS 或 server 进程负责。</NText>
+          <NText depth="3">Web 版不控制应用常驻行为，服务是否持续运行由 fnOS 或 server 进程负责。</NText>
         </NFormItem>
 
         <NFormItem label="开机自启">
           <NSpace vertical :size="6" class="setting-stack">
             <NSwitch v-model:value="form.autoStartEnabled" />
-            <NText depth="3">当前仅保存该配置，不会直接修改宿主系统的开机自启状态。</NText>
+            <NText depth="3">当前仅保存该配置，不会直接修改系统开机自启状态。</NText>
           </NSpace>
         </NFormItem>
 
         <NFormItem label="下载通知">
           <NSpace vertical :size="6" class="setting-stack">
             <NSwitch v-model:value="form.notificationsEnabled" />
-            <NText depth="3">当前仅保存该配置，不会申请浏览器或宿主系统的通知权限。</NText>
+            <NText depth="3">当前仅保存该配置，不会直接申请通知权限。</NText>
           </NSpace>
         </NFormItem>
 

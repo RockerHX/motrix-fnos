@@ -2,7 +2,7 @@
 
 > 本文档只负责记录阶段目标、具体任务、完成状态、优先级和验收标准。整体技术架构、前后端职责边界、UI 组件策略和目录规范见 `docs/architecture.md`。
 
-> 当前进入 **FPK-first 架构纠偏期**：现有 Tauri 实现仅作为 legacy 资产参考，不再作为最终交付主线。
+> 当前主线为 FPK-first，长期维护范围仅保留 `server/`、`src/` 与 `packaging/fnos/`。
 
 ## 1. 项目目标
 
@@ -17,17 +17,15 @@
 - 本地持久化：**SQLite**
 - 运行时事件：**HTTP API + SSE（或等价事件流）**
 
-legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`、`src/` 与 `packaging/fnos/`。
-
 ## 2. 产品阶段目标
 
 ### 2.1 当前阶段目标
 
-先完成架构纠偏，统一文档和验收口径，避免继续沿 Tauri 桌面模型投入实现成本。
+先完成架构纠偏，统一文档和验收口径。
 
 ### 2.2 中期阶段目标
 
-完成 Rust 核心抽离、HTTP/SSE 通信改造和前端 Web UI 化，形成可在不启动 Tauri 的前提下运行的服务化下载应用。
+完成 Rust 核心抽离、HTTP/SSE 通信改造和前端 Web UI 化，形成可独立运行的服务化下载应用。
 
 ### 2.3 最终阶段目标
 
@@ -49,7 +47,6 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 当前主要问题：
 
 - 前端主线已切到 HTTP API / SSE，浏览器可直接消费 `/api/*` 与 `/api/events`。
-- legacy Tauri 工程已下线，不再作为任何回归入口。
 - 阶段 4 已完成：FPK 目录骨架、基础图标、Linux x86_64 server 构建入口、Web UI 打包输出、Aria2 sidecar 放置规则、启动/停止/状态脚本、manifest/UI 入口配置以及本地/CI 统一打包入口已建立，且已生成 `packaging/fnos/dist/motrix.fnos_0.1.0_x86.fpk`。
 - 当前进入阶段 5 实机测试：已确认 x86 包无法安装到 OES / A311D 等 ARM 飞牛设备，已补充双架构构建入口，需使用 ARM FPK 继续验证。
 - 尚未完成飞牛实机安装、启动、停止、卸载与下载闭环验证。
@@ -63,19 +60,19 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 - 阶段 2 已建立执行清单、独立 server 入口、server 侧 Aria2 进程管理、Axum 路由骨架，并补齐设置/UI 偏好/调试日志/任务 HTTP 接口。
 - `/api/events`、`tasks.snapshot` / `runtime.exiting` SSE 事件流与 Tokio 后台任务同步已落地。
 - server 退出流程已具备“广播退出事件 → 同步任务 → 暂停未完成任务并持久化 → 保存 Aria2 session → 停止受管进程 → 成功后清理运行态记录”的收口顺序，阶段 2 验收项已闭环。
-- 阶段 3 已完成：前端服务层、任务流和运行时事件已切换到 HTTP / SSE，Web 降级与前端 Tauri 直连依赖清理已收口。
+- 阶段 3 已完成：前端服务层、任务流和运行时事件已切换到 HTTP / SSE，Web 降级策略已收口。
 
 当前阶段约束：
 
 - 阶段 5 期间，优先验证真实飞牛安装和最小下载闭环，不新增非必要功能。
 - FPK 必须与设备 CPU 架构匹配；x86 包只用于 x86 飞牛，OES / A311D 等 ARM 设备必须使用 ARM 包。
-- legacy Tauri 目录、脚本、CLI 依赖与 CI 校验链路已进入下线清理收尾。
+- 当前剩余工作集中在实机验证与打包稳定性收尾。
 
 ## 4. 阶段 0：架构纠偏（✅ 已完成）
 
 ### 4.1 目标
 
-先修正文档、阶段定义和验收标准，冻结 Tauri 主线，避免在错误交付模型上继续叠加实现。
+先修正文档、阶段定义和验收标准，确保后续实现围绕 FPK 交付模型推进。
 
 ### 4.2 已完成小任务
 
@@ -97,7 +94,7 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 
 ### 4.4 完成标准
 
-- 主文档不再把 Tauri 写成当前交付主线。
+- 主文档统一为 FPK 主线叙述。
 - 后续阶段全部以 FPK / Rust server / Web UI 为验收方向。
 - README 与新增文档骨架完成后，可进入 Rust 核心抽离阶段。
 
@@ -107,7 +104,7 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 
 ### 5.1 阶段 1：抽出 Rust 业务核心
 
-目标：把可复用业务从 Tauri command 和运行时胶水中剥离到独立 server 主线。
+目标：把可复用业务抽离到独立 server 主线。
 
 当前小任务状态：
 
@@ -116,33 +113,33 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 - P1-3：`config` 与 `debug_logs` 已抽取到 `server/`。✅
 - P1-4：`database` 已抽取到 `server/`。✅
 - P1-5：`tasks` 领域核心已抽取到 `server/`。✅
-- P1-6：纯 `aria2` 核心与 Tauri 进程适配已拆分。✅
-- P1-7：`ServerState` 已抽取，`AppState` 已变为 Tauri 适配层。✅
+- P1-6：纯 `aria2` 核心与旧进程适配已拆分。✅
+- P1-7：`ServerState` 已抽取，`AppState` 已变为薄适配层。✅
 - P1-8：`settings` / `tasks` 服务层已拆分并完成阶段收口。✅
 
 核心任务：
 
 - 建立 `server/` 或等价 Rust crate。
 - 迁移 `tasks`、`aria2`、`database`、`debug_logs`、`config`。
-- 去掉核心业务对 `tauri::State`、`AppHandle`、`Manager` 的依赖。
+- 去掉核心业务对应用壳状态对象与句柄的依赖。
 - 改造数据目录为 FPK/server config 注入。
 
 验收：
 
 - `cargo test` 可在 server crate 独立运行。
-- 核心业务不依赖 Tauri。
+- 核心业务可在 server crate 独立运行。
 
 阶段结论：
 
 - `server/` 已成为 Rust 业务核心承载地，后续可在其上继续引入 HTTP API 与 server 二进制入口。
 - `server/` 已完全承接 Rust 主线职责。
-- 当前已满足阶段 2 启动条件，并已完成 legacy Tauri 下线。
+- 当前已满足阶段 2 启动条件。
 
 状态：✅ 已完成（2026-07-02）。
 
 ### 5.2 阶段 2：实现 HTTP API 和事件流
 
-目标：用 Axum + SSE 取代 Tauri command 与事件机制。
+目标：建立 Axum + SSE 的 HTTP API 与事件机制。
 
 当前小任务状态：
 
@@ -164,7 +161,7 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 
 验收：
 
-- 不启动 Tauri 也能通过 HTTP 管理下载任务。
+- 可通过 HTTP 管理下载任务。
 - 服务停止时可保存 session 并停止当前管理的 Aria2。
 
 阶段进展说明：
@@ -189,27 +186,27 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 - P3-5：新增前端 SSE 运行时事件服务。已完成
 - P3-6：切换任务刷新主路径到 SSE 快照。已完成
 - P3-7：将系统集成功能降级为 Web 安全行为。已完成
-- P3-8：清理前端 Tauri 直连依赖并收口阶段 3。已完成
+- P3-8：收口前端主线路径并完成阶段 3 验收。已完成
 
 核心任务：
 
 - 新增统一 HTTP client，并把开发态切换到浏览器 + Vite proxy 主线。
 - 替换 `invoke` / `listen` 依赖，消费阶段 2 已有 `/api/*` 与 `/api/events`。
 - 把任务列表刷新改为“首次拉取 + SSE 快照驱动 + 操作后必要补刷”。
-- 清理前端 Tauri 直连依赖，并把系统集成功能降级为纯 Web 安全行为。
+- 收口前端调用路径，并把系统集成功能降级为纯 Web 安全行为。
 
 验收：
 
 - `pnpm run build` 生成纯 Web 静态资源。
 - 浏览器可直接访问 Web UI 并调用后端。
-- `src/` 内不再出现 `@tauri-apps/api`、`invoke(`、`listen(`。
+- `src/` 内仅保留 HTTP / SSE 主线路径。
 
 阶段进展说明：
 
 - 阶段 3 不新增后端 API，完全复用阶段 2 已落地的 `/api/*` 与 `/api/events` 契约。
 - 前端事件流固定采用浏览器原生 `EventSource`，只消费 `tasks.snapshot` 与 `runtime.exiting` 两类事件。
-- Web 版系统集成采用“保留并降级”策略：目录选择改为手填；开机自启/通知开关仅保存配置，不再调用宿主插件；不提供 HTTP 版 `quit_app`。
-- 阶段 3 验收已闭环：前端源码中已无 `@tauri-apps/api`、`invoke(`、`listen(` 直连痕迹，主线验证通过。
+- Web 版系统集成采用“保留并降级”策略：目录选择改为手填；开机自启/通知开关仅保存配置；不提供 HTTP 版 `quit_app`。
+- 阶段 3 验收已闭环：前端源码已统一收口到 HTTP / SSE 主线，主线验证通过。
 
 ### 5.4 阶段 4：建立 FPK 打包链路
 
@@ -262,19 +259,18 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 - 基础下载闭环在飞牛上可用。
 - FPK 安装、启动、停止、卸载无明显残留。
 
-## 6. Legacy 已有资产与可迁移能力
+## 6. 已有基础与可复用能力
 
-以下内容仍有迁移价值，但不再代表当前主路线阶段：
+以下内容构成当前主线的直接基础：
 
-- 基于 Tauri 的 Vue + Rust 工程骨架。
 - 已完成的任务列表 UI、诊断日志 UI、设置 UI 和 Naive UI / Pinia 分层。
 - Rust 侧下载任务模型、Aria2 管理、SQLite 持久化、调试日志与退出清理经验。
 - 已验证的 Aria2 Next sidecar 资产管理与多平台下载脚本。
 
 说明：
 
-- 这些成果视为可迁移资产，不再作为“继续补完 Tauri 应用”路线推进。
-- 如需查阅历史行为或迁移来源，以现有代码和提交记录为准，不再把旧阶段文档作为未来实施主线。
+- 这些成果已经纳入当前 FPK 主线，可直接继续演进。
+- 如需查阅历史行为，以现有代码和提交记录为准。
 
 ## 7. 当前优先级
 
@@ -291,6 +287,6 @@ legacy Tauri 主线已完成下线；当前长期维护范围仅保留 `server/`
 
 ## 9. 总体判断
 
-当前项目并非全部作废，而是需要把已经积累的前端和 Rust 业务资产从 Tauri 主线中抽离出来，转向 FPK-first 的服务化交付模型。
+当前项目已经形成完整的 FPK-first 服务化主线，具备继续收敛交付与实机验证的基础。
 
-阶段 0 到阶段 4 已完成，当前关键不是继续堆叠 Tauri 能力，而是在真实飞牛设备上验证 `server`、Web UI、Aria2 sidecar 和 FPK 生命周期是否形成可交付闭环。
+阶段 0 到阶段 4 已完成，当前关键是在真实飞牛设备上验证 `server`、Web UI、Aria2 sidecar 和 FPK 生命周期是否形成可交付闭环。

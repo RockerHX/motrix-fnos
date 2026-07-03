@@ -20,7 +20,7 @@
 - 浏览器端不额外引入运行时 base URL 配置；开发态通过 Vite proxy 把 `/api` 与 `/api/events` 转发到 `http://127.0.0.1:17080`。
 - 前端统一使用浏览器原生 `fetch` 消费 JSON 接口，统一解析 `204 No Content` 与 `{ code, message }` 错误体，优先展示 `message`。
 - 前端事件流固定使用浏览器原生 `EventSource` 连接 `/api/events`；依赖浏览器自动重连能力，不额外引入 WebSocket 协议。
-- Web 版系统集成采用“保留并降级”策略：保存路径保留文本输入但取消 Tauri 目录选择器；开机自启/通知开关仅保存配置，不再调用宿主系统插件；不提供 HTTP 版 `quit_app`。
+- Web 版系统集成采用“保留并降级”策略：保存路径保留文本输入；开机自启/通知开关仅保存配置；不提供 HTTP 版 `quit_app`。
 
 ## 错误响应
 
@@ -148,7 +148,7 @@
 
 ## 协议策略
 
-- 当前前端主线固定采用 HTTP / SSE，不再保留 Tauri `invoke` / `listen` 兼容层
+- 当前前端主线固定采用 HTTP / SSE
 - 首版 SSE 采用“整包快照”而非增量 diff，避免协议在前后端同时复杂化
 
 ## 与其他文档关系

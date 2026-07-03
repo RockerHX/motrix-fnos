@@ -33,11 +33,7 @@
 - 日志与诊断：**tracing + 应用内调试日志队列**
 - 前后端通信：**HTTP API + SSE（或等价事件流）**
 
-当前仓库中的 Tauri 代码、脚本和目录仅视为 **legacy 迁移来源**：
-
-- 可复用其中的业务逻辑、前端 UI、状态管理、Aria2 管理和 SQLite 资产。
-- 不再把 Tauri 2 写作当前正式应用壳。
-- 不再把桌面壳构建链路、窗口/托盘能力或 Tauri command 作为目标交付路线。
+当前仓库的长期主线由 `server/`、`src/` 与 `packaging/fnos/` 组成，所有架构决策都以 FPK 交付模型为准。
 
 ## 3. 总体目标架构
 
@@ -226,7 +222,7 @@ src/
 - `layouts/` 放通用页面结构，例如侧栏、顶部栏、整体 shell。
 - `features/` 按业务领域拆分，任务、日志、设置等都应进入各自 feature。
 - `services/` 放 HTTP client 和运行时事件订阅封装。
-- `MainWindow.vue` 当前仍可作为 legacy 文件名保留，但语义上视为 Web UI 页面入口，而不是桌面窗口控制器。
+- `MainWindow.vue` 当前作为 Web UI 页面入口，负责承载主页面编排。
 
 ### 5.2 `MainWindow.vue` 边界
 
@@ -303,7 +299,6 @@ server/
 - `api/` 只负责 HTTP handler 和请求/响应转换。
 - `services/` 负责业务流程编排。
 - `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持清晰边界。
-- legacy Tauri 工程目录已下线，不再承载任何长期架构决策。
 
 ## 8. 标准数据流与事件流
 
@@ -346,12 +341,11 @@ Rust Runtime Event
 - 后端启动后负责准备数据目录、初始化 SQLite、启动或连接 Aria2。
 - 后端停止时应统一保存运行状态、刷新必要持久化并停止当前服务管理的 Aria2 实例。
 - 前端页面关闭、刷新或重新进入不应被视为应用退出。
-- 不再把 Dock、托盘、窗口隐藏或桌面通知写成长期固定原则；如未来需要兼容，只能作为 legacy 支持或附加能力。
 
 ## 10. 数据目录与安全边界
 
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
-- 数据目录优先从 fnOS / FPK 提供的环境或配置读取，不再依赖 Tauri app data dir。
+- 数据目录优先从 fnOS / FPK 提供的环境或配置读取。
 - 下载目录不能默认写死桌面用户目录；必须改为 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能在服务端生成和持有，不对前端暴露。
 - 日志继续隐藏私密 URL query 和敏感配置。
@@ -360,11 +354,9 @@ Rust Runtime Event
 
 后续开发必须遵守：
 
-- 不再新增 Tauri 主线能力。
 - 新增前端交互继续进入 `features/*`，不得重新向入口页面堆叠。
 - 新增后端能力必须按 `api -> service -> domain -> persistence` 分层。
-- 新增通信能力默认走 HTTP API / SSE，不再新增 Tauri command。
-- Tauri 相关目录、脚本和配置在迁移完成前仅作为 legacy 参考，不得继续扩展为目标主线。
+- 新增通信能力默认走 HTTP API / SSE。
 - 新增长期状态时必须考虑 SQLite 持久化路径。
 - 若后续发现本文档与实际演进不匹配，应先更新本文档，再继续实现。
 
