@@ -85,12 +85,14 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
+| `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
 
 约定：
 
 - `GET /api/tasks` 只返回未删除任务。
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
+- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix FNOS 数据库记录，不删除用户下载文件。
 
 `CreateDownloadTaskRequest`：
 

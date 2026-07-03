@@ -5,6 +5,7 @@ use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::service::TaskService;
 use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -17,6 +18,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
+        .route("/tasks/:id/permanent", delete(permanently_delete_task))
         .route("/tasks/:id", delete(delete_task))
 }
 
@@ -167,6 +169,18 @@ async fn delete_task(
     Ok(Json(task))
 }
 
+async fn permanently_delete_task(
+    State(state): State<Arc<HttpAppState>>,
+    Path(task_id): Path<u64>,
+) -> Result<StatusCode, ApiError> {
+    let service = task_service(&state);
+    service
+        .permanently_delete_removed_task(task_id)
+        .await
+        .map_err(classify_task_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn task_service(state: &HttpAppState) -> TaskService<'_> {
     TaskService::new(
         &state.core.database.pool,
@@ -225,6 +239,7 @@ fn classify_task_error(error: String) -> ApiError {
         || error.contains("URL")
         || error.contains("文件名")
         || error.contains("保存目录")
+        || error.contains("只有已删除任务可以永久删除")
         || error.contains("拒绝删除")
         || error.contains("当前仅支持删除单文件")
     {
@@ -391,7 +406,8 @@ mod tests {
         assert!(listed.is_empty());
 
         let removed_list = response_json::<Vec<DownloadTask>>(
-            app.oneshot(
+            app.clone()
+                .oneshot(
                 Request::builder()
                     .uri("/api/tasks?status=removed")
                     .body(Body::empty())
@@ -404,6 +420,35 @@ mod tests {
         .await;
         assert_eq!(removed_list.len(), 1);
         assert_eq!(removed_list[0].status, DownloadTaskStatus::Removed);
+
+        assert_status(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .method("DELETE")
+                        .uri("/api/tasks/1/permanent")
+                        .body(Body::empty())
+                        .expect("permanent delete request should build"),
+                )
+                .await
+                .expect("permanent delete response should succeed"),
+            StatusCode::NO_CONTENT,
+        )
+        .await;
+
+        let removed_list = response_json::<Vec<DownloadTask>>(
+            app.oneshot(
+                Request::builder()
+                    .uri("/api/tasks?status=removed")
+                    .body(Body::empty())
+                    .expect("removed list request should build"),
+            )
+            .await
+            .expect("removed list response should succeed"),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(removed_list.is_empty());
 
         cleanup_state(&state, child_pid);
         mock.abort();
@@ -504,6 +549,34 @@ mod tests {
         .await;
 
         assert_eq!(error.code, "task_status_filter_invalid");
+    }
+
+    #[tokio::test]
+    async fn permanent_delete_rejects_non_removed_task() {
+        let state = test_state().await;
+        state
+            .core
+            .download_tasks
+            .lock()
+            .expect("tasks should lock")
+            .push(sample_task(1, DownloadTaskStatus::Active));
+        let app = test_router(state);
+
+        let error = response_json::<ErrorResponse>(
+            app.oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/tasks/1/permanent")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        assert_eq!(error.code, "task_operation_failed");
     }
 
     #[tokio::test]
@@ -614,6 +687,19 @@ mod tests {
             String::from_utf8_lossy(&body)
         );
         serde_json::from_slice(&body).expect("response json should deserialize")
+    }
+
+    async fn assert_status(response: Response, expected_status: StatusCode) {
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body should read");
+        assert_eq!(
+            status,
+            expected_status,
+            "unexpected response body: {}",
+            String::from_utf8_lossy(&body)
+        );
     }
 
     fn json_request<T: Serialize>(method: &str, uri: &str, payload: &T) -> Request<Body> {

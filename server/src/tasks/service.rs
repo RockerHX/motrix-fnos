@@ -1,6 +1,7 @@
 use crate::config::aria2::Aria2Config;
 use crate::database::tasks::{
-    persist_download_task_state, persist_download_task_states, upsert_download_task,
+    delete_download_task_record, persist_download_task_state, persist_download_task_states,
+    upsert_download_task,
 };
 use crate::debug_logs::DebugLogStore;
 use crate::settings::service::load_app_config_from_pool;
@@ -8,7 +9,7 @@ use crate::tasks::{
     add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error, mark_task_paused,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    should_readd_task_after_resume_error, store_created_task,
+    remove_task_record, should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
@@ -253,6 +254,24 @@ impl<'a> TaskService<'a> {
             ),
         );
         Ok(task)
+    }
+
+    pub async fn permanently_delete_removed_task(&self, task_id: u64) -> Result<(), String> {
+        self.ensure_not_exiting()?;
+        let task = task_snapshot(self.download_tasks, task_id)?;
+        if task.status != DownloadTaskStatus::Removed {
+            return Err("只有已删除任务可以永久删除".to_string());
+        }
+
+        if !delete_download_task_record(self.database_pool, task_id).await? {
+            return Err(format!("下载任务不存在：{}", task_id));
+        }
+        remove_task_record(self.download_tasks, task_id)?;
+        self.debug_logs.info(
+            "tasks.control",
+            format!("已永久删除回收站任务记录，ID {}", task_id),
+        );
+        Ok(())
     }
 
     async fn sync_tasks_to_database(&self, tasks: &[DownloadTask]) -> Result<(), String> {

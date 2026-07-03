@@ -861,6 +861,18 @@ pub fn task_snapshot(
         .ok_or_else(|| format!("下载任务不存在：{}", task_id))
 }
 
+pub fn remove_task_record(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<(), String> {
+    let mut guard = tasks
+        .lock()
+        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let index = guard
+        .iter()
+        .position(|task| task.id == task_id)
+        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+    guard.remove(index);
+    Ok(())
+}
+
 pub fn mark_task_paused(
     tasks: &Mutex<Vec<DownloadTask>>,
     task_id: u64,

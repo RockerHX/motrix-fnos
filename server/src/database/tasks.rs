@@ -104,6 +104,28 @@ pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
     Ok(max_id.unwrap_or_default().max(0) as u64)
 }
 
+pub async fn delete_download_task_record(pool: &SqlitePool, task_id: u64) -> Result<bool, String> {
+    let task_id = u64_to_i64(task_id, "任务 ID")?;
+
+    sqlx::query("DELETE FROM task_history WHERE task_id = ?")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("删除任务历史失败：{}", error))?;
+    sqlx::query("DELETE FROM task_errors WHERE task_id = ?")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("删除任务错误记录失败：{}", error))?;
+    let result = sqlx::query("DELETE FROM download_tasks WHERE id = ?")
+        .bind(task_id)
+        .execute(pool)
+        .await
+        .map_err(|error| format!("删除下载任务记录失败：{}", error))?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn record_task_history(
     pool: &SqlitePool,
     task: &DownloadTask,
@@ -287,6 +309,56 @@ mod tests {
 
                 assert_eq!(history_count, 1);
                 assert_eq!(error_count, 1);
+
+                database.pool.close().await;
+                let _ = std::fs::remove_file(path);
+            });
+    }
+
+    #[test]
+    fn repository_deletes_task_record_history_and_errors() {
+        tokio::runtime::Runtime::new()
+            .expect("tokio runtime should create")
+            .block_on(async {
+                let path = std::env::temp_dir()
+                    .join(format!("motrix-fnos-delete-record-test-{}.sqlite", now_ms()));
+                let database = connect_database(path.clone())
+                    .await
+                    .expect("database should connect");
+                let mut task = sample_task();
+                task.status = DownloadTaskStatus::Error;
+                task.error_code = Some("3".to_string());
+                task.error_message = Some("Resource not found".to_string());
+
+                upsert_download_task(&database.pool, &task)
+                    .await
+                    .expect("task should be inserted");
+                record_task_history(&database.pool, &task, Some("failed"))
+                    .await
+                    .expect("history should be inserted");
+                record_task_error(&database.pool, &task)
+                    .await
+                    .expect("error should be inserted");
+
+                let deleted = delete_download_task_record(&database.pool, task.id)
+                    .await
+                    .expect("task record should be deleted");
+                let tasks = list_download_tasks(&database.pool)
+                    .await
+                    .expect("tasks should be listed");
+                let history_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_history")
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("history count should be read");
+                let error_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_errors")
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("error count should be read");
+
+                assert!(deleted);
+                assert!(tasks.is_empty());
+                assert_eq!(history_count, 0);
+                assert_eq!(error_count, 0);
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
