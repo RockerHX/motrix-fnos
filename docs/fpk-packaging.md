@@ -104,5 +104,4 @@ rtk packaging/fnos/cmd/stop
 ## 相关文档
 
 - 总体架构：`docs/architecture.md`
-- FPK 架构：`docs/fnos-fpk-architecture.md`
 - 实机验证：`docs/fnos-manual-test-checklist.md`

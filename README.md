@@ -86,7 +86,6 @@ rtk pnpm run build:fpk:prepare
 
 - 架构边界：[`docs/architecture.md`](docs/architecture.md)
 - 阶段计划：[`docs/development-plan.md`](docs/development-plan.md)
-- FPK 目标架构专题：[`docs/fnos-fpk-architecture.md`](docs/fnos-fpk-architecture.md)
 - HTTP / SSE 契约：[`docs/api-contract.md`](docs/api-contract.md)
 - FPK 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
 - 飞牛实机测试清单：[`docs/fnos-manual-test-checklist.md`](docs/fnos-manual-test-checklist.md)

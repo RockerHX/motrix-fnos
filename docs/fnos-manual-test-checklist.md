@@ -161,6 +161,6 @@ curl http://127.0.0.1:17080/api/app/info
 
 ## 与其他文档关系
 
-- 架构和范围见 `docs/architecture.md` 与 `docs/fnos-fpk-architecture.md`。
+- 架构和范围见 `docs/architecture.md`。
 - API 与事件流见 `docs/api-contract.md`。
 - 打包和安装来源见 `docs/fpk-packaging.md`。

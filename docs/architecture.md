@@ -1,43 +1,30 @@
 # 飞牛版 Motrix 架构文档
 
-> 本文档负责约束项目的整体技术架构、前后端职责边界、UI 组件策略和目录组织。阶段任务、状态和优先级见 `docs/development-plan.md`。
+> 本文档只约束长期架构、职责边界、目录组织和运行模型。阶段任务、状态和优先级见 `docs/development-plan.md`；接口细节见 `docs/api-contract.md`；打包命令见 `docs/fpk-packaging.md`。
 
-## 1. 架构目标
+## 1. 架构边界
 
-飞牛版 Motrix 的目标不是继续演进为桌面应用，而是交付一个可在飞牛 fnOS 中安装、启动、停止、升级和卸载的 **FPK-first 下载管理应用**。
+本项目交付 **fnOS FPK 下载管理应用**。
 
-当前长期架构必须满足以下目标：
+固定边界：
 
-- **可交付**：最终以 `.fpk` 形式交付，并符合 fnOS 应用中心的运行模型。
-- **可运行**：以 Rust 后端服务 + Vue Web UI 的形态运行，而不是依赖桌面窗口语义。
-- **可维护**：前端、后端、下载引擎、持久化、日志各自边界清晰，避免单文件堆叠。
-- **可恢复**：任务、配置、历史状态最终必须可持久化，支持应用重启后恢复。
-- **可排障**：生产环境不能依赖开发终端，必须有应用内日志和诊断入口。
-- **可扩展**：后续能自然扩展 BT、磁力、批量任务、远程管理和自动化能力。
+- 交付形态：`.fpk`。
+- 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
+- 前后端通信：HTTP API + SSE。
+- 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
+- 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
-## 2. FPK-first 总体技术路线
+## 2. 技术栈
 
-当前项目的目标主线采用以下技术路线：
+| 层级 | 选型 |
+| --- | --- |
+| FPK | `packaging/fnos/`、`cmd/start`、`cmd/stop`、`cmd/status` |
+| 后端 | Rust、Tokio、Axum、Serde、SQLx、SQLite、tracing |
+| 下载引擎 | Aria2 Next sidecar，通过 JSON-RPC 控制 |
+| 前端 | Vue 3、TypeScript、Vite、Naive UI、Pinia |
+| 通信 | HTTP API、SSE |
 
-- 交付形态：**fnOS FPK 应用包**
-- 后端主程序：**Rust server**
-- 服务框架：**Axum**
-- 下载引擎：**Aria2 Next sidecar**
-- 前端框架：**Vue 3 + TypeScript + Vite**
-- UI 组件库：**Naive UI**
-- 前端状态管理：**Pinia**
-- 本地持久化：**SQLite**
-- Rust 异步运行时：**Tokio**
-- Rust 序列化：**Serde**
-- Rust 数据库访问：**SQLx**
-- 日志与诊断：**tracing + 应用内调试日志队列**
-- 前后端通信：**HTTP API + SSE（或等价事件流）**
-
-当前仓库的长期主线由 `server/`、`src/` 与 `packaging/fnos/` 组成，所有架构决策都以 FPK 交付模型为准。
-
-## 3. 总体目标架构
-
-整改后的目标架构如下：
+## 3. 运行拓扑
 
 ```text
 fnOS FPK
@@ -47,237 +34,84 @@ fnOS FPK
   │   ├─ SSE 事件流
   │   ├─ Aria2 Next 进程管理
   │   ├─ SQLite 持久化
-  │   └─ 调试日志与运行时状态
+  │   └─ 调试日志与运行状态
   ├─ Web UI
-  │   ├─ Vue 3 + Naive UI + Pinia
-  │   ├─ HTTP API client
-  │   └─ 浏览器 / fnOS Web 入口
+  │   └─ Vue 3 + Naive UI + Pinia
   └─ Aria2 Next Linux sidecar
 ```
 
-本架构下的重点不是“窗口能否打开”，而是：
+### 3.1 FPK 目录约定
 
-- fnOS 是否能正确启动和停止服务。
-- Web UI 是否能通过 API 管理下载任务。
-- Aria2 和 SQLite 状态是否能在服务生命周期内稳定恢复。
+```text
+packaging/fnos/
+  manifest
+  config/
+  cmd/
+  wizard/
+  app/
+    bin/          # motrix-fnos-server 与 aria2-next
+    ui/dist/      # Web UI 静态资源
+    data/         # 运行时数据目录
+  dist/           # .fpk 输出
+```
+
+约定：
+
+- `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 路径。
+- `cmd/stop` 触发 server 统一退出流程。
+- `cmd/status` 只判断服务进程状态。
+- `app/data/` 保存 SQLite、Aria2 session、日志、PID 等运行态文件；打包前不得携带本地残留。
+- Web UI 由 Rust server 托管，通过相对路径访问 `/api/*` 和 `/api/events`。
+
+### 3.2 架构与产物匹配
+
+| 设备架构 | Rust target | FPK 输出 |
+| --- | --- | --- |
+| `x86_64` | `x86_64-unknown-linux-gnu` | `motrix.fnos_0.1.0_x86.fpk` |
+| `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `motrix.fnos_0.1.0_arm.fpk` |
+
+安装时必须选择与设备 CPU 架构匹配的 FPK。
 
 ## 4. 分层职责
 
-### 4.1 FPK 打包层
+| 层级 | 职责 | 不承担 |
+| --- | --- | --- |
+| FPK 打包层 | manifest、权限、图标、Web 入口、服务脚本、产物组装 | 下载业务、页面交互、业务数据持久化 |
+| Rust server | 任务生命周期、配置校验、路径安全、Aria2 进程与 RPC、SQLite、日志、HTTP/SSE | 页面布局、组件交互、前端临时状态 |
+| Aria2 Next | HTTP/HTTPS/BT/磁力下载、断点续传、限速、状态上报 | UI、配置/历史存储、fnOS 生命周期 |
+| Vue Web UI | 页面展示、用户交互、轻量输入反馈、调用 service/store | 下载执行、文件系统权限判断、数据库读写 |
+| Pinia | 前端任务状态、筛选、选中项、事件订阅状态、配置缓存、UI 偏好 | SQLite 持久化、Aria2 RPC、复杂后端判断 |
+| SQLite | 任务记录、配置、历史、错误记录、需长期保存的 UI 偏好 | 实时下载执行、页面临时状态 |
 
-FPK 打包层负责 fnOS 应用安装与运行入口。
+## 5. 前端约束
 
-职责：
-
-- 提供 manifest、权限、图标、安装信息和 Web 入口配置。
-- 负责 start / stop / status 等服务控制脚本。
-- 负责把 Rust server、Web UI 静态资源和 Aria2 sidecar 打包进 FPK。
-
-不职责：
-
-- 下载业务本身。
-- 页面展示与交互。
-- 直接持久化业务数据。
-
-### 4.2 Rust Server 核心层
-
-Rust 负责核心业务能力，不负责页面展示。
-
-职责：
-
-- 业务模型定义。
-- 下载任务生命周期管理。
-- 配置读取与校验。
-- 下载目录、文件路径、安全边界处理。
-- 启动、停止、监控 Aria2 Next sidecar。
-- 与 Aria2 JSON-RPC 通信。
-- SQLite 持久化。
-- 应用内日志写入。
-- 暴露 HTTP API 和运行时事件流给前端调用。
-
-不职责：
-
-- 页面布局。
-- 表格渲染。
-- 组件交互。
-- 前端临时状态管理。
-
-### 4.3 Aria2 Next 下载引擎层
-
-Aria2 Next 只负责真实下载能力。
-
-职责：
-
-- HTTP / HTTPS / BT / 磁力等底层下载。
-- 分片、并发、断点续传、限速等下载能力。
-- 通过 JSON-RPC 接受任务控制。
-- 返回任务状态、进度、速度、错误码和文件信息。
-
-不职责：
-
-- 任务列表 UI。
-- 应用配置存储。
-- 历史记录存储。
-- fnOS 应用生命周期控制。
-
-### 4.4 Vue Web UI 层
-
-Vue 负责 UI 展示和用户交互，不直接承载后端业务规则。
-
-职责：
-
-- 主页面布局。
-- 任务列表、任务详情、新建任务、设置、诊断日志等页面。
-- 用户输入校验中的轻量即时反馈。
-- 调用 service / store 完成交互。
-- 表格、弹窗、Toast、菜单等交互组件。
-
-不职责：
-
-- 真实下载逻辑。
-- 文件系统权限判断。
-- 持久化数据库读写。
-- 直接拼装复杂 Aria2 RPC 请求。
-
-### 4.5 Pinia 状态层
-
-Pinia 负责前端全局和跨组件状态。
-
-职责：
-
-- 任务列表状态。
-- 当前筛选条件。
-- 当前选中任务。
-- 任务轮询或事件订阅状态。
-- 配置缓存。
-- UI 偏好，例如表格列宽、当前分类、侧栏展开状态。
-
-不职责：
-
-- SQLite 持久化。
-- 直接发起底层 Aria2 RPC。
-- 复杂后端业务判断。
-
-### 4.6 SQLite 持久化层
-
-SQLite 是本地长期状态来源。
-
-职责：
-
-- 下载任务记录。
-- 配置项。
-- 历史任务。
-- 错误记录。
-- 需要长期保存的 UI 偏好。
-
-不职责：
-
-- 当前页面临时状态。
-- 实时渲染。
-- Aria2 实时下载执行。
-
-## 5. 前端架构规范
-
-### 5.1 目录结构
-
-目标前端目录结构如下：
+目标目录：
 
 ```text
 src/
-  app/
-    providers/
-      NaiveProvider.vue
+  app/providers/
   layouts/
-    AppShell.vue
-    SidebarNav.vue
-    Topbar.vue
   views/
-    MainWindow.vue
   features/
     tasks/
-      components/
-      stores/
-      composables/
-      services/
-      types.ts
     diagnostics/
-      components/
-      stores/
-      services/
     settings/
-      components/
-      stores/
-      services/
   services/
-    http.ts
-    runtimeEvents.ts
   types/
-    app.ts
-    aria2.ts
 ```
 
-说明：
+约束：
 
 - `views/` 只放页面入口，负责组合布局和功能模块。
-- `layouts/` 放通用页面结构，例如侧栏、顶部栏、整体 shell。
-- `features/` 按业务领域拆分，任务、日志、设置等都应进入各自 feature。
+- `layouts/` 放通用页面结构。
+- `features/` 按业务领域拆分组件、store、service、composable 和类型。
 - `services/` 放 HTTP client 和运行时事件订阅封装。
-- `MainWindow.vue` 当前作为 Web UI 页面入口，负责承载主页面编排。
+- `MainWindow.vue` 只承担页面编排，不直接实现任务表、复杂弹窗、Toast 队列、任务轮询或后端接口调用。
+- UI 优先使用 Naive UI；自定义 CSS 仅用于整体主题、侧栏、shell、颜色、间距和圆角。
 
-### 5.2 `MainWindow.vue` 边界
+## 6. 后端约束
 
-`MainWindow.vue` 只允许承担页面编排职责。
-
-允许：
-
-- 引入布局组件。
-- 引入任务模块组件。
-- 引入诊断模块组件。
-- 处理极少量页面级开关状态。
-
-不允许：
-
-- 直接实现完整任务表。
-- 直接实现复杂弹窗表单。
-- 直接实现 Toast 队列。
-- 直接实现任务轮询或事件流管理。
-- 直接调用后端接口而绕过 feature service / store。
-
-## 6. UI 组件策略
-
-### 6.1 正式采用 Naive UI
-
-项目正式采用 **Naive UI** 作为 Vue UI 组件库。
-
-原因：
-
-- 与 Vue 3 / TypeScript 适配成熟。
-- 提供 DataTable、Dialog、Message、Notification、Form、Input、Button、Tabs 等基础能力。
-- 可以减少自研控件带来的交互和可维护性成本。
-- 适合先快速做出稳定工具，再逐步定制视觉风格。
-
-### 6.2 组件库使用原则
-
-优先使用 Naive UI：
-
-- 表格：`NDataTable`
-- 弹窗：`NModal` / `NDialog`
-- 表单：`NForm` / `NInput` / `NSelect`
-- 按钮：`NButton`
-- Tabs：`NTabs`
-- Toast / 提示：`NMessage` / `NNotification`
-- 进度：`NProgress`
-- 空状态：`NEmpty`
-
-允许自定义 CSS：
-
-- 应用整体暗色主题。
-- 飞牛 / Motrix 风格的颜色、间距、圆角。
-- 侧栏和整体 shell 的产品化布局。
-
-## 7. 后端目录与模块约束
-
-目标后端结构如下：
+目标目录：
 
 ```text
 server/
@@ -297,10 +131,11 @@ server/
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
-- `services/` 负责业务流程编排。
-- `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持清晰边界。
+- `services/` 负责编排业务流程。
+- `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持领域边界。
+- 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
-## 8. 标准数据流与事件流
+## 7. 数据流与事件流
 
 标准数据流：
 
@@ -326,54 +161,38 @@ Rust Runtime Event
 
 禁止：
 
-- Vue 组件直接散落调用后端接口。
+- Vue 组件散落直接调用后端接口。
 - 前端直接拼装复杂 Aria2 RPC 请求。
-- Rust handler 内直接堆积业务逻辑而不拆 service。
-- 把 UI 临时状态和后端持久状态混成同一层对象。
+- Rust handler 内堆积业务逻辑。
+- 混用 UI 临时状态和后端持久状态。
 
-## 9. 运行时生命周期原则
+## 8. 生命周期与安全边界
 
-当前长期运行模型基于 fnOS 服务，而不是桌面窗口或托盘语义。
-
-固定原则：
-
-- 应用启动与停止以 fnOS 的 start / stop / status 语义为准。
-- 后端启动后负责准备数据目录、初始化 SQLite、启动或连接 Aria2。
-- 后端停止时应统一保存运行状态、刷新必要持久化并停止当前服务管理的 Aria2 实例。
-- 前端页面关闭、刷新或重新进入不应被视为应用退出。
-
-## 10. 数据目录与安全边界
-
+- 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
+- 后端启动时准备数据目录、初始化 SQLite、启动或连接 Aria2。
+- 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
+- 前端页面关闭、刷新或重新进入不等于应用退出。
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
-- 数据目录优先从 fnOS / FPK 提供的环境或配置读取。
-- 下载目录不能默认写死桌面用户目录；必须改为 fnOS 可访问目录或应用数据目录下的默认下载区。
-- Aria2 RPC secret 只能在服务端生成和持有，不对前端暴露。
-- 日志继续隐藏私密 URL query 和敏感配置。
+- 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
+- Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
+- 日志必须隐藏私密 URL query 和敏感配置。
 
-## 11. 开发约束
+## 9. fnOS 平台查证规则
 
-后续开发必须遵守：
-
-- 新增前端交互继续进入 `features/*`，不得重新向入口页面堆叠。
-- 新增后端能力必须按 `api -> service -> domain -> persistence` 分层。
-- 新增通信能力默认走 HTTP API / SSE。
-- 新增长期状态时必须考虑 SQLite 持久化路径。
-- 若后续发现本文档与实际演进不匹配，应先更新本文档，再继续实现。
-
-### 11.1 fnOS 资料查证规则
-
-凡涉及 fnOS / FPK / 应用中心 / manifest / `config/resource` / `config/privilege` / `cmd/*` 生命周期 / `TRIM_*` 环境变量 / 文件夹授权 / 端口入口 / 安装、升级、卸载行为等飞牛平台能力，不能只凭通用 Linux、NAS 或既有记忆推断，必须先查证资料再实现或给结论。
+涉及 fnOS / FPK / 应用中心 / manifest / `config/resource` / `config/privilege` / `cmd/*` 生命周期 / `TRIM_*` 环境变量 / 文件夹授权 / 端口入口 / 安装、升级、卸载行为时，必须先查证资料或实机验证，不能只凭通用 Linux、NAS 或既有记忆下结论。
 
 资料优先级：
 
-1. 官方资料：优先搜索飞牛开发者平台、飞牛官方论坛、帮助中心和官方工具说明。
-2. 可验证第三方资料：官方资料不足时，可参考活跃的第三方 FPK 仓库、实机可安装 FPK、社区开发指南和论坛排障记录，并明确标注这是第三方资料或实机对照。
-3. 本仓库实证：结合解包、实机日志、`fnpack` 行为、安装后的目录结构和环境变量进行验证。
-4. 推断：只有前三级都不足时才允许推断；必须说明“这是推断”、给出验证步骤，并优先设计可回滚的小改动。
+1. 飞牛官方资料。
+2. 可验证第三方 FPK 仓库、社区指南、论坛排障记录。
+3. 本仓库实证：解包、实机日志、`fnpack` 行为、安装目录和环境变量。
+4. 推断：仅在前三者不足时使用，并必须说明验证步骤。
 
-资料使用要求：
+修改涉及 fnOS 平台行为的实现或文档时，应同步记录查证来源或验证方式。
 
-- 回答或修改涉及 fnOS 平台行为的问题时，应在回复中说明查证来源或验证方式。
-- 如果资料互相冲突，以实机结果和当前目标 fnOS 版本为准，并更新相关文档。
-- 非 fnOS 平台能力，例如 Vue/Naive UI、Rust/Axum、Aria2 JSON-RPC、SQLite、TypeScript 等，可按对应官方文档、代码和测试判断；但只要存在不确定或可能影响用户数据/安装/权限的猜测，也应搜索资料佐证。
-- 不确定时不要把猜测包装成事实；先说不确定，再查证或给出最小验证命令。
+## 10. 开发约束
+
+- 新增前端交互进入 `features/*`，不得重新向入口页面堆叠。
+- 新增通信能力默认走 HTTP API / SSE。
+- 新增长期状态必须考虑 SQLite 持久化路径和迁移策略。
+- 若本文档与实际演进不匹配，先更新本文档，再继续实现。
