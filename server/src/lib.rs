@@ -7,4 +7,5 @@ pub mod debug_logs;
 pub mod runtime;
 pub mod settings;
 pub mod state;
+pub mod storage;
 pub mod tasks;

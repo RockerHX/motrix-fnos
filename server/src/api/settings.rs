@@ -21,7 +21,8 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
 }
 
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
-    let config = load_app_config_from_pool(&state.core.database.pool)
+    let default_download_dir = default_download_dir(&state)?;
+    let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
         .await
         .map_err(|error| ApiError::internal("settings_load_failed", error))?;
     state.core.debug_logs.info("settings", "读取应用配置");
@@ -32,7 +33,8 @@ async fn update_settings(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<AppConfig>,
 ) -> Result<Json<AppConfig>, ApiError> {
-    let config = save_app_config(&state.core.database.pool, payload)
+    let default_download_dir = default_download_dir(&state)?;
+    let config = save_app_config(&state.core.database.pool, payload, &default_download_dir)
         .await
         .map_err(|error| ApiError::internal("settings_save_failed", error))?;
     state.core.debug_logs.info("settings", "应用配置已保存");
@@ -59,6 +61,14 @@ async fn update_ui_preferences(
         .map_err(|error| ApiError::internal("ui_preferences_save_failed", error))?;
     state.core.debug_logs.info("settings", "UI 偏好已保存");
     Ok(Json(preferences))
+}
+
+fn default_download_dir(state: &HttpAppState) -> Result<String, ApiError> {
+    crate::storage::load_default_download_dir(
+        &state.runtime.accessible_paths_path,
+        &state.runtime.app_data_dir,
+    )
+    .map_err(|error| ApiError::internal("default_download_dir_failed", error))
 }
 
 async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {

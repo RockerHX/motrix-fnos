@@ -227,7 +227,10 @@ mod tests {
             StatusCode::OK,
         )
         .await;
-        assert!(default_settings.default_download_dir.ends_with("Downloads"));
+        assert_eq!(
+            default_settings.default_download_dir,
+            state.runtime.app_data_dir.display().to_string()
+        );
 
         let updated_settings = response_json::<AppConfig>(
             app.clone()

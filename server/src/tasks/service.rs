@@ -4,7 +4,6 @@ use crate::database::tasks::{
     upsert_download_task,
 };
 use crate::debug_logs::DebugLogStore;
-use crate::settings::service::load_app_config_from_pool;
 use crate::tasks::{
     add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error, mark_task_paused,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
@@ -56,15 +55,13 @@ impl<'a> TaskService<'a> {
         payload: CreateDownloadTaskRequest,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let mut payload = payload;
         if payload
             .save_dir
             .as_deref()
             .map(|save_dir| save_dir.trim().is_empty())
             .unwrap_or(true)
         {
-            let app_config = load_app_config_from_pool(self.database_pool).await?;
-            payload.save_dir = Some(app_config.default_download_dir);
+            return Err("请选择已授权的保存目录".to_string());
         }
         let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
         let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
