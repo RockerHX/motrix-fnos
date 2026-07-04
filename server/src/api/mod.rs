@@ -4,6 +4,7 @@ mod debug_logs;
 pub mod error;
 mod events;
 mod extract;
+mod jsonrpc;
 mod settings;
 mod storage;
 mod tasks;
@@ -40,6 +41,7 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", debug_logs::routes())
         .nest("/api", tasks::routes())
         .nest("/api", events::routes())
+        .merge(jsonrpc::routes())
         .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)

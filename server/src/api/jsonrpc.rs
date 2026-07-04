@@ -1,0 +1,437 @@
+use crate::app::HttpAppState;
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::tasks::service::TaskService;
+use crate::tasks::CreateDownloadTaskRequest;
+use axum::body::{Body, Bytes};
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::State;
+use axum::http::header::{CONTENT_TYPE, SEC_WEBSOCKET_PROTOCOL};
+use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::post;
+use axum::Router;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+const JSONRPC_VERSION: &str = "2.0";
+
+pub fn routes() -> Router<Arc<HttpAppState>> {
+    Router::new().route(
+        "/jsonrpc",
+        post(handle_http_jsonrpc)
+            .get(handle_ws_jsonrpc)
+            .options(handle_jsonrpc_options),
+    )
+}
+
+async fn handle_http_jsonrpc(State(state): State<Arc<HttpAppState>>, body: Bytes) -> Response {
+    let payload = match serde_json::from_slice::<Value>(&body) {
+        Ok(payload) => handle_jsonrpc_payload(&state, payload).await,
+        Err(_) => rpc_error(Value::Null, -32700, "Parse error"),
+    };
+    jsonrpc_http_response(StatusCode::OK, payload)
+}
+
+async fn handle_jsonrpc_options() -> Response {
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    insert_cors_headers(response.headers_mut());
+    response
+}
+
+async fn handle_ws_jsonrpc(
+    State(state): State<Arc<HttpAppState>>,
+    ws: WebSocketUpgrade,
+) -> Response {
+    ws.protocols(["jsonrpc"])
+        .on_upgrade(move |socket| handle_jsonrpc_socket(socket, state))
+}
+
+async fn handle_jsonrpc_socket(mut socket: WebSocket, state: Arc<HttpAppState>) {
+    while let Some(message) = socket.recv().await {
+        let Ok(message) = message else {
+            break;
+        };
+
+        let payload = match message {
+            Message::Text(text) => serde_json::from_str::<Value>(&text),
+            Message::Binary(bytes) => serde_json::from_slice::<Value>(&bytes),
+            Message::Ping(bytes) => {
+                let _ = socket.send(Message::Pong(bytes)).await;
+                continue;
+            }
+            Message::Pong(_) => continue,
+            Message::Close(_) => break,
+        };
+
+        let response = match payload {
+            Ok(payload) => handle_jsonrpc_payload(&state, payload).await,
+            Err(_) => rpc_error(Value::Null, -32700, "Parse error"),
+        };
+
+        if socket
+            .send(Message::Text(response.to_string()))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: Value) -> Value {
+    match payload {
+        Value::Array(items) if items.is_empty() => {
+            rpc_error(Value::Null, -32600, "Invalid Request")
+        }
+        Value::Array(items) => {
+            let mut responses = Vec::with_capacity(items.len());
+            for item in items {
+                responses.push(handle_jsonrpc_request(state, item).await);
+            }
+            Value::Array(responses)
+        }
+        Value::Object(_) => handle_jsonrpc_request(state, payload).await,
+        _ => rpc_error(Value::Null, -32600, "Invalid Request"),
+    }
+}
+
+async fn handle_jsonrpc_request(state: &Arc<HttpAppState>, payload: Value) -> Value {
+    let request = match serde_json::from_value::<JsonRpcRequest>(payload) {
+        Ok(request) => request,
+        Err(_) => return rpc_error(Value::Null, -32600, "Invalid Request"),
+    };
+    let id = request.id.clone().unwrap_or(Value::Null);
+
+    let result = if request.method == "system.multicall" {
+        execute_multicall(state, &request.params).await
+    } else {
+        execute_method(state, &request.method, &request.params).await
+    };
+
+    match result {
+        Ok(result) => rpc_success(id, result),
+        Err(error) => rpc_error(id, error.code, error.message),
+    }
+}
+
+async fn execute_multicall(state: &Arc<HttpAppState>, params: &Value) -> Result<Value, RpcFault> {
+    let params = positional_params(params)?;
+    let params = strip_token_param(params);
+    let calls = params
+        .first()
+        .and_then(Value::as_array)
+        .ok_or_else(|| RpcFault::invalid_params("system.multicall requires a call list"))?;
+
+    let mut results = Vec::with_capacity(calls.len());
+    for call in calls {
+        let call = serde_json::from_value::<MulticallItem>(call.clone())
+            .map_err(|_| RpcFault::invalid_params("Invalid multicall item"))?;
+        let params = call.params.unwrap_or(Value::Array(Vec::new()));
+        match execute_method(state, &call.method_name, &params).await {
+            Ok(result) => results.push(json!([result])),
+            Err(error) => results.push(json!({
+                "faultCode": error.code,
+                "faultString": error.message,
+            })),
+        }
+    }
+
+    Ok(Value::Array(results))
+}
+
+async fn execute_method(
+    state: &Arc<HttpAppState>,
+    method: &str,
+    params: &Value,
+) -> Result<Value, RpcFault> {
+    match method {
+        "aria2.addUri" => add_uri(state, params).await.map(Value::String),
+        "aria2.getVersion" => get_version(state).await,
+        _ => Err(RpcFault::method_not_found(format!(
+            "Method not found: {method}"
+        ))),
+    }
+}
+
+async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, RpcFault> {
+    let command = parse_add_uri_command(params)?;
+    let save_dir = match command.save_dir {
+        Some(save_dir) => save_dir,
+        None => default_save_dir(state)?,
+    };
+    ensure_authorized_save_dir(state, &save_dir)?;
+
+    let service = TaskService::new(
+        &state.core.database.pool,
+        &state.core.download_tasks,
+        &state.core.next_task_id,
+        &state.core.debug_logs,
+        &state.core.is_exiting,
+    );
+    service
+        .ensure_not_exiting()
+        .map_err(RpcFault::server_error)?;
+
+    let config = ensure_aria2_ready(state)
+        .await
+        .map_err(RpcFault::server_error)?;
+    let task = service
+        .create_download_task(
+            &config,
+            CreateDownloadTaskRequest {
+                url: command.url,
+                file_name: command.file_name,
+                save_dir: Some(save_dir),
+            },
+        )
+        .await
+        .map_err(RpcFault::server_error)?;
+    broadcast_tasks_snapshot(state).map_err(RpcFault::server_error)?;
+
+    task.gid
+        .filter(|gid| !gid.trim().is_empty())
+        .ok_or_else(|| RpcFault::server_error("创建下载任务成功，但响应缺少 GID"))
+}
+
+async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
+    let config = ensure_aria2_ready(state)
+        .await
+        .map_err(RpcFault::server_error)?;
+    let status = crate::aria2::ping_rpc(&config, Some(&state.core.debug_logs)).await;
+    if !status.connected {
+        return Err(RpcFault::server_error(status.message));
+    }
+
+    Ok(json!({
+        "version": status.version.unwrap_or_else(|| "unknown".to_string()),
+        "enabledFeatures": [],
+    }))
+}
+
+fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, RpcFault> {
+    let params = positional_params(params)?;
+    let params = strip_token_param(params);
+    let uris = params
+        .first()
+        .ok_or_else(|| RpcFault::invalid_params("aria2.addUri requires URI list"))?;
+    let url = first_uri(uris)?;
+    let options = params.get(1).and_then(Value::as_object);
+
+    Ok(AddUriCommand {
+        url,
+        save_dir: options.and_then(|options| string_option(options.get("dir"))),
+        file_name: options.and_then(|options| string_option(options.get("out"))),
+    })
+}
+
+fn positional_params(params: &Value) -> Result<&[Value], RpcFault> {
+    match params {
+        Value::Null => Ok(&[]),
+        Value::Array(params) => Ok(params),
+        _ => Err(RpcFault::invalid_params("params must be an array")),
+    }
+}
+
+fn strip_token_param(params: &[Value]) -> &[Value] {
+    if params
+        .first()
+        .and_then(Value::as_str)
+        .map(|value| value.starts_with("token:"))
+        .unwrap_or(false)
+    {
+        &params[1..]
+    } else {
+        params
+    }
+}
+
+fn first_uri(value: &Value) -> Result<String, RpcFault> {
+    let uri = match value {
+        Value::Array(uris) => uris.first().and_then(Value::as_str),
+        Value::String(uri) => Some(uri.as_str()),
+        _ => None,
+    };
+    uri.map(str::trim)
+        .filter(|uri| !uri.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| RpcFault::invalid_params("aria2.addUri requires a non-empty URI"))
+}
+
+fn string_option(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn default_save_dir(state: &HttpAppState) -> Result<String, RpcFault> {
+    crate::storage::load_default_download_dir(
+        &state.runtime.accessible_paths_path,
+        &state.runtime.app_data_dir,
+    )
+    .map_err(RpcFault::server_error)
+}
+
+fn ensure_authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<(), RpcFault> {
+    let accessible_paths =
+        crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+            .map_err(RpcFault::server_error)?;
+    if accessible_paths.is_empty() {
+        return Err(RpcFault::invalid_params(
+            "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
+        ));
+    }
+    if !accessible_paths.iter().any(|path| path == save_dir) {
+        return Err(RpcFault::invalid_params("保存目录不在飞牛已授权目录列表中"));
+    }
+    Ok(())
+}
+
+fn rpc_success(id: Value, result: Value) -> Value {
+    json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "id": id,
+        "result": result,
+    })
+}
+
+fn rpc_error(id: Value, code: i64, message: impl Into<String>) -> Value {
+    json!({
+        "jsonrpc": JSONRPC_VERSION,
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message.into(),
+        },
+    })
+}
+
+fn jsonrpc_http_response(status: StatusCode, payload: Value) -> Response {
+    let mut response = Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .body(Body::from(payload.to_string()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    insert_cors_headers(response.headers_mut());
+    response
+}
+
+fn insert_cors_headers(headers: &mut axum::http::HeaderMap) {
+    headers.insert(
+        HeaderName::from_static("access-control-allow-origin"),
+        HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        HeaderName::from_static("access-control-allow-methods"),
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert(
+        HeaderName::from_static("access-control-allow-headers"),
+        HeaderValue::from_static("content-type, authorization"),
+    );
+    headers.insert(
+        HeaderName::from_static("access-control-expose-headers"),
+        HeaderValue::from_static(SEC_WEBSOCKET_PROTOCOL.as_str()),
+    );
+    headers.insert(
+        HeaderName::from_static("access-control-allow-private-network"),
+        HeaderValue::from_static("true"),
+    );
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcRequest {
+    id: Option<Value>,
+    method: String,
+    #[serde(default)]
+    params: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MulticallItem {
+    method_name: String,
+    params: Option<Value>,
+}
+
+#[derive(Debug)]
+struct AddUriCommand {
+    url: String,
+    save_dir: Option<String>,
+    file_name: Option<String>,
+}
+
+#[derive(Debug)]
+struct RpcFault {
+    code: i64,
+    message: String,
+}
+
+impl RpcFault {
+    fn invalid_params(message: impl Into<String>) -> Self {
+        Self {
+            code: -32602,
+            message: message.into(),
+        }
+    }
+
+    fn method_not_found(message: impl Into<String>) -> Self {
+        Self {
+            code: -32601,
+            message: message.into(),
+        }
+    }
+
+    fn server_error(message: impl Into<String>) -> Self {
+        Self {
+            code: -32000,
+            message: message.into(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_add_uri_accepts_token_uri_list_and_options() {
+        let command = parse_add_uri_command(&json!([
+            "token:anything",
+            ["https://example.com/file.zip"],
+            {
+                "dir": "/vol1/1000/tmp",
+                "out": "file.zip"
+            }
+        ]))
+        .expect("addUri params should parse");
+
+        assert_eq!(command.url, "https://example.com/file.zip");
+        assert_eq!(command.save_dir.as_deref(), Some("/vol1/1000/tmp"));
+        assert_eq!(command.file_name.as_deref(), Some("file.zip"));
+    }
+
+    #[test]
+    fn parse_add_uri_accepts_uri_without_token() {
+        let command = parse_add_uri_command(&json!([
+            ["https://example.com/file.zip"],
+            {
+                "dir": "/vol1/1000/tmp"
+            }
+        ]))
+        .expect("addUri params should parse");
+
+        assert_eq!(command.url, "https://example.com/file.zip");
+        assert_eq!(command.save_dir.as_deref(), Some("/vol1/1000/tmp"));
+        assert_eq!(command.file_name, None);
+    }
+
+    #[test]
+    fn parse_add_uri_rejects_empty_uri_list() {
+        let error = parse_add_uri_command(&json!([[]])).expect_err("empty URI should fail");
+
+        assert_eq!(error.code, -32602);
+    }
+}
