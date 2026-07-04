@@ -12,6 +12,7 @@ import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
+import { useI18n, type TranslationKey } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { MainNavCategory } from "../types/navigation";
@@ -29,6 +30,7 @@ const props = defineProps<{
 }>();
 
 const message = useMessage();
+const { t } = useI18n();
 const taskStore = useTaskStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
@@ -49,37 +51,49 @@ const emptyStateByCategory: Record<
   {
     title: string;
     description: string;
+    titleKey: TranslationKey;
+    descriptionKey: TranslationKey;
     showCreateAction: boolean;
     showSettingsAction: boolean;
   }
 > = {
   downloading: {
-    title: "暂无下载中任务",
-    description: "点击添加任务，或粘贴 HTTP / HTTPS 链接开始下载。",
+    title: "",
+    description: "",
+    titleKey: "empty.downloading.title",
+    descriptionKey: "empty.downloading.description",
     showCreateAction: true,
     showSettingsAction: true,
   },
   completed: {
-    title: "暂无已完成任务",
-    description: "任务下载完成后会显示在这里。",
+    title: "",
+    description: "",
+    titleKey: "empty.completed.title",
+    descriptionKey: "empty.completed.description",
     showCreateAction: false,
     showSettingsAction: false,
   },
   stopped: {
-    title: "暂无已停止任务",
-    description: "暂停或下载失败的任务会显示在这里，可从列表中继续处理。",
+    title: "",
+    description: "",
+    titleKey: "empty.stopped.title",
+    descriptionKey: "empty.stopped.description",
     showCreateAction: false,
     showSettingsAction: false,
   },
   trash: {
-    title: "回收站暂无任务",
-    description: "删除后的任务记录会显示在这里。",
+    title: "",
+    description: "",
+    titleKey: "empty.trash.title",
+    descriptionKey: "empty.trash.description",
     showCreateAction: false,
     showSettingsAction: false,
   },
   extensions: {
-    title: "暂无扩展",
-    description: "扩展页面将在后续步骤提供说明。",
+    title: "",
+    description: "",
+    titleKey: "empty.extensions.title",
+    descriptionKey: "empty.extensions.description",
     showCreateAction: false,
     showSettingsAction: false,
   },
@@ -108,7 +122,7 @@ function selectCategory(category: MainNavCategory) {
 }
 
 async function handleTaskCreated() {
-  message.success("任务已添加");
+  message.success(t("task.created"));
   void refreshPhaseStatus();
 }
 
@@ -185,8 +199,8 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
     <template v-else>
       <TaskEmptyState
         v-if="visibleTasks.length === 0"
-        :title="emptyState.title"
-        :description="emptyState.description"
+        :title="t(emptyState.titleKey)"
+        :description="t(emptyState.descriptionKey)"
         :show-create-action="emptyState.showCreateAction"
         :show-settings-action="emptyState.showSettingsAction"
         @create="openCreateDialog"
@@ -200,7 +214,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
         v-if="showFloatingAdd"
         type="button"
         class="floating-add"
-        aria-label="添加任务"
+        :aria-label="t('empty.create')"
         @click="openCreateDialog"
       >
         ＋

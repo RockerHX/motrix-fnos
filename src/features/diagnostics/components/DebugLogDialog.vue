@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { NButton, NCard, NEmpty, NModal, NTag, useMessage } from "naive-ui";
 import { nextTick, ref, watch } from "vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
+import { useI18n } from "../../../i18n";
 import type { DebugLogEntry, DebugLogLevel } from "../types";
 
 const props = defineProps<{
@@ -14,6 +15,7 @@ const emit = defineEmits<{
 }>();
 
 const message = useMessage();
+const { t } = useI18n();
 const debugLogStore = useDebugLogStore();
 const { logs, isLoading, isClearing } = storeToRefs(debugLogStore);
 const logListRef = ref<HTMLElement | null>(null);
@@ -59,7 +61,7 @@ async function refreshLogs() {
 async function clearLogs() {
   try {
     await debugLogStore.clearLogs();
-    message.success("调试日志已清空");
+    message.success(t("logs.cleared"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -67,17 +69,17 @@ async function clearLogs() {
 
 async function copyAllLogs() {
   if (logs.value.length === 0) {
-    message.warning("当前没有可复制的调试日志");
+    message.warning(t("logs.noCopy"));
     return;
   }
 
   const text = formatAllLogs();
   try {
     await copyText(text);
-    message.success("调试日志已复制");
+    message.success(t("logs.copied"));
   } catch (error) {
     showManualCopyDialog(text);
-    message.warning(`飞牛窗口限制自动复制：${getErrorMessage(error)}`);
+    message.warning(t("logs.autoCopyLimited", { message: getErrorMessage(error) }));
   }
 }
 
@@ -87,7 +89,7 @@ async function copyText(text: string) {
     return;
   }
 
-  throw new Error("当前飞牛窗口不提供剪贴板写入 API");
+  throw new Error(t("logs.clipboardUnavailable"));
 }
 
 function showManualCopyDialog(text: string) {
@@ -105,7 +107,7 @@ function closeManualCopyDialog() {
 
 function downloadAllLogs() {
   if (logs.value.length === 0) {
-    message.warning("当前没有可下载的调试日志");
+    message.warning(t("logs.noDownload"));
     return;
   }
 
@@ -118,7 +120,7 @@ function downloadAllLogs() {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
-  message.success("调试日志已导出");
+  message.success(t("logs.exported"));
 }
 
 function formatAllLogs() {
@@ -165,7 +167,7 @@ function getErrorMessage(error: unknown) {
   }
 
   const text = String(error);
-  return text || "未知错误";
+  return text || t("common.unknown");
 }
 </script>
 
@@ -174,21 +176,21 @@ function getErrorMessage(error: unknown) {
     <NCard class="debug-log-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">Debug Logs</p>
-          <h2>应用内调试日志</h2>
+          <p class="eyebrow">{{ t("logs.eyebrow") }}</p>
+          <h2>{{ t("logs.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
         <div class="header-actions">
-          <NButton size="small" secondary :loading="isLoading" @click="refreshLogs">刷新</NButton>
-          <NButton size="small" secondary @click="copyAllLogs">复制全部</NButton>
-          <NButton size="small" secondary @click="downloadAllLogs">下载日志</NButton>
-          <NButton size="small" secondary type="warning" :loading="isClearing" @click="clearLogs">清空</NButton>
+          <NButton size="small" secondary :loading="isLoading" @click="refreshLogs">{{ t("logs.refresh") }}</NButton>
+          <NButton size="small" secondary @click="copyAllLogs">{{ t("logs.copyAll") }}</NButton>
+          <NButton size="small" secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
+          <NButton size="small" secondary type="warning" :loading="isClearing" @click="clearLogs">{{ t("logs.clear") }}</NButton>
           <NButton quaternary circle @click="closeDialog">×</NButton>
         </div>
       </template>
 
-      <NEmpty v-if="logs.length === 0" description="暂无调试日志" />
+      <NEmpty v-if="logs.length === 0" :description="t('logs.empty')" />
       <div v-else ref="logListRef" class="log-list">
         <article v-for="log in logs" :key="log.id" class="log-entry" :class="`level-${log.level}`">
           <div class="log-meta">
@@ -206,19 +208,19 @@ function getErrorMessage(error: unknown) {
     <NCard class="manual-copy-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">Manual Copy</p>
-          <h2>手动复制调试日志</h2>
+          <p class="eyebrow">{{ t("logs.manualCopy.eyebrow") }}</p>
+          <h2>{{ t("logs.manualCopy.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
         <NButton quaternary circle @click="closeManualCopyDialog">×</NButton>
       </template>
 
-      <p class="manual-copy-hint">飞牛内嵌窗口限制了自动写入剪贴板。下面文本已自动选中，请按 Command+C 或 Ctrl+C 手动复制；也可以使用“下载日志”。</p>
+      <p class="manual-copy-hint">{{ t("logs.manualCopy.hint") }}</p>
       <textarea ref="manualCopyRef" class="manual-copy-textarea" readonly :value="manualCopyText" />
       <div class="manual-copy-actions">
-        <NButton secondary @click="downloadAllLogs">下载日志</NButton>
-        <NButton type="primary" @click="closeManualCopyDialog">完成</NButton>
+        <NButton secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
+        <NButton type="primary" @click="closeManualCopyDialog">{{ t("common.done") }}</NButton>
       </div>
     </NCard>
   </NModal>

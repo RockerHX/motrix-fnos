@@ -11,7 +11,8 @@ import {
   useMessage,
 } from "naive-ui";
 import { useTaskStore } from "../stores/taskStore";
-import type { DownloadTask } from "../../../types/tasks";
+import { formatDateTime, useI18n, type TranslationKey } from "../../../i18n";
+import type { DownloadTask, DownloadTaskStatus } from "../../../types/tasks";
 
 const props = defineProps<{
   task: DownloadTask;
@@ -19,6 +20,7 @@ const props = defineProps<{
 
 const taskStore = useTaskStore();
 const message = useMessage();
+const { t } = useI18n();
 const showDeleteConfirm = ref(false);
 const showPermanentDeleteConfirm = ref(false);
 const showRedownloadConfirm = ref(false);
@@ -43,7 +45,7 @@ const progressText = computed(() => {
 
 function ensureCanOperate() {
   if (taskStore.isRuntimeExiting) {
-    message.warning("应用正在退出，请稍候");
+    message.warning(t("task.runtimeExiting"));
     return false;
   }
   return true;
@@ -53,7 +55,7 @@ async function pauseTask() {
   if (!ensureCanOperate()) return;
   try {
     await taskStore.pauseTask(props.task.id);
-    message.success("任务已暂停");
+    message.success(t("task.actions.paused"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -63,7 +65,7 @@ async function resumeTask() {
   if (!ensureCanOperate()) return;
   try {
     await taskStore.resumeTask(props.task.id);
-    message.success("任务已继续");
+    message.success(t("task.actions.resumed"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -74,7 +76,7 @@ async function confirmRedownloadTask() {
   try {
     await taskStore.redownloadTask(props.task.id);
     showRedownloadConfirm.value = false;
-    message.success("任务已重新下载，原文件已删除");
+    message.success(t("task.actions.redownloaded"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -91,7 +93,7 @@ async function confirmDeleteTask() {
   try {
     await taskStore.deleteTask(props.task.id, deleteFiles.value);
     showDeleteConfirm.value = false;
-    message.success(deleteFiles.value ? "任务和本地文件已删除" : "任务已删除");
+    message.success(deleteFiles.value ? t("task.actions.deletedWithFiles") : t("task.actions.deleted"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -107,7 +109,7 @@ async function confirmPermanentDeleteTask() {
   try {
     await taskStore.permanentlyDeleteTask(props.task.id);
     showPermanentDeleteConfirm.value = false;
-    message.success("任务记录已永久删除");
+    message.success(t("task.actions.permanentlyDeleted"));
   } catch (error) {
     message.error(getErrorMessage(error));
   }
@@ -119,7 +121,19 @@ function getErrorMessage(error: unknown) {
   }
 
   const message = String(error);
-  return message || "操作失败，请稍后重试";
+  return message || t("task.operationFailed");
+}
+
+function statusLabel(status: DownloadTaskStatus) {
+  const labels: Record<DownloadTaskStatus, TranslationKey> = {
+    pending: "task.status.pending",
+    active: "task.status.active",
+    paused: "task.status.paused",
+    complete: "task.status.complete",
+    error: "task.status.error",
+    removed: "task.status.removed",
+  };
+  return t(labels[status]);
 }
 
 function formatSize(size: number) {
@@ -144,20 +158,24 @@ function formatTimestamp(timestamp: number) {
     return "--";
   }
 
-  return new Date(timestamp).toLocaleString();
+  return formatDateTime(timestamp);
 }
 </script>
 
 <template>
   <NSpace :size="6" wrap>
-    <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">详情</NButton>
-    <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">暂停</NButton>
-    <NButton v-if="canResume" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="resumeTask">继续</NButton>
+    <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">{{ t("task.actions.details") }}</NButton>
+    <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">
+      {{ t("task.actions.pause") }}
+    </NButton>
+    <NButton v-if="canResume" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="resumeTask">
+      {{ t("task.actions.resume") }}
+    </NButton>
     <NButton v-if="canRedownload" size="small" secondary :disabled="isActionDisabled" @click="showRedownloadConfirm = true">
-      重新下载
+      {{ t("task.actions.redownload") }}
     </NButton>
     <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isActionDisabled" @click="openDeleteConfirm">
-      删除
+      {{ t("task.actions.delete") }}
     </NButton>
     <NButton
       v-if="canPermanentDelete"
@@ -168,79 +186,83 @@ function formatTimestamp(timestamp: number) {
       :disabled="isActionDisabled"
       @click="openPermanentDeleteConfirm"
     >
-      永久删除
+      {{ t("task.actions.permanentDelete") }}
     </NButton>
   </NSpace>
 
   <NModal v-model:show="showDetails">
-    <NCard class="task-detail-card" role="dialog" aria-modal="true" title="任务详情">
+    <NCard class="task-detail-card" role="dialog" aria-modal="true" :title="t('task.detail.title')">
       <NDescriptions :column="1" label-placement="left" bordered>
-        <NDescriptionsItem label="任务名称">{{ task.fileName }}</NDescriptionsItem>
-        <NDescriptionsItem label="状态">{{ task.status }}</NDescriptionsItem>
-        <NDescriptionsItem label="进度">{{ progressText }}</NDescriptionsItem>
-        <NDescriptionsItem label="已下载 / 总大小">
-          {{ formatSize(task.completedLength) }} / {{ task.totalLength > 0 ? formatSize(task.totalLength) : "未知" }}
+        <NDescriptionsItem :label="t('task.detail.fileName')">{{ task.fileName }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.status')">{{ statusLabel(task.status) }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.progress')">{{ progressText }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.size')">
+          {{ formatSize(task.completedLength) }} / {{ task.totalLength > 0 ? formatSize(task.totalLength) : t("common.unknown") }}
         </NDescriptionsItem>
-        <NDescriptionsItem label="速度">{{ formatSize(task.downloadSpeed) }}/s</NDescriptionsItem>
-        <NDescriptionsItem label="保存路径">{{ task.saveDir }}</NDescriptionsItem>
-        <NDescriptionsItem label="文件路径">{{ task.filePath || "--" }}</NDescriptionsItem>
-        <NDescriptionsItem label="GID">{{ task.gid || "--" }}</NDescriptionsItem>
-        <NDescriptionsItem label="下载链接">{{ task.url }}</NDescriptionsItem>
-        <NDescriptionsItem label="创建时间">{{ formatTimestamp(task.createdAt) }}</NDescriptionsItem>
-        <NDescriptionsItem label="更新时间">{{ formatTimestamp(task.updatedAt) }}</NDescriptionsItem>
-        <NDescriptionsItem v-if="task.errorMessage" label="错误原因">
-          {{ task.errorCode ? `错误码 ${task.errorCode}：` : "" }}{{ task.errorMessage }}
+        <NDescriptionsItem :label="t('task.detail.speed')">{{ formatSize(task.downloadSpeed) }}/s</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.saveDir')">{{ task.saveDir }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.filePath')">{{ task.filePath || t("common.notAvailable") }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.gid')">{{ task.gid || t("common.notAvailable") }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.url')">{{ task.url }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.createdAt')">{{ formatTimestamp(task.createdAt) }}</NDescriptionsItem>
+        <NDescriptionsItem :label="t('task.detail.updatedAt')">{{ formatTimestamp(task.updatedAt) }}</NDescriptionsItem>
+        <NDescriptionsItem v-if="task.errorMessage" :label="t('task.detail.errorReason')">
+          {{ task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "" }}{{ task.errorMessage }}
         </NDescriptionsItem>
       </NDescriptions>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showDetails = false">关闭</NButton>
+          <NButton @click="showDetails = false">{{ t("common.close") }}</NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
   <NModal v-model:show="showRedownloadConfirm" :mask-closable="!isOperating">
-    <NCard class="redownload-confirm-card" role="dialog" aria-modal="true" title="重新下载任务">
+    <NCard class="redownload-confirm-card" role="dialog" aria-modal="true" :title="t('task.redownload.title')">
       <p class="delete-confirm-text">
-        重新下载会直接删除“{{ task.fileName }}”当前本地文件和同名 .aria2 控制文件，然后从 0 开始下载。确定继续吗？
+        {{ t("task.redownload.confirm", { name: task.fileName }) }}
       </p>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="isActionDisabled" @click="showRedownloadConfirm = false">取消</NButton>
-          <NButton type="primary" :loading="isOperating" :disabled="isActionDisabled" @click="confirmRedownloadTask">重新下载</NButton>
+          <NButton :disabled="isActionDisabled" @click="showRedownloadConfirm = false">{{ t("common.cancel") }}</NButton>
+          <NButton type="primary" :loading="isOperating" :disabled="isActionDisabled" @click="confirmRedownloadTask">
+            {{ t("task.actions.redownload") }}
+          </NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
   <NModal v-model:show="showDeleteConfirm" :mask-closable="!isOperating">
-    <NCard class="delete-confirm-card" role="dialog" aria-modal="true" title="删除下载任务">
-      <p class="delete-confirm-text">确定要删除“{{ task.fileName }}”吗？</p>
-      <NCheckbox v-model:checked="deleteFiles">同时删除本地文件</NCheckbox>
+    <NCard class="delete-confirm-card" role="dialog" aria-modal="true" :title="t('task.delete.title')">
+      <p class="delete-confirm-text">{{ t("task.delete.confirm", { name: task.fileName }) }}</p>
+      <NCheckbox v-model:checked="deleteFiles">{{ t("task.delete.files") }}</NCheckbox>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="isActionDisabled" @click="showDeleteConfirm = false">取消</NButton>
-          <NButton type="error" :loading="isOperating" :disabled="isActionDisabled" @click="confirmDeleteTask">删除</NButton>
+          <NButton :disabled="isActionDisabled" @click="showDeleteConfirm = false">{{ t("common.cancel") }}</NButton>
+          <NButton type="error" :loading="isOperating" :disabled="isActionDisabled" @click="confirmDeleteTask">
+            {{ t("task.actions.delete") }}
+          </NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
   <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!isOperating">
-    <NCard class="permanent-delete-confirm-card" role="dialog" aria-modal="true" title="永久删除任务记录">
+    <NCard class="permanent-delete-confirm-card" role="dialog" aria-modal="true" :title="t('task.permanentDelete.title')">
       <p class="delete-confirm-text">
-        确定要永久删除“{{ task.fileName }}”的任务记录吗？该操作只删除 Motrix 的数据库记录，不会删除用户下载文件。
+        {{ t("task.permanentDelete.confirm", { name: task.fileName }) }}
       </p>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="isActionDisabled" @click="showPermanentDeleteConfirm = false">取消</NButton>
+          <NButton :disabled="isActionDisabled" @click="showPermanentDeleteConfirm = false">{{ t("common.cancel") }}</NButton>
           <NButton type="error" :loading="isOperating" :disabled="isActionDisabled" @click="confirmPermanentDeleteTask">
-            永久删除
+            {{ t("task.actions.permanentDelete") }}
           </NButton>
         </NSpace>
       </template>

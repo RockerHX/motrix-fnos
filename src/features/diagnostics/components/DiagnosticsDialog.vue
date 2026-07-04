@@ -3,6 +3,7 @@ import { NButton, NCard, NModal } from "naive-ui";
 import { ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
+import { useI18n } from "../../../i18n";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{
   engineStatusUpdated: [status: EngineStatusSnapshot];
 }>();
 
+const { t } = useI18n();
 const showDebugLogs = ref(false);
 
 watch(
@@ -54,23 +56,23 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
     <NCard class="diagnostics-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">Diagnostics</p>
-          <h2>阶段状态与引擎诊断</h2>
+          <p class="eyebrow">{{ t("diagnostics.eyebrow") }}</p>
+          <h2>{{ t("diagnostics.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
         <div class="header-actions">
-          <NButton secondary @click="showDebugLogs = true">调试日志</NButton>
+          <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
           <NButton quaternary circle @click="closeDialog">×</NButton>
         </div>
       </template>
 
       <div class="diagnostics-grid">
-        <div><span>应用版本</span><strong>{{ props.appInfo?.version ?? "-" }}</strong></div>
-        <div><span>后端状态</span><strong>{{ props.appInfo?.backendStatus ?? "checking" }}</strong></div>
-        <div><span>通信结果</span><strong>{{ props.backendPing?.message ?? "等待响应" }}</strong></div>
-        <div><span>Aria2 进程</span><strong>{{ props.aria2Process?.running ? "运行中" : "未运行" }}</strong></div>
-        <div><span>Aria2 RPC</span><strong>{{ props.aria2Rpc?.connected ? "已连接" : "未连接" }}</strong></div>
+        <div><span>{{ t("diagnostics.appVersion") }}</span><strong>{{ props.appInfo?.version ?? "-" }}</strong></div>
+        <div><span>{{ t("diagnostics.backendStatus") }}</span><strong>{{ props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") }}</strong></div>
+        <div><span>{{ t("diagnostics.communication") }}</span><strong>{{ props.backendPing?.message ?? t("common.loading") }}</strong></div>
+        <div><span>{{ t("diagnostics.aria2Process") }}</span><strong>{{ props.aria2Process?.running ? t("diagnostics.running") : t("diagnostics.stopped") }}</strong></div>
+        <div><span>{{ t("diagnostics.aria2Rpc") }}</span><strong>{{ props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") }}</strong></div>
       </div>
 
       <EngineStatusPanel @status-updated="updateEngineStatus" />

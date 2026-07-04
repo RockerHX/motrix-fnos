@@ -19,6 +19,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { getAccessiblePaths } from "../../../services/storage";
+import { useI18n } from "../../../i18n";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 const taskStore = useTaskStore();
 const settingsStore = useSettingsStore();
 const message = useMessage();
+const { t } = useI18n();
 
 const form = reactive({
   url: "",
@@ -44,14 +46,14 @@ const form = reactive({
   startMode: "now",
   note: "",
 });
-const activeInputType = ref("URL 下载");
+const activeInputType = ref("url");
 const formErrorMessage = ref("");
 const accessiblePaths = ref<string[]>([]);
 const isLoadingAccessiblePaths = ref(false);
 const accessiblePathsError = ref("");
 
 const isUrlValid = computed(() => /^https?:\/\/.+/i.test(form.url.trim()));
-const urlFeedback = computed(() => (form.url && !isUrlValid.value ? "当前仅支持 HTTP / HTTPS 链接" : undefined));
+const urlFeedback = computed(() => (form.url && !isUrlValid.value ? t("create.url.invalid") : undefined));
 const urlValidationStatus = computed(() => (form.url && !isUrlValid.value ? "error" : undefined));
 const accessiblePathOptions = computed(() =>
   accessiblePaths.value.map((path) => ({
@@ -84,15 +86,15 @@ onMounted(() => {
 
 async function submitCreateTask() {
   if (taskStore.isRuntimeExiting) {
-    message.warning("应用正在退出，请稍候");
+    message.warning(t("task.runtimeExiting"));
     return;
   }
   if (!isUrlValid.value) {
-    formErrorMessage.value = "请输入有效的 HTTP / HTTPS 下载链接";
+    formErrorMessage.value = t("create.url.required");
     return;
   }
   if (!form.saveDir) {
-    formErrorMessage.value = "请选择已授权的保存目录";
+    formErrorMessage.value = t("create.saveDir.required");
     return;
   }
 
@@ -127,7 +129,7 @@ function resetForm() {
   form.saveDir = "";
   form.startMode = "now";
   form.note = "";
-  activeInputType.value = "URL 下载";
+  activeInputType.value = "url";
   formErrorMessage.value = "";
 }
 
@@ -179,7 +181,7 @@ function getErrorMessage(error: unknown) {
   }
 
   const message = String(error);
-  return message || "操作失败，请稍后重试";
+  return message || t("task.operationFailed");
 }
 </script>
 
@@ -188,8 +190,8 @@ function getErrorMessage(error: unknown) {
     <NCard class="task-create-card" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">New Task</p>
-          <h2>新建下载任务</h2>
+          <p class="eyebrow">{{ t("create.eyebrow") }}</p>
+          <h2>{{ t("create.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
@@ -198,21 +200,21 @@ function getErrorMessage(error: unknown) {
 
       <NForm @submit.prevent="submitCreateTask">
         <NTabs v-model:value="activeInputType" type="segment" animated>
-          <NTabPane name="URL 下载" tab="URL 下载" />
-          <NTabPane name="批量 URL" tab="批量 URL" disabled />
-          <NTabPane name="种子文件（后期）" tab="种子文件（后期）" disabled />
-          <NTabPane name="磁力链接（后期）" tab="磁力链接（后期）" disabled />
+          <NTabPane name="url" :tab="t('create.tab.url')" />
+          <NTabPane name="batch" :tab="t('create.tab.batch')" disabled />
+          <NTabPane name="torrent" :tab="t('create.tab.torrent')" disabled />
+          <NTabPane name="magnet" :tab="t('create.tab.magnet')" disabled />
         </NTabs>
 
-        <NFormItem label="下载链接" :feedback="urlFeedback" :validation-status="urlValidationStatus">
+        <NFormItem :label="t('create.url.label')" :feedback="urlFeedback" :validation-status="urlValidationStatus">
           <NInput v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
         </NFormItem>
 
-        <NFormItem label="文件名">
-          <NInput v-model:value="form.fileName" placeholder="留空则从链接自动识别" />
+        <NFormItem :label="t('create.fileName.label')">
+          <NInput v-model:value="form.fileName" :placeholder="t('create.fileName.placeholder')" />
         </NFormItem>
 
-        <NFormItem label="保存路径">
+        <NFormItem :label="t('create.saveDir.label')">
           <NSpace vertical class="full-width">
             <NSelect
               v-model:value="form.saveDir"
@@ -220,36 +222,36 @@ function getErrorMessage(error: unknown) {
               :loading="isLoadingAccessiblePaths"
               :disabled="isLoadingAccessiblePaths || accessiblePaths.length === 0"
               filterable
-              placeholder="请选择已授权的保存目录"
+              :placeholder="t('create.saveDir.placeholder')"
             />
-            <span class="field-hint">目录来自飞牛应用设置中的文件夹授权；如刚修改授权，请重新打开新建任务或刷新页面。</span>
+            <span class="field-hint">{{ t("create.saveDir.hint") }}</span>
             <NAlert v-if="accessiblePathsError" type="error" class="inline-alert">
-              读取授权目录失败：{{ accessiblePathsError }}
+              {{ t("create.saveDir.loadFailed", { message: accessiblePathsError }) }}
             </NAlert>
             <NAlert v-else-if="!isLoadingAccessiblePaths && accessiblePaths.length === 0" type="warning" class="inline-alert">
-              未检测到已授权目录，请先在飞牛应用设置中为 Motrix 添加读写文件夹授权，然后重新打开新建任务。
+              {{ t("create.saveDir.empty") }}
             </NAlert>
           </NSpace>
         </NFormItem>
 
-        <NFormItem label="开始方式">
+        <NFormItem :label="t('create.startMode.label')">
           <NTabs v-model:value="form.startMode" type="segment">
-            <NTabPane name="now" tab="立即开始" />
-            <NTabPane name="paused" tab="添加后暂停" />
+            <NTabPane name="now" :tab="t('create.startMode.now')" />
+            <NTabPane name="paused" :tab="t('create.startMode.paused')" />
           </NTabs>
         </NFormItem>
 
-        <NFormItem label="备注">
-          <NInput v-model:value="form.note" placeholder="可选" />
+        <NFormItem :label="t('create.note.label')">
+          <NInput v-model:value="form.note" :placeholder="t('create.note.placeholder')" />
         </NFormItem>
 
         <NCollapse>
-          <NCollapseItem title="高级设置" name="advanced">
+          <NCollapseItem :title="t('create.advanced')" name="advanced">
             <NGrid :cols="2" :x-gap="12" :y-gap="12">
-              <NGi><NInput placeholder="分类：默认" disabled /></NGi>
-              <NGi><NInput placeholder="连接数：16" disabled /></NGi>
-              <NGi><NInput placeholder="限速：不限速" disabled /></NGi>
-              <NGi><NInput placeholder="代理：后期支持" disabled /></NGi>
+              <NGi><NInput :placeholder="t('create.advanced.category')" disabled /></NGi>
+              <NGi><NInput :placeholder="t('create.advanced.connections')" disabled /></NGi>
+              <NGi><NInput :placeholder="t('create.advanced.speedLimit')" disabled /></NGi>
+              <NGi><NInput :placeholder="t('create.advanced.proxy')" disabled /></NGi>
             </NGrid>
           </NCollapseItem>
         </NCollapse>
@@ -257,8 +259,8 @@ function getErrorMessage(error: unknown) {
         <NAlert v-if="formErrorMessage" type="error" class="form-alert">{{ formErrorMessage }}</NAlert>
 
         <NSpace justify="end" class="dialog-actions">
-          <NButton :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">取消</NButton>
-          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!canSubmit">开始下载</NButton>
+          <NButton :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">{{ t("common.cancel") }}</NButton>
+          <NButton type="primary" attr-type="submit" :loading="taskStore.isCreating" :disabled="!canSubmit">{{ t("create.submit") }}</NButton>
         </NSpace>
       </NForm>
     </NCard>

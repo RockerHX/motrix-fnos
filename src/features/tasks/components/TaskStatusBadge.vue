@@ -1,23 +1,26 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NTag } from "naive-ui";
+import { useI18n, type TranslationKey } from "../../../i18n";
 import type { DownloadTaskStatus } from "../../../types/tasks";
 
 const props = defineProps<{
   status: DownloadTaskStatus;
 }>();
 
+const { t } = useI18n();
+
 const label = computed(() => {
-  const labels: Record<DownloadTaskStatus, string> = {
-    pending: "排队",
-    active: "下载中",
-    paused: "暂停",
-    complete: "已完成",
-    error: "错误",
-    removed: "已删除",
+  const labels: Record<DownloadTaskStatus, TranslationKey> = {
+    pending: "task.status.pending",
+    active: "task.status.active",
+    paused: "task.status.paused",
+    complete: "task.status.complete",
+    error: "task.status.error",
+    removed: "task.status.removed",
   };
 
-  return labels[props.status];
+  return t(labels[props.status]);
 });
 
 const badgeType = computed(() => {

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import { NDataTable } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { getUiPreferences, saveUiPreferences } from "../../../services/settings";
+import { language, t } from "../../../i18n";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
@@ -39,11 +40,18 @@ onMounted(async () => {
   }
 });
 
+watch(language, () => {
+  columns.value = createColumns({
+    ...defaultColumnWidths,
+    ...extractColumnWidths(columns.value),
+  });
+});
+
 function createColumns(widths: Record<string, number>): DataTableColumns<DownloadTask> {
   return [
     {
     key: "name",
-    title: "任务名称",
+    title: t("task.table.name"),
     width: widths.name,
     minWidth: 240,
     resizable: true,
@@ -56,7 +64,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "status",
-    title: "状态",
+    title: t("task.table.status"),
     width: widths.status,
     minWidth: 90,
     resizable: true,
@@ -64,7 +72,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "progress",
-    title: "进度",
+    title: t("task.table.progress"),
     width: widths.progress,
     minWidth: 150,
     resizable: true,
@@ -72,7 +80,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "size",
-    title: "已下载 / 总大小",
+    title: t("task.table.size"),
     width: widths.size,
     minWidth: 150,
     resizable: true,
@@ -80,7 +88,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "speed",
-    title: "速度",
+    title: t("task.table.speed"),
     width: widths.speed,
     minWidth: 110,
     resizable: true,
@@ -88,7 +96,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "eta",
-    title: "剩余时间",
+    title: t("task.table.eta"),
     width: widths.eta,
     minWidth: 100,
     resizable: true,
@@ -96,7 +104,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
     },
     {
     key: "actions",
-    title: "操作",
+    title: t("task.table.actions"),
     width: widths.actions,
     minWidth: 240,
     resizable: false,
@@ -130,13 +138,13 @@ function normalizeColumnWidth(width: unknown) {
 }
 
 function formatTaskError(task: DownloadTask) {
-  const code = task.errorCode ? `错误码 ${task.errorCode}：` : "";
-  return `${code}${task.errorMessage || "未知错误"}`;
+  const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
+  return `${code}${task.errorMessage || t("common.unknown")}`;
 }
 
 function formatSizePair(task: DownloadTask) {
   if (task.totalLength <= 0) {
-    return `${formatSize(task.completedLength)} / 未知`;
+    return `${formatSize(task.completedLength)} / ${t("common.unknown")}`;
   }
 
   return `${formatSize(task.completedLength)} / ${formatSize(task.totalLength)}`;

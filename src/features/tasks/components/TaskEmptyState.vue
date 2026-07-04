@@ -1,5 +1,9 @@
 <script setup lang="ts">
-withDefaults(
+import { useI18n } from "../../../i18n";
+
+const { t } = useI18n();
+
+const props = withDefaults(
   defineProps<{
     title?: string;
     description?: string;
@@ -7,8 +11,8 @@ withDefaults(
     showSettingsAction?: boolean;
   }>(),
   {
-    title: "暂无任务",
-    description: "点击下方按钮或粘贴 HTTP / HTTPS 链接开始您的第一次下载。",
+    title: "",
+    description: "",
     showCreateAction: true,
     showSettingsAction: true,
   },
@@ -36,16 +40,16 @@ function openSettings() {
         <span>+</span>
       </div>
     </div>
-    <h1>{{ title }}</h1>
-    <p>{{ description }}</p>
-    <div v-if="showCreateAction || showSettingsAction" class="empty-actions">
-      <button v-if="showCreateAction" type="button" class="primary" @click="createTask">
+    <h1>{{ props.title || t("empty.default.title") }}</h1>
+    <p>{{ props.description || t("empty.default.description") }}</p>
+    <div v-if="props.showCreateAction || props.showSettingsAction" class="empty-actions">
+      <button v-if="props.showCreateAction" type="button" class="primary" @click="createTask">
         <span>＋</span>
-        添加任务
+        {{ t("empty.create") }}
       </button>
-      <button v-if="showSettingsAction" type="button" class="secondary" @click="openSettings">
+      <button v-if="props.showSettingsAction" type="button" class="secondary" @click="openSettings">
         <span>⚙</span>
-        打开设置
+        {{ t("empty.openSettings") }}
       </button>
     </div>
   </section>

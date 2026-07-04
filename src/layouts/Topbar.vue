@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { useI18n } from "../i18n";
+
 const emit = defineEmits<{
   openDiagnostics: [];
 }>();
+
+const { t } = useI18n();
 
 function openDiagnostics() {
   emit("openDiagnostics");
@@ -12,9 +16,9 @@ function openDiagnostics() {
   <header class="topbar">
     <div class="topbar-spacer" />
     <div class="topbar-actions">
-      <button type="button" title="筛选">≡</button>
-      <button type="button" title="排序">≡</button>
-      <button type="button" title="诊断" @click="openDiagnostics">⋮</button>
+      <button type="button" :title="t('topbar.filter')">≡</button>
+      <button type="button" :title="t('topbar.sort')">≡</button>
+      <button type="button" :title="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
     </div>
   </header>
 </template>

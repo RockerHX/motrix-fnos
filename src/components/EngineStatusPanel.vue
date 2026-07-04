@@ -7,6 +7,7 @@ import {
   startAria2,
   stopAria2,
 } from "../services/aria2";
+import { useI18n } from "../i18n";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
 type EngineStatusSnapshot = {
@@ -18,6 +19,7 @@ const emit = defineEmits<{
   statusUpdated: [status: EngineStatusSnapshot];
 }>();
 
+const { t } = useI18n();
 const configStatus = ref<Aria2ConfigStatus | null>(null);
 const processStatus = ref<Aria2ProcessStatus | null>(null);
 const rpcStatus = ref<Aria2RpcStatus | null>(null);
@@ -70,40 +72,40 @@ onMounted(() => {
     <div class="panel-header">
       <div>
         <p class="eyebrow">Aria2 Next</p>
-        <h2>引擎状态验证</h2>
+        <h2>{{ t("engine.title") }}</h2>
       </div>
-      <button type="button" class="ghost-button" :disabled="loading" @click="refreshEngineStatus">刷新</button>
+      <button type="button" class="ghost-button" :disabled="loading" @click="refreshEngineStatus">{{ t("common.refresh") }}</button>
     </div>
 
     <div class="engine-grid">
       <div class="engine-card">
-        <span class="label">路径配置</span>
-        <strong>{{ configStatus?.binarySource === "sidecar" ? "内置 sidecar" : "外部路径" }}</strong>
+        <span class="label">{{ t("engine.pathConfig") }}</span>
+        <strong>{{ configStatus?.binarySource === "sidecar" ? t("engine.sidecar") : t("engine.externalPath") }}</strong>
         <p>{{ configStatus?.path ?? configStatus?.sidecarName ?? "aria2-next" }}</p>
-        <small>{{ configStatus?.binarySource === "sidecar" ? configStatus?.targetTriple : configStatus?.pathExists ? "路径可用" : "路径未验证通过" }}</small>
+        <small>{{ configStatus?.binarySource === "sidecar" ? configStatus?.targetTriple : configStatus?.pathExists ? t("engine.pathAvailable") : t("engine.pathInvalid") }}</small>
       </div>
 
       <div class="engine-card">
-        <span class="label">进程状态</span>
-        <strong>{{ processStatus?.running ? "运行中" : "未运行" }}</strong>
-        <p>{{ processStatus?.message ?? "等待检查" }}</p>
-        <small>PID：{{ processStatus?.pid ?? "-" }} / {{ processStatus?.binarySource ?? "-" }}</small>
+        <span class="label">{{ t("engine.processStatus") }}</span>
+        <strong>{{ processStatus?.running ? t("diagnostics.running") : t("diagnostics.stopped") }}</strong>
+        <p>{{ processStatus?.message ?? t("engine.waiting") }}</p>
+        <small>{{ t("engine.pid") }}：{{ processStatus?.pid ?? "-" }} / {{ processStatus?.binarySource ?? "-" }}</small>
       </div>
 
       <div class="engine-card">
-        <span class="label">RPC 状态</span>
-        <strong>{{ rpcStatus?.connected ? "已连接" : "未连接" }}</strong>
-        <p>{{ rpcStatus?.message ?? "尚未检查 RPC" }}</p>
-        <small>版本：{{ rpcStatus?.version ?? "-" }}</small>
+        <span class="label">{{ t("engine.rpcStatus") }}</span>
+        <strong>{{ rpcStatus?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") }}</strong>
+        <p>{{ rpcStatus?.message ?? t("engine.rpcUnchecked") }}</p>
+        <small>{{ t("engine.version") }}：{{ rpcStatus?.version ?? "-" }}</small>
       </div>
     </div>
 
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
     <div class="actions">
-      <button type="button" :disabled="loading" @click="runAction(startAria2)">启动引擎</button>
-      <button type="button" :disabled="loading" @click="runAction(stopAria2)">停止引擎</button>
-      <button type="button" :disabled="loading" @click="runAction(pingAria2Rpc)">检查 RPC</button>
+      <button type="button" :disabled="loading" @click="runAction(startAria2)">{{ t("engine.start") }}</button>
+      <button type="button" :disabled="loading" @click="runAction(stopAria2)">{{ t("engine.stop") }}</button>
+      <button type="button" :disabled="loading" @click="runAction(pingAria2Rpc)">{{ t("engine.checkRpc") }}</button>
     </div>
   </section>
 </template>

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { clearDebugLogs, listDebugLogs } from "../services/debugLogService";
+import { t } from "../../../i18n";
 import type { DebugLogEntry } from "../types";
 
 export const useDebugLogStore = defineStore("debugLogs", () => {
@@ -54,5 +55,5 @@ function getErrorMessage(error: unknown) {
   }
 
   const message = String(error);
-  return message || "调试日志操作失败";
+  return message || t("logs.failed");
 }

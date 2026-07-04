@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { AppInfo } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
+import { useI18n, type TranslationKey } from "../i18n";
 
 defineProps<{
   appInfo: AppInfo | null;
@@ -13,17 +14,19 @@ const emit = defineEmits<{
   selectCategory: [category: MainNavCategory];
 }>();
 
+const { t } = useI18n();
+
 const navItems: Array<{
   key: MainNavCategory;
   icon: string;
-  label: string;
+  labelKey: TranslationKey;
   spaced?: boolean;
 }> = [
-  { key: "downloading", icon: "⇩", label: "Downloading" },
-  { key: "completed", icon: "✓", label: "Completed" },
-  { key: "stopped", icon: "Ⅱ", label: "Stopped" },
-  { key: "trash", icon: "♜", label: "Trash", spaced: true },
-  { key: "extensions", icon: "♧", label: "Extensions" },
+  { key: "downloading", icon: "⇩", labelKey: "nav.downloading" },
+  { key: "completed", icon: "✓", labelKey: "nav.completed" },
+  { key: "stopped", icon: "Ⅱ", labelKey: "nav.stopped" },
+  { key: "trash", icon: "♜", labelKey: "nav.trash", spaced: true },
+  { key: "extensions", icon: "♧", labelKey: "nav.extensions" },
 ];
 
 function openHelp() {
@@ -49,7 +52,7 @@ function selectCategory(category: MainNavCategory) {
       </div>
     </div>
 
-    <nav class="category-list" aria-label="任务分类">
+    <nav class="category-list" :aria-label="t('nav.categories')">
       <button
         v-for="item in navItems"
         :key="item.key"
@@ -58,18 +61,18 @@ function selectCategory(category: MainNavCategory) {
         @click="selectCategory(item.key)"
       >
         <span class="nav-icon">{{ item.icon }}</span>
-        <span>{{ item.label }}</span>
+        <span>{{ t(item.labelKey) }}</span>
       </button>
     </nav>
 
     <div class="sidebar-footer">
       <button type="button" @click="openSettings">
         <span class="nav-icon">⚙</span>
-        <span>Settings</span>
+        <span>{{ t("nav.settings") }}</span>
       </button>
       <button type="button" @click="openHelp">
         <span class="nav-icon">?</span>
-        <span>Help</span>
+        <span>{{ t("nav.help") }}</span>
       </button>
     </div>
   </aside>

@@ -10,6 +10,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
 } from "../services/taskService";
+import { t } from "../../../i18n";
 import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
@@ -163,12 +164,12 @@ export const useTaskStore = defineStore("tasks", () => {
 
   function markRuntimeExiting(payload: RuntimeExitingPayload) {
     isRuntimeExiting.value = true;
-    runtimeExitReason.value = payload.reason || "应用正在退出";
+    runtimeExitReason.value = payload.reason || t("task.runtimeExiting");
   }
 
   function ensureRuntimeActive() {
     if (isRuntimeExiting.value) {
-      throw new Error("应用正在退出，请稍候");
+      throw new Error(t("task.runtimeExiting"));
     }
   }
 
@@ -227,7 +228,7 @@ export const useTaskStore = defineStore("tasks", () => {
         !notifiedErrorTaskKeys.has(key)
       ) {
         notifiedErrorTaskKeys.add(key);
-        messages.push(`任务下载失败：${formatTaskError(task)}`);
+        messages.push(t("task.failed", { message: formatTaskError(task) }));
       }
     }
 
@@ -271,8 +272,8 @@ function taskKey(task: DownloadTask) {
 }
 
 function formatTaskError(task: DownloadTask) {
-  const code = task.errorCode ? `错误码 ${task.errorCode}：` : "";
-  return `${code}${task.errorMessage || "未知错误"}`;
+  const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
+  return `${code}${task.errorMessage || t("common.unknown")}`;
 }
 
 function getErrorMessage(error: unknown) {
@@ -281,5 +282,5 @@ function getErrorMessage(error: unknown) {
   }
 
   const message = String(error);
-  return message || "操作失败，请稍后重试";
+  return message || t("task.operationFailed");
 }

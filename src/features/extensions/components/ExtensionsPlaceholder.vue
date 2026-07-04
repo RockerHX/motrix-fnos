@@ -1,16 +1,20 @@
+<script setup lang="ts">
+import { useI18n } from "../../../i18n";
+
+const { t } = useI18n();
+</script>
+
 <template>
   <section class="extensions-page">
     <div class="extensions-card">
       <span class="extensions-icon" aria-hidden="true">♧</span>
-      <p class="eyebrow">Extensions</p>
-      <h1>扩展功能暂未开放</h1>
-      <p>
-        当前 FPK Web 版尚未提供插件运行时。后续如果接入扩展能力，会优先通过受控的后端接口和明确的安全边界开放。
-      </p>
+      <p class="eyebrow">{{ t("extensions.eyebrow") }}</p>
+      <h1>{{ t("extensions.title") }}</h1>
+      <p>{{ t("extensions.body") }}</p>
       <ul>
-        <li>不会在本阶段加载第三方脚本。</li>
-        <li>不会联网拉取插件或执行外部代码。</li>
-        <li>这里会作为后续扩展能力的入口。</li>
+        <li>{{ t("extensions.item.noScripts") }}</li>
+        <li>{{ t("extensions.item.noNetworkPlugins") }}</li>
+        <li>{{ t("extensions.item.futureEntry") }}</li>
       </ul>
     </div>
   </section>
