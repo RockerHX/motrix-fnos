@@ -9,8 +9,6 @@ import {
   NModal,
   NSelect,
   NSpace,
-  NSwitch,
-  NTag,
   NText,
   useMessage,
 } from "naive-ui";
@@ -32,8 +30,6 @@ const form = reactive({
   maxConcurrentDownloads: 5,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
-  autoStartEnabled: false,
-  notificationsEnabled: false,
 });
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
@@ -101,8 +97,6 @@ function applyConfig(config: AppConfig) {
   form.maxConcurrentDownloads = config.maxConcurrentDownloads;
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
-  form.autoStartEnabled = config.autoStartEnabled;
-  form.notificationsEnabled = config.notificationsEnabled;
 }
 
 function buildPayload(): AppConfig {
@@ -111,8 +105,8 @@ function buildPayload(): AppConfig {
     maxConcurrentDownloads: Math.trunc(form.maxConcurrentDownloads || 1),
     downloadLimit: kbToBytes(form.downloadLimitKb),
     uploadLimit: kbToBytes(form.uploadLimitKb),
-    autoStartEnabled: form.autoStartEnabled,
-    notificationsEnabled: form.notificationsEnabled,
+    autoStartEnabled: false,
+    notificationsEnabled: false,
   };
 }
 
@@ -158,26 +152,6 @@ function getErrorMessage(error: unknown) {
 
         <NFormItem label="后台驻留">
           <NText depth="3">Web 版不控制应用常驻行为，服务是否持续运行由 fnOS 或 server 进程负责。</NText>
-        </NFormItem>
-
-        <NFormItem label="开机自启">
-          <NSpace vertical :size="6" class="setting-stack">
-            <NSpace align="center" :size="8">
-              <NSwitch v-model:value="form.autoStartEnabled" disabled />
-              <NTag size="small" type="warning" round>待支持</NTag>
-            </NSpace>
-            <NText depth="3">当前仅保留已保存偏好，不会修改 fnOS 系统开机自启状态。</NText>
-          </NSpace>
-        </NFormItem>
-
-        <NFormItem label="下载通知">
-          <NSpace vertical :size="6" class="setting-stack">
-            <NSpace align="center" :size="8">
-              <NSwitch v-model:value="form.notificationsEnabled" disabled />
-              <NTag size="small" type="warning" round>待支持</NTag>
-            </NSpace>
-            <NText depth="3">当前仅保留已保存偏好，不会申请浏览器通知权限或调用 fnOS 系统通知能力。</NText>
-          </NSpace>
         </NFormItem>
 
         <NFormItem label="最大并发下载数">

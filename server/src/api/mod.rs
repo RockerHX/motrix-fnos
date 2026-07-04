@@ -9,6 +9,11 @@ mod storage;
 mod tasks;
 
 use crate::app::HttpAppState;
+use axum::body::Body;
+use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
+use axum::http::{HeaderValue, Request};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,9 +22,9 @@ use tower_http::services::{ServeDir, ServeFile};
 #[cfg(test)]
 use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
 #[cfg(test)]
-use axum::body::{to_bytes, Body};
+use axum::body::to_bytes;
 #[cfg(test)]
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 #[cfg(test)]
 use tower::ServiceExt;
 
@@ -36,7 +41,20 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .nest("/api", tasks::routes())
         .nest("/api", events::routes())
         .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
+        .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
+}
+
+async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate, max-age=0"),
+    );
+    headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
+    headers.insert(EXPIRES, HeaderValue::from_static("0"));
+    response
 }
 
 fn static_assets_dir() -> PathBuf {
