@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { NButton, NCard, NModal } from "naive-ui";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
 
-defineProps<{
+type EngineStatusSnapshot = {
+  process: Aria2ProcessStatus;
+  rpc: Aria2RpcStatus;
+};
+
+const props = defineProps<{
   show: boolean;
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
@@ -16,9 +21,20 @@ defineProps<{
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
+  refreshStatus: [];
+  engineStatusUpdated: [status: EngineStatusSnapshot];
 }>();
 
 const showDebugLogs = ref(false);
+
+watch(
+  () => props.show,
+  (show) => {
+    if (show) {
+      emit("refreshStatus");
+    }
+  },
+);
 
 function updateShow(show: boolean) {
   emit("update:show", show);
@@ -27,10 +43,14 @@ function updateShow(show: boolean) {
 function closeDialog() {
   updateShow(false);
 }
+
+function updateEngineStatus(status: EngineStatusSnapshot) {
+  emit("engineStatusUpdated", status);
+}
 </script>
 
 <template>
-  <NModal :show="show" @update:show="updateShow">
+  <NModal :show="props.show" @update:show="updateShow">
     <NCard class="diagnostics-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
@@ -46,14 +66,14 @@ function closeDialog() {
       </template>
 
       <div class="diagnostics-grid">
-        <div><span>应用版本</span><strong>{{ appInfo?.version ?? "-" }}</strong></div>
-        <div><span>后端状态</span><strong>{{ appInfo?.backendStatus ?? "checking" }}</strong></div>
-        <div><span>通信结果</span><strong>{{ backendPing?.message ?? "等待响应" }}</strong></div>
-        <div><span>Aria2 进程</span><strong>{{ aria2Process?.running ? "运行中" : "未运行" }}</strong></div>
-        <div><span>Aria2 RPC</span><strong>{{ aria2Rpc?.connected ? "已连接" : "未连接" }}</strong></div>
+        <div><span>应用版本</span><strong>{{ props.appInfo?.version ?? "-" }}</strong></div>
+        <div><span>后端状态</span><strong>{{ props.appInfo?.backendStatus ?? "checking" }}</strong></div>
+        <div><span>通信结果</span><strong>{{ props.backendPing?.message ?? "等待响应" }}</strong></div>
+        <div><span>Aria2 进程</span><strong>{{ props.aria2Process?.running ? "运行中" : "未运行" }}</strong></div>
+        <div><span>Aria2 RPC</span><strong>{{ props.aria2Rpc?.connected ? "已连接" : "未连接" }}</strong></div>
       </div>
 
-      <EngineStatusPanel />
+      <EngineStatusPanel @status-updated="updateEngineStatus" />
     </NCard>
   </NModal>
 

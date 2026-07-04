@@ -9,6 +9,15 @@ import {
 } from "../services/aria2";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
+type EngineStatusSnapshot = {
+  process: Aria2ProcessStatus;
+  rpc: Aria2RpcStatus;
+};
+
+const emit = defineEmits<{
+  statusUpdated: [status: EngineStatusSnapshot];
+}>();
+
 const configStatus = ref<Aria2ConfigStatus | null>(null);
 const processStatus = ref<Aria2ProcessStatus | null>(null);
 const rpcStatus = ref<Aria2RpcStatus | null>(null);
@@ -21,9 +30,15 @@ defineExpose({
 
 async function refreshEngineStatus() {
   errorMessage.value = "";
-  const [config, process] = await Promise.all([getAria2ConfigStatus(), getAria2ProcessStatus()]);
+  const [config, process, rpc] = await Promise.all([
+    getAria2ConfigStatus(),
+    getAria2ProcessStatus(),
+    pingAria2Rpc(),
+  ]);
   configStatus.value = config;
   processStatus.value = process;
+  rpcStatus.value = rpc;
+  emit("statusUpdated", { process, rpc });
 }
 
 async function runAction(action: () => Promise<Aria2ProcessStatus | Aria2RpcStatus>) {

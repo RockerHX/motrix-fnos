@@ -17,6 +17,11 @@ import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { MainNavCategory } from "../types/navigation";
 import type { DownloadTask } from "../types/tasks";
 
+type Aria2StatusSnapshot = {
+  process: Aria2ProcessStatus;
+  rpc: Aria2RpcStatus;
+};
+
 const props = defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
@@ -84,6 +89,11 @@ async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
   aria2Process.value = process;
   aria2Rpc.value = rpc;
+}
+
+function updateAria2Status(status: Aria2StatusSnapshot) {
+  aria2Process.value = status.process;
+  aria2Rpc.value = status.rpc;
 }
 
 function openCreateDialog() {
@@ -205,6 +215,8 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
         :backend-ping="backendPing"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
+        @refresh-status="refreshPhaseStatus"
+        @engine-status-updated="updateAria2Status"
       />
     </template>
   </AppShell>
