@@ -10,6 +10,7 @@ import {
   NSelect,
   NSpace,
   NSwitch,
+  NTag,
   NText,
   useMessage,
 } from "naive-ui";
@@ -161,15 +162,21 @@ function getErrorMessage(error: unknown) {
 
         <NFormItem label="开机自启">
           <NSpace vertical :size="6" class="setting-stack">
-            <NSwitch v-model:value="form.autoStartEnabled" />
-            <NText depth="3">当前仅保存该配置，不会直接修改系统开机自启状态。</NText>
+            <NSpace align="center" :size="8">
+              <NSwitch v-model:value="form.autoStartEnabled" disabled />
+              <NTag size="small" type="warning" round>待支持</NTag>
+            </NSpace>
+            <NText depth="3">当前仅保留已保存偏好，不会修改 fnOS 系统开机自启状态。</NText>
           </NSpace>
         </NFormItem>
 
         <NFormItem label="下载通知">
           <NSpace vertical :size="6" class="setting-stack">
-            <NSwitch v-model:value="form.notificationsEnabled" />
-            <NText depth="3">当前仅保存该配置，不会直接申请通知权限。</NText>
+            <NSpace align="center" :size="8">
+              <NSwitch v-model:value="form.notificationsEnabled" disabled />
+              <NTag size="small" type="warning" round>待支持</NTag>
+            </NSpace>
+            <NText depth="3">当前仅保留已保存偏好，不会申请浏览器通知权限或调用 fnOS 系统通知能力。</NText>
           </NSpace>
         </NFormItem>
 
