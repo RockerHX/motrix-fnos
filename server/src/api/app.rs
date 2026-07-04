@@ -30,7 +30,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
 async fn get_app_info(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
     state.core.debug_logs.info("app", "读取应用信息");
     Ok(Json(AppInfo {
-        name: "Motrix FNOS".to_string(),
+        name: "Motrix".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         backend_status: "ready".to_string(),
     }))

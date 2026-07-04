@@ -1,6 +1,6 @@
 appname               = motrix.fnos
 version               = 0.1.0
-display_name          = Motrix FNOS
+display_name          = Motrix
 desc                  = 基于 Rust server、Vue Web UI 和 Aria2 Next 的 fnOS 下载管理应用
 source                = thirdparty
 platform              = arm

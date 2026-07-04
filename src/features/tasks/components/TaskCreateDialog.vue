@@ -227,7 +227,7 @@ function getErrorMessage(error: unknown) {
               读取授权目录失败：{{ accessiblePathsError }}
             </NAlert>
             <NAlert v-else-if="!isLoadingAccessiblePaths && accessiblePaths.length === 0" type="warning" class="inline-alert">
-              未检测到已授权目录，请先在飞牛应用设置中为 Motrix FNOS 添加读写文件夹授权，然后重新打开新建任务。
+              未检测到已授权目录，请先在飞牛应用设置中为 Motrix 添加读写文件夹授权，然后重新打开新建任务。
             </NAlert>
           </NSpace>
         </NFormItem>

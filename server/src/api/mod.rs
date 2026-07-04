@@ -101,7 +101,7 @@ mod tests {
             StatusCode::OK,
         )
         .await;
-        assert_eq!(info.name, "Motrix FNOS");
+        assert_eq!(info.name, "Motrix");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(info.backend_status, "ready");
 

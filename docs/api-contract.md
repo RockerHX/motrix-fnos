@@ -58,7 +58,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ```json
 {
-  "name": "Motrix FNOS",
+  "name": "Motrix",
   "version": "0.1.0",
   "backendStatus": "ready"
 }
@@ -92,7 +92,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `GET /api/tasks` 只返回未删除任务。
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
-- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix FNOS 数据库记录，不删除用户下载文件。
+- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix 数据库记录，不删除用户下载文件。
 
 `CreateDownloadTaskRequest`：
 
@@ -143,7 +143,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 约定：
 
-- `paths` 来自 fnOS 应用设置中授予 Motrix FNOS 的文件夹访问权限。
+- `paths` 来自 fnOS 应用设置中授予 Motrix 的文件夹访问权限。
 - 返回值会去掉空路径和重复路径。
 - 前端新建任务时必须从 `paths` 中选择保存目录；如果列表为空，应提示用户先在 fnOS 应用设置中添加读写文件夹授权。
 

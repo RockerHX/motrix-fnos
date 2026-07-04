@@ -39,7 +39,7 @@ function selectCategory(category: MainNavCategory) {
     <div class="brand">
       <div class="brand-mark" />
       <div>
-        <strong>{{ appInfo?.name ?? "Motrix FNOS" }}</strong>
+        <strong>{{ appInfo?.name ?? "Motrix" }}</strong>
         <span>v{{ appInfo?.version ?? "2.1.0" }}</span>
       </div>
     </div>

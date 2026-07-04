@@ -233,7 +233,7 @@ function formatTimestamp(timestamp: number) {
   <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!isOperating">
     <NCard class="permanent-delete-confirm-card" role="dialog" aria-modal="true" title="永久删除任务记录">
       <p class="delete-confirm-text">
-        确定要永久删除“{{ task.fileName }}”的任务记录吗？该操作只删除 Motrix FNOS 的数据库记录，不会删除用户下载文件。
+        确定要永久删除“{{ task.fileName }}”的任务记录吗？该操作只删除 Motrix 的数据库记录，不会删除用户下载文件。
       </p>
 
       <template #footer>
