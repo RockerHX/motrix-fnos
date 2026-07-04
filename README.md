@@ -16,7 +16,7 @@
 
 - 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
 - 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
-- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_0.1.3_x86.fpk`、`packaging/fnos/dist/motrix.fnos_0.1.3_arm.fpk`。
+- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_0.2.0_x86.fpk`、`packaging/fnos/dist/motrix.fnos_0.2.0_arm.fpk`。
 - 当前尚未完成飞牛实机安装、启动、停止、卸载与基础下载闭环验证。
 
 注意：FPK 必须与设备 CPU 架构匹配。x86 包不能安装到 ARM 飞牛设备；OES / A311D 等 ARM 飞牛应安装 ARM 包，否则会提示“应用包不符合系统要求”。
@@ -38,8 +38,8 @@ rtk pnpm run build:fpk
 输出：
 
 ```text
-packaging/fnos/dist/motrix.fnos_0.1.3_x86.fpk
-packaging/fnos/dist/motrix.fnos_0.1.3_arm.fpk
+packaging/fnos/dist/motrix.fnos_0.2.0_x86.fpk
+packaging/fnos/dist/motrix.fnos_0.2.0_arm.fpk
 ```
 
 如需只构建 x86 包：
@@ -57,7 +57,7 @@ rtk pnpm run build:fpk:arm64
 输出：
 
 ```text
-packaging/fnos/dist/motrix.fnos_0.1.3_arm.fpk
+packaging/fnos/dist/motrix.fnos_0.2.0_arm.fpk
 ```
 
 非 Linux x86_64 主机进行交叉构建时，脚本会自动检查并安装缺失的 Rust target；仍需要先安装 `cargo-zigbuild` / `ziglang`：
