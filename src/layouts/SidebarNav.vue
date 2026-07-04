@@ -8,6 +8,7 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
 }>();
@@ -24,6 +25,10 @@ const navItems: Array<{
   { key: "trash", icon: "♜", label: "Trash", spaced: true },
   { key: "extensions", icon: "♧", label: "Extensions" },
 ];
+
+function openHelp() {
+  emit("openHelp");
+}
 
 function openSettings() {
   emit("openSettings");
@@ -62,7 +67,7 @@ function selectCategory(category: MainNavCategory) {
         <span class="nav-icon">⚙</span>
         <span>Settings</span>
       </button>
-      <button type="button">
+      <button type="button" @click="openHelp">
         <span class="nav-icon">?</span>
         <span>Help</span>
       </button>

@@ -4,6 +4,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
+import HelpDialog from "../features/help/components/HelpDialog.vue";
 import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
@@ -29,6 +30,7 @@ const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
 const showDiagnostics = ref(false);
+const showHelp = ref(false);
 const showSettings = ref(false);
 const activeCategory = ref<MainNavCategory>("downloading");
 const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
@@ -165,6 +167,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
     :app-info="appInfo"
     :active-category="activeCategory"
     @open-diagnostics="showDiagnostics = true"
+    @open-help="showHelp = true"
     @open-settings="showSettings = true"
     @select-category="selectCategory"
   >
@@ -195,6 +198,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
 
       <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
       <SettingsDialog v-model:show="showSettings" />
+      <HelpDialog v-model:show="showHelp" />
       <DiagnosticsDialog
         v-model:show="showDiagnostics"
         :app-info="appInfo"

@@ -11,12 +11,17 @@ defineProps<{
 
 const emit = defineEmits<{
   openDiagnostics: [];
+  openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
 }>();
 
 function openDiagnostics() {
   emit("openDiagnostics");
+}
+
+function openHelp() {
+  emit("openHelp");
 }
 
 function openSettings() {
@@ -33,6 +38,7 @@ function selectCategory(category: MainNavCategory) {
     <SidebarNav
       :app-info="appInfo"
       :active-category="activeCategory"
+      @open-help="openHelp"
       @open-settings="openSettings"
       @select-category="selectCategory"
     />
