@@ -33,10 +33,22 @@ async fn update_settings(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<AppConfig>,
 ) -> Result<Json<AppConfig>, ApiError> {
-    let default_download_dir = default_download_dir(&state)?;
-    let config = save_app_config(&state.core.database.pool, payload, &default_download_dir)
+    let accessible_paths = accessible_paths(&state)?;
+    let default_download_dir = crate::storage::default_download_dir(
+        &accessible_paths,
+        &state.runtime.app_data_dir,
+    )
+    .display()
+    .to_string();
+    let config = save_app_config(
+        &state.core.database.pool,
+        payload,
+        &default_download_dir,
+        &accessible_paths,
+        &state.runtime.app_data_dir,
+    )
         .await
-        .map_err(|error| ApiError::internal("settings_save_failed", error))?;
+        .map_err(classify_settings_save_error)?;
     state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))
@@ -69,6 +81,18 @@ fn default_download_dir(state: &HttpAppState) -> Result<String, ApiError> {
         &state.runtime.app_data_dir,
     )
     .map_err(|error| ApiError::internal("default_download_dir_failed", error))
+}
+
+fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
+    crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+        .map_err(|error| ApiError::internal("accessible_paths_load_failed", error))
+}
+
+fn classify_settings_save_error(error: String) -> ApiError {
+    if error.contains("默认下载目录") {
+        return ApiError::bad_request("settings_save_failed", error);
+    }
+    ApiError::internal("settings_save_failed", error)
 }
 
 async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {

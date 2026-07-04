@@ -212,6 +212,17 @@ mod tests {
     #[tokio::test]
     async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         let state = test_state(None).await;
+        std::fs::write(
+            &state.runtime.accessible_paths_path,
+            serde_json::to_vec(&AccessiblePathsResponse {
+                paths: vec![
+                    state.runtime.app_data_dir.display().to_string(),
+                    "/tmp/custom".to_string(),
+                ],
+            })
+            .expect("accessible paths should serialize"),
+        )
+        .expect("accessible paths should write");
         let app = router(state.clone());
 
         let default_settings = response_json::<AppConfig>(
@@ -274,6 +285,42 @@ mod tests {
         assert!(state.core.debug_logs.list().iter().any(|entry| {
             entry.module == "settings" && entry.message.contains("下载配置将在下次启动后生效")
         }));
+    }
+
+    #[tokio::test]
+    async fn settings_route_rejects_unauthorized_default_download_dir() {
+        let state = test_state(None).await;
+        std::fs::write(
+            &state.runtime.accessible_paths_path,
+            serde_json::to_vec(&AccessiblePathsResponse {
+                paths: vec![state.runtime.app_data_dir.display().to_string()],
+            })
+            .expect("accessible paths should serialize"),
+        )
+        .expect("accessible paths should write");
+        let app = router(state);
+
+        let error = response_json::<ErrorResponse>(
+            app.oneshot(json_request(
+                "PUT",
+                "/api/settings",
+                &AppConfig {
+                    default_download_dir: "/tmp/custom".to_string(),
+                    max_concurrent_downloads: 5,
+                    download_limit: 0,
+                    upload_limit: 0,
+                    auto_start_enabled: false,
+                    notifications_enabled: false,
+                },
+            ))
+            .await
+            .expect("response should succeed"),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        assert_eq!(error.code, "settings_save_failed");
+        assert_eq!(error.message, "默认下载目录不在已授权目录列表中");
     }
 
     #[tokio::test]

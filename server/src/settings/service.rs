@@ -1,9 +1,11 @@
 use crate::database::settings::{
     get_app_config_value, get_ui_preference_value, set_app_config_value, set_ui_preference_value,
 };
+use crate::storage::validate_default_download_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::collections::BTreeMap;
+use std::path::Path;
 
 const APP_CONFIG_KEY: &str = "download";
 const UI_PREFERENCES_KEY: &str = "main";
@@ -41,8 +43,15 @@ pub async fn save_app_config(
     pool: &SqlitePool,
     payload: AppConfig,
     default_download_dir: &str,
+    accessible_paths: &[String],
+    app_data_dir: &Path,
 ) -> Result<AppConfig, String> {
     let config = normalize_app_config(payload, default_download_dir)?;
+    validate_default_download_dir(
+        &config.default_download_dir,
+        accessible_paths,
+        app_data_dir,
+    )?;
     set_app_config_value(pool, APP_CONFIG_KEY, &config).await?;
     Ok(config)
 }
@@ -127,7 +136,13 @@ mod tests {
                     notifications_enabled: true,
                 }, "/app/data")
                 .expect("config should normalize");
-                save_app_config(&database.pool, saved, "/app/data")
+                save_app_config(
+                    &database.pool,
+                    saved,
+                    "/app/data",
+                    &["/tmp/downloads".to_string()],
+                    std::path::Path::new("/app/data"),
+                )
                     .await
                     .expect("config should save");
 
@@ -140,6 +155,46 @@ mod tests {
                 assert_eq!(loaded.upload_limit, 2048);
                 assert!(loaded.auto_start_enabled);
                 assert!(loaded.notifications_enabled);
+
+                database.pool.close().await;
+                let _ = std::fs::remove_file(path);
+            });
+    }
+
+    #[test]
+    fn app_config_rejects_unauthorized_default_download_dir() {
+        tokio::runtime::Runtime::new()
+            .expect("tokio runtime should create")
+            .block_on(async {
+                let path = std::env::temp_dir().join(format!(
+                    "motrix-fnos-unauthorized-app-config-test-{}.sqlite",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system time should be valid")
+                        .as_nanos()
+                ));
+                let database = connect_database(path.clone())
+                    .await
+                    .expect("database should connect");
+
+                let error = save_app_config(
+                    &database.pool,
+                    AppConfig {
+                        default_download_dir: "/tmp/downloads".to_string(),
+                        max_concurrent_downloads: 5,
+                        download_limit: 0,
+                        upload_limit: 0,
+                        auto_start_enabled: false,
+                        notifications_enabled: false,
+                    },
+                    "/app/data",
+                    &["/app/data".to_string()],
+                    std::path::Path::new("/app/data"),
+                )
+                .await
+                .expect_err("unauthorized directory should fail");
+
+                assert_eq!(error, "默认下载目录不在已授权目录列表中");
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);

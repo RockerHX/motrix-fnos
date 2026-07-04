@@ -115,6 +115,11 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `GET` | `/api/ui-preferences` | - | `UiPreferences` |
 | `PUT` | `/api/ui-preferences` | `UiPreferences` | `UiPreferences` |
 
+约定：
+
+- `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
+- `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
+
 ### 4.5 调试日志
 
 | 方法 | 路径 | 响应 |
