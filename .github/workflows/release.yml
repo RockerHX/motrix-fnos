@@ -126,12 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          notes="FPK release ${RELEASE_TAG}
-
-Artifacts:
-- motrix.fnos_${VERSION}_x86.fpk
-- motrix.fnos_${VERSION}_arm.fpk
-- SHA256SUMS.txt"
+          notes="FPK release ${RELEASE_TAG}"$'\n\n'"Artifacts:"$'\n'"- motrix.fnos_${VERSION}_x86.fpk"$'\n'"- motrix.fnos_${VERSION}_arm.fpk"$'\n'"- SHA256SUMS.txt"
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt --clobber
