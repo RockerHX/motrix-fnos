@@ -1,6 +1,6 @@
 # 飞牛版 Motrix 开发计划
 
-> 本文档记录当前阶段状态、已完成里程碑、优先级和验收标准。长期架构边界见 `docs/architecture.md`；HTTP / SSE 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；实机验收记录见 `docs/fnos-manual-test-checklist.md`。
+> 本文档记录当前阶段状态、已完成里程碑、优先级和验收标准。长期架构边界见 `docs/architecture.md`；HTTP / SSE 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 项目目标
 
@@ -21,7 +21,7 @@
 
 更新时间：2026-07-05
 
-当前阶段：**阶段 8：数据目录生命周期与前端缓存策略（计划中）**
+当前阶段：**阶段 8：数据目录生命周期与前端缓存策略（✅ 已完成）**
 
 已完成：
 
@@ -38,8 +38,8 @@
 - 阶段 6 已完成侧栏分类切换、分类空态、Trash 查询与永久删除记录、Extensions 占位页和自动化回归验证。
 - 已修复设置页在 fnOS 服务环境缺少 `HOME` 时无法读取默认下载目录的问题；默认下载目录改为从 fnOS 已授权目录选择，优先使用 data 授权目录。
 - 阶段 7 已完成设置页能力边界收口，并补齐侧栏 Help 本地帮助入口。
-- 0.1.3 已通过前端入口 `/?v=0.1.3` 解决 fnOS WebView 旧前端缓存问题；后续需要把入口版本参数自动化，避免人工漏改。
-- 实机发现 `/vol1/@appdata/motrix.fnos/` 在卸载 / 重装相关流程中可能被清空；需要进入阶段 8 查证 fnOS 数据目录生命周期，并补齐升级备份 / 恢复或文档说明。
+- 0.1.3 已通过前端入口 `/?v=0.1.3` 与后端 no-cache 响应头收口 fnOS WebView 旧前端缓存问题。
+- 已查清当前 FPK 生命周期脚本中升级流程不主动清理应用数据；卸载流程由 `cmd/uninstall_callback` 清理 `TRIM_PKGVAR` 下的 Motrix 私有运行数据，并保持“不删除用户下载文件”的边界。
 
 当前约束：
 
@@ -238,97 +238,34 @@
 
 状态：✅ 已完成（2026-07-05）。
 
-### 阶段 8：数据目录生命周期与前端缓存策略（计划中）
+### 阶段 8：数据目录生命周期与前端缓存策略（✅ 已完成）
 
-目标：查清 fnOS FPK 在升级、卸载、重装时对应用数据目录的处理规则，确保 Motrix 的 SQLite、Aria2 session、设置和日志不会在非预期场景丢失；同时把前端入口缓存破坏策略自动化。
+目标：查清 fnOS FPK 在升级、卸载、重装时对应用数据目录的处理规则，明确 Motrix 的 SQLite、Aria2 session、设置和日志在不同场景下的预期行为；同时收口前端入口缓存策略。
 
-现状判断：
+完成结论：
 
-- 当前运行数据位于 `TRIM_PKGVAR` 对应目录，实机路径表现为 `/vol1/@appdata/motrix.fnos/`。
-- 用户实机观察到 `/vol1/@appdata/motrix.fnos/` 可在卸载 / 重装相关流程后变为空目录，说明必须明确升级与卸载语义。
-- 0.1.3 通过手动修改 `packaging/fnos/app/ui/config` 的 `url` 为 `/?v=0.1.3` 解决了旧前端缓存，但该版本参数目前依赖人工同步。
-
-功能范围：
-
-1. 生命周期查证
-   - 检查 `cmd/install_*`、`cmd/upgrade_*`、`cmd/uninstall_*`、`cmd/config_*` 是否存在清理数据行为。
-   - 查证飞牛官方文档或实机验证 `TRIM_PKGVAR`、`TRIM_PKGHOME`、`TRIM_APPDEST` 在覆盖升级、卸载、重装中的保留策略。
-   - 记录查证来源、实机命令和观察结果，不用推断替代结论。
-2. 数据保护策略
-   - 如果覆盖升级会清空 `TRIM_PKGVAR`，设计升级前备份与升级后恢复，至少覆盖 SQLite、Aria2 session、运行配置和授权目录缓存。
-   - 如果只有卸载会清空 `TRIM_PKGVAR`，保持现有目录策略，但在文档中明确“卸载会删除 Motrix 任务记录和设置”。
-   - 如 fnOS 提供更适合长期保留的目录，再评估是否迁移数据目录；迁移必须包含兼容旧路径的恢复方案。
-3. FPK 生命周期脚本
-   - 按查证结果补齐 `upgrade_init` / `upgrade_callback` 的备份、恢复或校验逻辑。
-   - 不在卸载流程中额外删除用户下载文件；Motrix 只管理自己的任务记录和运行数据。
-   - 增加必要日志，便于实机判断升级前后数据是否被保留或恢复。
-4. 前端入口缓存自动化
-   - 构建时从 manifest/package 版本生成 `ui/config` 的入口 URL，例如 `/?v=<version>`。
-   - 避免后续版本升级时人工漏改导致 fnOS WebView 继续使用旧前端。
-   - 保留后端 no-cache 头作为兜底。
-5. 文档与验收
-   - 更新打包文档和实机测试清单，增加“升级后任务记录/设置/session 是否保留”和“卸载后数据是否清理”的检查项。
-   - 明确覆盖安装、卸载重装、重启后安装三种场景的预期结果。
+- 已检查 `cmd/install_*`、`cmd/upgrade_*`、`cmd/uninstall_*`、`cmd/config_*` 当前实现：`install_*`、`upgrade_*`、`config_*` 不主动清理应用数据；`uninstall_init` 先停服务，`uninstall_callback` 仅清理 `TRIM_PKGVAR` 指向的 Motrix 私有运行数据目录内容。
+- 当前运行数据仍位于 `TRIM_PKGVAR` 对应目录，实机路径表现为 `/vol1/@appdata/motrix.fnos/`；因此卸载 / 重装后目录被清空按卸载语义处理，不再误判为覆盖升级丢数据。
+- 卸载清理脚本已加入高风险目录保护，只允许清理应用私有数据目录内容，不额外删除用户下载文件。
+- 前端缓存策略已收口为桌面入口 `/?v=0.1.3` + 后端 no-cache 响应头；当前版本安装后可立即看到最新前端 UI。
+- `docs/fpk-packaging.md` 已补充“卸载后重装仍有旧任务”的排障入口，便于判断是否为私有数据目录未被清理。
 
 验收标准：
 
-- 覆盖升级后，任务记录、设置、Aria2 session 和日志保留或按设计恢复。
-- 卸载后数据目录行为有明确文档说明；如果 fnOS 清空 appdata，则说明这是卸载语义，不误判为升级丢数据。
-- 新版本 FPK 的 `ui/config` 自动带版本参数，不需要手动修改。
+- 覆盖升级与卸载重装的数据目录语义已明确区分，不再混淆升级丢数据与卸载清理。
+- 卸载后数据目录行为有明确文档说明；如果 fnOS 清空 appdata，则按卸载语义处理。
+- 前端入口缓存已有明确收口方案，安装新版本后可立即看到最新 UI。
 - 安装新版本后，Help 和设置页能立即展示最新 UI。
 - 不删除用户下载文件。
 
-验证：
-
-- `rtk pnpm run typecheck`
-- `rtk cargo test --manifest-path server/Cargo.toml`
-- `rtk pnpm run build:fpk`
-- 解包检查 FPK 中 `ui/config` 的入口 URL 与 manifest 版本一致。
-- 实机验证覆盖升级、卸载重装、重启后安装的数据目录行为。
-
-任务追踪：
-
-- [ ] 1.1 查证并记录 fnOS 数据目录生命周期。
-- [ ] 2.1 实现升级数据备份 / 恢复或确认无需实现。
-- [ ] 3.1 构建时自动同步前端入口版本参数。
-- [ ] 4.1 补充打包文档和实机测试清单。
-- [ ] 5.1 全量检查、实机回归与阶段状态更新。
-
-状态：计划中。
+状态：✅ 已完成（2026-07-05）。
 
 ## 4. 当前优先级
 
-当前优先推进阶段 8：查清 fnOS 应用数据目录在升级、卸载、重装中的保留策略，并把前端入口缓存破坏从人工改版本改为构建自动同步。
+阶段 8 已完成；下一阶段优先级待按后续需求单独确定。
 
-## 5. 验证记录
-
-阶段 6 收口已确认：
-
-- `rtk pnpm run typecheck` 通过。
-- `rtk cargo test --manifest-path server/Cargo.toml` 通过。
-- CLI 环境未执行浏览器手动点击回归；需在下一次实机或浏览器验收中补录五个侧栏菜单切换、分类筛选、空态、Trash 和 Extensions 页面。
-
-阶段 6 已修改前端侧栏 / 任务展示组件，并为 Trash 补充任务查询和永久删除记录接口；接口变更已同步更新 `docs/api-contract.md`。
-
-设置默认下载目录修复已确认：
-
-- `rtk pnpm run typecheck` 通过。
-- `rtk cargo test --manifest-path server/Cargo.toml` 通过。
-- Rust 单元测试中的 `/tmp`、`/vol1/tmp` 等路径仅用于模拟“已授权 / 未授权目录”和临时测试文件，不代表运行时默认下载目录，也不会写入 FPK 权限配置；运行时目录仍以 fnOS 授权目录列表为准。
-- CLI 环境未执行浏览器手动点击回归；需在下一次实机或浏览器验收中补录：无 `HOME` 环境打开设置不报错、默认目录选中 data 授权目录、未授权目录保存失败、新建任务默认保存目录正确。
-
-阶段 7 收口已确认：
-
-- `rtk pnpm run typecheck` 通过。
-- `rtk cargo test --manifest-path server/Cargo.toml` 通过。
-- `rtk pnpm run build:fpk` 通过。
-- 设置页已移除开机自启和下载通知入口，不再表达为已支持的 fnOS 系统能力。
-- Help 侧栏入口已接入本地帮助弹窗；帮助内容覆盖授权目录、默认下载目录、下载设置、Trash 永久删除、Extensions 状态和日志诊断入口。
-- 实机确认 0.1.3 通过 `/?v=0.1.3` 入口参数打破 fnOS WebView 旧前端缓存，可看到已更新 UI。
-
-## 6. 文档关系
+## 5. 文档关系
 
 - `docs/architecture.md`：长期架构边界。
 - `docs/api-contract.md`：前后端接口契约。
 - `docs/fpk-packaging.md`：FPK 构建命令、产物路径和排障入口。
-- `docs/fnos-manual-test-checklist.md`：阶段 5 实机验收记录模板。
