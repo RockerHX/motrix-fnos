@@ -106,3 +106,16 @@ rtk packaging/fnos/cmd/stop
 
 - 总体架构：`docs/architecture.md`
 - 实机验证：`docs/fnos-manual-test-checklist.md`
+
+## GitHub Release 在线打包
+
+仓库提供 `Release FPK` workflow：
+
+- 推送 `v*` tag 时自动构建 x86 与 ARM FPK，并创建 / 更新 GitHub Release。
+- 也可以在 GitHub Actions 页面手动运行 workflow，默认使用 `package.json` / `server/Cargo.toml` / `packaging/fnos/manifest` 中一致的版本号生成 tag。
+- workflow 会上传：
+  - `motrix.fnos_<version>_x86.fpk`
+  - `motrix.fnos_<version>_arm.fpk`
+  - `SHA256SUMS.txt`
+
+发布前必须确认 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest` 三处版本一致；workflow 会在版本不一致时失败。

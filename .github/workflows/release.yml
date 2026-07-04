@@ -1,0 +1,142 @@
+name: Release FPK
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.3. Empty uses package.json version."
+        required: false
+        type: string
+      create_release:
+        description: "Create or update GitHub Release"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server -> target
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install FPK cross build dependencies
+        run: |
+          cargo install --locked cargo-zigbuild
+          python3 -m pip install --user --break-system-packages ziglang
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cargo-zigbuild --version
+          cargo zigbuild --help >/dev/null
+          command -v python-zig
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          cargo_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]"]/, "", $2); print $2; exit}' server/Cargo.toml)"
+          manifest_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' packaging/fnos/manifest)"
+
+          if [ "${package_version}" != "${cargo_version}" ] || [ "${package_version}" != "${manifest_version}" ]; then
+            echo "版本不一致：package=${package_version}, cargo=${cargo_version}, manifest=${manifest_version}" >&2
+            exit 1
+          fi
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            release_tag="${GITHUB_REF_NAME}"
+          else
+            release_tag="${{ inputs.tag }}"
+            if [ -z "${release_tag}" ]; then
+              release_tag="v${package_version}"
+            fi
+          fi
+
+          expected_tag="v${package_version}"
+          if [ "${release_tag}" != "${expected_tag}" ]; then
+            echo "Release tag ${release_tag} 与项目版本 ${package_version} 不一致，期望 ${expected_tag}" >&2
+            exit 1
+          fi
+
+          echo "version=${package_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${release_tag}"
+
+      - name: Build FPK packages
+        run: pnpm run build:fpk
+
+      - name: Verify FPK artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          test -f "packaging/fnos/dist/motrix.fnos_${version}_x86.fpk"
+          test -f "packaging/fnos/dist/motrix.fnos_${version}_arm.fpk"
+          (cd packaging/fnos/dist && sha256sum "motrix.fnos_${version}_"*.fpk > SHA256SUMS.txt)
+          cat packaging/fnos/dist/SHA256SUMS.txt
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: motrix-fnos-${{ steps.version.outputs.version }}-fpk
+          path: |
+            packaging/fnos/dist/*.fpk
+            packaging/fnos/dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create or update GitHub Release
+        if: github.event_name == 'push' || inputs.create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="FPK release ${RELEASE_TAG}
+
+Artifacts:
+- motrix.fnos_${VERSION}_x86.fpk
+- motrix.fnos_${VERSION}_arm.fpk
+- SHA256SUMS.txt"
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt --clobber
+          else
+            gh release create "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt \
+              --title "Motrix ${RELEASE_TAG}" \
+              --notes "${notes}"
+          fi
