@@ -393,13 +393,13 @@ mod tests {
 
         assert!(state.core.is_exiting.load(Ordering::SeqCst));
         let event = receiver.try_recv().expect("event should be broadcast");
-        assert_eq!(
-            event,
-            RuntimeEvent::RuntimeExiting(RuntimeExitingPayload {
-                reason: "收到停止信号".to_string(),
-                timestamp: current_timestamp_ms(),
-            })
-        );
+        match event {
+            RuntimeEvent::RuntimeExiting(payload) => {
+                assert_eq!(payload.reason, "收到停止信号");
+                assert!(payload.timestamp > 0);
+            }
+            other => panic!("unexpected event: {:?}", other),
+        }
     }
 
     fn sample_task() -> DownloadTask {
