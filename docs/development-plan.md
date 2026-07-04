@@ -30,8 +30,8 @@
 - FPK 目录、manifest、权限配置、Web UI 入口、启动/停止/状态脚本已建立。
 - 新建任务保存目录已改为读取 fnOS 已授权目录下拉选择，不再要求用户手动复制路径。
 - 打包脚本可输出 x86 与 ARM FPK：
-  - `packaging/fnos/dist/motrix.fnos_0.1.2_x86.fpk`
-  - `packaging/fnos/dist/motrix.fnos_0.1.2_arm.fpk`
+  - `packaging/fnos/dist/motrix.fnos_0.1.3_x86.fpk`
+  - `packaging/fnos/dist/motrix.fnos_0.1.3_arm.fpk`
 - 已确认 FPK 必须与设备 CPU 架构匹配；x86 包不能安装到 OES / A311D 等 ARM 飞牛设备。
 - 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
 - 阶段 5 飞牛实机安装和基础功能验证已完成，未发现阻塞问题。
@@ -41,8 +41,8 @@
 
 当前约束：
 
-- x86 设备安装 `motrix.fnos_0.1.2_x86.fpk`。
-- `aarch64` / `arm64` 设备安装 `motrix.fnos_0.1.2_arm.fpk`。
+- x86 设备安装 `motrix.fnos_0.1.3_x86.fpk`。
+- `aarch64` / `arm64` 设备安装 `motrix.fnos_0.1.3_arm.fpk`。
 - 侧栏菜单功能继续遵守 `docs/architecture.md` 的分层边界：Vue 组件只做交互编排，任务数据经 Pinia store / feature service / HTTP API / SSE 流转。
 
 ## 3. 阶段里程碑

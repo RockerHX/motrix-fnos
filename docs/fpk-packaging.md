@@ -10,8 +10,8 @@
 
 默认命令会同时生成 x86 与 ARM 两个 FPK：
 
-- x86：`packaging/fnos/dist/motrix.fnos_0.1.2_x86.fpk`
-- ARM：`packaging/fnos/dist/motrix.fnos_0.1.2_arm.fpk`
+- x86：`packaging/fnos/dist/motrix.fnos_0.1.3_x86.fpk`
+- ARM：`packaging/fnos/dist/motrix.fnos_0.1.3_arm.fpk`
 
 对应 server 二进制：
 
