@@ -19,6 +19,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { getAccessiblePaths } from "../../../services/storage";
+import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 
 const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
@@ -33,6 +34,7 @@ const emit = defineEmits<{
 }>();
 
 const taskStore = useTaskStore();
+const settingsStore = useSettingsStore();
 const message = useMessage();
 
 const form = reactive({
@@ -134,9 +136,9 @@ async function refreshAccessiblePaths() {
   accessiblePathsError.value = "";
 
   try {
-    const response = await getAccessiblePaths();
+    const [response, config] = await Promise.all([getAccessiblePaths(), settingsStore.loadConfig()]);
     accessiblePaths.value = response.paths;
-    syncSelectedSaveDir();
+    syncSelectedSaveDir(config.defaultDownloadDir);
   } catch (error) {
     accessiblePaths.value = [];
     form.saveDir = "";
@@ -146,14 +148,21 @@ async function refreshAccessiblePaths() {
   }
 }
 
-function syncSelectedSaveDir() {
+function syncSelectedSaveDir(defaultDownloadDir: string) {
   if (form.saveDir && accessiblePaths.value.includes(form.saveDir)) {
     return;
   }
 
   const remembered = readRememberedSaveDir();
-  form.saveDir =
-    remembered && accessiblePaths.value.includes(remembered) ? remembered : accessiblePaths.value[0] || "";
+  if (defaultDownloadDir && accessiblePaths.value.includes(defaultDownloadDir)) {
+    form.saveDir = defaultDownloadDir;
+    return;
+  }
+  if (remembered && accessiblePaths.value.includes(remembered)) {
+    form.saveDir = remembered;
+    return;
+  }
+  form.saveDir = accessiblePaths.value[0] || "";
 }
 
 function rememberSaveDir(path: string) {
