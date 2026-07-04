@@ -225,6 +225,7 @@
 
 - `rtk pnpm run typecheck` 通过。
 - `rtk cargo test --manifest-path server/Cargo.toml` 通过。
+- Rust 单元测试中的 `/tmp`、`/vol1/tmp` 等路径仅用于模拟“已授权 / 未授权目录”和临时测试文件，不代表运行时默认下载目录，也不会写入 FPK 权限配置；运行时目录仍以 fnOS 授权目录列表为准。
 - CLI 环境未执行浏览器手动点击回归；需在下一次实机或浏览器验收中补录：无 `HOME` 环境打开设置不报错、默认目录选中 data 授权目录、未授权目录保存失败、新建任务默认保存目录正确。
 
 ## 6. 文档关系
