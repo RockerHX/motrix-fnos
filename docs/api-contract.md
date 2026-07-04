@@ -1,6 +1,6 @@
 # 前后端 HTTP / SSE API 契约
 
-> 本文档定义 Rust server 与 Vue Web UI 之间的接口边界。总体架构见 `docs/architecture.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；实机验证项见 `docs/fnos-manual-test-checklist.md`。
+> 本文档定义 Rust server 与 Vue Web UI 之间的接口边界。总体架构见 `docs/architecture.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 运行时约定
 
@@ -119,6 +119,21 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
+- `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
+
+`AppConfig`：
+
+```json
+{
+  "defaultDownloadDir": "/vol1/downloads",
+  "maxConcurrentDownloads": 5,
+  "downloadLimit": 0,
+  "uploadLimit": 0,
+  "autoStartEnabled": false,
+  "notificationsEnabled": false,
+  "language": "zh-CN"
+}
+```
 
 ### 4.5 调试日志
 

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { getAccessiblePaths } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
+import { normalizeLanguage, setLanguage, t } from "../../../i18n";
 import type { AppConfig } from "../../../types/settings";
 
 export const useSettingsStore = defineStore("settings", () => {
@@ -16,6 +17,8 @@ export const useSettingsStore = defineStore("settings", () => {
     isLoading.value = true;
     try {
       config.value = await getAppConfig();
+      config.value.language = normalizeLanguage(config.value.language);
+      setLanguage(config.value.language);
       return config.value;
     } finally {
       isLoading.value = false;
@@ -25,7 +28,12 @@ export const useSettingsStore = defineStore("settings", () => {
   async function saveConfig(payload: AppConfig) {
     isSaving.value = true;
     try {
-      config.value = await saveAppConfig(payload);
+      config.value = await saveAppConfig({
+        ...payload,
+        language: normalizeLanguage(payload.language),
+      });
+      config.value.language = normalizeLanguage(config.value.language);
+      setLanguage(config.value.language);
       return config.value;
     } finally {
       isSaving.value = false;
@@ -66,5 +74,5 @@ function getErrorMessage(error: unknown) {
     return error.message;
   }
 
-  return String(error) || "读取授权目录失败";
+  return String(error) || t("settings.accessiblePathsFailed");
 }

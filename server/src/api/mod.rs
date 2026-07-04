@@ -273,6 +273,7 @@ mod tests {
                         upload_limit: 2048,
                         auto_start_enabled: true,
                         notifications_enabled: true,
+                        language: "en-US".to_string(),
                     },
                 ))
                 .await
@@ -286,6 +287,7 @@ mod tests {
         assert_eq!(updated_settings.upload_limit, 2048);
         assert!(updated_settings.auto_start_enabled);
         assert!(updated_settings.notifications_enabled);
+        assert_eq!(updated_settings.language, "en-US");
 
         let stored_settings = response_json::<AppConfig>(
             app.oneshot(
@@ -329,6 +331,7 @@ mod tests {
                     upload_limit: 0,
                     auto_start_enabled: false,
                     notifications_enabled: false,
+                    language: "zh-CN".to_string(),
                 },
             ))
             .await

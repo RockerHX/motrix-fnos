@@ -4,8 +4,10 @@ import { getAppInfo, pingBackend } from "./services/backend";
 import { disposeRuntimeEvents, initializeRuntimeEvents } from "./services/runtimeEvents";
 import type { AppInfo, BackendPing } from "./types/app";
 import NaiveProvider from "./app/providers/NaiveProvider.vue";
+import { useSettingsStore } from "./features/settings/stores/settingsStore";
 import MainWindow from "./views/MainWindow.vue";
 
+const settingsStore = useSettingsStore();
 const appInfo = ref<AppInfo | null>(null);
 const backendPing = ref<BackendPing | null>(null);
 const errorMessage = ref("");
@@ -24,6 +26,7 @@ async function refreshBackendStatus() {
 
 onMounted(() => {
   initializeRuntimeEvents();
+  void settingsStore.loadConfig();
   void refreshBackendStatus();
 });
 

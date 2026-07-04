@@ -1,6 +1,18 @@
 <script setup lang="ts">
-import { darkTheme, NConfigProvider, NDialogProvider, NMessageProvider, NNotificationProvider } from "naive-ui";
+import {
+  darkTheme,
+  dateEnUS,
+  dateZhCN,
+  enUS,
+  NConfigProvider,
+  NDialogProvider,
+  NMessageProvider,
+  NNotificationProvider,
+  zhCN,
+} from "naive-ui";
+import { computed } from "vue";
 import type { GlobalThemeOverrides } from "naive-ui";
+import { language } from "../../i18n";
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -18,10 +30,13 @@ const themeOverrides: GlobalThemeOverrides = {
     textColorBase: "#d7dfd8",
   },
 };
+
+const naiveLocale = computed(() => (language.value === "en-US" ? enUS : zhCN));
+const naiveDateLocale = computed(() => (language.value === "en-US" ? dateEnUS : dateZhCN));
 </script>
 
 <template>
-  <NConfigProvider :theme="darkTheme" :theme-overrides="themeOverrides">
+  <NConfigProvider :theme="darkTheme" :theme-overrides="themeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
     <NMessageProvider placement="top-right">
       <NDialogProvider>
         <NNotificationProvider placement="top-right">

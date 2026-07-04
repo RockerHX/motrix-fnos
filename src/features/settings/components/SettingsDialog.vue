@@ -13,6 +13,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { useSettingsStore } from "../stores/settingsStore";
+import { supportedLanguages, useI18n } from "../../../i18n";
 import type { AppConfig } from "../../../types/settings";
 
 const props = defineProps<{
@@ -25,16 +26,24 @@ const emit = defineEmits<{
 
 const message = useMessage();
 const settingsStore = useSettingsStore();
+const { t } = useI18n();
 const form = reactive({
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
+  language: "zh-CN" as AppConfig["language"],
 });
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
     label: path,
     value: path,
+  })),
+);
+const languageOptions = computed(() =>
+  supportedLanguages.map((language) => ({
+    label: language === "zh-CN" ? t("language.zhCN") : t("language.enUS"),
+    value: language,
   })),
 );
 const isDefaultDownloadDirUnauthorized = computed(
@@ -45,15 +54,15 @@ const isDefaultDownloadDirUnauthorized = computed(
 );
 const defaultDownloadDirMessage = computed(() => {
   if (settingsStore.accessiblePathsError) {
-    return `读取已授权目录失败：${settingsStore.accessiblePathsError}`;
+    return t("settings.defaultDownloadDir.failed", { message: settingsStore.accessiblePathsError });
   }
   if (settingsStore.accessiblePaths.length === 0) {
-    return "未检测到已授权目录；请先在飞牛应用设置中添加读写文件夹授权。";
+    return t("settings.defaultDownloadDir.empty");
   }
   if (isDefaultDownloadDirUnauthorized.value) {
-    return "当前默认下载目录不在已授权目录列表中，请重新选择。";
+    return t("settings.defaultDownloadDir.unauthorized");
   }
-  return "默认下载目录必须来自飞牛已授权文件夹。";
+  return t("settings.defaultDownloadDir.help");
 });
 const canSave = computed(
   () =>
@@ -85,7 +94,7 @@ async function saveSettings() {
   try {
     const config = await settingsStore.saveConfig(buildPayload());
     applyConfig(config);
-    message.success("设置已保存");
+    message.success(t("settings.saved"));
     closeDialog();
   } catch (error) {
     message.error(getErrorMessage(error));
@@ -97,6 +106,7 @@ function applyConfig(config: AppConfig) {
   form.maxConcurrentDownloads = config.maxConcurrentDownloads;
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
+  form.language = config.language;
 }
 
 function buildPayload(): AppConfig {
@@ -107,6 +117,7 @@ function buildPayload(): AppConfig {
     uploadLimit: kbToBytes(form.uploadLimitKb),
     autoStartEnabled: false,
     notificationsEnabled: false,
+    language: form.language,
   };
 }
 
@@ -128,16 +139,16 @@ function getErrorMessage(error: unknown) {
   }
 
   const message = String(error);
-  return message || "设置操作失败，请稍后重试";
+  return message || t("settings.failed");
 }
 </script>
 
 <template>
   <NModal :show="show" :mask-closable="!settingsStore.isSaving" @update:show="emit('update:show', $event)">
-    <NCard class="settings-card" role="dialog" aria-modal="true" title="设置">
+    <NCard class="settings-card" role="dialog" aria-modal="true" :title="t('settings.title')">
       <NForm label-placement="left" label-width="150px" :disabled="settingsStore.isLoading">
         <NFormItem
-          label="默认下载目录"
+          :label="t('settings.defaultDownloadDir')"
           :feedback="defaultDownloadDirMessage"
           :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
         >
@@ -145,26 +156,30 @@ function getErrorMessage(error: unknown) {
             v-model:value="form.defaultDownloadDir"
             :options="accessiblePathOptions"
             :loading="settingsStore.isLoadingAccessiblePaths"
-            placeholder="请选择已授权目录"
+            :placeholder="t('settings.defaultDownloadDir.placeholder')"
             filterable
           />
         </NFormItem>
 
-        <NFormItem label="后台驻留">
-          <NText depth="3">Web 版不控制应用常驻行为，服务是否持续运行由 fnOS 或 server 进程负责。</NText>
+        <NFormItem :label="t('settings.language')">
+          <NSelect v-model:value="form.language" :options="languageOptions" />
         </NFormItem>
 
-        <NFormItem label="最大并发下载数">
+        <NFormItem :label="t('settings.background')">
+          <NText depth="3">{{ t("settings.background.help") }}</NText>
+        </NFormItem>
+
+        <NFormItem :label="t('settings.maxConcurrentDownloads')">
           <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
         </NFormItem>
 
-        <NFormItem label="下载限速">
+        <NFormItem :label="t('settings.downloadLimit')">
           <NInputNumber v-model:value="form.downloadLimitKb" :min="0" :step="128">
             <template #suffix>KB/s</template>
           </NInputNumber>
         </NFormItem>
 
-        <NFormItem label="上传限速">
+        <NFormItem :label="t('settings.uploadLimit')">
           <NInputNumber v-model:value="form.uploadLimitKb" :min="0" :step="128">
             <template #suffix>KB/s</template>
           </NInputNumber>
@@ -173,8 +188,10 @@ function getErrorMessage(error: unknown) {
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="settingsStore.isSaving" @click="closeDialog">取消</NButton>
-          <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">保存</NButton>
+          <NButton :disabled="settingsStore.isSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
+          <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
+            {{ t("common.save") }}
+          </NButton>
         </NSpace>
       </template>
     </NCard>
