@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from "vue";
+import { computed, reactive, watch } from "vue";
 import {
   NButton,
   NCard,
@@ -7,6 +7,7 @@ import {
   NFormItem,
   NInputNumber,
   NModal,
+  NSelect,
   NSpace,
   NSwitch,
   NText,
@@ -33,6 +34,37 @@ const form = reactive({
   autoStartEnabled: false,
   notificationsEnabled: false,
 });
+const accessiblePathOptions = computed(() =>
+  settingsStore.accessiblePaths.map((path) => ({
+    label: path,
+    value: path,
+  })),
+);
+const isDefaultDownloadDirUnauthorized = computed(
+  () =>
+    settingsStore.accessiblePaths.length > 0 &&
+    !!form.defaultDownloadDir &&
+    !settingsStore.accessiblePaths.includes(form.defaultDownloadDir),
+);
+const defaultDownloadDirMessage = computed(() => {
+  if (settingsStore.accessiblePathsError) {
+    return `读取已授权目录失败：${settingsStore.accessiblePathsError}`;
+  }
+  if (settingsStore.accessiblePaths.length === 0) {
+    return "未检测到已授权目录；请先在飞牛应用设置中添加读写文件夹授权。";
+  }
+  if (isDefaultDownloadDirUnauthorized.value) {
+    return "当前默认下载目录不在已授权目录列表中，请重新选择。";
+  }
+  return "默认下载目录必须来自飞牛已授权文件夹。";
+});
+const canSave = computed(
+  () =>
+    !settingsStore.isSaving &&
+    !settingsStore.isLoading &&
+    !settingsStore.isLoadingAccessiblePaths &&
+    !isDefaultDownloadDirUnauthorized.value,
+);
 
 watch(
   () => props.show,
@@ -45,7 +77,7 @@ watch(
 
 async function loadSettings() {
   try {
-    const config = await settingsStore.loadConfig();
+    const [config] = await Promise.all([settingsStore.loadConfig(), settingsStore.loadAccessiblePaths()]);
     applyConfig(config);
   } catch (error) {
     message.error(getErrorMessage(error));
@@ -109,6 +141,20 @@ function getErrorMessage(error: unknown) {
   <NModal :show="show" :mask-closable="!settingsStore.isSaving" @update:show="emit('update:show', $event)">
     <NCard class="settings-card" role="dialog" aria-modal="true" title="设置">
       <NForm label-placement="left" label-width="150px" :disabled="settingsStore.isLoading">
+        <NFormItem
+          label="默认下载目录"
+          :feedback="defaultDownloadDirMessage"
+          :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
+        >
+          <NSelect
+            v-model:value="form.defaultDownloadDir"
+            :options="accessiblePathOptions"
+            :loading="settingsStore.isLoadingAccessiblePaths"
+            placeholder="请选择已授权目录"
+            filterable
+          />
+        </NFormItem>
+
         <NFormItem label="后台驻留">
           <NText depth="3">Web 版不控制应用常驻行为，服务是否持续运行由 fnOS 或 server 进程负责。</NText>
         </NFormItem>
@@ -147,7 +193,7 @@ function getErrorMessage(error: unknown) {
       <template #footer>
         <NSpace justify="end">
           <NButton :disabled="settingsStore.isSaving" @click="closeDialog">取消</NButton>
-          <NButton type="primary" :loading="settingsStore.isSaving" @click="saveSettings">保存</NButton>
+          <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">保存</NButton>
         </NSpace>
       </template>
     </NCard>

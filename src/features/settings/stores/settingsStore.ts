@@ -1,12 +1,16 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { getAccessiblePaths } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
 import type { AppConfig } from "../../../types/settings";
 
 export const useSettingsStore = defineStore("settings", () => {
   const config = ref<AppConfig | null>(null);
+  const accessiblePaths = ref<string[]>([]);
   const isLoading = ref(false);
+  const isLoadingAccessiblePaths = ref(false);
   const isSaving = ref(false);
+  const accessiblePathsError = ref("");
 
   async function loadConfig() {
     isLoading.value = true;
@@ -28,11 +32,39 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  async function loadAccessiblePaths() {
+    isLoadingAccessiblePaths.value = true;
+    accessiblePathsError.value = "";
+    try {
+      const response = await getAccessiblePaths();
+      accessiblePaths.value = response.paths;
+      return response.paths;
+    } catch (error) {
+      accessiblePaths.value = [];
+      accessiblePathsError.value = getErrorMessage(error);
+      throw error;
+    } finally {
+      isLoadingAccessiblePaths.value = false;
+    }
+  }
+
   return {
     config,
+    accessiblePaths,
     isLoading,
+    isLoadingAccessiblePaths,
     isSaving,
+    accessiblePathsError,
     loadConfig,
+    loadAccessiblePaths,
     saveConfig,
   };
 });
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error) || "读取授权目录失败";
+}
