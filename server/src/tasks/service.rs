@@ -204,6 +204,7 @@ impl<'a> TaskService<'a> {
             url: task.url.clone(),
             file_name: task.file_name.clone(),
             save_dir: task.save_dir.clone(),
+            aria2_options: serde_json::Map::new(),
         };
         let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
         let task = mark_task_redownloaded(self.download_tasks, task_id, gid.clone())?;

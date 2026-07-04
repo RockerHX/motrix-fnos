@@ -21,4 +21,5 @@ export interface CreateDownloadTaskRequest {
   url: string;
   fileName?: string | null;
   saveDir?: string | null;
+  aria2Options?: Record<string, unknown>;
 }

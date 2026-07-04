@@ -81,6 +81,8 @@ pub struct CreateDownloadTaskRequest {
     pub url: String,
     pub file_name: Option<String>,
     pub save_dir: Option<String>,
+    #[serde(default)]
+    pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +90,7 @@ pub struct PreparedDownloadTask {
     pub url: String,
     pub file_name: String,
     pub save_dir: String,
+    pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,6 +196,7 @@ fn prepare_task_inner(
         file_name,
         save_dir,
         url,
+        aria2_options: request.aria2_options,
     })
 }
 
@@ -807,6 +811,7 @@ async fn readd_download_task(
         url: task.url.clone(),
         file_name: task.file_name.clone(),
         save_dir: task.save_dir.clone(),
+        aria2_options: serde_json::Map::new(),
     };
     add_uri_to_aria2(config, &prepared, debug_logs).await
 }
@@ -1432,6 +1437,9 @@ fn build_add_uri_request(config: &Aria2Config, task: &PreparedDownloadTask) -> s
     params.push(serde_json::json!([task.url.clone()]));
 
     let mut options = serde_json::Map::new();
+    for (key, value) in task.aria2_options.clone() {
+        options.insert(key, value);
+    }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if !task.file_name.trim().is_empty() {
         options.insert("out".to_string(), serde_json::json!(task.file_name));
@@ -1666,6 +1674,7 @@ mod tests {
             url: " https://example.com/file.zip?token=1 ".to_string(),
             file_name: None,
             save_dir: Some(format!(" {} ", temp_download_dir("prepare"))),
+            aria2_options: serde_json::Map::new(),
         })
         .expect("https task should be prepared");
 
@@ -1680,6 +1689,7 @@ mod tests {
             url: "magnet:?xt=urn:btih:test".to_string(),
             file_name: None,
             save_dir: None,
+            aria2_options: serde_json::Map::new(),
         })
         .expect_err("non-http url should fail");
 
@@ -1697,6 +1707,7 @@ mod tests {
                 url: "https://example.com/file.zip".to_string(),
                 file_name: "file.zip".to_string(),
                 save_dir: "/downloads".to_string(),
+                aria2_options: serde_json::Map::new(),
             },
             "abc123".to_string(),
         )
@@ -2392,6 +2403,16 @@ mod tests {
                 url: "https://example.com/file.zip".to_string(),
                 file_name: "custom.zip".to_string(),
                 save_dir: "/downloads".to_string(),
+                aria2_options: serde_json::Map::from_iter([
+                    (
+                        "split".to_string(),
+                        serde_json::Value::String("64".to_string()),
+                    ),
+                    (
+                        "max-connection-per-server".to_string(),
+                        serde_json::Value::String("64".to_string()),
+                    ),
+                ]),
             },
         );
 
@@ -2399,6 +2420,8 @@ mod tests {
         assert_eq!(request["params"][0][0], "https://example.com/file.zip");
         assert_eq!(request["params"][1]["dir"], "/downloads");
         assert_eq!(request["params"][1]["out"], "custom.zip");
+        assert_eq!(request["params"][1]["split"], "64");
+        assert_eq!(request["params"][1]["max-connection-per-server"], "64");
     }
 
     #[test]

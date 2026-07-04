@@ -183,6 +183,7 @@ async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, Rp
                 url: command.url,
                 file_name: command.file_name,
                 save_dir: Some(save_dir),
+                aria2_options: command.aria2_options,
             },
         )
         .await
@@ -222,7 +223,66 @@ fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, RpcFault> {
         url,
         save_dir: options.and_then(|options| string_option(options.get("dir"))),
         file_name: options.and_then(|options| string_option(options.get("out"))),
+        aria2_options: options.map(collect_aria2_options).unwrap_or_default(),
     })
+}
+
+fn collect_aria2_options(
+    options: &serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    const PASSTHROUGH_OPTIONS: &[&str] = &[
+        "allow-overwrite",
+        "auto-file-renaming",
+        "check-certificate",
+        "connect-timeout",
+        "continue",
+        "header",
+        "lowest-speed-limit",
+        "max-connection-per-server",
+        "max-download-limit",
+        "max-file-not-found",
+        "max-tries",
+        "min-split-size",
+        "referer",
+        "retry-wait",
+        "split",
+        "timeout",
+        "user-agent",
+    ];
+
+    options
+        .iter()
+        .filter(|(key, _)| PASSTHROUGH_OPTIONS.contains(&key.as_str()))
+        .filter_map(|(key, value)| {
+            normalize_aria2_option_value(value).map(|value| (key.clone(), value))
+        })
+        .collect()
+}
+
+fn normalize_aria2_option_value(value: &Value) -> Option<Value> {
+    match value {
+        Value::Null | Value::Object(_) => None,
+        Value::String(value) => {
+            let value = value.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(Value::String(value.to_string()))
+            }
+        }
+        Value::Array(items) => {
+            let normalized = items
+                .iter()
+                .filter_map(|item| normalize_aria2_option_value(item))
+                .collect::<Vec<_>>();
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(Value::Array(normalized))
+            }
+        }
+        Value::Bool(_) | Value::Number(_) => Some(value.clone()),
+    }
 }
 
 fn positional_params(params: &Value) -> Result<&[Value], RpcFault> {
@@ -361,6 +421,7 @@ struct AddUriCommand {
     url: String,
     save_dir: Option<String>,
     file_name: Option<String>,
+    aria2_options: serde_json::Map<String, Value>,
 }
 
 #[derive(Debug)]
@@ -411,6 +472,7 @@ mod tests {
         assert_eq!(command.url, "https://example.com/file.zip");
         assert_eq!(command.save_dir.as_deref(), Some("/vol1/1000/tmp"));
         assert_eq!(command.file_name.as_deref(), Some("file.zip"));
+        assert!(command.aria2_options.is_empty());
     }
 
     #[test]
@@ -426,6 +488,36 @@ mod tests {
         assert_eq!(command.url, "https://example.com/file.zip");
         assert_eq!(command.save_dir.as_deref(), Some("/vol1/1000/tmp"));
         assert_eq!(command.file_name, None);
+    }
+
+    #[test]
+    fn parse_add_uri_preserves_speed_related_options() {
+        let command = parse_add_uri_command(&json!([
+            "token:anything",
+            ["https://example.com/file.zip"],
+            {
+                "dir": "/vol1/1000/tmp",
+                "out": "file.zip",
+                "split": "256",
+                "max-connection-per-server": "256",
+                "min-split-size": "1M",
+                "user-agent": "Motrix",
+                "header": ["Referer: https://example.com"],
+                "unknown-option": "ignored"
+            }
+        ]))
+        .expect("addUri params should parse");
+
+        assert_eq!(command.aria2_options["split"], "256");
+        assert_eq!(command.aria2_options["max-connection-per-server"], "256");
+        assert_eq!(command.aria2_options["min-split-size"], "1M");
+        assert_eq!(command.aria2_options["user-agent"], "Motrix");
+        assert_eq!(
+            command.aria2_options["header"][0],
+            "Referer: https://example.com"
+        );
+        assert!(!command.aria2_options.contains_key("unknown-option"));
+        assert!(!command.aria2_options.contains_key("dir"));
     }
 
     #[test]
