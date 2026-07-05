@@ -106,5 +106,12 @@ function selectCategory(category: MainNavCategory) {
     width: 100%;
     max-width: 100%;
   }
+
+  .content-stage {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
 }
 </style>
