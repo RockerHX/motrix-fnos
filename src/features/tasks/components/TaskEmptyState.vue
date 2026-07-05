@@ -8,12 +8,14 @@ const props = withDefaults(
     title?: string;
     description?: string;
     showCreateAction?: boolean;
+    disableCreateAction?: boolean;
     showSettingsAction?: boolean;
   }>(),
   {
     title: "",
     description: "",
     showCreateAction: true,
+    disableCreateAction: false,
     showSettingsAction: true,
   },
 );
@@ -43,7 +45,13 @@ function openSettings() {
     <h1>{{ props.title || t("empty.default.title") }}</h1>
     <p>{{ props.description || t("empty.default.description") }}</p>
     <div v-if="props.showCreateAction || props.showSettingsAction" class="empty-actions">
-      <button v-if="props.showCreateAction" type="button" class="primary" @click="createTask">
+      <button
+        v-if="props.showCreateAction"
+        type="button"
+        class="primary"
+        :disabled="props.disableCreateAction"
+        @click="createTask"
+      >
         <span>＋</span>
         {{ t("empty.create") }}
       </button>
@@ -153,6 +161,12 @@ button {
   border: 1px solid #3d423d;
   color: #dbe3d8;
   background: transparent;
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
 }
 
 @media (max-width: 767px) {

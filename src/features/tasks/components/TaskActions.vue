@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   NButton,
   NCard,
@@ -43,6 +43,21 @@ const progressText = computed(() => {
   const percentage = Math.min(100, (props.task.completedLength / props.task.totalLength) * 100);
   return `${percentage.toFixed(2)}%`;
 });
+
+watch(
+  () => taskStore.isRuntimeExiting,
+  (isRuntimeExiting) => {
+    if (!isRuntimeExiting) {
+      return;
+    }
+
+    showDeleteConfirm.value = false;
+    showPermanentDeleteConfirm.value = false;
+    showRedownloadConfirm.value = false;
+    showDetails.value = false;
+    deleteFiles.value = false;
+  },
+);
 
 function ensureCanOperate() {
   if (taskStore.isRuntimeExiting) {

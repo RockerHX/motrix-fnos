@@ -50,6 +50,10 @@ const contentViewKey = computed(() =>
 );
 const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
 const showFloatingAdd = computed(() => {
+  if (taskStore.isRuntimeExiting) {
+    return false;
+  }
+
   if (!["downloading", "completed", "stopped"].includes(activeCategory.value)) {
     return false;
   }
@@ -126,6 +130,11 @@ function updateAria2Status(status: Aria2StatusSnapshot) {
 }
 
 function openCreateDialog() {
+  if (taskStore.isRuntimeExiting) {
+    message.warning(t("task.runtimeExiting"));
+    return;
+  }
+
   showCreateDialog.value = true;
 }
 
@@ -185,6 +194,15 @@ watch(
   },
 );
 
+watch(
+  () => taskStore.isRuntimeExiting,
+  (isRuntimeExiting) => {
+    if (isRuntimeExiting) {
+      showCreateDialog.value = false;
+    }
+  },
+);
+
 onMounted(() => {
   void refreshPhaseStatus();
   void refreshTasks(true);
@@ -223,6 +241,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
         :title="t(emptyState.titleKey)"
         :description="t(emptyState.descriptionKey)"
         :show-create-action="emptyState.showCreateAction"
+        :disable-create-action="taskStore.isRuntimeExiting"
         :show-settings-action="emptyState.showSettingsAction"
         @create="openCreateDialog"
         @open-settings="showSettings = true"
