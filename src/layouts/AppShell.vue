@@ -75,6 +75,8 @@ function selectCategory(category: MainNavCategory) {
 
 .main-area {
   grid-area: main;
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -83,6 +85,8 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .content-stage {
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -95,6 +99,12 @@ function selectCategory(category: MainNavCategory) {
     grid-template-areas:
       "main"
       "sidebar";
+  }
+
+  .shell-sidebar,
+  .shell-main-area {
+    width: 100%;
+    max-width: 100%;
   }
 }
 </style>
