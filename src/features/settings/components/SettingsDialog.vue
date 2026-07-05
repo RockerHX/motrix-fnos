@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import {
   NButton,
   NCard,
@@ -28,6 +28,7 @@ const emit = defineEmits<{
 const message = useMessage();
 const settingsStore = useSettingsStore();
 const { t } = useI18n();
+const isJsonRpcTokenVisible = ref(false);
 const form = reactive({
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
@@ -125,6 +126,16 @@ function buildPayload(): AppConfig {
   };
 }
 
+function toggleJsonRpcTokenVisible() {
+  isJsonRpcTokenVisible.value = !isJsonRpcTokenVisible.value;
+}
+
+function generateJsonRpcToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  form.jsonRpcToken = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function closeDialog() {
   emit("update:show", false);
 }
@@ -176,10 +187,21 @@ function getErrorMessage(error: unknown) {
         <NFormItem :label="t('settings.jsonRpcToken')" :feedback="t('settings.jsonRpcToken.help')">
           <NInput
             v-model:value="form.jsonRpcToken"
-            type="password"
+            :type="isJsonRpcTokenVisible ? 'text' : 'password'"
             clearable
             :placeholder="t('settings.jsonRpcToken.placeholder')"
-          />
+          >
+            <template #suffix>
+              <NSpace :size="4">
+                <NButton size="tiny" quaternary @click.stop="toggleJsonRpcTokenVisible">
+                  {{ isJsonRpcTokenVisible ? t("settings.jsonRpcToken.hide") : t("settings.jsonRpcToken.show") }}
+                </NButton>
+                <NButton size="tiny" quaternary @click.stop="generateJsonRpcToken">
+                  {{ t("settings.jsonRpcToken.generate") }}
+                </NButton>
+              </NSpace>
+            </template>
+          </NInput>
         </NFormItem>
 
         <NFormItem :label="t('settings.maxConcurrentDownloads')">
