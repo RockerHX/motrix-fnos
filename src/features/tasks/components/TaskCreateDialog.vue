@@ -275,6 +275,7 @@ function getErrorMessage(error: unknown) {
   width: min(720px, calc(100vw - 48px));
   max-height: calc(var(--app-viewport-height) - 48px);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .eyebrow {
@@ -303,10 +304,12 @@ h2 {
 
 .inline-alert {
   width: 100%;
+  word-break: break-word;
 }
 
 .form-alert {
   margin-top: 16px;
+  word-break: break-word;
 }
 
 .dialog-actions {
@@ -322,6 +325,8 @@ h2 {
 
   .task-create-form {
     width: 100%;
+    padding-bottom: 4px;
+    scroll-padding-bottom: calc(88px + var(--app-safe-area-bottom));
   }
 
   .task-create-form :deep(.n-form-item-label) {
@@ -334,6 +339,12 @@ h2 {
   .task-create-tabs,
   .start-mode-tabs {
     width: 100%;
+  }
+
+  .task-create-form :deep(.n-input__input-el),
+  .task-create-form :deep(.n-base-selection-label),
+  .task-create-form :deep(.n-base-selection-input__content) {
+    font-size: 16px;
   }
 
   .dialog-actions {
