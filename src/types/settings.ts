@@ -8,6 +8,7 @@ export interface AppConfig {
   autoStartEnabled: boolean;
   notificationsEnabled: boolean;
   language: AppLanguage;
+  jsonRpcToken: string;
 }
 
 export interface UiPreferences {

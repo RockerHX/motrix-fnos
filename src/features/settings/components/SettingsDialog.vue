@@ -5,6 +5,7 @@ import {
   NCard,
   NForm,
   NFormItem,
+  NInput,
   NInputNumber,
   NModal,
   NSelect,
@@ -33,6 +34,7 @@ const form = reactive({
   downloadLimitKb: 0,
   uploadLimitKb: 0,
   language: "zh-CN" as AppConfig["language"],
+  jsonRpcToken: "",
 });
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
@@ -107,6 +109,7 @@ function applyConfig(config: AppConfig) {
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
   form.language = config.language;
+  form.jsonRpcToken = config.jsonRpcToken || "";
 }
 
 function buildPayload(): AppConfig {
@@ -118,6 +121,7 @@ function buildPayload(): AppConfig {
     autoStartEnabled: false,
     notificationsEnabled: false,
     language: form.language,
+    jsonRpcToken: form.jsonRpcToken,
   };
 }
 
@@ -167,6 +171,15 @@ function getErrorMessage(error: unknown) {
 
         <NFormItem :label="t('settings.background')">
           <NText depth="3">{{ t("settings.background.help") }}</NText>
+        </NFormItem>
+
+        <NFormItem :label="t('settings.jsonRpcToken')" :feedback="t('settings.jsonRpcToken.help')">
+          <NInput
+            v-model:value="form.jsonRpcToken"
+            type="password"
+            clearable
+            :placeholder="t('settings.jsonRpcToken.placeholder')"
+          />
         </NFormItem>
 
         <NFormItem :label="t('settings.maxConcurrentDownloads')">
