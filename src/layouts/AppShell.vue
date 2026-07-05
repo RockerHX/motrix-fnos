@@ -92,6 +92,7 @@ function selectCategory(category: MainNavCategory) {
 .content-stage {
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   position: relative;

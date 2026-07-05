@@ -274,6 +274,7 @@ function getErrorMessage(error: unknown) {
 .task-create-card {
   width: min(720px, calc(100vw - 48px));
   max-height: calc(var(--app-viewport-height) - 48px);
+  min-width: 0;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -339,6 +340,7 @@ h2 {
   .task-create-tabs,
   .start-mode-tabs {
     width: 100%;
+    min-width: 0;
   }
 
   .task-create-form :deep(.n-input__input-el),
