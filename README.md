@@ -1,6 +1,6 @@
 # Motrix FNOS
 
-飞牛 fnOS 下载管理应用，当前处于 **阶段 5：飞牛实机安装和基础功能验证**。
+飞牛 fnOS 下载管理应用。当前基础功能已稳定，阶段 9 应用内国际化已完成，正在规划手机端 UI 适配。
 
 本仓库的目标是交付一个可在飞牛 fnOS 中安装、启动、停止、升级和卸载的 FPK-first 下载管理应用：
 
@@ -12,12 +12,14 @@
 
 ## 当前状态
 
-截至 2026-07-02，阶段 4 FPK 打包链路已完成：
+截至 2026-07-05：
 
 - 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
 - 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
 - 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_1.1.0_x86.fpk`、`packaging/fnos/dist/motrix.fnos_1.1.0_arm.fpk`。
-- 当前尚未完成飞牛实机安装、启动、停止、卸载与基础下载闭环验证。
+- 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
+- Web UI 已支持侧栏分类、回收站、扩展占位页、设置页、帮助入口、诊断日志和应用内中英文切换。
+- 手机端 UI 适配已进入任务规划，详见 [`docs/mobile-ui-adaptation-plan.md`](docs/mobile-ui-adaptation-plan.md)。
 
 注意：FPK 必须与设备 CPU 架构匹配。x86 包不能安装到 ARM 飞牛设备；OES / A311D 等 ARM 飞牛应安装 ARM 包，否则会提示“应用包不符合系统要求”。
 
@@ -86,9 +88,9 @@ rtk pnpm run build:fpk:prepare
 
 - 架构边界：[`docs/architecture.md`](docs/architecture.md)
 - 阶段计划：[`docs/development-plan.md`](docs/development-plan.md)
+- 手机端 UI 适配计划：[`docs/mobile-ui-adaptation-plan.md`](docs/mobile-ui-adaptation-plan.md)
 - HTTP / SSE 契约：[`docs/api-contract.md`](docs/api-contract.md)
 - FPK 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
-- 飞牛实机测试清单：[`docs/fnos-manual-test-checklist.md`](docs/fnos-manual-test-checklist.md)
 
 ## 本地开发说明
 
