@@ -1,5 +1,6 @@
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::settings::service::load_app_config_from_pool;
 use crate::tasks::service::TaskService;
 use crate::tasks::CreateDownloadTaskRequest;
 use axum::body::{Body, Bytes};
@@ -155,6 +156,7 @@ async fn execute_method(
 }
 
 async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, RpcFault> {
+    ensure_add_uri_token(state, params).await?;
     let command = parse_add_uri_command(params)?;
     let save_dir = match command.save_dir {
         Some(save_dir) => save_dir,
@@ -306,6 +308,37 @@ fn strip_token_param(params: &[Value]) -> &[Value] {
     }
 }
 
+async fn ensure_add_uri_token(state: &Arc<HttpAppState>, params: &Value) -> Result<(), RpcFault> {
+    let default_download_dir = state.runtime.app_data_dir.display().to_string();
+    let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
+        .await
+        .map_err(RpcFault::server_error)?;
+
+    validate_add_uri_token(&config.json_rpc_token, params)
+}
+
+fn validate_add_uri_token(configured_token: &str, params: &Value) -> Result<(), RpcFault> {
+    let configured_token = configured_token.trim();
+    if configured_token.is_empty() {
+        return Err(RpcFault::token_not_configured());
+    }
+
+    let params = positional_params(params)?;
+    match extract_token_param(params) {
+        Some(token) if token == configured_token => Ok(()),
+        _ => Err(RpcFault::token_invalid()),
+    }
+}
+
+fn extract_token_param(params: &[Value]) -> Option<&str> {
+    params
+        .first()
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix("token:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 fn first_uri(value: &Value) -> Result<String, RpcFault> {
     let uri = match value {
         Value::Array(uris) => uris.first().and_then(Value::as_str),
@@ -451,11 +484,61 @@ impl RpcFault {
             message: message.into(),
         }
     }
+
+    fn token_invalid() -> Self {
+        Self {
+            code: -32001,
+            message: "JSON-RPC token invalid".to_string(),
+        }
+    }
+
+    fn token_not_configured() -> Self {
+        Self {
+            code: -32002,
+            message: "JSON-RPC token not configured".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_add_uri_token_rejects_empty_configured_token() {
+        let error = validate_add_uri_token("", &json!([
+            "token:anything",
+            ["https://example.com/file.zip"]
+        ]))
+        .expect_err("empty configured token should fail");
+
+        assert_eq!(error.code, -32002);
+        assert_eq!(error.message, "JSON-RPC token not configured");
+    }
+
+    #[test]
+    fn validate_add_uri_token_rejects_missing_or_wrong_token() {
+        let missing = validate_add_uri_token("secret", &json!([["https://example.com/file.zip"]]))
+            .expect_err("missing token should fail");
+        assert_eq!(missing.code, -32001);
+
+        let wrong = validate_add_uri_token("secret", &json!([
+            "token:wrong",
+            ["https://example.com/file.zip"]
+        ]))
+        .expect_err("wrong token should fail");
+        assert_eq!(wrong.code, -32001);
+        assert_eq!(wrong.message, "JSON-RPC token invalid");
+    }
+
+    #[test]
+    fn validate_add_uri_token_accepts_matching_token() {
+        validate_add_uri_token("secret", &json!([
+            "token:secret",
+            ["https://example.com/file.zip"]
+        ]))
+        .expect("matching token should pass");
+    }
 
     #[test]
     fn parse_add_uri_accepts_token_uri_list_and_options() {
