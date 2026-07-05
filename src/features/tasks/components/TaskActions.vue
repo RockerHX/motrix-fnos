@@ -347,6 +347,15 @@ function formatTimestamp(timestamp: number) {
 }
 
 @media (max-width: 767px) {
+  .compact-actions {
+    gap: 10px;
+  }
+
+  .compact-actions :deep(.n-button) {
+    min-height: var(--app-touch-target-min);
+    border-radius: 12px;
+  }
+
   .delete-confirm-card,
   .permanent-delete-confirm-card,
   .redownload-confirm-card,

@@ -180,9 +180,11 @@ function selectCategory(category: MainNavCategory) {
     min-height: calc(var(--app-touch-target-min) + 4px);
     justify-content: center;
     gap: 4px;
-    padding: 8px 4px;
+    padding: 8px 6px;
+    border-radius: 12px;
     flex-direction: column;
     font-size: 12px;
+    line-height: 1.2;
     text-align: center;
   }
 
