@@ -503,6 +503,9 @@ impl RpcFault {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+    use crate::database::settings::set_app_config_value;
+    use std::path::PathBuf;
 
     #[test]
     fn validate_add_uri_token_rejects_empty_configured_token() {
@@ -538,6 +541,76 @@ mod tests {
             ["https://example.com/file.zip"]
         ]))
         .expect("matching token should pass");
+    }
+
+    #[tokio::test]
+    async fn multicall_requires_token_for_each_add_uri_call() {
+        let state = test_state().await;
+        write_json_rpc_token(&state, "secret").await;
+
+        let response = handle_jsonrpc_payload(&state, json!({
+            "jsonrpc": "2.0",
+            "id": "multi",
+            "method": "system.multicall",
+            "params": [
+                "token:secret",
+                [
+                    {
+                        "methodName": "aria2.addUri",
+                        "params": [["https://example.com/missing-token.zip"]]
+                    },
+                    {
+                        "methodName": "aria2.addUri",
+                        "params": [
+                            "token:secret",
+                            ["https://example.com/with-token.zip"],
+                            { "dir": "/vol1/not-authorized" }
+                        ]
+                    }
+                ]
+            ]
+        }))
+        .await;
+
+        let results = response["result"]
+            .as_array()
+            .expect("multicall result should be an array");
+
+        assert_eq!(results[0]["faultCode"], -32001);
+        assert_eq!(results[0]["faultString"], "JSON-RPC token invalid");
+        assert_eq!(results[1]["faultCode"], -32602);
+        assert_eq!(
+            results[1]["faultString"],
+            "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权"
+        );
+    }
+
+    #[tokio::test]
+    async fn multicall_get_version_does_not_require_json_rpc_token() {
+        let state = test_state().await;
+
+        let response = handle_jsonrpc_payload(&state, json!({
+            "jsonrpc": "2.0",
+            "id": "multi-version",
+            "method": "system.multicall",
+            "params": [[
+                {
+                    "methodName": "aria2.getVersion",
+                    "params": []
+                }
+            ]]
+        }))
+        .await;
+
+        let results = response["result"]
+            .as_array()
+            .expect("multicall result should be an array");
+        let code = results[0]["faultCode"]
+            .as_i64()
+            .expect("getVersion should return a runtime fault in tests");
+
+        assert_ne!(code, -32001);
+        assert_ne!(code, -32002);
     }
 
     #[test]
@@ -608,5 +681,50 @@ mod tests {
         let error = parse_add_uri_command(&json!([[]])).expect_err("empty URI should fail");
 
         assert_eq!(error.code, -32602);
+    }
+
+    async fn test_state() -> Arc<HttpAppState> {
+        let app_data_dir = temp_dir("jsonrpc-api");
+        let runtime = ServerRuntimeConfig {
+            database_path: app_data_dir.join("motrix-fnos.sqlite"),
+            accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+            app_data_dir: app_data_dir.clone(),
+            http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+            aria2_path: None,
+        };
+
+        bootstrap_http_app_state(&runtime)
+            .await
+            .expect("state should bootstrap")
+    }
+
+    async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
+        set_app_config_value(
+            &state.core.database.pool,
+            "download",
+            &json!({
+                "defaultDownloadDir": state.runtime.app_data_dir.display().to_string(),
+                "maxConcurrentDownloads": 5,
+                "downloadLimit": 0,
+                "uploadLimit": 0,
+                "autoStartEnabled": false,
+                "notificationsEnabled": false,
+                "language": "zh-CN",
+                "jsonRpcToken": token
+            }),
+        )
+        .await
+        .expect("JSON-RPC token should save");
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "motrix-fnos-{}-{}",
+            label,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be valid")
+                .as_nanos()
+        ))
     }
 }
