@@ -117,17 +117,28 @@ function openSettings() {
   }
 
   .topbar-title {
+    gap: 3px;
     padding-left: var(--app-mobile-page-gutter);
   }
 
+  .topbar-title span {
+    font-size: 11px;
+  }
+
+  .topbar-title strong {
+    font-size: 17px;
+    line-height: 1.25;
+  }
+
   .topbar-actions {
-    gap: 12px;
+    gap: 10px;
     padding-right: var(--app-mobile-page-gutter);
   }
 
   .topbar-actions button {
     min-width: var(--app-touch-target-min);
     min-height: var(--app-touch-target-min);
+    border-radius: 12px;
     font-size: 20px;
   }
 }

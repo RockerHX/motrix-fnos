@@ -178,4 +178,44 @@ function formatEta(task: DownloadTask) {
 .task-card-actions {
   min-width: 0;
 }
+
+@media (max-width: 767px) {
+  .task-mobile-list {
+    gap: 12px;
+    padding: 14px var(--app-mobile-page-gutter);
+    padding-bottom: calc(112px + var(--app-safe-area-bottom));
+  }
+
+  .task-card {
+    gap: 10px;
+    padding: 14px;
+    border-radius: 18px;
+    background: #181b19;
+  }
+
+  .task-card-header {
+    gap: 8px;
+  }
+
+  .task-card-header strong {
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .task-card-url,
+  .task-card-error,
+  .task-card-meta dd {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .task-card-meta {
+    gap: 8px;
+  }
+
+  .task-card-meta dt {
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+}
 </style>

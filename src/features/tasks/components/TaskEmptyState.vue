@@ -173,7 +173,7 @@ button {
   .empty-guide {
     align-content: start;
     gap: 0;
-    padding: 28px var(--app-mobile-page-gutter) 24px;
+    padding: 24px var(--app-mobile-page-gutter) 20px;
   }
 
   .empty-box {
@@ -206,20 +206,22 @@ button {
   }
 
   .empty-guide h1 {
-    margin-bottom: 10px;
-    font-size: 21px;
+    margin-bottom: 8px;
+    font-size: 20px;
+    line-height: 1.35;
   }
 
   .empty-guide p {
     max-width: 100%;
-    margin-bottom: 22px;
+    margin-bottom: 20px;
     font-size: 13px;
+    line-height: 1.6;
   }
 
   .empty-actions {
     width: 100%;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
   }
 
   .primary,
@@ -231,7 +233,9 @@ button {
     align-items: center;
     justify-content: center;
     gap: 8px;
+    border-radius: 12px;
     padding: 12px 16px;
+    font-size: 15px;
   }
 }
 </style>
