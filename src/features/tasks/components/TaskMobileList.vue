@@ -59,12 +59,12 @@ function formatEta(task: DownloadTask) {
   <section class="task-mobile-list">
     <article v-for="task in props.tasks" :key="task.id" class="task-card">
       <header class="task-card-header">
-        <strong>{{ task.fileName }}</strong>
+        <strong :title="task.fileName">{{ task.fileName }}</strong>
         <TaskStatusBadge :status="task.status" />
       </header>
 
-      <p class="task-card-url">{{ task.url }}</p>
-      <p v-if="task.status === 'error'" class="task-card-error">{{ formatTaskError(task) }}</p>
+      <p class="task-card-url" :title="task.url">{{ task.url }}</p>
+      <p v-if="task.status === 'error'" class="task-card-error" :title="formatTaskError(task)">{{ formatTaskError(task) }}</p>
 
       <div class="task-card-progress">
         <TaskProgressCell :task="task" />
@@ -119,17 +119,26 @@ function formatEta(task: DownloadTask) {
 
 .task-card-header strong {
   min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
   color: #f1f6f1;
   font-size: 16px;
   line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .task-card-url,
 .task-card-error {
   margin: 0;
+  display: -webkit-box;
+  overflow: hidden;
   color: #8e9a91;
   font-size: 13px;
   line-height: 1.5;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .task-card-error {
