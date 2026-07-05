@@ -192,23 +192,22 @@ function getErrorMessage(error: unknown) {
         </NFormItem>
 
         <NFormItem :label="t('settings.jsonRpcToken')" :feedback="t('settings.jsonRpcToken.help')">
-          <NInput
-            v-model:value="form.jsonRpcToken"
-            :type="isJsonRpcTokenVisible ? 'text' : 'password'"
-            clearable
-            :placeholder="t('settings.jsonRpcToken.placeholder')"
-          >
-            <template #suffix>
-              <NSpace :size="4">
-                <NButton size="tiny" quaternary @click.stop="toggleJsonRpcTokenVisible">
-                  {{ isJsonRpcTokenVisible ? t("settings.jsonRpcToken.hide") : t("settings.jsonRpcToken.show") }}
-                </NButton>
-                <NButton size="tiny" quaternary @click.stop="generateJsonRpcToken">
-                  {{ t("settings.jsonRpcToken.generate") }}
-                </NButton>
-              </NSpace>
-            </template>
-          </NInput>
+          <div class="json-rpc-token-stack">
+            <NInput
+              v-model:value="form.jsonRpcToken"
+              :type="isJsonRpcTokenVisible ? 'text' : 'password'"
+              clearable
+              :placeholder="t('settings.jsonRpcToken.placeholder')"
+            />
+            <NSpace class="json-rpc-token-actions" :size="8" wrap>
+              <NButton size="tiny" quaternary @click.stop="toggleJsonRpcTokenVisible">
+                {{ isJsonRpcTokenVisible ? t("settings.jsonRpcToken.hide") : t("settings.jsonRpcToken.show") }}
+              </NButton>
+              <NButton size="tiny" quaternary @click.stop="generateJsonRpcToken">
+                {{ t("settings.jsonRpcToken.generate") }}
+              </NButton>
+            </NSpace>
+          </div>
         </NFormItem>
 
         <NFormItem :label="t('settings.maxConcurrentDownloads')">
@@ -251,6 +250,14 @@ function getErrorMessage(error: unknown) {
   width: 100%;
 }
 
+.json-rpc-token-stack {
+  width: 100%;
+}
+
+.json-rpc-token-actions {
+  margin-top: 10px;
+}
+
 @media (max-width: 767px) {
   .settings-card {
     width: calc(100vw - 16px);
@@ -267,6 +274,15 @@ function getErrorMessage(error: unknown) {
   .settings-form :deep(.n-input),
   .settings-form :deep(.n-input-number) {
     width: 100%;
+  }
+
+  .json-rpc-token-actions {
+    width: 100%;
+  }
+
+  .json-rpc-token-actions :deep(.n-button) {
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
 </style>
