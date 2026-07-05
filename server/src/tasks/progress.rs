@@ -2,7 +2,8 @@ use crate::tasks::{DownloadTask, DownloadTaskStatus};
 use std::path::Path;
 use std::sync::Mutex;
 
-use super::{cleanup_aria2_control_file, current_timestamp_ms, Aria2TaskStatus};
+use super::{current_timestamp_ms, Aria2TaskStatus};
+use crate::tasks::files::cleanup_aria2_control_file;
 
 pub(crate) fn apply_aria2_status_by_gid(
     tasks: &Mutex<Vec<DownloadTask>>,

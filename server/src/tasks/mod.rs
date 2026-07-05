@@ -1,11 +1,14 @@
+pub mod files;
 pub mod model;
 pub mod prepare;
 pub mod progress;
 pub mod service;
+pub mod session;
 pub mod state;
 
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+pub use files::delete_task_files;
 pub use model::{
     should_force_pause_task_on_startup, should_pause_task_on_exit, CreateDownloadTaskRequest,
     DownloadTask, DownloadTaskStatus, PreparedDownloadTask,
@@ -14,6 +17,8 @@ pub use prepare::{default_download_dir_string, prepare_task, prepare_task_with_l
 use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, is_aria2_status_error, parse_aria2_u64,
 };
+pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
+use session::readd_download_task;
 pub use state::{
     list_tasks, mark_task_paused, mark_task_paused_by_gid, mark_task_redownloaded,
     mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record,
@@ -21,10 +26,8 @@ pub use state::{
 };
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::fs;
 
 #[derive(Debug, Deserialize)]
 struct AddUriResponse {
@@ -377,260 +380,6 @@ enum TaskRefreshUpdate {
     },
 }
 
-pub async fn sync_session_tasks_from_aria2(
-    tasks: &Mutex<Vec<DownloadTask>>,
-    config: &Aria2Config,
-    debug_logs: Option<&DebugLogStore>,
-) -> Result<Vec<DownloadTask>, String> {
-    let session_tasks = list_current_aria2_tasks(config, debug_logs).await?;
-    if session_tasks.is_empty() {
-        log_info(debug_logs, "tasks.restore", "Aria2 session 未加载任何任务");
-        return list_tasks(tasks);
-    }
-
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    let mut matched_count = 0;
-    let mut unmatched_count = 0;
-
-    for session_task in &session_tasks {
-        if let Some(index) = find_matching_sqlite_task(&guard, session_task) {
-            let task = &mut guard[index];
-            if let Some(gid) = session_task
-                .gid
-                .as_deref()
-                .filter(|gid| !gid.trim().is_empty())
-            {
-                task.gid = Some(gid.to_string());
-            }
-            apply_aria2_status(task, session_task);
-            if should_force_pause_task_on_startup(task) {
-                apply_paused_state(task);
-            }
-            task.updated_at = current_timestamp_ms();
-            matched_count += 1;
-        } else {
-            unmatched_count += 1;
-            log_info(
-                debug_logs,
-                "tasks.restore",
-                format!(
-                    "Aria2 session 存在未匹配的任务，GID {}，不自动创建 UI 任务",
-                    session_task.gid.as_deref().unwrap_or("-")
-                ),
-            );
-        }
-    }
-
-    log_info(
-        debug_logs,
-        "tasks.restore",
-        format!(
-            "Aria2 session 任务同步完成：匹配 {} 个，未匹配 {} 个",
-            matched_count, unmatched_count
-        ),
-    );
-
-    Ok(guard.clone())
-}
-
-async fn list_current_aria2_tasks(
-    config: &Aria2Config,
-    debug_logs: Option<&DebugLogStore>,
-) -> Result<Vec<Aria2TaskStatus>, String> {
-    let client = reqwest::Client::new();
-    let mut tasks = Vec::new();
-    for method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped"] {
-        match tell_many_tasks(&client, config, method).await {
-            Ok(mut result) => tasks.append(&mut result),
-            Err(error) => {
-                log_error(debug_logs, "tasks.restore", &error);
-                return Err(error);
-            }
-        }
-    }
-    Ok(tasks)
-}
-
-async fn tell_many_tasks(
-    client: &reqwest::Client,
-    config: &Aria2Config,
-    method: &str,
-) -> Result<Vec<Aria2TaskStatus>, String> {
-    let request_body = build_tell_many_request(config, method);
-    let response = client
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|error| format!("读取 Aria2 session 任务失败：无法连接 RPC（{}）", error))?;
-
-    let rpc_response = response
-        .json::<TellManyResponse>()
-        .await
-        .map_err(|error| format!("读取 Aria2 session 任务失败：响应解析失败（{}）", error))?;
-
-    if let Some(error) = rpc_response.error {
-        return Err(format!("读取 Aria2 session 任务失败：{}", error.message));
-    }
-
-    Ok(rpc_response.result.unwrap_or_default())
-}
-
-fn find_matching_sqlite_task(
-    tasks: &[DownloadTask],
-    session_task: &Aria2TaskStatus,
-) -> Option<usize> {
-    if let Some(gid) = session_task
-        .gid
-        .as_deref()
-        .filter(|gid| !gid.trim().is_empty())
-    {
-        if let Some(index) = tasks.iter().position(|task| {
-            task.status != DownloadTaskStatus::Removed && task.gid.as_deref() == Some(gid)
-        }) {
-            return Some(index);
-        }
-    }
-
-    let urls = session_task_urls(session_task);
-    if urls.is_empty() {
-        return None;
-    }
-
-    tasks.iter().position(|task| {
-        task.status != DownloadTaskStatus::Removed
-            && urls.iter().any(|url| url == &task.url)
-            && session_task_location_matches(task, session_task)
-    })
-}
-
-fn session_task_urls(session_task: &Aria2TaskStatus) -> Vec<String> {
-    session_task
-        .files
-        .as_ref()
-        .into_iter()
-        .flatten()
-        .flat_map(|file| file.uris.iter())
-        .map(|uri| uri.uri.trim())
-        .filter(|uri| !uri.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn session_task_location_matches(task: &DownloadTask, session_task: &Aria2TaskStatus) -> bool {
-    let dir_matches = session_task
-        .dir
-        .as_deref()
-        .filter(|dir| !dir.trim().is_empty())
-        .map(|dir| normalize_path_for_match(dir) == normalize_path_for_match(&task.save_dir))
-        .unwrap_or(false);
-
-    let file_matches = session_task.files.as_ref().is_some_and(|files| {
-        files.iter().any(|file| {
-            let normalized_path = normalize_path_for_match(&file.path);
-            normalized_path.ends_with(&normalize_path_for_match(&task.file_name))
-                || task
-                    .file_path
-                    .as_deref()
-                    .map(|path| normalized_path == normalize_path_for_match(path))
-                    .unwrap_or(false)
-        })
-    });
-
-    dir_matches || file_matches
-}
-
-fn normalize_path_for_match(path: &str) -> String {
-    path.replace('\\', "/").trim_end_matches('/').to_string()
-}
-
-pub async fn readd_task_to_aria2(
-    tasks: &Mutex<Vec<DownloadTask>>,
-    config: &Aria2Config,
-    task_id: u64,
-    debug_logs: Option<&DebugLogStore>,
-) -> Result<DownloadTask, String> {
-    let task = {
-        let guard = tasks
-            .lock()
-            .map_err(|_| "无法读取下载任务列表".to_string())?;
-        guard
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-            .ok_or_else(|| format!("下载任务不存在：{}", task_id))?
-    };
-
-    let new_gid = readd_download_task(config, &task, debug_logs).await?;
-
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    let task = guard
-        .iter_mut()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
-    apply_readded_gid(task, &new_gid);
-    Ok(task.clone())
-}
-
-pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
-    delete_task_file(task)
-}
-
-async fn readd_download_task(
-    config: &Aria2Config,
-    task: &DownloadTask,
-    debug_logs: Option<&DebugLogStore>,
-) -> Result<String, String> {
-    log_info(
-        debug_logs,
-        "tasks.restore",
-        format!(
-            "Aria2 GID 失效，准备使用原始 URL 重新加入任务，ID {}，旧 GID {}",
-            task.id,
-            task.gid.as_deref().unwrap_or("-")
-        ),
-    );
-    if let Some(old_gid) = task.gid.as_deref() {
-        if let Err(error) = remove_download_result(config, old_gid, debug_logs).await {
-            log_info(
-                debug_logs,
-                "tasks.restore",
-                format!(
-                    "旧 GID 结果清理未完成，继续重新加入任务，GID {}：{}",
-                    old_gid, error
-                ),
-            );
-        }
-    }
-    let prepared = PreparedDownloadTask {
-        url: task.url.clone(),
-        file_name: task.file_name.clone(),
-        save_dir: task.save_dir.clone(),
-        aria2_options: serde_json::Map::new(),
-    };
-    add_uri_to_aria2(config, &prepared, debug_logs).await
-}
-
-async fn remove_download_result(
-    config: &Aria2Config,
-    gid: &str,
-    debug_logs: Option<&DebugLogStore>,
-) -> Result<String, String> {
-    send_gid_control_request(
-        config,
-        gid,
-        "aria2.removeDownloadResult",
-        "motrix-fnos-remove-result-before-readd",
-        "清理任务结果",
-        debug_logs,
-    )
-    .await
-}
-
 async fn tell_status(
     client: &reqwest::Client,
     config: &Aria2Config,
@@ -695,82 +444,6 @@ async fn tell_status(
         );
     }
     Ok(status)
-}
-
-fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
-    let Some(file_path) = task
-        .file_path
-        .as_deref()
-        .filter(|path| !path.trim().is_empty())
-    else {
-        return Ok(());
-    };
-
-    let save_dir = Path::new(&task.save_dir)
-        .canonicalize()
-        .map_err(|error| format!("校验保存目录失败：{}（{}）", task.save_dir, error))?;
-    let candidates = delete_file_candidates(Path::new(file_path));
-
-    for path in candidates {
-        if !path.exists() {
-            continue;
-        }
-        if !path.is_file() {
-            return Err(format!("当前仅支持删除单文件：{}", path.display()));
-        }
-
-        let file = path
-            .canonicalize()
-            .map_err(|error| format!("校验本地文件失败：{}（{}）", path.display(), error))?;
-        if !file.starts_with(&save_dir) {
-            return Err("拒绝删除保存目录外的文件".to_string());
-        }
-
-        delete_local_file(&file)?;
-    }
-
-    Ok(())
-}
-
-fn delete_local_file(file: &Path) -> Result<(), String> {
-    fs::remove_file(file).map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
-}
-
-fn cleanup_aria2_control_file(task: &DownloadTask) {
-    let Some(file_path) = task
-        .file_path
-        .as_deref()
-        .filter(|path| !path.trim().is_empty())
-    else {
-        return;
-    };
-
-    let control_file = PathBuf::from(format!("{}.aria2", file_path));
-    if !control_file.is_file() || !control_file_is_under_save_dir(&control_file, &task.save_dir) {
-        return;
-    }
-
-    let _ = fs::remove_file(control_file);
-}
-
-fn control_file_is_under_save_dir(control_file: &Path, save_dir: &str) -> bool {
-    let Ok(save_dir) = Path::new(save_dir).canonicalize() else {
-        return false;
-    };
-    let Some(parent) = control_file.parent() else {
-        return false;
-    };
-    parent
-        .canonicalize()
-        .map(|parent| parent.starts_with(save_dir))
-        .unwrap_or(false)
-}
-
-fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
-    vec![
-        path.to_path_buf(),
-        PathBuf::from(format!("{}.aria2", path.display())),
-    ]
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -991,9 +664,13 @@ fn redact_url_for_log(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tasks::files::delete_file_candidates;
     use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
     use crate::tasks::progress::normalize_aria2_error_code;
+    use crate::tasks::session::find_matching_sqlite_task;
     use std::env;
+    use std::fs;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::AtomicU64;
 
     fn test_config() -> Aria2Config {

@@ -5,7 +5,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use super::{current_timestamp_ms, delete_task_file};
+use super::current_timestamp_ms;
+use crate::tasks::files::delete_task_file;
 
 pub fn store_created_task(
     tasks: &Mutex<Vec<DownloadTask>>,
@@ -234,4 +235,3 @@ fn update_task(
     task.updated_at = current_timestamp_ms();
     Ok(task.clone())
 }
-
