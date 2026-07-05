@@ -178,7 +178,7 @@ CSS 约定：
 
 小任务：
 
-- [ ] M6.1 验证 `Downloading`、`Completed`、`Stopped`、`Trash`、`Extensions` 在移动端切换后高亮和内容同步正确。
+- [x] M6.1 验证 `Downloading`、`Completed`、`Stopped`、`Trash`、`Extensions` 在移动端切换后高亮和内容同步正确。
 - [ ] M6.2 验证 Trash 首次进入仍会触发 `refreshRemovedTasks(true)`。
 - [ ] M6.3 验证 SSE 任务快照更新后移动端卡片列表自动刷新。
 - [ ] M6.4 验证运行时退出状态下按钮禁用、提示消息和弹窗关闭逻辑不回退。

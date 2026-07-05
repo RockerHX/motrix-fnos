@@ -43,13 +43,18 @@ const showHelp = ref(false);
 const showSettings = ref(false);
 const activeCategory = ref<MainNavCategory>("downloading");
 const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
+const isExtensionsCategory = computed(() => activeCategory.value === "extensions");
+const hasVisibleTasks = computed(() => visibleTasks.value.length > 0);
+const contentViewKey = computed(() =>
+  `${activeCategory.value}-${isExtensionsCategory.value ? "extensions" : hasVisibleTasks.value ? "list" : "empty"}`,
+);
 const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
 const showFloatingAdd = computed(() => {
   if (!["downloading", "completed", "stopped"].includes(activeCategory.value)) {
     return false;
   }
 
-  if (isMobileLayout.value && visibleTasks.value.length === 0 && emptyState.value.showCreateAction) {
+  if (isMobileLayout.value && !hasVisibleTasks.value && emptyState.value.showCreateAction) {
     return false;
   }
 
@@ -205,10 +210,11 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
     @open-settings="showSettings = true"
     @select-category="selectCategory"
   >
-    <ExtensionsPlaceholder v-if="activeCategory === 'extensions'" />
+    <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
     <template v-else>
       <TaskEmptyState
-        v-if="visibleTasks.length === 0"
+        v-if="!hasVisibleTasks"
+        :key="contentViewKey"
         :title="t(emptyState.titleKey)"
         :description="t(emptyState.descriptionKey)"
         :show-create-action="emptyState.showCreateAction"
@@ -216,7 +222,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
         @create="openCreateDialog"
         @open-settings="showSettings = true"
       />
-      <TaskTable v-else :tasks="visibleTasks" />
+      <TaskTable v-else :key="contentViewKey" :tasks="visibleTasks" />
     </template>
 
     <template #overlay>
