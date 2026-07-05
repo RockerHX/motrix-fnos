@@ -61,6 +61,7 @@ body,
 #app {
   width: 100%;
   height: 100%;
+  min-height: var(--app-viewport-height);
 }
 
 body {
