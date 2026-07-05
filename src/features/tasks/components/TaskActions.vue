@@ -312,10 +312,14 @@ function formatTimestamp(timestamp: number) {
 .permanent-delete-confirm-card,
 .redownload-confirm-card {
   width: min(420px, calc(100vw - 48px));
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .task-detail-card {
   width: min(720px, calc(100vw - 48px));
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .delete-confirm-text {
@@ -325,5 +329,15 @@ function formatTimestamp(timestamp: number) {
 
 :deep(.n-descriptions-table-content__content) {
   word-break: break-all;
+}
+
+@media (max-width: 767px) {
+  .delete-confirm-card,
+  .permanent-delete-confirm-card,
+  .redownload-confirm-card,
+  .task-detail-card {
+    width: calc(100vw - 24px);
+    max-height: calc(var(--app-viewport-height) - 24px);
+  }
 }
 </style>
