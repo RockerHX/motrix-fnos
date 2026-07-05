@@ -12,14 +12,14 @@ import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
+import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
 import type { AppInfo, AppUpdateCheck, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { MainNavCategory } from "../types/navigation";
-import type { DownloadTask } from "../types/tasks";
 
 type Aria2StatusSnapshot = {
   process: Aria2ProcessStatus;
@@ -44,84 +44,22 @@ const showAbout = ref(false);
 const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
-const activeCategory = ref<MainNavCategory>("downloading");
 const updateCheck = ref<AppUpdateCheck | null>(null);
 const isCheckingUpdate = ref(false);
-const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
-const isExtensionsCategory = computed(() => activeCategory.value === "extensions");
-const hasVisibleTasks = computed(() => visibleTasks.value.length > 0);
-const contentViewKey = computed(() =>
-  `${activeCategory.value}-${isExtensionsCategory.value ? "extensions" : hasVisibleTasks.value ? "list" : "empty"}`,
-);
-const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
-const showFloatingAdd = computed(() => {
-  if (taskStore.isRuntimeExiting) {
-    return false;
-  }
-
-  if (!["downloading", "completed", "stopped"].includes(activeCategory.value)) {
-    return false;
-  }
-
-  if (isMobileLayout.value && !hasVisibleTasks.value && emptyState.value.showCreateAction) {
-    return false;
-  }
-
-  return true;
+const {
+  activeCategory,
+  visibleTasks,
+  isExtensionsCategory,
+  hasVisibleTasks,
+  contentViewKey,
+  emptyState,
+  showFloatingAdd,
+} = useTaskCategoryView({
+  tasks,
+  removedTasks,
+  isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
+  isMobileLayout,
 });
-
-const emptyStateByCategory: Record<
-  MainNavCategory,
-  {
-    title: string;
-    description: string;
-    titleKey: TranslationKey;
-    descriptionKey: TranslationKey;
-    showCreateAction: boolean;
-    showSettingsAction: boolean;
-  }
-> = {
-  downloading: {
-    title: "",
-    description: "",
-    titleKey: "empty.downloading.title",
-    descriptionKey: "empty.downloading.description",
-    showCreateAction: true,
-    showSettingsAction: true,
-  },
-  completed: {
-    title: "",
-    description: "",
-    titleKey: "empty.completed.title",
-    descriptionKey: "empty.completed.description",
-    showCreateAction: false,
-    showSettingsAction: false,
-  },
-  stopped: {
-    title: "",
-    description: "",
-    titleKey: "empty.stopped.title",
-    descriptionKey: "empty.stopped.description",
-    showCreateAction: false,
-    showSettingsAction: false,
-  },
-  trash: {
-    title: "",
-    description: "",
-    titleKey: "empty.trash.title",
-    descriptionKey: "empty.trash.description",
-    showCreateAction: false,
-    showSettingsAction: false,
-  },
-  extensions: {
-    title: "",
-    description: "",
-    titleKey: "empty.extensions.title",
-    descriptionKey: "empty.extensions.description",
-    showCreateAction: false,
-    showSettingsAction: false,
-  },
-};
 
 async function refreshPhaseStatus() {
   const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
@@ -224,21 +162,6 @@ onMounted(() => {
   void refreshPhaseStatus();
   void refreshTasks(true);
 });
-
-function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCategory) {
-  switch (category) {
-    case "downloading":
-      return nextTasks.filter((task) => task.status === "pending" || task.status === "active");
-    case "completed":
-      return nextTasks.filter((task) => task.status === "complete");
-    case "stopped":
-      return nextTasks.filter((task) => task.status === "paused" || task.status === "error");
-    case "extensions":
-      return [];
-    case "trash":
-      return removedTasks.value;
-  }
-}
 </script>
 
 <template>
