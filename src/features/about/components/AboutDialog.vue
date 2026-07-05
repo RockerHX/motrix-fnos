@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NButton, NCard, NDescriptions, NDescriptionsItem, NModal, NTag } from "naive-ui";
+import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
 
 const props = defineProps<{
@@ -133,6 +134,29 @@ function targetArchLabel(arch: string | undefined) {
             </a>
           </div>
         </section>
+        <section class="about-section">
+          <div class="section-heading">
+            <div>
+              <h3>更新历史</h3>
+              <p>展示当前版本内置的最近更新记录。</p>
+            </div>
+          </div>
+
+          <div class="changelog-list">
+            <article v-for="entry in recentChangelogEntries" :key="`${entry.version}-${entry.date}`" class="changelog-entry">
+              <header>
+                <strong>{{ entry.version }}</strong>
+                <span v-if="entry.date">{{ entry.date }}</span>
+              </header>
+              <section v-for="section in entry.sections" :key="section.title" class="changelog-section">
+                <h4>{{ section.title }}</h4>
+                <ul>
+                  <li v-for="item in section.items" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+            </article>
+          </div>
+        </section>
       </div>
     </NCard>
   </NModal>
@@ -249,6 +273,49 @@ p {
 
 .asset-list a:hover {
   border-color: rgba(142, 240, 138, 0.5);
+}
+
+.changelog-list {
+  display: grid;
+  gap: 12px;
+}
+
+.changelog-entry {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.changelog-entry header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #eef4ed;
+}
+
+.changelog-entry header span,
+.changelog-section h4 {
+  color: #9fae9d;
+  font-size: 12px;
+}
+
+.changelog-section {
+  display: grid;
+  gap: 6px;
+}
+
+.changelog-section h4 {
+  margin: 0;
+}
+
+.changelog-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #c8d2c5;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 a {
