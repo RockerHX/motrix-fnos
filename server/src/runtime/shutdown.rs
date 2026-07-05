@@ -242,10 +242,11 @@ mod tests {
     async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_aria2() {
         let mock = MockAria2Server::spawn().await;
         let state = ready_state(&mock).await;
-        {
-            let mut tasks = state.core.download_tasks.lock().expect("tasks should lock");
-            tasks.push(sample_task(DownloadTaskStatus::Active));
-        }
+        state
+            .core
+            .download_tasks
+            .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
+            .expect("tasks should lock");
 
         state.request_shutdown("收到停止信号");
         run_shutdown_cleanup(&state).await;

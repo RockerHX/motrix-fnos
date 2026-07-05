@@ -508,12 +508,13 @@ mod tests {
         state
             .core
             .download_tasks
-            .lock()
-            .expect("tasks should lock")
-            .extend([
-                sample_task(1, DownloadTaskStatus::Active),
-                sample_task(2, DownloadTaskStatus::Removed),
-            ]);
+            .with_tasks_mut(|tasks| {
+                tasks.extend([
+                    sample_task(1, DownloadTaskStatus::Active),
+                    sample_task(2, DownloadTaskStatus::Removed),
+                ]);
+            })
+            .expect("tasks should lock");
         let app = test_router(state);
 
         let removed_list = response_json::<Vec<DownloadTask>>(
@@ -561,9 +562,8 @@ mod tests {
         state
             .core
             .download_tasks
-            .lock()
-            .expect("tasks should lock")
-            .push(sample_task(1, DownloadTaskStatus::Active));
+            .with_tasks_mut(|tasks| tasks.push(sample_task(1, DownloadTaskStatus::Active)))
+            .expect("tasks should lock");
         let app = test_router(state);
 
         let error = response_json::<ErrorResponse>(

@@ -2,9 +2,8 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{
     add_uri_to_aria2, should_force_pause_task_on_startup, DownloadTask, DownloadTaskStatus,
-    PreparedDownloadTask,
+    PreparedDownloadTask, TaskMemoryState,
 };
-use std::sync::Mutex;
 
 use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
 use super::{
@@ -13,7 +12,7 @@ use super::{
 };
 
 pub async fn sync_session_tasks_from_aria2(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
@@ -23,40 +22,41 @@ pub async fn sync_session_tasks_from_aria2(
         return crate::tasks::list_tasks(tasks);
     }
 
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    let mut matched_count = 0;
-    let mut unmatched_count = 0;
+    let (tasks_snapshot, matched_count, unmatched_count) = tasks.with_tasks_mut(|guard| {
+        let mut matched_count = 0;
+        let mut unmatched_count = 0;
 
-    for session_task in &session_tasks {
-        if let Some(index) = find_matching_sqlite_task(&guard, session_task) {
-            let task = &mut guard[index];
-            if let Some(gid) = session_task
-                .gid
-                .as_deref()
-                .filter(|gid| !gid.trim().is_empty())
-            {
-                task.gid = Some(gid.to_string());
+        for session_task in &session_tasks {
+            if let Some(index) = find_matching_sqlite_task(guard, session_task) {
+                let task = &mut guard[index];
+                if let Some(gid) = session_task
+                    .gid
+                    .as_deref()
+                    .filter(|gid| !gid.trim().is_empty())
+                {
+                    task.gid = Some(gid.to_string());
+                }
+                apply_aria2_status(task, session_task);
+                if should_force_pause_task_on_startup(task) {
+                    apply_paused_state(task);
+                }
+                task.updated_at = current_timestamp_ms();
+                matched_count += 1;
+            } else {
+                unmatched_count += 1;
+                log_info(
+                    debug_logs,
+                    "tasks.restore",
+                    format!(
+                        "Aria2 session 存在未匹配的任务，GID {}，不自动创建 UI 任务",
+                        session_task.gid.as_deref().unwrap_or("-")
+                    ),
+                );
             }
-            apply_aria2_status(task, session_task);
-            if should_force_pause_task_on_startup(task) {
-                apply_paused_state(task);
-            }
-            task.updated_at = current_timestamp_ms();
-            matched_count += 1;
-        } else {
-            unmatched_count += 1;
-            log_info(
-                debug_logs,
-                "tasks.restore",
-                format!(
-                    "Aria2 session 存在未匹配的任务，GID {}，不自动创建 UI 任务",
-                    session_task.gid.as_deref().unwrap_or("-")
-                ),
-            );
         }
-    }
+
+        (guard.clone(), matched_count, unmatched_count)
+    })?;
 
     log_info(
         debug_logs,
@@ -67,7 +67,7 @@ pub async fn sync_session_tasks_from_aria2(
         ),
     );
 
-    Ok(guard.clone())
+    Ok(tasks_snapshot)
 }
 
 async fn list_current_aria2_tasks(
@@ -182,33 +182,23 @@ fn normalize_path_for_match(path: &str) -> String {
 }
 
 pub async fn readd_task_to_aria2(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     config: &Aria2Config,
     task_id: u64,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    let task = {
-        let guard = tasks
-            .lock()
-            .map_err(|_| "无法读取下载任务列表".to_string())?;
-        guard
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-            .ok_or_else(|| format!("下载任务不存在：{}", task_id))?
-    };
+    let task = crate::tasks::task_snapshot(tasks, task_id)?;
 
     let new_gid = readd_download_task(config, &task, debug_logs).await?;
 
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    let task = guard
-        .iter_mut()
-        .find(|task| task.id == task_id)
-        .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
-    apply_readded_gid(task, &new_gid);
-    Ok(task.clone())
+    tasks.with_tasks_mut(|guard| {
+        let task = guard
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
+        apply_readded_gid(task, &new_gid);
+        Ok(task.clone())
+    })?
 }
 
 pub(crate) async fn readd_download_task(

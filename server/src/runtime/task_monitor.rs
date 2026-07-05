@@ -104,10 +104,11 @@ mod tests {
     async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
         let mock = MockAria2Server::spawn("complete").await;
         let state = ready_state(&mock).await;
-        {
-            let mut tasks = state.core.download_tasks.lock().expect("tasks should lock");
-            tasks.push(sample_task(DownloadTaskStatus::Active));
-        }
+        state
+            .core
+            .download_tasks
+            .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
+            .expect("tasks should lock");
         let mut receiver = state.runtime_events.subscribe();
 
         monitor_tasks_once(&state)

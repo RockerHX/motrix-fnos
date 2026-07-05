@@ -1,24 +1,22 @@
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::tasks::{DownloadTask, DownloadTaskStatus, TaskMemoryState};
 use std::path::Path;
-use std::sync::Mutex;
 
 use super::{current_timestamp_ms, Aria2TaskStatus};
 use crate::tasks::files::cleanup_aria2_control_file;
 
 pub(crate) fn apply_aria2_status_by_gid(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     gid: &str,
     status: &Aria2TaskStatus,
 ) -> Result<DownloadTask, String> {
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    let task = guard
-        .iter_mut()
-        .find(|task| task.gid.as_deref() == Some(gid))
-        .ok_or_else(|| format!("下载任务不存在，GID {}", gid))?;
-    apply_aria2_status(task, status);
-    Ok(task.clone())
+    tasks.with_tasks_mut(|guard| {
+        let task = guard
+            .iter_mut()
+            .find(|task| task.gid.as_deref() == Some(gid))
+            .ok_or_else(|| format!("下载任务不存在，GID {}", gid))?;
+        apply_aria2_status(task, status);
+        Ok(task.clone())
+    })?
 }
 
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {

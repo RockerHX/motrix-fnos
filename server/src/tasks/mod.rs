@@ -24,13 +24,15 @@ use session::readd_download_task;
 pub use state::{
     list_tasks, mark_task_paused, mark_task_paused_by_gid, mark_task_redownloaded,
     mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record,
-    store_created_task, task_gid, task_snapshot,
+    store_created_task, task_gid, task_snapshot, TaskMemoryState,
 };
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 use serde::Deserialize;
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aria2_rpc::tell_status;
+
+#[cfg(test)]
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,7 +63,7 @@ struct Aria2UriStatus {
 }
 
 pub async fn refresh_tasks_from_aria2(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
@@ -124,38 +126,40 @@ pub async fn refresh_tasks_from_aria2(
     }
 
     let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
-    for update in &updates {
-        match update {
-            TaskRefreshUpdate::Status { gid, status } => {
-                for task in guard
-                    .iter_mut()
-                    .filter(|task| task.gid.as_ref() == Some(gid))
-                {
-                    apply_aria2_status(task, status);
+        .with_tasks_mut(|tasks| {
+            for update in &updates {
+                match update {
+                    TaskRefreshUpdate::Status { gid, status } => {
+                        for task in tasks
+                            .iter_mut()
+                            .filter(|task| task.gid.as_ref() == Some(gid))
+                        {
+                            apply_aria2_status(task, status);
+                        }
+                    }
+                    TaskRefreshUpdate::Readded {
+                        task_id,
+                        old_gid,
+                        new_gid,
+                    } => {
+                        if let Some(task) = tasks
+                            .iter_mut()
+                            .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
+                        {
+                            apply_readded_gid(task, new_gid);
+                        }
+                    }
                 }
             }
-            TaskRefreshUpdate::Readded {
-                task_id,
-                old_gid,
-                new_gid,
-            } => {
-                if let Some(task) = guard
-                    .iter_mut()
-                    .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
-                {
-                    apply_readded_gid(task, new_gid);
-                }
-            }
-        }
-    }
 
-    Ok(guard.clone())
+            tasks.clone()
+        })?;
+
+    Ok(std::mem::take(&mut guard))
 }
 
 pub async fn sync_task_progress_from_aria2_by_gid(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
@@ -166,7 +170,7 @@ pub async fn sync_task_progress_from_aria2_by_gid(
 }
 
 pub async fn sync_task_progress_after_pause_by_gid(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
@@ -372,7 +376,7 @@ mod tests {
 
     #[test]
     fn store_created_task_persists_gid() {
-        let tasks = Mutex::new(Vec::new());
+        let tasks = TaskMemoryState::new(Vec::new());
         let next_id = AtomicU64::new(1);
         let task = store_created_task(
             &tasks,
@@ -399,7 +403,7 @@ mod tests {
     fn task_gid_rejects_removed_task() {
         let mut task = sample_task(None, "/downloads".to_string());
         task.status = DownloadTaskStatus::Removed;
-        let tasks = Mutex::new(vec![task]);
+        let tasks = TaskMemoryState::new(vec![task]);
 
         let error = task_gid(&tasks, 1).expect_err("removed task should be rejected");
 
@@ -448,7 +452,7 @@ mod tests {
 
     #[test]
     fn mark_task_paused_updates_status_and_speed() {
-        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+        let tasks = TaskMemoryState::new(vec![sample_task(None, "/downloads".to_string())]);
 
         let task = mark_task_paused(&tasks, 1).expect("task should be paused");
 
@@ -459,7 +463,7 @@ mod tests {
 
     #[test]
     fn mark_task_paused_by_gid_updates_matching_task() {
-        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+        let tasks = TaskMemoryState::new(vec![sample_task(None, "/downloads".to_string())]);
 
         let task = mark_task_paused_by_gid(&tasks, "abc123").expect("task should be paused");
 
@@ -472,7 +476,7 @@ mod tests {
     fn mark_task_resumed_updates_status() {
         let mut task = sample_task(None, "/downloads".to_string());
         task.status = DownloadTaskStatus::Paused;
-        let tasks = Mutex::new(vec![task]);
+        let tasks = TaskMemoryState::new(vec![task]);
 
         let task = mark_task_resumed(&tasks, 1).expect("task should be resumed");
 
@@ -486,7 +490,7 @@ mod tests {
         task.total_length = 100;
         task.completed_length = 100;
         task.download_speed = 0;
-        let tasks = Mutex::new(vec![task]);
+        let tasks = TaskMemoryState::new(vec![task]);
 
         let task = mark_task_redownloaded(&tasks, 1, "new-gid".to_string())
             .expect("completed task should be redownloaded");
@@ -504,7 +508,7 @@ mod tests {
     #[test]
     fn mark_task_redownloaded_rejects_unfinished_task() {
         let task = sample_task(None, "/downloads".to_string());
-        let tasks = Mutex::new(vec![task]);
+        let tasks = TaskMemoryState::new(vec![task]);
 
         let error = mark_task_redownloaded(&tasks, 1, "new-gid".to_string())
             .expect_err("unfinished task should be rejected");
@@ -643,7 +647,7 @@ mod tests {
         fs::write(&file_path, b"test").expect("file should be written");
         let aria2_path = save_dir.join("file.zip.aria2");
         fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
-        let tasks = Mutex::new(vec![sample_task(
+        let tasks = TaskMemoryState::new(vec![sample_task(
             Some(file_path.display().to_string()),
             save_dir.display().to_string(),
         )]);
@@ -662,7 +666,7 @@ mod tests {
         let file_path = save_dir.join("file.zip");
         let aria2_path = save_dir.join("file.zip.aria2");
         fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
-        let tasks = Mutex::new(vec![sample_task(
+        let tasks = TaskMemoryState::new(vec![sample_task(
             Some(file_path.display().to_string()),
             save_dir.display().to_string(),
         )]);
@@ -689,7 +693,7 @@ mod tests {
         fs::create_dir_all(&outside_dir).expect("outside dir should be created");
         let file_path = outside_dir.join("file.zip");
         fs::write(&file_path, b"test").expect("file should be written");
-        let tasks = Mutex::new(vec![sample_task(
+        let tasks = TaskMemoryState::new(vec![sample_task(
             Some(file_path.display().to_string()),
             save_dir.display().to_string(),
         )]);
@@ -841,7 +845,7 @@ mod tests {
 
     #[test]
     fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
-        let tasks = Mutex::new(vec![sample_task(None, "/downloads".to_string())]);
+        let tasks = TaskMemoryState::new(vec![sample_task(None, "/downloads".to_string())]);
         let status = Aria2TaskStatus {
             gid: Some("abc123".to_string()),
             status: "active".to_string(),

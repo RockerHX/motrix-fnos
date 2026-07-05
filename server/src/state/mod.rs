@@ -1,7 +1,7 @@
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::database::AppDatabase;
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::DownloadTask;
+use crate::tasks::{DownloadTask, TaskMemoryState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -150,7 +150,7 @@ pub fn remove_aria2_runtime_record(path: &Path) -> Result<(), String> {
 
 pub struct ServerState {
     pub aria2_runtime: Mutex<Option<Aria2RuntimeInfo>>,
-    pub download_tasks: Mutex<Vec<DownloadTask>>,
+    pub download_tasks: TaskMemoryState,
     pub database: AppDatabase,
     pub app_data_dir: PathBuf,
     pub aria2_runtime_path: PathBuf,
@@ -171,7 +171,7 @@ impl ServerState {
         let aria2_runtime_path = aria2_runtime_path(&database.path);
         let state = Self {
             aria2_runtime: Mutex::new(None),
-            download_tasks: Mutex::new(download_tasks),
+            download_tasks: TaskMemoryState::new(download_tasks),
             app_data_dir,
             aria2_runtime_path,
             database,

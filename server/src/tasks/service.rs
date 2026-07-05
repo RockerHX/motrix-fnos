@@ -12,10 +12,10 @@ use crate::tasks::{
     remove_task_record, should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
+    TaskMemoryState,
 };
 use sqlx::SqlitePool;
 use std::sync::atomic::AtomicU64;
-use std::sync::Mutex;
 
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
@@ -42,7 +42,7 @@ impl<'a> RuntimeGuard<'a> {
 
 pub struct TaskService<'a> {
     database_pool: &'a SqlitePool,
-    download_tasks: &'a Mutex<Vec<DownloadTask>>,
+    download_tasks: &'a TaskMemoryState,
     next_task_id: &'a AtomicU64,
     debug_logs: &'a DebugLogStore,
     runtime_guard: RuntimeGuard<'a>,
@@ -51,7 +51,7 @@ pub struct TaskService<'a> {
 impl<'a> TaskService<'a> {
     pub fn new(
         database_pool: &'a SqlitePool,
-        download_tasks: &'a Mutex<Vec<DownloadTask>>,
+        download_tasks: &'a TaskMemoryState,
         next_task_id: &'a AtomicU64,
         debug_logs: &'a DebugLogStore,
         runtime_guard: RuntimeGuard<'a>,

@@ -357,9 +357,8 @@ mod tests {
                 let tasks = state
                     .core
                     .download_tasks
-                    .lock()
-                    .expect("tasks should lock")
-                    .clone();
+                    .list()
+                    .expect("tasks should lock");
 
                 assert_eq!(state.runtime.app_data_dir, app_data_dir);
                 assert_eq!(state.runtime.http_addr.to_string(), DEFAULT_HTTP_ADDR);

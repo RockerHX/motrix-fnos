@@ -3,13 +3,49 @@ use crate::tasks::{
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use super::current_timestamp_ms;
 use crate::tasks::files::delete_task_file;
 
+pub struct TaskMemoryState {
+    tasks: Mutex<Vec<DownloadTask>>,
+}
+
+impl TaskMemoryState {
+    pub fn new(tasks: Vec<DownloadTask>) -> Self {
+        Self {
+            tasks: Mutex::new(tasks),
+        }
+    }
+
+    pub fn list(&self) -> Result<Vec<DownloadTask>, String> {
+        self.tasks
+            .lock()
+            .map(|guard| guard.clone())
+            .map_err(|_| "无法读取下载任务列表".to_string())
+    }
+
+    pub fn with_tasks_mut<T>(
+        &self,
+        update: impl FnOnce(&mut Vec<DownloadTask>) -> T,
+    ) -> Result<T, String> {
+        let mut guard = self
+            .tasks
+            .lock()
+            .map_err(|_| "无法写入下载任务列表".to_string())?;
+        Ok(update(&mut guard))
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, Vec<DownloadTask>>, String> {
+        self.tasks
+            .lock()
+            .map_err(|_| "无法写入下载任务列表".to_string())
+    }
+}
+
 pub fn store_created_task(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     next_id: &AtomicU64,
     prepared: PreparedDownloadTask,
     gid: String,
@@ -36,9 +72,7 @@ pub fn store_created_task(
         updated_at: now,
     };
 
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut guard = tasks.lock()?;
     guard.push(task.clone());
 
     Ok(task)
@@ -66,14 +100,11 @@ pub(crate) fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
     task.updated_at = current_timestamp_ms();
 }
 
-pub fn list_tasks(tasks: &Mutex<Vec<DownloadTask>>) -> Result<Vec<DownloadTask>, String> {
-    tasks
-        .lock()
-        .map(|guard| guard.clone())
-        .map_err(|_| "无法读取下载任务列表".to_string())
+pub fn list_tasks(tasks: &TaskMemoryState) -> Result<Vec<DownloadTask>, String> {
+    tasks.list()
 }
 
-pub fn task_gid(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<String, String> {
+pub fn task_gid(tasks: &TaskMemoryState, task_id: u64) -> Result<String, String> {
     let task = task_snapshot(tasks, task_id)?;
 
     if task.status == DownloadTaskStatus::Removed {
@@ -87,10 +118,11 @@ pub fn task_gid(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<String
 }
 
 pub fn task_snapshot(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
     let guard = tasks
+        .tasks
         .lock()
         .map_err(|_| "无法读取下载任务列表".to_string())?;
     guard
@@ -100,10 +132,8 @@ pub fn task_snapshot(
         .ok_or_else(|| format!("下载任务不存在：{}", task_id))
 }
 
-pub fn remove_task_record(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Result<(), String> {
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
+pub fn remove_task_record(tasks: &TaskMemoryState, task_id: u64) -> Result<(), String> {
+    let mut guard = tasks.lock()?;
     let index = guard
         .iter()
         .position(|task| task.id == task_id)
@@ -113,7 +143,7 @@ pub fn remove_task_record(tasks: &Mutex<Vec<DownloadTask>>, task_id: u64) -> Res
 }
 
 pub fn mark_task_paused(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
@@ -123,12 +153,10 @@ pub fn mark_task_paused(
 }
 
 pub fn mark_task_paused_by_gid(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     gid: &str,
 ) -> Result<DownloadTask, String> {
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut guard = tasks.lock()?;
     let task = guard
         .iter_mut()
         .find(|task| task.gid.as_deref() == Some(gid))
@@ -138,11 +166,9 @@ pub fn mark_task_paused_by_gid(
 }
 
 pub fn mark_unfinished_tasks_paused(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
 ) -> Result<Vec<DownloadTask>, String> {
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut guard = tasks.lock()?;
     let mut updated = Vec::new();
     for task in guard
         .iter_mut()
@@ -163,7 +189,7 @@ pub(crate) fn apply_paused_state(task: &mut DownloadTask) {
 }
 
 pub fn mark_task_resumed(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
@@ -175,7 +201,7 @@ pub fn mark_task_resumed(
 }
 
 pub fn mark_task_removed(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
     delete_files: bool,
 ) -> Result<DownloadTask, String> {
@@ -192,7 +218,7 @@ pub fn mark_task_removed(
 }
 
 pub fn mark_task_redownloaded(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
     new_gid: String,
 ) -> Result<DownloadTask, String> {
@@ -219,13 +245,11 @@ pub fn mark_task_redownloaded(
 }
 
 fn update_task(
-    tasks: &Mutex<Vec<DownloadTask>>,
+    tasks: &TaskMemoryState,
     task_id: u64,
     update: impl FnOnce(&mut DownloadTask) -> Result<(), String>,
 ) -> Result<DownloadTask, String> {
-    let mut guard = tasks
-        .lock()
-        .map_err(|_| "无法写入下载任务列表".to_string())?;
+    let mut guard = tasks.lock()?;
     let task = guard
         .iter_mut()
         .find(|task| task.id == task_id)

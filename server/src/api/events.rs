@@ -85,9 +85,8 @@ mod tests {
         state
             .core
             .download_tasks
-            .lock()
-            .expect("tasks should lock")
-            .push(sample_task());
+            .with_tasks_mut(|tasks| tasks.push(sample_task()))
+            .expect("tasks should lock");
         let app = Router::new().nest("/api", routes()).with_state(state);
 
         let response = app
