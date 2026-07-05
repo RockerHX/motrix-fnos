@@ -270,6 +270,8 @@ function getErrorMessage(error: unknown) {
 <style scoped>
 .task-create-card {
   width: min(720px, calc(100vw - 48px));
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .eyebrow {
@@ -306,5 +308,13 @@ h2 {
 
 .dialog-actions {
   margin-top: 22px;
+}
+
+@media (max-width: 767px) {
+  .task-create-card {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
 }
 </style>
