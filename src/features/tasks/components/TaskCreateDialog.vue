@@ -198,8 +198,8 @@ function getErrorMessage(error: unknown) {
         <NButton quaternary circle :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">×</NButton>
       </template>
 
-      <NForm @submit.prevent="submitCreateTask">
-        <NTabs v-model:value="activeInputType" type="segment" animated>
+      <NForm class="task-create-form" label-placement="top" @submit.prevent="submitCreateTask">
+        <NTabs v-model:value="activeInputType" class="task-create-tabs" type="segment" animated>
           <NTabPane name="url" :tab="t('create.tab.url')" />
           <NTabPane name="batch" :tab="t('create.tab.batch')" disabled />
           <NTabPane name="torrent" :tab="t('create.tab.torrent')" disabled />
@@ -235,7 +235,7 @@ function getErrorMessage(error: unknown) {
         </NFormItem>
 
         <NFormItem :label="t('create.startMode.label')">
-          <NTabs v-model:value="form.startMode" type="segment">
+          <NTabs v-model:value="form.startMode" class="start-mode-tabs" type="segment">
             <NTabPane name="now" :tab="t('create.startMode.now')" />
             <NTabPane name="paused" :tab="t('create.startMode.paused')" />
           </NTabs>
@@ -315,6 +315,22 @@ h2 {
     width: calc(100vw - 16px);
     max-height: calc(var(--app-viewport-height) - 16px);
     border-radius: 18px;
+  }
+
+  .task-create-form {
+    width: 100%;
+  }
+
+  .task-create-form :deep(.n-form-item-label) {
+    padding-bottom: 8px;
+  }
+
+  .task-create-form :deep(.n-form-item-blank),
+  .task-create-form :deep(.n-base-selection),
+  .task-create-form :deep(.n-input),
+  .task-create-tabs,
+  .start-mode-tabs {
+    width: 100%;
   }
 }
 </style>
