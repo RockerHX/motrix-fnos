@@ -10,6 +10,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   openDiagnostics: [];
+  openHelp: [];
+  openSettings: [];
 }>();
 
 const { t } = useI18n();
@@ -17,6 +19,14 @@ const activeCategoryLabel = computed(() => t(getMainNavLabelKey(props.activeCate
 
 function openDiagnostics() {
   emit("openDiagnostics");
+}
+
+function openHelp() {
+  emit("openHelp");
+}
+
+function openSettings() {
+  emit("openSettings");
 }
 </script>
 
@@ -26,9 +36,14 @@ function openDiagnostics() {
       <span>Motrix</span>
       <strong>{{ activeCategoryLabel }}</strong>
     </div>
-    <div class="topbar-actions">
+    <div class="topbar-actions desktop-actions">
       <button type="button" :title="t('topbar.filter')">≡</button>
       <button type="button" :title="t('topbar.sort')">≡</button>
+      <button type="button" :title="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
+    </div>
+    <div class="topbar-actions mobile-actions">
+      <button type="button" :title="t('nav.settings')" @click="openSettings">⚙</button>
+      <button type="button" :title="t('nav.help')" @click="openHelp">?</button>
       <button type="button" :title="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
     </div>
   </header>
@@ -83,9 +98,17 @@ function openDiagnostics() {
   .topbar-title {
     visibility: hidden;
   }
+
+  .mobile-actions {
+    display: none;
+  }
 }
 
 @media (max-width: 767px) {
+  .desktop-actions {
+    display: none;
+  }
+
   .topbar {
     min-height: calc(56px + var(--app-safe-area-top));
     padding-top: var(--app-safe-area-top);
@@ -98,6 +121,12 @@ function openDiagnostics() {
   .topbar-actions {
     gap: 12px;
     padding-right: var(--app-mobile-page-gutter);
+  }
+
+  .topbar-actions button {
+    min-width: var(--app-touch-target-min);
+    min-height: var(--app-touch-target-min);
+    font-size: 20px;
   }
 }
 </style>

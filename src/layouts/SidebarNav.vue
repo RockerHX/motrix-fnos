@@ -153,4 +153,44 @@ function selectCategory(category: MainNavCategory) {
   padding: 26px 8px 0;
   border-top: 1px solid #39443b;
 }
+
+@media (max-width: 767px) {
+  .sidebar {
+    grid-template-rows: minmax(0, 1fr);
+    padding: 8px var(--app-mobile-page-gutter) calc(8px + var(--app-safe-area-bottom));
+    border-top: 1px solid #324036;
+    border-right: 0;
+  }
+
+  .brand,
+  .sidebar-footer {
+    display: none;
+  }
+
+  .category-list {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .category-list button {
+    min-height: calc(var(--app-touch-target-min) + 4px);
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 4px;
+    flex-direction: column;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .nav-spaced {
+    margin-top: 0;
+  }
+
+  .nav-icon {
+    width: auto;
+    font-size: 18px;
+    line-height: 1;
+  }
+}
 </style>
