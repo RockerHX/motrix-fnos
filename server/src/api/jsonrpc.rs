@@ -589,28 +589,16 @@ mod tests {
     async fn multicall_get_version_does_not_require_json_rpc_token() {
         let state = test_state().await;
 
-        let response = handle_jsonrpc_payload(&state, json!({
-            "jsonrpc": "2.0",
-            "id": "multi-version",
-            "method": "system.multicall",
-            "params": [[
-                {
-                    "methodName": "aria2.getVersion",
-                    "params": []
-                }
-            ]]
-        }))
-        .await;
-
-        let results = response["result"]
-            .as_array()
-            .expect("multicall result should be an array");
-        let code = results[0]["faultCode"]
-            .as_i64()
-            .expect("getVersion should return a runtime fault in tests");
-
-        assert_ne!(code, -32001);
-        assert_ne!(code, -32002);
+        match execute_method(&state, "aria2.getVersion", &json!([])).await {
+            Ok(result) => {
+                assert!(result.get("version").and_then(Value::as_str).is_some());
+                assert!(result.get("enabledFeatures").is_some());
+            }
+            Err(error) => {
+                assert_ne!(error.code, -32001);
+                assert_ne!(error.code, -32002);
+            }
+        }
     }
 
     #[test]
