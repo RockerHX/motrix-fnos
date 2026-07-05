@@ -124,6 +124,14 @@ mod tests {
         assert_eq!(info.name, "Motrix");
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(info.backend_status, "ready");
+        assert_eq!(info.maintainer, "rockerhx");
+        assert_eq!(info.repository_url, "https://github.com/RockerHX/motrix-fnos");
+        assert_eq!(
+            info.release_page_url,
+            "https://github.com/RockerHX/motrix-fnos/releases"
+        );
+        assert_eq!(info.target_arch, std::env::consts::ARCH);
+        assert_eq!(info.update_mode, "manual_fpk_or_app_center");
 
         let ping = response_json::<BackendPing>(
             app.oneshot(
