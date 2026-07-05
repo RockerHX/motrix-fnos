@@ -2,6 +2,7 @@
 import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
+import { useMobileLayout } from "../app/composables/useMobileLayout";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
 import HelpDialog from "../features/help/components/HelpDialog.vue";
@@ -31,6 +32,7 @@ const props = defineProps<{
 
 const message = useMessage();
 const { t } = useI18n();
+const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
@@ -42,9 +44,17 @@ const showSettings = ref(false);
 const activeCategory = ref<MainNavCategory>("downloading");
 const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
 const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
-const showFloatingAdd = computed(() =>
-  ["downloading", "completed", "stopped"].includes(activeCategory.value),
-);
+const showFloatingAdd = computed(() => {
+  if (!["downloading", "completed", "stopped"].includes(activeCategory.value)) {
+    return false;
+  }
+
+  if (isMobileLayout.value && visibleTasks.value.length === 0 && emptyState.value.showCreateAction) {
+    return false;
+  }
+
+  return true;
+});
 
 const emptyStateByCategory: Record<
   MainNavCategory,
