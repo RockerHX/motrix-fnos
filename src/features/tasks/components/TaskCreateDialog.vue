@@ -335,5 +335,15 @@ h2 {
   .start-mode-tabs {
     width: 100%;
   }
+
+  .dialog-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-top: 18px;
+    padding-top: 14px;
+    padding-bottom: calc(8px + var(--app-safe-area-bottom));
+    background: linear-gradient(180deg, rgba(27, 31, 29, 0), rgba(27, 31, 29, 0.94) 18px, #1b1f1d 100%);
+  }
 }
 </style>
