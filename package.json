@@ -8,6 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
+    "clean": "node scripts/clean-generated.mjs",
+    "clean:dry-run": "node scripts/clean-generated.mjs --dry-run",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
     "prepare": "git config core.hooksPath .githooks || true",
