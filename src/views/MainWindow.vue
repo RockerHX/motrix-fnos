@@ -130,8 +130,13 @@ function openCreateDialog() {
 }
 
 function selectCategory(category: MainNavCategory) {
+  const previousCategory = activeCategory.value;
+  if (previousCategory === category) {
+    return;
+  }
+
   activeCategory.value = category;
-  if (category === "trash") {
+  if (previousCategory !== "trash" && category === "trash") {
     void refreshRemovedTasks(true);
   }
 }
