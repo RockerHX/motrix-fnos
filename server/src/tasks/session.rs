@@ -6,9 +6,10 @@ use crate::tasks::{
 };
 use std::sync::Mutex;
 
+use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
 use super::{
     apply_aria2_status, apply_paused_state, apply_readded_gid, current_timestamp_ms, log_error,
-    log_info, Aria2TaskStatus, TellManyResponse,
+    log_info, Aria2TaskStatus,
 };
 
 pub async fn sync_session_tasks_from_aria2(
@@ -92,7 +93,7 @@ async fn tell_many_tasks(
     config: &Aria2Config,
     method: &str,
 ) -> Result<Vec<Aria2TaskStatus>, String> {
-    let request_body = super::build_tell_many_request(config, method);
+    let request_body = build_tell_many_request(config, method);
     let response = client
         .post(config.rpc_url())
         .json(&request_body)
@@ -250,7 +251,7 @@ async fn remove_download_result(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
-    super::send_gid_control_request(
+    send_gid_control_request(
         config,
         gid,
         "aria2.removeDownloadResult",
@@ -260,4 +261,3 @@ async fn remove_download_result(
     )
     .await
 }
-
