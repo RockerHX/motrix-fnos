@@ -3,6 +3,8 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useMobileLayout } from "../app/composables/useMobileLayout";
+import AboutDialog from "../features/about/components/AboutDialog.vue";
+import { checkAppUpdate } from "../features/about/services/aboutService";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
 import HelpDialog from "../features/help/components/HelpDialog.vue";
@@ -14,7 +16,7 @@ import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import { useI18n, type TranslationKey } from "../i18n";
-import type { AppInfo, BackendPing } from "../types/app";
+import type { AppInfo, AppUpdateCheck, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 import type { MainNavCategory } from "../types/navigation";
 import type { DownloadTask } from "../types/tasks";
@@ -38,10 +40,13 @@ const { tasks, removedTasks } = storeToRefs(taskStore);
 const aria2Process = ref<Aria2ProcessStatus | null>(null);
 const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
+const showAbout = ref(false);
 const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
 const activeCategory = ref<MainNavCategory>("downloading");
+const updateCheck = ref<AppUpdateCheck | null>(null);
+const isCheckingUpdate = ref(false);
 const visibleTasks = computed(() => filterTasksByCategory(tasks.value, activeCategory.value));
 const isExtensionsCategory = computed(() => activeCategory.value === "extensions");
 const hasVisibleTasks = computed(() => visibleTasks.value.length > 0);
@@ -155,6 +160,18 @@ async function handleTaskCreated() {
   void refreshPhaseStatus();
 }
 
+async function handleCheckUpdate() {
+  isCheckingUpdate.value = true;
+  try {
+    updateCheck.value = await checkAppUpdate();
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    message.error(errorMessage || t("task.operationFailed"));
+  } finally {
+    isCheckingUpdate.value = false;
+  }
+}
+
 async function refreshTasks(showError = false) {
   const result = await taskStore.refreshTasks({ showError });
   if (result.refreshError) {
@@ -228,6 +245,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
   <AppShell
     :app-info="appInfo"
     :active-category="activeCategory"
+    @open-about="showAbout = true"
     @open-diagnostics="showDiagnostics = true"
     @open-help="showHelp = true"
     @open-settings="showSettings = true"
@@ -262,6 +280,13 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
       </button>
 
       <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
+      <AboutDialog
+        v-model:show="showAbout"
+        :app-info="props.appInfo"
+        :update-check="updateCheck"
+        :is-checking-update="isCheckingUpdate"
+        @check-update="handleCheckUpdate"
+      />
       <SettingsDialog v-model:show="showSettings" />
       <HelpDialog v-model:show="showHelp" />
       <DiagnosticsDialog

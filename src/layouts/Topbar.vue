@@ -9,6 +9,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  openAbout: [];
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
@@ -16,6 +17,10 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const activeCategoryLabel = computed(() => t(getMainNavLabelKey(props.activeCategory)));
+
+function openAbout() {
+  emit("openAbout");
+}
 
 function openDiagnostics() {
   emit("openDiagnostics");
@@ -44,6 +49,7 @@ function openSettings() {
     <div class="topbar-actions mobile-actions">
       <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings">⚙</button>
       <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp">?</button>
+      <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout">i</button>
       <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
     </div>
   </header>

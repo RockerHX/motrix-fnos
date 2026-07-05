@@ -10,11 +10,16 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  openAbout: [];
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
 }>();
+
+function openAbout() {
+  emit("openAbout");
+}
 
 function openDiagnostics() {
   emit("openDiagnostics");
@@ -39,6 +44,7 @@ function selectCategory(category: MainNavCategory) {
       class="shell-sidebar"
       :app-info="appInfo"
       :active-category="activeCategory"
+      @open-about="openAbout"
       @open-help="openHelp"
       @open-settings="openSettings"
       @select-category="selectCategory"
@@ -47,6 +53,7 @@ function selectCategory(category: MainNavCategory) {
     <section class="main-area shell-main-area">
       <Topbar
         :active-category="activeCategory"
+        @open-about="openAbout"
         @open-diagnostics="openDiagnostics"
         @open-help="openHelp"
         @open-settings="openSettings"

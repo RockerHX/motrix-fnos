@@ -10,12 +10,17 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  openAbout: [];
   openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
 }>();
 
 const { t } = useI18n();
+
+function openAbout() {
+  emit("openAbout");
+}
 
 function openHelp() {
   emit("openHelp");
@@ -63,6 +68,10 @@ function selectCategory(category: MainNavCategory) {
       <button type="button" :aria-label="t('nav.help')" @click="openHelp">
         <span class="nav-icon">?</span>
         <span>{{ t("nav.help") }}</span>
+      </button>
+      <button type="button" :aria-label="t('nav.about')" @click="openAbout">
+        <span class="nav-icon">i</span>
+        <span>{{ t("nav.about") }}</span>
       </button>
     </div>
   </aside>
