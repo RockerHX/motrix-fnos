@@ -90,7 +90,7 @@ function closeDialog() {
 <style scoped>
 .help-dialog {
   width: min(760px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(var(--app-viewport-height) - 48px);
   overflow: auto;
 }
 
@@ -138,5 +138,30 @@ p {
   color: #b7bfb4;
   font-size: 14px;
   line-height: 1.7;
+}
+
+@media (max-width: 767px) {
+  .help-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
+
+  .help-sections {
+    gap: 12px;
+  }
+
+  .help-sections section {
+    padding: 14px;
+  }
+
+  .section-title {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .section-title h3 {
+    font-size: 15px;
+  }
 }
 </style>
