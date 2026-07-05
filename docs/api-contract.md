@@ -53,16 +53,55 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | --- | --- | --- |
 | `GET` | `/api/app/info` | `AppInfo` |
 | `GET` | `/api/app/ping` | `BackendPing` |
+| `GET` | `/api/app/update-check` | `AppUpdateCheck` |
 
-示例：
+`AppInfo` 示例：
 
 ```json
 {
   "name": "Motrix",
   "version": "1.2.0",
-  "backendStatus": "ready"
+  "backendStatus": "ready",
+  "maintainer": "rockerhx",
+  "repositoryUrl": "https://github.com/RockerHX/motrix-fnos",
+  "releasePageUrl": "https://github.com/RockerHX/motrix-fnos/releases",
+  "targetArch": "x86_64",
+  "updateMode": "manual_fpk_or_app_center"
 }
 ```
+
+`AppUpdateCheck` 示例：
+
+```json
+{
+  "currentVersion": "1.2.0",
+  "latestVersion": "1.2.1",
+  "hasUpdate": true,
+  "status": "available",
+  "releaseUrl": "https://github.com/RockerHX/motrix-fnos/releases/tag/v1.2.1",
+  "assets": [
+    {
+      "architecture": "x86",
+      "name": "motrix.fnos_1.2.1_x86.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.2.1/motrix.fnos_1.2.1_x86.fpk"
+    },
+    {
+      "architecture": "arm",
+      "name": "motrix.fnos_1.2.1_arm.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.2.1/motrix.fnos_1.2.1_arm.fpk"
+    }
+  ],
+  "checkedAt": 1760000000000,
+  "message": "检测到新版本，请下载匹配设备架构的 FPK 后在 fnOS 应用中心手动安装。"
+}
+```
+
+约定：
+
+- `updateMode` 当前固定为 `manual_fpk_or_app_center`，表示应用内只提供版本检测和更新提示，不执行 FPK 自动安装。
+- `targetArch` 使用运行中 server 的 CPU 架构，用于前端提示用户选择 x86 或 ARM 包。
+- `GET /api/app/update-check` 由后端请求 GitHub Releases latest；网络失败或解析失败时仍返回 `200 OK`，`status` 为 `unavailable`，并给出可展示 `message`。
+- `assets` 只识别 `*_x86.fpk` 与 `*_arm.fpk`；无法识别的附件不返回给前端。
 
 ### 4.2 Aria2
 
