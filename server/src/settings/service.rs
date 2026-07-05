@@ -25,6 +25,8 @@ pub struct AppConfig {
     pub notifications_enabled: bool,
     #[serde(default = "default_language")]
     pub language: String,
+    #[serde(default)]
+    pub json_rpc_token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -88,6 +90,7 @@ pub fn normalize_app_config(
         auto_start_enabled: config.auto_start_enabled,
         notifications_enabled: config.notifications_enabled,
         language: normalize_language(&config.language),
+        json_rpc_token: config.json_rpc_token.trim().to_string(),
     })
 }
 
@@ -100,6 +103,7 @@ fn default_app_config(default_download_dir: &str) -> Result<AppConfig, String> {
         auto_start_enabled: false,
         notifications_enabled: false,
         language: default_language(),
+        json_rpc_token: String::new(),
     })
 }
 
@@ -150,6 +154,7 @@ mod tests {
                         auto_start_enabled: true,
                         notifications_enabled: true,
                         language: "en-US".to_string(),
+                        json_rpc_token: "  test-token  ".to_string(),
                     },
                     "/app/data",
                 )
@@ -174,6 +179,7 @@ mod tests {
                 assert!(loaded.auto_start_enabled);
                 assert!(loaded.notifications_enabled);
                 assert_eq!(loaded.language, "en-US");
+                assert_eq!(loaded.json_rpc_token, "test-token");
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
@@ -206,6 +212,7 @@ mod tests {
                         auto_start_enabled: false,
                         notifications_enabled: false,
                         language: "zh-CN".to_string(),
+                        json_rpc_token: String::new(),
                     },
                     "/app/data",
                     &["/app/data".to_string()],
@@ -256,6 +263,7 @@ mod tests {
                 assert!(!loaded.auto_start_enabled);
                 assert!(!loaded.notifications_enabled);
                 assert_eq!(loaded.language, "zh-CN");
+                assert_eq!(loaded.json_rpc_token, "");
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
@@ -273,6 +281,7 @@ mod tests {
                 auto_start_enabled: false,
                 notifications_enabled: false,
                 language: "fr-FR".to_string(),
+                json_rpc_token: String::new(),
             },
             "/app/data",
         )

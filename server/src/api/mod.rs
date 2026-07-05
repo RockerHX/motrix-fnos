@@ -262,6 +262,7 @@ mod tests {
             default_settings.default_download_dir,
             state.runtime.app_data_dir.display().to_string()
         );
+        assert_eq!(default_settings.json_rpc_token, "");
 
         let updated_settings = response_json::<AppConfig>(
             app.clone()
@@ -276,6 +277,7 @@ mod tests {
                         auto_start_enabled: true,
                         notifications_enabled: true,
                         language: "en-US".to_string(),
+                        json_rpc_token: "test-token".to_string(),
                     },
                 ))
                 .await
@@ -290,6 +292,7 @@ mod tests {
         assert!(updated_settings.auto_start_enabled);
         assert!(updated_settings.notifications_enabled);
         assert_eq!(updated_settings.language, "en-US");
+        assert_eq!(updated_settings.json_rpc_token, "test-token");
 
         let stored_settings = response_json::<AppConfig>(
             app.oneshot(
@@ -334,6 +337,7 @@ mod tests {
                     auto_start_enabled: false,
                     notifications_enabled: false,
                     language: "zh-CN".to_string(),
+                    json_rpc_token: String::new(),
                 },
             ))
             .await
