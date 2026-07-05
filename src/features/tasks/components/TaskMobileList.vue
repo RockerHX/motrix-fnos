@@ -86,7 +86,7 @@ function formatEta(task: DownloadTask) {
       </dl>
 
       <footer class="task-card-actions">
-        <TaskActions :task="task" />
+        <TaskActions :task="task" compact />
       </footer>
     </article>
   </section>

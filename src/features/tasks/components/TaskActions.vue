@@ -16,6 +16,7 @@ import type { DownloadTask, DownloadTaskStatus } from "../../../types/tasks";
 
 const props = defineProps<{
   task: DownloadTask;
+  compact?: boolean;
 }>();
 
 const taskStore = useTaskStore();
@@ -163,7 +164,33 @@ function formatTimestamp(timestamp: number) {
 </script>
 
 <template>
-  <NSpace :size="6" wrap>
+  <div v-if="props.compact" class="compact-actions">
+    <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">{{ t("task.actions.details") }}</NButton>
+    <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">
+      {{ t("task.actions.pause") }}
+    </NButton>
+    <NButton v-if="canResume" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="resumeTask">
+      {{ t("task.actions.resume") }}
+    </NButton>
+    <NButton v-if="canRedownload" size="small" secondary :disabled="isActionDisabled" @click="showRedownloadConfirm = true">
+      {{ t("task.actions.redownload") }}
+    </NButton>
+    <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isActionDisabled" @click="openDeleteConfirm">
+      {{ t("task.actions.delete") }}
+    </NButton>
+    <NButton
+      v-if="canPermanentDelete"
+      size="small"
+      secondary
+      type="error"
+      :loading="isOperating"
+      :disabled="isActionDisabled"
+      @click="openPermanentDeleteConfirm"
+    >
+      {{ t("task.actions.permanentDelete") }}
+    </NButton>
+  </div>
+  <NSpace v-else :size="6" wrap>
     <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">{{ t("task.actions.details") }}</NButton>
     <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">
       {{ t("task.actions.pause") }}
@@ -271,6 +298,16 @@ function formatTimestamp(timestamp: number) {
 </template>
 
 <style scoped>
+.compact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.compact-actions :deep(.n-button) {
+  width: 100%;
+}
+
 .delete-confirm-card,
 .permanent-delete-confirm-card,
 .redownload-confirm-card {
