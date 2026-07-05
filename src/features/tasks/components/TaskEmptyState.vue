@@ -201,5 +201,23 @@ button {
     margin-bottom: 22px;
     font-size: 13px;
   }
+
+  .empty-actions {
+    width: 100%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .primary,
+  .secondary {
+    width: 100%;
+    min-width: 0;
+    min-height: var(--app-touch-target-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+  }
 }
 </style>
