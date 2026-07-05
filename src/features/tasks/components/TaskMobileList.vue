@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import TaskActions from "./TaskActions.vue";
+import TaskActionsContainer from "./TaskActionsContainer.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { t } from "../../../i18n";
@@ -86,7 +86,7 @@ function formatEta(task: DownloadTask) {
       </dl>
 
       <footer class="task-card-actions">
-        <TaskActions :task="task" compact />
+        <TaskActionsContainer :task="task" compact />
       </footer>
     </article>
   </section>

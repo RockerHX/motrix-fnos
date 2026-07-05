@@ -2,7 +2,7 @@
 import { computed, h, onMounted, ref, watch } from "vue";
 import { NDataTable } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
-import TaskActions from "./TaskActions.vue";
+import TaskActionsContainer from "./TaskActionsContainer.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { getUiPreferences, saveUiPreferences } from "../../../services/settings";
@@ -109,7 +109,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
       minWidth: 240,
       resizable: false,
       fixed: "right",
-      render: (task) => h(TaskActions, { task }),
+      render: (task) => h(TaskActionsContainer, { task }),
     },
   ];
 }
