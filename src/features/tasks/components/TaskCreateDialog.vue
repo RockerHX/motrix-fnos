@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, toRef } from "vue";
 import {
   NAlert,
   NButton,
@@ -16,15 +16,10 @@ import {
   NSpace,
   NTabPane,
   NTabs,
-  useMessage,
 } from "naive-ui";
-import { getAccessiblePaths } from "../../../services/storage";
 import { useI18n } from "../../../i18n";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
-import { useSettingsStore } from "../../settings/stores/settingsStore";
-import { useTaskStore } from "../stores/taskStore";
-
-const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
+import { useTaskCreateForm } from "../composables/useTaskCreateForm";
 
 const props = defineProps<{
   show: boolean;
@@ -35,161 +30,33 @@ const emit = defineEmits<{
   created: [];
 }>();
 
-const taskStore = useTaskStore();
-const settingsStore = useSettingsStore();
-const message = useMessage();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
-
-const form = reactive({
-  url: "",
-  fileName: "",
-  saveDir: "",
-  startMode: "now",
-  note: "",
-});
-const activeInputType = ref("url");
-const formErrorMessage = ref("");
-const accessiblePaths = ref<string[]>([]);
-const isLoadingAccessiblePaths = ref(false);
-const accessiblePathsError = ref("");
-
-const isUrlValid = computed(() => /^https?:\/\/.+/i.test(form.url.trim()));
-const urlFeedback = computed(() => (form.url && !isUrlValid.value ? t("create.url.invalid") : undefined));
-const urlValidationStatus = computed(() => (form.url && !isUrlValid.value ? "error" : undefined));
-const accessiblePathOptions = computed(() =>
-  accessiblePaths.value.map((path) => ({
-    label: path,
-    value: path,
-  })),
-);
-const canSubmit = computed(
-  () =>
-    isUrlValid.value &&
-    !!form.saveDir &&
-    !taskStore.isCreating &&
-    !taskStore.isRuntimeExiting &&
-    !isLoadingAccessiblePaths.value,
-);
 const advancedGridCols = computed(() => (isMobileLayout.value ? 1 : 2));
-
-watch(
-  () => props.show,
-  (show) => {
-    if (show) {
-      formErrorMessage.value = "";
-      void refreshAccessiblePaths();
-    }
-  },
-);
-
-onMounted(() => {
-  void refreshAccessiblePaths();
+const {
+  taskStore,
+  form,
+  activeInputType,
+  formErrorMessage,
+  accessiblePaths,
+  isLoadingAccessiblePaths,
+  accessiblePathsError,
+  urlFeedback,
+  urlValidationStatus,
+  accessiblePathOptions,
+  canSubmit,
+  isMaskClosable,
+  submitCreateTask,
+  closeDialog,
+} = useTaskCreateForm({
+  show: toRef(props, "show"),
+  onClose: () => emit("update:show", false),
+  onCreated: () => emit("created"),
 });
-
-async function submitCreateTask() {
-  if (taskStore.isRuntimeExiting) {
-    message.warning(t("task.runtimeExiting"));
-    return;
-  }
-  if (!isUrlValid.value) {
-    formErrorMessage.value = t("create.url.required");
-    return;
-  }
-  if (!form.saveDir) {
-    formErrorMessage.value = t("create.saveDir.required");
-    return;
-  }
-
-  formErrorMessage.value = "";
-
-  try {
-    await taskStore.createTask({
-      url: form.url,
-      fileName: form.fileName || null,
-      saveDir: form.saveDir,
-    });
-    rememberSaveDir(form.saveDir);
-    resetForm();
-    emit("update:show", false);
-    emit("created");
-  } catch (error) {
-    message.error(getErrorMessage(error));
-  }
-}
-
-function closeDialog() {
-  if (taskStore.isCreating || taskStore.isRuntimeExiting) {
-    return;
-  }
-
-  emit("update:show", false);
-}
-
-function resetForm() {
-  form.url = "";
-  form.fileName = "";
-  form.saveDir = "";
-  form.startMode = "now";
-  form.note = "";
-  activeInputType.value = "url";
-  formErrorMessage.value = "";
-}
-
-async function refreshAccessiblePaths() {
-  isLoadingAccessiblePaths.value = true;
-  accessiblePathsError.value = "";
-
-  try {
-    const [response, config] = await Promise.all([getAccessiblePaths(), settingsStore.loadConfig()]);
-    accessiblePaths.value = response.paths;
-    syncSelectedSaveDir(config.defaultDownloadDir);
-  } catch (error) {
-    accessiblePaths.value = [];
-    form.saveDir = "";
-    accessiblePathsError.value = getErrorMessage(error);
-  } finally {
-    isLoadingAccessiblePaths.value = false;
-  }
-}
-
-function syncSelectedSaveDir(defaultDownloadDir: string) {
-  if (form.saveDir && accessiblePaths.value.includes(form.saveDir)) {
-    return;
-  }
-
-  const remembered = readRememberedSaveDir();
-  if (defaultDownloadDir && accessiblePaths.value.includes(defaultDownloadDir)) {
-    form.saveDir = defaultDownloadDir;
-    return;
-  }
-  if (remembered && accessiblePaths.value.includes(remembered)) {
-    form.saveDir = remembered;
-    return;
-  }
-  form.saveDir = accessiblePaths.value[0] || "";
-}
-
-function rememberSaveDir(path: string) {
-  localStorage.setItem(LAST_SAVE_DIR_KEY, path);
-}
-
-function readRememberedSaveDir() {
-  return localStorage.getItem(LAST_SAVE_DIR_KEY) || "";
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const message = String(error);
-  return message || t("task.operationFailed");
-}
 </script>
 
 <template>
-  <NModal :show="show" :mask-closable="!taskStore.isCreating && !taskStore.isRuntimeExiting" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
+  <NModal :show="show" :mask-closable="isMaskClosable" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
     <NCard class="task-create-card" role="dialog" aria-modal="true">
       <template #header>
         <div>
