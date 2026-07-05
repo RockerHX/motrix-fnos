@@ -67,8 +67,8 @@ packaging/fnos/
 
 | 设备架构 | Rust target | FPK 输出 |
 | --- | --- | --- |
-| `x86_64` | `x86_64-unknown-linux-gnu` | `motrix.fnos_1.1.0_x86.fpk` |
-| `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `motrix.fnos_1.1.0_arm.fpk` |
+| `x86_64` | `x86_64-unknown-linux-gnu` | `motrix.fnos_1.2.0_x86.fpk` |
+| `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `motrix.fnos_1.2.0_arm.fpk` |
 
 安装时必须选择与设备 CPU 架构匹配的 FPK。
 

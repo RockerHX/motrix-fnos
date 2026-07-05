@@ -59,7 +59,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 ```json
 {
   "name": "Motrix",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "backendStatus": "ready"
 }
 ```
