@@ -252,5 +252,16 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
   line-height: 1;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
   cursor: pointer;
+  z-index: 2;
+}
+
+@media (max-width: 767px) {
+  .floating-add {
+    right: var(--app-mobile-fab-offset-right);
+    bottom: calc(72px + var(--app-mobile-fab-offset-bottom));
+    width: 56px;
+    height: 56px;
+    font-size: 32px;
+  }
 }
 </style>
