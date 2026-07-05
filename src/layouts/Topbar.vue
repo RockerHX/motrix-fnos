@@ -59,6 +59,7 @@ function openSettings() {
 }
 
 .topbar-title {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -75,6 +76,7 @@ function openSettings() {
   color: #f1f6f1;
   font-size: 18px;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .topbar-actions {

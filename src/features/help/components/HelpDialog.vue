@@ -129,15 +129,18 @@ p {
 }
 
 .section-title h3 {
+  min-width: 0;
   color: #eef4ed;
   font-size: 16px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .help-sections p {
   color: #b7bfb4;
   font-size: 14px;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 767px) {

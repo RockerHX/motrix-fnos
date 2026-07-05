@@ -51,7 +51,7 @@ function selectCategory(category: MainNavCategory) {
         @click="selectCategory(item.key)"
       >
         <span class="nav-icon">{{ item.icon }}</span>
-        <span>{{ t(item.labelKey) }}</span>
+        <span class="nav-label">{{ t(item.labelKey) }}</span>
       </button>
     </nav>
 
@@ -151,6 +151,10 @@ function selectCategory(category: MainNavCategory) {
   font-weight: 800;
 }
 
+.nav-label {
+  min-width: 0;
+}
+
 .sidebar-footer {
   margin: 0;
   padding: 26px 8px 0;
@@ -196,6 +200,14 @@ function selectCategory(category: MainNavCategory) {
     width: auto;
     font-size: 18px;
     line-height: 1;
+  }
+
+  .nav-label {
+    display: -webkit-box;
+    overflow: hidden;
+    word-break: break-word;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 }
 </style>

@@ -258,6 +258,10 @@ h2 {
   gap: 8px;
 }
 
+.header-actions :deep(.n-button) {
+  white-space: normal;
+}
+
 .log-list {
   max-height: min(620px, calc(100vh - 190px));
   overflow: auto;
@@ -339,6 +343,10 @@ h2 {
   .header-actions {
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .header-actions :deep(.n-button) {
+    min-width: 0;
   }
 
   .log-list {
