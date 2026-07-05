@@ -204,4 +204,39 @@ button:disabled {
   color: #ff8d8d;
   white-space: normal;
 }
+
+@media (max-width: 767px) {
+  .engine-panel {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .panel-header,
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ghost-button {
+    width: 100%;
+  }
+
+  .engine-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin: 16px 0;
+  }
+
+  .actions {
+    justify-content: stretch;
+  }
+
+  .actions button {
+    width: 100%;
+  }
+
+  p {
+    white-space: normal;
+  }
+}
 </style>
