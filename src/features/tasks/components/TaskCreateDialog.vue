@@ -20,6 +20,7 @@ import {
 } from "naive-ui";
 import { getAccessiblePaths } from "../../../services/storage";
 import { useI18n } from "../../../i18n";
+import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 
@@ -38,6 +39,7 @@ const taskStore = useTaskStore();
 const settingsStore = useSettingsStore();
 const message = useMessage();
 const { t } = useI18n();
+const { isMobileLayout } = useMobileLayout();
 
 const form = reactive({
   url: "",
@@ -69,6 +71,7 @@ const canSubmit = computed(
     !taskStore.isRuntimeExiting &&
     !isLoadingAccessiblePaths.value,
 );
+const advancedGridCols = computed(() => (isMobileLayout.value ? 1 : 2));
 
 watch(
   () => props.show,
@@ -247,7 +250,7 @@ function getErrorMessage(error: unknown) {
 
         <NCollapse>
           <NCollapseItem :title="t('create.advanced')" name="advanced">
-            <NGrid :cols="2" :x-gap="12" :y-gap="12">
+            <NGrid :cols="advancedGridCols" :x-gap="12" :y-gap="12">
               <NGi><NInput :placeholder="t('create.advanced.category')" disabled /></NGi>
               <NGi><NInput :placeholder="t('create.advanced.connections')" disabled /></NGi>
               <NGi><NInput :placeholder="t('create.advanced.speedLimit')" disabled /></NGi>
