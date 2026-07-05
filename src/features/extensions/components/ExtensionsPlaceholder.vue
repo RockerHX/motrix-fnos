@@ -78,4 +78,42 @@ ul {
   color: #c9d3c6;
   line-height: 1.8;
 }
+
+@media (max-width: 767px) {
+  .extensions-page {
+    display: block;
+    height: auto;
+    min-height: 100%;
+    padding: 16px var(--app-mobile-page-gutter) 24px;
+    overflow-y: auto;
+  }
+
+  .extensions-card {
+    width: 100%;
+    padding: 24px 18px;
+    border-radius: 14px;
+  }
+
+  .extensions-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+    font-size: 26px;
+  }
+
+  .eyebrow {
+    margin-top: 18px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  p,
+  ul {
+    font-size: 14px;
+  }
+}
 </style>
