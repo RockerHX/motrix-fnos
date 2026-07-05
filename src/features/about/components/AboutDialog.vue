@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NButton, NCard, NDescriptions, NDescriptionsItem, NModal, NTag } from "naive-ui";
+import { useI18n } from "../../../i18n";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
 
@@ -16,6 +17,8 @@ const emit = defineEmits<{
   checkUpdate: [];
 }>();
 
+const { t } = useI18n();
+const appName = computed(() => props.appInfo?.name ?? "Motrix");
 const currentVersion = computed(() => props.appInfo?.version ?? "--");
 const updateStatusType = computed(() => statusTagType(props.updateCheck?.status));
 const releaseAssets = computed(() => props.updateCheck?.assets ?? []);
@@ -48,24 +51,24 @@ function statusTagType(status: UpdateCheckStatus | undefined) {
 function statusLabel(status: UpdateCheckStatus | undefined) {
   switch (status) {
     case "available":
-      return "发现新版本";
+      return t("about.update.status.available");
     case "up_to_date":
-      return "已是最新";
+      return t("about.update.status.upToDate");
     case "unavailable":
-      return "检查失败";
+      return t("about.update.status.unavailable");
     default:
-      return "未检查";
+      return t("about.update.status.unchecked");
   }
 }
 
 function architectureLabel(asset: ReleaseAssetInfo) {
-  return asset.architecture === "x86" ? "x86_64" : "ARM / aarch64";
+  return asset.architecture === "x86" ? t("about.arch.x86") : t("about.arch.arm");
 }
 
 function targetArchLabel(arch: string | undefined) {
   if (!arch) return "--";
-  if (arch === "x86_64") return "x86_64";
-  if (arch === "aarch64" || arch === "arm64") return "ARM / aarch64";
+  if (arch === "x86_64") return t("about.arch.x86");
+  if (arch === "aarch64" || arch === "arm64") return t("about.arch.arm");
   return arch;
 }
 </script>
@@ -75,20 +78,20 @@ function targetArchLabel(arch: string | undefined) {
     <NCard class="about-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">About</p>
-          <h2>关于 {{ props.appInfo?.name ?? "Motrix" }}</h2>
+          <p class="eyebrow">{{ t("about.eyebrow") }}</p>
+          <h2>{{ t("about.title", { name: appName }) }}</h2>
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle title="关闭" aria-label="关闭" @click="closeDialog">×</NButton>
+        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeDialog">×</NButton>
       </template>
 
       <div class="about-content">
         <section class="about-hero">
           <div class="app-mark" aria-hidden="true">M</div>
           <div>
-            <h3>{{ props.appInfo?.name ?? "Motrix" }}</h3>
-            <p>飞牛 fnOS 下载管理应用</p>
+            <h3>{{ appName }}</h3>
+            <p>{{ t("about.subtitle") }}</p>
             <div class="hero-tags">
               <NTag type="success" round>v{{ currentVersion }}</NTag>
               <NTag round>{{ targetArchLabel(props.appInfo?.targetArch) }}</NTag>
@@ -97,38 +100,46 @@ function targetArchLabel(arch: string | undefined) {
         </section>
 
         <NDescriptions label-placement="left" bordered :column="1" size="small">
-          <NDescriptionsItem label="维护者">{{ props.appInfo?.maintainer ?? "--" }}</NDescriptionsItem>
-          <NDescriptionsItem label="后端状态">{{ props.appInfo?.backendStatus ?? "--" }}</NDescriptionsItem>
-          <NDescriptionsItem label="更新方式">手动安装 FPK，或上架后通过 fnOS 应用中心更新</NDescriptionsItem>
-          <NDescriptionsItem label="项目地址">
-            <a :href="props.appInfo?.repositoryUrl" target="_blank" rel="noreferrer">{{ props.appInfo?.repositoryUrl ?? "--" }}</a>
+          <NDescriptionsItem :label="t('about.maintainer')">{{ props.appInfo?.maintainer ?? "--" }}</NDescriptionsItem>
+          <NDescriptionsItem :label="t('about.backendStatus')">{{ props.appInfo?.backendStatus ?? "--" }}</NDescriptionsItem>
+          <NDescriptionsItem :label="t('about.updateMode')">{{ t("about.updateMode.manual") }}</NDescriptionsItem>
+          <NDescriptionsItem :label="t('about.repository')">
+            <a :href="props.appInfo?.repositoryUrl" :title="props.appInfo?.repositoryUrl" target="_blank" rel="noreferrer">{{ props.appInfo?.repositoryUrl ?? "--" }}</a>
           </NDescriptionsItem>
-          <NDescriptionsItem label="发布页面">
-            <a :href="props.appInfo?.releasePageUrl" target="_blank" rel="noreferrer">{{ props.appInfo?.releasePageUrl ?? "--" }}</a>
+          <NDescriptionsItem :label="t('about.releases')">
+            <a :href="props.appInfo?.releasePageUrl" :title="props.appInfo?.releasePageUrl" target="_blank" rel="noreferrer">{{ props.appInfo?.releasePageUrl ?? "--" }}</a>
           </NDescriptionsItem>
         </NDescriptions>
 
         <section class="about-section">
           <div class="section-heading">
             <div>
-              <h3>版本检测</h3>
-              <p>应用只检查新版本并提供下载入口，不会自动安装或替换 FPK。</p>
+              <h3>{{ t("about.update.title") }}</h3>
+              <p>{{ t("about.update.description") }}</p>
             </div>
-            <NButton type="primary" :loading="props.isCheckingUpdate" @click="checkUpdate">检查更新</NButton>
+            <NButton
+              type="primary"
+              :loading="props.isCheckingUpdate"
+              :title="t('about.update.check')"
+              :aria-label="t('about.update.check')"
+              @click="checkUpdate"
+            >
+              {{ t("about.update.check") }}
+            </NButton>
           </div>
 
           <div class="update-result">
             <NTag :type="updateStatusType" round>{{ statusLabel(props.updateCheck?.status) }}</NTag>
-            <p>{{ props.updateCheck?.message ?? "尚未检查更新。" }}</p>
+            <p>{{ props.updateCheck?.message ?? t("about.update.notChecked") }}</p>
           </div>
 
           <div v-if="props.updateCheck?.latestVersion" class="version-line">
-            <span>当前版本：v{{ props.updateCheck.currentVersion }}</span>
-            <span>最新版本：v{{ props.updateCheck.latestVersion }}</span>
+            <span>{{ t("about.update.currentVersion", { version: props.updateCheck.currentVersion }) }}</span>
+            <span>{{ t("about.update.latestVersion", { version: props.updateCheck.latestVersion }) }}</span>
           </div>
 
           <div v-if="releaseAssets.length > 0" class="asset-list">
-            <a v-for="asset in releaseAssets" :key="asset.name" :href="asset.downloadUrl" target="_blank" rel="noreferrer">
+            <a v-for="asset in releaseAssets" :key="asset.name" :href="asset.downloadUrl" :title="asset.name" target="_blank" rel="noreferrer">
               <strong>{{ architectureLabel(asset) }}</strong>
               <span>{{ asset.name }}</span>
             </a>
@@ -137,8 +148,8 @@ function targetArchLabel(arch: string | undefined) {
         <section class="about-section">
           <div class="section-heading">
             <div>
-              <h3>更新历史</h3>
-              <p>展示当前版本内置的最近更新记录。</p>
+              <h3>{{ t("about.changelog.title") }}</h3>
+              <p>{{ t("about.changelog.description") }}</p>
             </div>
           </div>
 
@@ -200,6 +211,7 @@ p {
   width: 56px;
   height: 56px;
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   border-radius: 16px;
   color: #102010;
@@ -212,6 +224,7 @@ p {
 .about-section h3 {
   color: #eef4ed;
   font-size: 18px;
+  overflow-wrap: anywhere;
 }
 
 .about-hero p,
@@ -220,6 +233,7 @@ p {
   color: #aeb9ad;
   font-size: 13px;
   line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 
 .hero-tags {
@@ -316,10 +330,43 @@ p {
   color: #c8d2c5;
   font-size: 13px;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 a {
   color: #8ef08a;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .about-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
+
+  .about-content {
+    gap: 14px;
+  }
+
+  .about-hero,
+  .section-heading,
+  .update-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .about-section {
+    padding: 14px;
+  }
+
+  .section-heading :deep(.n-button) {
+    width: 100%;
+  }
+
+  .changelog-entry header {
+    flex-direction: column;
+    gap: 4px;
+  }
 }
 </style>
