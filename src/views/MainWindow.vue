@@ -3,24 +3,19 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useMobileLayout } from "../app/composables/useMobileLayout";
-import AboutDialog from "../features/about/components/AboutDialog.vue";
 import { useUpdateCheck } from "../features/about/composables/useUpdateCheck";
-import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import { useAria2Status } from "../features/diagnostics/composables/useAria2Status";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
-import HelpDialog from "../features/help/components/HelpDialog.vue";
-import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
-import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
+import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useI18n } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
-
 const props = defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
@@ -149,22 +144,25 @@ onMounted(() => {
         ＋
       </button>
 
-      <TaskCreateDialog v-model:show="showCreateDialog" @created="handleTaskCreated" />
-      <AboutDialog
-        v-model:show="showAbout"
+      <MainWindowDialogs
         :app-info="props.appInfo"
+        :backend-ping="backendPing"
+        :show-create-dialog="showCreateDialog"
+        :show-about="showAbout"
+        :show-settings="showSettings"
+        :show-help="showHelp"
+        :show-diagnostics="showDiagnostics"
         :update-check="updateCheck"
         :is-checking-update="isCheckingUpdate"
-        @check-update="runUpdateCheck"
-      />
-      <SettingsDialog v-model:show="showSettings" />
-      <HelpDialog v-model:show="showHelp" />
-      <DiagnosticsDialog
-        v-model:show="showDiagnostics"
-        :app-info="appInfo"
-        :backend-ping="backendPing"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
+        @update:show-create-dialog="showCreateDialog = $event"
+        @update:show-about="showAbout = $event"
+        @update:show-settings="showSettings = $event"
+        @update:show-help="showHelp = $event"
+        @update:show-diagnostics="showDiagnostics = $event"
+        @task-created="handleTaskCreated"
+        @check-update="runUpdateCheck"
         @refresh-status="refreshAria2Status"
         @engine-status-updated="updateAria2Status"
       />
