@@ -198,7 +198,16 @@ function getErrorMessage(error: unknown) {
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">×</NButton>
+        <NButton
+          quaternary
+          circle
+          :title="t('common.close')"
+          :aria-label="t('common.close')"
+          :disabled="taskStore.isCreating || taskStore.isRuntimeExiting"
+          @click="closeDialog"
+        >
+          ×
+        </NButton>
       </template>
 
       <NForm class="task-create-form" label-placement="top" @submit.prevent="submitCreateTask">

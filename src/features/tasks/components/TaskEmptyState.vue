@@ -49,13 +49,22 @@ function openSettings() {
         v-if="props.showCreateAction"
         type="button"
         class="primary"
+        :title="t('empty.create')"
+        :aria-label="t('empty.create')"
         :disabled="props.disableCreateAction"
         @click="createTask"
       >
         <span>＋</span>
         {{ t("empty.create") }}
       </button>
-      <button v-if="props.showSettingsAction" type="button" class="secondary" @click="openSettings">
+      <button
+        v-if="props.showSettingsAction"
+        type="button"
+        class="secondary"
+        :title="t('empty.openSettings')"
+        :aria-label="t('empty.openSettings')"
+        @click="openSettings"
+      >
         <span>⚙</span>
         {{ t("empty.openSettings") }}
       </button>

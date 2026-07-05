@@ -254,6 +254,7 @@ function filterTasksByCategory(nextTasks: DownloadTask[], category: MainNavCateg
         v-if="showFloatingAdd"
         type="button"
         class="floating-add"
+        :title="t('empty.create')"
         :aria-label="t('empty.create')"
         @click="openCreateDialog"
       >

@@ -186,7 +186,7 @@ function getErrorMessage(error: unknown) {
           <NButton size="small" secondary @click="copyAllLogs">{{ t("logs.copyAll") }}</NButton>
           <NButton size="small" secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
           <NButton size="small" secondary type="warning" :loading="isClearing" @click="clearLogs">{{ t("logs.clear") }}</NButton>
-          <NButton quaternary circle @click="closeDialog">×</NButton>
+          <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeDialog">×</NButton>
         </div>
       </template>
 
@@ -213,7 +213,7 @@ function getErrorMessage(error: unknown) {
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle @click="closeManualCopyDialog">×</NButton>
+        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeManualCopyDialog">×</NButton>
       </template>
 
       <p class="manual-copy-hint">{{ t("logs.manualCopy.hint") }}</p>

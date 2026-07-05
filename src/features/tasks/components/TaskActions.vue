@@ -180,17 +180,61 @@ function formatTimestamp(timestamp: number) {
 
 <template>
   <div v-if="props.compact" class="compact-actions">
-    <NButton size="small" secondary :disabled="isActionDisabled" @click="showDetails = true">{{ t("task.actions.details") }}</NButton>
-    <NButton v-if="canPause" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="pauseTask">
+    <NButton
+      size="small"
+      secondary
+      :title="t('task.actions.details')"
+      :aria-label="t('task.actions.details')"
+      :disabled="isActionDisabled"
+      @click="showDetails = true"
+    >
+      {{ t("task.actions.details") }}
+    </NButton>
+    <NButton
+      v-if="canPause"
+      size="small"
+      secondary
+      :title="t('task.actions.pause')"
+      :aria-label="t('task.actions.pause')"
+      :loading="isOperating"
+      :disabled="isActionDisabled"
+      @click="pauseTask"
+    >
       {{ t("task.actions.pause") }}
     </NButton>
-    <NButton v-if="canResume" size="small" secondary :loading="isOperating" :disabled="isActionDisabled" @click="resumeTask">
+    <NButton
+      v-if="canResume"
+      size="small"
+      secondary
+      :title="t('task.actions.resume')"
+      :aria-label="t('task.actions.resume')"
+      :loading="isOperating"
+      :disabled="isActionDisabled"
+      @click="resumeTask"
+    >
       {{ t("task.actions.resume") }}
     </NButton>
-    <NButton v-if="canRedownload" size="small" secondary :disabled="isActionDisabled" @click="showRedownloadConfirm = true">
+    <NButton
+      v-if="canRedownload"
+      size="small"
+      secondary
+      :title="t('task.actions.redownload')"
+      :aria-label="t('task.actions.redownload')"
+      :disabled="isActionDisabled"
+      @click="showRedownloadConfirm = true"
+    >
       {{ t("task.actions.redownload") }}
     </NButton>
-    <NButton v-if="canDelete" size="small" secondary type="error" :disabled="isActionDisabled" @click="openDeleteConfirm">
+    <NButton
+      v-if="canDelete"
+      size="small"
+      secondary
+      type="error"
+      :title="t('task.actions.delete')"
+      :aria-label="t('task.actions.delete')"
+      :disabled="isActionDisabled"
+      @click="openDeleteConfirm"
+    >
       {{ t("task.actions.delete") }}
     </NButton>
     <NButton
@@ -198,6 +242,8 @@ function formatTimestamp(timestamp: number) {
       size="small"
       secondary
       type="error"
+      :title="t('task.actions.permanentDelete')"
+      :aria-label="t('task.actions.permanentDelete')"
       :loading="isOperating"
       :disabled="isActionDisabled"
       @click="openPermanentDeleteConfirm"

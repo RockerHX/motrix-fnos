@@ -31,7 +31,7 @@ function closeDialog() {
         </div>
       </template>
       <template #header-extra>
-        <NButton quaternary circle @click="closeDialog">×</NButton>
+        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeDialog">×</NButton>
       </template>
 
       <div class="help-sections">
