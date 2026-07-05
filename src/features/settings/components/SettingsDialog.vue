@@ -14,6 +14,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { useSettingsStore } from "../stores/settingsStore";
+import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
 import type { AppConfig } from "../../../types/settings";
 
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 const message = useMessage();
 const settingsStore = useSettingsStore();
 const { t } = useI18n();
+const { isMobileLayout } = useMobileLayout();
 const isJsonRpcTokenVisible = ref(false);
 const form = reactive({
   defaultDownloadDir: "",
@@ -161,7 +163,12 @@ function getErrorMessage(error: unknown) {
 <template>
   <NModal :show="show" :mask-closable="!settingsStore.isSaving" @update:show="emit('update:show', $event)">
     <NCard class="settings-card" role="dialog" aria-modal="true" :title="t('settings.title')">
-      <NForm label-placement="left" label-width="150px" :disabled="settingsStore.isLoading">
+      <NForm
+        class="settings-form"
+        :label-placement="isMobileLayout ? 'top' : 'left'"
+        :label-width="isMobileLayout ? undefined : 150"
+        :disabled="settingsStore.isLoading"
+      >
         <NFormItem
           :label="t('settings.defaultDownloadDir')"
           :feedback="defaultDownloadDirMessage"
@@ -236,9 +243,30 @@ function getErrorMessage(error: unknown) {
 <style scoped>
 .settings-card {
   width: min(620px, calc(100vw - 48px));
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .setting-stack {
   width: 100%;
+}
+
+@media (max-width: 767px) {
+  .settings-card {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
+
+  .settings-form :deep(.n-form-item-label) {
+    padding-bottom: 8px;
+  }
+
+  .settings-form :deep(.n-form-item-blank),
+  .settings-form :deep(.n-base-selection),
+  .settings-form :deep(.n-input),
+  .settings-form :deep(.n-input-number) {
+    width: 100%;
+  }
 }
 </style>
