@@ -4,8 +4,9 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useMobileLayout } from "../app/composables/useMobileLayout";
 import AboutDialog from "../features/about/components/AboutDialog.vue";
-import { checkAppUpdate } from "../features/about/services/aboutService";
+import { useUpdateCheck } from "../features/about/composables/useUpdateCheck";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
+import { useAria2Status } from "../features/diagnostics/composables/useAria2Status";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
 import HelpDialog from "../features/help/components/HelpDialog.vue";
 import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
@@ -16,16 +17,9 @@ import { useTaskCategoryView } from "../features/tasks/composables/useTaskCatego
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
-import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
 import { useI18n } from "../i18n";
-import type { AppInfo, AppUpdateCheck, BackendPing } from "../types/app";
-import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
+import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
-
-type Aria2StatusSnapshot = {
-  process: Aria2ProcessStatus;
-  rpc: Aria2RpcStatus;
-};
 
 const props = defineProps<{
   appInfo: AppInfo | null;
@@ -38,15 +32,16 @@ const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
-const aria2Process = ref<Aria2ProcessStatus | null>(null);
-const aria2Rpc = ref<Aria2RpcStatus | null>(null);
 const showCreateDialog = ref(false);
 const showAbout = ref(false);
 const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
-const updateCheck = ref<AppUpdateCheck | null>(null);
-const isCheckingUpdate = ref(false);
+const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
+const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
+  message,
+  fallbackMessage: t("task.operationFailed"),
+});
 const {
   activeCategory,
   visibleTasks,
@@ -65,17 +60,6 @@ const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
   taskStore,
   message,
 });
-
-async function refreshPhaseStatus() {
-  const [process, rpc] = await Promise.all([getAria2ProcessStatus(), pingAria2Rpc()]);
-  aria2Process.value = process;
-  aria2Rpc.value = rpc;
-}
-
-function updateAria2Status(status: Aria2StatusSnapshot) {
-  aria2Process.value = status.process;
-  aria2Rpc.value = status.rpc;
-}
 
 function openCreateDialog() {
   if (taskStore.isRuntimeExiting) {
@@ -100,19 +84,7 @@ function selectCategory(category: MainNavCategory) {
 
 async function handleTaskCreated() {
   message.success(t("task.created"));
-  void refreshPhaseStatus();
-}
-
-async function handleCheckUpdate() {
-  isCheckingUpdate.value = true;
-  try {
-    updateCheck.value = await checkAppUpdate();
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    message.error(errorMessage || t("task.operationFailed"));
-  } finally {
-    isCheckingUpdate.value = false;
-  }
+  void refreshAria2Status();
 }
 
 watch(
@@ -134,7 +106,7 @@ watch(
 );
 
 onMounted(() => {
-  void refreshPhaseStatus();
+  void refreshAria2Status();
   void refreshTasks(true);
 });
 </script>
@@ -183,7 +155,7 @@ onMounted(() => {
         :app-info="props.appInfo"
         :update-check="updateCheck"
         :is-checking-update="isCheckingUpdate"
-        @check-update="handleCheckUpdate"
+        @check-update="runUpdateCheck"
       />
       <SettingsDialog v-model:show="showSettings" />
       <HelpDialog v-model:show="showHelp" />
@@ -193,7 +165,7 @@ onMounted(() => {
         :backend-ping="backendPing"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
-        @refresh-status="refreshPhaseStatus"
+        @refresh-status="refreshAria2Status"
         @engine-status-updated="updateAria2Status"
       />
     </template>
