@@ -154,4 +154,52 @@ button {
   color: #dbe3d8;
   background: transparent;
 }
+
+@media (max-width: 767px) {
+  .empty-guide {
+    align-content: start;
+    gap: 0;
+    padding: 28px var(--app-mobile-page-gutter) 24px;
+  }
+
+  .empty-box {
+    width: 88px;
+    height: 88px;
+    margin-bottom: 28px;
+  }
+
+  .box-lid {
+    left: 15px;
+    top: 5px;
+    width: 58px;
+    height: 24px;
+    border-width: 3px;
+  }
+
+  .box-body {
+    left: 8px;
+    top: 27px;
+    width: 72px;
+    height: 62px;
+    border-width: 3px;
+    border-radius: 0 0 14px 14px;
+  }
+
+  .box-body span {
+    width: 24px;
+    height: 24px;
+    font-size: 22px;
+  }
+
+  .empty-guide h1 {
+    margin-bottom: 10px;
+    font-size: 21px;
+  }
+
+  .empty-guide p {
+    max-width: 100%;
+    margin-bottom: 22px;
+    font-size: 13px;
+  }
+}
 </style>
