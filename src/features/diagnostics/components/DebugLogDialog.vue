@@ -229,11 +229,14 @@ function getErrorMessage(error: unknown) {
 <style scoped>
 .debug-log-dialog {
   width: min(980px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .manual-copy-dialog {
   width: min(900px, calc(100vw - 48px));
+  max-height: calc(var(--app-viewport-height) - 48px);
+  overflow: auto;
 }
 
 .eyebrow {
@@ -323,5 +326,41 @@ h2 {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 14px;
+}
+
+@media (max-width: 767px) {
+  .debug-log-dialog,
+  .manual-copy-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .log-list {
+    max-height: calc(var(--app-viewport-height) - 260px);
+    padding-right: 0;
+  }
+
+  .log-meta {
+    gap: 6px;
+  }
+
+  .manual-copy-textarea {
+    min-height: calc(var(--app-viewport-height) - 360px);
+    font-size: 16px;
+  }
+
+  .manual-copy-actions {
+    flex-direction: column-reverse;
+  }
+
+  .manual-copy-actions :deep(.n-button) {
+    width: 100%;
+  }
 }
 </style>
