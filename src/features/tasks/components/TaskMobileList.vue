@@ -97,6 +97,7 @@ function formatEta(task: DownloadTask) {
   display: grid;
   gap: 14px;
   padding: 16px;
+  padding-bottom: calc(116px + var(--app-safe-area-bottom));
 }
 
 .task-card {
