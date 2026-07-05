@@ -98,5 +98,4 @@ rtk pnpm run build:fpk
 - `docs/architecture.md`：长期架构边界和分层约束。
 - `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约。
 - `docs/fpk-packaging.md`：FPK 构建命令、产物路径和排障入口。
-- `docs/mobile-ui-adaptation-plan.md`：手机端 UI 适配完成记录。
 - `CHANGELOG.md`：发布历史。
