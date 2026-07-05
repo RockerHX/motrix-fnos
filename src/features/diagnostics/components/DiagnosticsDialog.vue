@@ -85,7 +85,7 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
 <style scoped>
 .diagnostics-dialog {
   width: min(900px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(var(--app-viewport-height) - 48px);
   overflow: auto;
 }
 
@@ -125,5 +125,23 @@ h2 {
   display: block;
   margin-bottom: 8px;
   color: #84968f;
+}
+
+@media (max-width: 767px) {
+  .diagnostics-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(var(--app-viewport-height) - 16px);
+    border-radius: 18px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .diagnostics-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
 }
 </style>
