@@ -13,6 +13,7 @@ import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue"
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
+import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import { getAria2ProcessStatus, pingAria2Rpc } from "../services/aria2";
@@ -59,6 +60,10 @@ const {
   removedTasks,
   isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
   isMobileLayout,
+});
+const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
+  taskStore,
+  message,
 });
 
 async function refreshPhaseStatus() {
@@ -110,41 +115,11 @@ async function handleCheckUpdate() {
   }
 }
 
-async function refreshTasks(showError = false) {
-  const result = await taskStore.refreshTasks({ showError });
-  if (result.refreshError) {
-    message.error(result.refreshError);
-  }
-  flushTaskErrorMessages();
-}
-
-async function refreshRemovedTasks(showError = false) {
-  const result = await taskStore.refreshRemovedTasks({ showError });
-  if (result.refreshError) {
-    message.error(result.refreshError);
-  }
-}
-
-function flushTaskErrorMessages() {
-  for (const errorMessage of taskStore.consumeTaskErrorMessages()) {
-    message.error(errorMessage);
-  }
-}
-
 watch(
   () => props.errorMessage,
   (nextMessage) => {
     if (nextMessage) {
       message.error(nextMessage);
-    }
-  },
-);
-
-watch(
-  () => taskStore.pendingTaskErrorMessages.length,
-  (count) => {
-    if (count > 0) {
-      flushTaskErrorMessages();
     }
   },
 );
