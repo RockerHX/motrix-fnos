@@ -55,6 +55,18 @@ rtk pnpm run build:fpk:x64
 rtk pnpm run build:fpk:arm64
 ```
 
+清理本地构建输出和 staged 产物：
+
+```bash
+rtk pnpm run clean
+```
+
+如需先查看会删除哪些内容：
+
+```bash
+rtk pnpm run clean:dry-run
+```
+
 ## 打包目录
 
 当前 FPK 主目录：
@@ -72,6 +84,11 @@ packaging/fnos/
 - `app/ui/dist/`：Web UI 静态资源
 - `app/data/`：运行时数据目录
 - `dist/`：最终输出的 `.fpk`
+
+约定：
+
+- `dist/`、`app/bin/` 中构建脚本放置的 server / Aria2 二进制、`app/ui/dist/`、`dist/*.fpk` 和 `motrix.fnos.fpk` 都是本地生成产物，不应作为源码态内容长期保留。
+- `assets/aria2/aria2-next-*` 是当前 `scripts/stage-aria2-sidecar.mjs` 使用的 sidecar 源资产，不是无用产物；只有未来改成下载缓存或发布资产拉取模式后，才可重新评估是否从仓库移除。
 
 ## 本地调试
 

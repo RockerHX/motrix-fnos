@@ -76,6 +76,14 @@ rtk python3 -m pip install --user --break-system-packages ziglang
 rtk pnpm run build:fpk:prepare
 ```
 
+清理本地生成产物：
+
+```bash
+rtk pnpm run clean
+```
+
+该命令只清理源码态仓库不应长期保留的构建输出和系统残留，例如 `dist/`、`packaging/fnos/app/bin/` 中 staged 的二进制、`packaging/fnos/app/ui/dist/`、`packaging/fnos/dist/`、`packaging/fnos/motrix.fnos.fpk` 和 `.DS_Store`。`assets/aria2/` 下的 Aria2 Next Linux sidecar 是当前打包脚本的源资产，不属于可清理产物。
+
 ## 当前仓库中哪些内容可复用
 
 以下内容仍保留较高迁移价值：
