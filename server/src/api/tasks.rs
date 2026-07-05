@@ -2,6 +2,7 @@ use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::tasks::repository::TaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
 use axum::extract::{Path, Query, State};
@@ -185,7 +186,7 @@ async fn permanently_delete_task(
 
 fn task_service(state: &HttpAppState) -> TaskService<'_> {
     TaskService::new(
-        &state.core.database.pool,
+        TaskRepository::new(&state.core.database.pool),
         &state.core.download_tasks,
         &state.core.next_task_id,
         &state.core.debug_logs,

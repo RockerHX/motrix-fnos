@@ -1,6 +1,7 @@
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::settings::service::load_app_config_from_pool;
+use crate::tasks::repository::TaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::CreateDownloadTaskRequest;
 use axum::body::{Body, Bytes};
@@ -165,7 +166,7 @@ async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, Rp
     ensure_authorized_save_dir(state, &save_dir)?;
 
     let service = TaskService::new(
-        &state.core.database.pool,
+        TaskRepository::new(&state.core.database.pool),
         &state.core.download_tasks,
         &state.core.next_task_id,
         &state.core.debug_logs,

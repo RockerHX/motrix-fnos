@@ -3,6 +3,7 @@ pub mod files;
 pub mod model;
 pub mod prepare;
 pub mod progress;
+pub mod repository;
 pub mod service;
 pub mod session;
 pub mod state;
@@ -30,9 +31,6 @@ use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use aria2_rpc::tell_status;
-
-#[cfg(test)]
-use std::sync::Mutex;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

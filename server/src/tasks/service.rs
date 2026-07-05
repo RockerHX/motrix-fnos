@@ -1,8 +1,4 @@
 use crate::config::aria2::Aria2Config;
-use crate::database::tasks::{
-    delete_download_task_record, persist_download_task_state, persist_download_task_states,
-    upsert_download_task,
-};
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
 use crate::tasks::{
@@ -14,8 +10,9 @@ use crate::tasks::{
     task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
     TaskMemoryState,
 };
-use sqlx::SqlitePool;
 use std::sync::atomic::AtomicU64;
+
+use super::repository::TaskRepository;
 
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
@@ -41,7 +38,7 @@ impl<'a> RuntimeGuard<'a> {
 }
 
 pub struct TaskService<'a> {
-    database_pool: &'a SqlitePool,
+    repository: TaskRepository<'a>,
     download_tasks: &'a TaskMemoryState,
     next_task_id: &'a AtomicU64,
     debug_logs: &'a DebugLogStore,
@@ -50,14 +47,14 @@ pub struct TaskService<'a> {
 
 impl<'a> TaskService<'a> {
     pub fn new(
-        database_pool: &'a SqlitePool,
+        repository: TaskRepository<'a>,
         download_tasks: &'a TaskMemoryState,
         next_task_id: &'a AtomicU64,
         debug_logs: &'a DebugLogStore,
         runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
         Self {
-            database_pool,
+            repository,
             download_tasks,
             next_task_id,
             debug_logs,
@@ -86,7 +83,7 @@ impl<'a> TaskService<'a> {
         let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
         let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
         let task = store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?;
-        upsert_download_task(self.database_pool, &task).await?;
+        self.repository.upsert_task(&task).await?;
         self.debug_logs.info(
             "tasks.create",
             format!(
@@ -281,7 +278,7 @@ impl<'a> TaskService<'a> {
             return Err("只有已删除任务可以永久删除".to_string());
         }
 
-        if !delete_download_task_record(self.database_pool, task_id).await? {
+        if !self.repository.delete_task_record(task_id).await? {
             return Err(format!("下载任务不存在：{}", task_id));
         }
         remove_task_record(self.download_tasks, task_id)?;
@@ -293,11 +290,11 @@ impl<'a> TaskService<'a> {
     }
 
     async fn sync_tasks_to_database(&self, tasks: &[DownloadTask]) -> Result<(), String> {
-        persist_download_task_states(self.database_pool, tasks).await
+        self.repository.persist_task_states(tasks).await
     }
 
     async fn sync_task_to_database(&self, task: &DownloadTask) -> Result<(), String> {
-        persist_download_task_state(self.database_pool, task).await
+        self.repository.persist_task_state(task).await
     }
 }
 
