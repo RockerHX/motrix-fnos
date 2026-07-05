@@ -105,7 +105,7 @@ rtk packaging/fnos/cmd/stop
 ## 相关文档
 
 - 总体架构：`docs/architecture.md`
-- 实机验证：`docs/fnos-manual-test-checklist.md`
+- 当前状态与验证记录：`README.md`、`docs/development-plan.md`
 
 ## GitHub Release 在线打包
 

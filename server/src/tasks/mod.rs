@@ -1582,7 +1582,7 @@ fn validate_http_url(url: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    Err("阶段 1 当前仅支持 HTTP / HTTPS 下载链接".to_string())
+    Err("当前仅支持 HTTP / HTTPS 下载链接".to_string())
 }
 
 fn infer_file_name(url: &str) -> String {

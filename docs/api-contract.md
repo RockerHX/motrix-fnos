@@ -1,6 +1,6 @@
-# 前后端 HTTP / SSE API 契约
+# 前后端 HTTP / SSE / JSON-RPC API 契约
 
-> 本文档定义 Rust server 与 Vue Web UI 之间的接口边界。总体架构见 `docs/architecture.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
+> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 运行时约定
 
@@ -100,11 +100,19 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 {
   "url": "https://example.com/file.zip",
   "fileName": "file.zip",
-  "saveDir": "/vol1/downloads"
+  "saveDir": "/vol1/downloads",
+  "aria2Options": {
+    "split": "8",
+    "max-connection-per-server": "8"
+  }
 }
 ```
 
-`saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
+约定：
+
+- `saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
+- `aria2Options` 为可选字段；当前 Web UI 创建弹窗不发送该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
+- 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
 
 ### 4.4 设置
 
@@ -195,3 +203,55 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
   "timestamp": 1760000000000
 }
 ```
+
+## 6. JSON-RPC 兼容入口
+
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `POST` | `/jsonrpc` | 接收 JSON-RPC 2.0 请求或批量请求 |
+| `GET` | `/jsonrpc` | WebSocket JSON-RPC；支持 `jsonrpc` 子协议 |
+| `OPTIONS` | `/jsonrpc` | 预检请求，返回跨域所需响应头 |
+
+支持方法：
+
+| JSON-RPC 方法 | 鉴权 | 说明 |
+| --- | --- | --- |
+| `aria2.addUri` | 需要 `jsonRpcToken` | 添加 HTTP/HTTPS 下载任务，成功返回 Aria2 GID |
+| `aria2.getVersion` | 不需要 | 连通性测试，返回版本与空 `enabledFeatures` |
+| `system.multicall` | 子调用按方法校验 | 批量执行；其中每个 `aria2.addUri` 子调用都必须携带有效 token |
+
+鉴权约定：
+
+- `jsonRpcToken` 通过 `/api/settings` 保存，不是 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
+- `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
+- `aria2.getVersion` 保持匿名可用，便于外网连通性测试。
+- `system.multicall` 外层 token 会被忽略；每个 `aria2.addUri` 子调用仍需在自身 `params` 中携带 token。
+
+`aria2.addUri` 示例：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "add-1",
+  "method": "aria2.addUri",
+  "params": [
+    "token:your-json-rpc-token",
+    ["https://example.com/file.zip"],
+    {
+      "dir": "/vol1/downloads",
+      "out": "file.zip",
+      "split": "8",
+      "max-connection-per-server": "8"
+    }
+  ]
+}
+```
+
+约定：
+
+- `dir` 必须来自 `/api/storage/accessible-paths` 返回的授权目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
+- `out` 会映射为 Motrix 任务文件名。
+- 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
+- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`。
