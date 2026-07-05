@@ -1,7 +1,7 @@
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::settings::service::load_app_config_from_pool;
-use crate::tasks::service::TaskService;
+use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::CreateDownloadTaskRequest;
 use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
@@ -169,7 +169,7 @@ async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, Rp
         &state.core.download_tasks,
         &state.core.next_task_id,
         &state.core.debug_logs,
-        &state.core.is_exiting,
+        RuntimeGuard::new(&state.core.shutdown),
     );
     service
         .ensure_not_exiting()

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -39,6 +39,29 @@ pub struct Aria2RuntimePaths {
     pub runtime_dir: PathBuf,
     pub session_path: PathBuf,
     pub log_path: PathBuf,
+}
+
+#[derive(Debug, Default)]
+pub struct ShutdownState {
+    exiting: AtomicBool,
+}
+
+impl ShutdownState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_exiting(&self) -> bool {
+        self.exiting.load(Ordering::SeqCst)
+    }
+
+    pub fn begin_shutdown(&self) -> bool {
+        !self.exiting.swap(true, Ordering::SeqCst)
+    }
+
+    pub fn mark_exiting(&self) {
+        self.exiting.store(true, Ordering::SeqCst);
+    }
 }
 
 pub fn app_data_dir_from_database_path(database_path: &Path) -> PathBuf {
@@ -134,7 +157,7 @@ pub struct ServerState {
     pub debug_logs: DebugLogStore,
     pub next_task_id: AtomicU64,
     pub notified_task_events: Mutex<HashSet<String>>,
-    pub is_exiting: AtomicBool,
+    pub shutdown: ShutdownState,
 }
 
 impl ServerState {
@@ -155,7 +178,7 @@ impl ServerState {
             debug_logs: DebugLogStore::default(),
             next_task_id: AtomicU64::new(next_task_id),
             notified_task_events: Mutex::new(HashSet::new()),
-            is_exiting: AtomicBool::new(false),
+            shutdown: ShutdownState::new(),
         };
         state
             .debug_logs

@@ -11,7 +11,6 @@ use crate::state::Aria2RuntimeInfo;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
@@ -106,7 +105,7 @@ async fn stop_aria2_process(
 }
 
 fn ensure_runtime_not_exiting(state: &HttpAppState) -> Result<(), ApiError> {
-    if state.core.is_exiting.load(Ordering::SeqCst) {
+    if state.core.shutdown.is_exiting() {
         return Err(ApiError::conflict(
             "runtime_exiting",
             "服务正在退出，不能执行当前操作",

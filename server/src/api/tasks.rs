@@ -2,15 +2,17 @@ use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
-use crate::tasks::service::TaskService;
+use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
@@ -63,7 +65,7 @@ async fn list_tasks(
         return Ok(Json(tasks));
     }
 
-    let config = if state.core.is_exiting.load(Ordering::SeqCst) {
+    let config = if state.core.shutdown.is_exiting() {
         state.aria2_config()
     } else {
         ensure_aria2_ready(&state)
@@ -187,7 +189,7 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
         &state.core.download_tasks,
         &state.core.next_task_id,
         &state.core.debug_logs,
-        &state.core.is_exiting,
+        RuntimeGuard::new(&state.core.shutdown),
     )
 }
 
@@ -459,7 +461,7 @@ mod tests {
     #[tokio::test]
     async fn task_mutations_reject_when_runtime_is_exiting() {
         let state = test_state().await;
-        state.core.is_exiting.store(true, Ordering::SeqCst);
+        state.core.shutdown.mark_exiting();
         let app = test_router(state);
 
         for request in [

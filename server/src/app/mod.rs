@@ -9,11 +9,12 @@ use serde::Serialize;
 use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 #[cfg(test)]
 use std::sync::OnceLock;
 
@@ -178,7 +179,7 @@ impl HttpAppState {
 
     pub fn request_shutdown(&self, reason: impl Into<String>) {
         let reason = reason.into();
-        if self.core.is_exiting.swap(true, Ordering::SeqCst) {
+        if !self.core.shutdown.begin_shutdown() {
             self.core
                 .debug_logs
                 .info("runtime.exit", "服务退出流程已在执行，忽略重复退出请求");
@@ -391,7 +392,7 @@ mod tests {
 
         state.request_shutdown("收到停止信号");
 
-        assert!(state.core.is_exiting.load(Ordering::SeqCst));
+        assert!(state.core.shutdown.is_exiting());
         let event = receiver.try_recv().expect("event should be broadcast");
         match event {
             RuntimeEvent::RuntimeExiting(payload) => {

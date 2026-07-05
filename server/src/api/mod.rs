@@ -101,7 +101,6 @@ mod tests {
     use crate::settings::service::{AppConfig, UiPreferences};
     use serde::de::DeserializeOwned;
     use std::collections::BTreeMap;
-    use std::sync::atomic::Ordering;
 
     #[tokio::test]
     async fn app_routes_return_expected_payloads() {
@@ -214,7 +213,7 @@ mod tests {
     #[tokio::test]
     async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
         let state = test_state(None).await;
-        state.core.is_exiting.store(true, Ordering::SeqCst);
+        state.core.shutdown.mark_exiting();
         let app = router(state);
 
         for uri in ["/api/aria2/start", "/api/aria2/stop"] {

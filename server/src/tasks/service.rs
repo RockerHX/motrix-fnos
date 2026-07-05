@@ -4,6 +4,7 @@ use crate::database::tasks::{
     upsert_download_task,
 };
 use crate::debug_logs::DebugLogStore;
+use crate::state::ShutdownState;
 use crate::tasks::{
     add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error, mark_task_paused,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
@@ -13,15 +14,38 @@ use crate::tasks::{
     task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
 };
 use sqlx::SqlitePool;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::Mutex;
+
+#[derive(Clone, Copy)]
+pub struct RuntimeGuard<'a> {
+    shutdown: &'a ShutdownState,
+}
+
+impl<'a> RuntimeGuard<'a> {
+    pub fn new(shutdown: &'a ShutdownState) -> Self {
+        Self { shutdown }
+    }
+
+    pub fn ensure_running(&self) -> Result<(), String> {
+        if self.shutdown.is_exiting() {
+            Err("应用正在退出，不能执行任务操作".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn is_exiting(&self) -> bool {
+        self.shutdown.is_exiting()
+    }
+}
 
 pub struct TaskService<'a> {
     database_pool: &'a SqlitePool,
     download_tasks: &'a Mutex<Vec<DownloadTask>>,
     next_task_id: &'a AtomicU64,
     debug_logs: &'a DebugLogStore,
-    is_exiting: &'a AtomicBool,
+    runtime_guard: RuntimeGuard<'a>,
 }
 
 impl<'a> TaskService<'a> {
@@ -30,23 +54,19 @@ impl<'a> TaskService<'a> {
         download_tasks: &'a Mutex<Vec<DownloadTask>>,
         next_task_id: &'a AtomicU64,
         debug_logs: &'a DebugLogStore,
-        is_exiting: &'a AtomicBool,
+        runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
         Self {
             database_pool,
             download_tasks,
             next_task_id,
             debug_logs,
-            is_exiting,
+            runtime_guard,
         }
     }
 
     pub fn ensure_not_exiting(&self) -> Result<(), String> {
-        if self.is_exiting.load(Ordering::SeqCst) {
-            Err("应用正在退出，不能执行任务操作".to_string())
-        } else {
-            Ok(())
-        }
+        self.runtime_guard.ensure_running()
     }
 
     pub async fn create_download_task(
@@ -82,7 +102,7 @@ impl<'a> TaskService<'a> {
         &self,
         config: &Aria2Config,
     ) -> Result<Vec<DownloadTask>, String> {
-        if self.is_exiting.load(Ordering::SeqCst) {
+        if self.runtime_guard.is_exiting() {
             self.debug_logs.info(
                 "tasks.list",
                 "应用正在退出，跳过 Aria2 刷新并返回内存任务快照",

@@ -2,9 +2,11 @@ use crate::app::{HttpAppState, RuntimeEvent, TasksSnapshotPayload};
 use crate::database::tasks::persist_download_task_states;
 use crate::runtime::ensure_aria2_ready;
 use crate::tasks::{refresh_tasks_from_aria2, DownloadTask, DownloadTaskStatus};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
+
+#[cfg(test)]
+use std::sync::atomic::Ordering;
 
 const TASK_MONITOR_INTERVAL: Duration = Duration::from_millis(500);
 
@@ -12,7 +14,7 @@ pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(TASK_MONITOR_INTERVAL).await;
-            if state.core.is_exiting.load(Ordering::SeqCst) {
+            if state.core.shutdown.is_exiting() {
                 state
                     .core
                     .debug_logs
