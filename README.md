@@ -1,6 +1,6 @@
 # Motrix FNOS
 
-飞牛 fnOS 下载管理应用。当前版本为 1.2.0，基础功能、应用内国际化和手机端 UI 适配均已完成本轮开发。
+飞牛 fnOS 下载管理应用。当前版本为 1.2.1，基础功能、应用内国际化和手机端 UI 适配均已完成本轮开发。
 
 本仓库的目标是交付一个可在飞牛 fnOS 中安装、启动、停止、升级和卸载的 FPK-first 下载管理应用：
 
@@ -16,7 +16,7 @@
 
 - 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
 - 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
-- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_1.2.0_x86.fpk`、`packaging/fnos/dist/motrix.fnos_1.2.0_arm.fpk`。
+- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk`、`packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk`。
 - 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
 - Web UI 已支持侧栏分类、回收站、扩展占位页、设置页、帮助入口、关于页、诊断日志和应用内中英文切换。
 - 手机端 UI 适配已完成本轮开发，覆盖移动端外壳布局、任务卡片和核心弹窗。
@@ -41,8 +41,8 @@ rtk pnpm run build:fpk
 输出：
 
 ```text
-packaging/fnos/dist/motrix.fnos_1.2.0_x86.fpk
-packaging/fnos/dist/motrix.fnos_1.2.0_arm.fpk
+packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk
+packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk
 ```
 
 如需只构建 x86 包：
@@ -60,7 +60,7 @@ rtk pnpm run build:fpk:arm64
 输出：
 
 ```text
-packaging/fnos/dist/motrix.fnos_1.2.0_arm.fpk
+packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk
 ```
 
 非 Linux x86_64 主机进行交叉构建时，脚本会自动检查并安装缺失的 Rust target；仍需要先安装 `cargo-zigbuild` / `ziglang`：

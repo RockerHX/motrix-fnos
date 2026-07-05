@@ -19,7 +19,7 @@
 
 ## 2. 当前状态
 
-当前版本：**1.2.0**  
+当前版本：**1.2.1**  
 当前阶段：**阶段 11：关于页、版本检测与更新历史（✅ 已完成）**
 
 已完成能力：
@@ -29,8 +29,8 @@
 - 新建任务保存目录来自 fnOS 已授权目录，不提供任意本地路径输入。
 - FPK 目录、manifest、权限配置、Web UI 入口、启动/停止/状态脚本和卸载私有数据清理脚本已建立。
 - 打包脚本可输出 x86 与 ARM FPK：
-  - `packaging/fnos/dist/motrix.fnos_1.2.0_x86.fpk`
-  - `packaging/fnos/dist/motrix.fnos_1.2.0_arm.fpk`
+  - `packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk`
+  - `packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk`
 - 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
 - JSON-RPC 兼容入口已支持 `aria2.addUri`、`aria2.getVersion` 和 `system.multicall`，并通过设置页的 `jsonRpcToken` 控制添加任务鉴权。
 - 手机端 UI 适配本轮开发已完成，覆盖移动端外壳布局、任务卡片、空态、创建任务、设置、帮助、诊断与日志弹窗。
@@ -38,8 +38,8 @@
 
 当前约束：
 
-- `x86_64` 设备安装 `motrix.fnos_1.2.0_x86.fpk`。
-- `aarch64` / `arm64` 设备安装 `motrix.fnos_1.2.0_arm.fpk`。
+- `x86_64` 设备安装 `motrix.fnos_1.2.1_x86.fpk`。
+- `aarch64` / `arm64` 设备安装 `motrix.fnos_1.2.1_arm.fpk`。
 - FPK 必须与设备 CPU 架构匹配；x86 包不能安装到 ARM 飞牛设备。
 - 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
 - 侧栏菜单、移动端展示和后续新增前端交互继续遵守 `docs/architecture.md` 的分层边界。
