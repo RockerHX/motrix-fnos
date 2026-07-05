@@ -45,7 +45,7 @@ function selectCategory(category: MainNavCategory) {
     />
 
     <section class="main-area shell-main-area">
-      <Topbar @open-diagnostics="openDiagnostics" />
+      <Topbar :active-category="activeCategory" @open-diagnostics="openDiagnostics" />
       <main class="content-stage">
         <slot />
       </main>

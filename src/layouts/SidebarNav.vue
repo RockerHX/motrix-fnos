@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { AppInfo } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
-import { useI18n, type TranslationKey } from "../i18n";
+import { useI18n } from "../i18n";
+import { mainNavItems } from "./navigation";
 
 defineProps<{
   appInfo: AppInfo | null;
@@ -15,19 +16,6 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
-
-const navItems: Array<{
-  key: MainNavCategory;
-  icon: string;
-  labelKey: TranslationKey;
-  spaced?: boolean;
-}> = [
-  { key: "downloading", icon: "⇩", labelKey: "nav.downloading" },
-  { key: "completed", icon: "✓", labelKey: "nav.completed" },
-  { key: "stopped", icon: "Ⅱ", labelKey: "nav.stopped" },
-  { key: "trash", icon: "♜", labelKey: "nav.trash", spaced: true },
-  { key: "extensions", icon: "♧", labelKey: "nav.extensions" },
-];
 
 function openHelp() {
   emit("openHelp");
@@ -54,7 +42,7 @@ function selectCategory(category: MainNavCategory) {
 
     <nav class="category-list" :aria-label="t('nav.categories')">
       <button
-        v-for="item in navItems"
+        v-for="item in mainNavItems"
         :key="item.key"
         type="button"
         :class="{ active: activeCategory === item.key, 'nav-spaced': item.spaced }"
