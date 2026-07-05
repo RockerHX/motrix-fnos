@@ -46,6 +46,8 @@ function selectCategory(category: MainNavCategory) {
         :key="item.key"
         type="button"
         :class="{ active: activeCategory === item.key, 'nav-spaced': item.spaced }"
+        :aria-current="activeCategory === item.key ? 'page' : undefined"
+        :aria-label="t(item.labelKey)"
         @click="selectCategory(item.key)"
       >
         <span class="nav-icon">{{ item.icon }}</span>
@@ -54,11 +56,11 @@ function selectCategory(category: MainNavCategory) {
     </nav>
 
     <div class="sidebar-footer">
-      <button type="button" @click="openSettings">
+      <button type="button" :aria-label="t('nav.settings')" @click="openSettings">
         <span class="nav-icon">⚙</span>
         <span>{{ t("nav.settings") }}</span>
       </button>
-      <button type="button" @click="openHelp">
+      <button type="button" :aria-label="t('nav.help')" @click="openHelp">
         <span class="nav-icon">?</span>
         <span>{{ t("nav.help") }}</span>
       </button>
@@ -121,6 +123,7 @@ function selectCategory(category: MainNavCategory) {
   align-items: center;
   gap: 14px;
   width: 100%;
+  min-height: var(--app-touch-target-min);
   border: 0;
   border-radius: 6px;
   padding: 10px 12px;

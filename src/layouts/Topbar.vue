@@ -37,14 +37,14 @@ function openSettings() {
       <strong>{{ activeCategoryLabel }}</strong>
     </div>
     <div class="topbar-actions desktop-actions">
-      <button type="button" :title="t('topbar.filter')">≡</button>
-      <button type="button" :title="t('topbar.sort')">≡</button>
-      <button type="button" :title="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
+      <button type="button" :title="t('topbar.filter')" :aria-label="t('topbar.filter')">≡</button>
+      <button type="button" :title="t('topbar.sort')" :aria-label="t('topbar.sort')">≡</button>
+      <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
     </div>
     <div class="topbar-actions mobile-actions">
-      <button type="button" :title="t('nav.settings')" @click="openSettings">⚙</button>
-      <button type="button" :title="t('nav.help')" @click="openHelp">?</button>
-      <button type="button" :title="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
+      <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings">⚙</button>
+      <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp">?</button>
+      <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
     </div>
   </header>
 </template>
@@ -85,6 +85,8 @@ function openSettings() {
 }
 
 .topbar-actions button {
+  min-width: var(--app-touch-target-min);
+  min-height: var(--app-touch-target-min);
   border: 0;
   padding: 4px;
   color: #cfd8ce;
