@@ -68,4 +68,19 @@ body {
   overflow: hidden;
   margin: 0;
 }
+
+@media (max-width: 767px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-y: auto;
+  }
+
+  #app {
+    overflow-x: clip;
+  }
+}
 </style>
