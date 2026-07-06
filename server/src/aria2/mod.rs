@@ -1,23 +1,33 @@
-use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+mod config_status;
+mod ports;
+mod process_probe;
+mod runtime_file;
+mod sidecar;
+
+pub use config_status::Aria2ConfigStatus;
+pub use ports::{
+    rpc_port_candidates, rpc_ports_exhausted_message, select_available_rpc_port,
+    select_rpc_port_with_saved_runtime,
+};
+pub(crate) use process_probe::terminate_process;
+pub use runtime_file::{runtime_config, SavedAria2Runtime};
+pub use sidecar::{classify_saved_sidecar, cleanup_saved_sidecar_if_owned, SidecarOwnership};
+
+#[cfg(test)]
+use sidecar::classify_saved_sidecar_from_command_line;
+
+use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use serde::{Deserialize, Serialize};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct Aria2ConfigStatus {
-    pub configured: bool,
-    pub path: Option<String>,
-    pub path_exists: bool,
-    pub binary_source: Aria2BinarySource,
-    pub sidecar_name: String,
-    pub target_triple: String,
-    pub rpc_host: String,
-    pub rpc_port: u16,
-    pub rpc_secret_configured: bool,
-    pub ca_certificate_path: Option<String>,
+pub fn generate_rpc_secret() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!("motrix-fnos-{nanos}-{}", std::process::id())
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,322 +43,6 @@ pub struct Aria2GlobalOptions {
     pub max_concurrent_downloads: u32,
     pub download_limit: u64,
     pub upload_limit: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SavedAria2Runtime {
-    pub pid: u32,
-    pub actual_port: u16,
-    pub rpc_secret: String,
-    pub binary_source: Aria2BinarySource,
-    pub sidecar_name: Option<String>,
-    pub app_data_dir: Option<String>,
-    pub aria2_session_path: Option<String>,
-    pub aria2_log_path: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SidecarOwnership {
-    OwnSidecar,
-    ExternalOrUnknown,
-}
-
-pub fn generate_rpc_secret() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("motrix-fnos-{nanos}-{}", std::process::id())
-}
-
-pub fn runtime_config(base: &Aria2Config, actual_port: u16, rpc_secret: String) -> Aria2Config {
-    let mut config = base.clone();
-    config.rpc_port = actual_port;
-    config.rpc_secret = rpc_secret;
-    config
-}
-
-pub fn classify_saved_sidecar(
-    saved: Option<&SavedAria2Runtime>,
-    candidate_port: u16,
-    debug_logs: &DebugLogStore,
-) -> SidecarOwnership {
-    let Some(runtime) = saved else {
-        return SidecarOwnership::ExternalOrUnknown;
-    };
-
-    let command_line = match read_process_command_line(runtime.pid) {
-        Ok(command_line) => command_line,
-        Err(error) => {
-            debug_logs.warn(
-                "aria2.cleanup",
-                format!("残留 sidecar 命令行读取失败，按未知进程处理：{}", error),
-            );
-            return SidecarOwnership::ExternalOrUnknown;
-        }
-    };
-
-    classify_saved_sidecar_from_command_line(Some(runtime), candidate_port, Some(&command_line))
-}
-
-fn classify_saved_sidecar_from_command_line(
-    saved: Option<&SavedAria2Runtime>,
-    candidate_port: u16,
-    command_line: Option<&str>,
-) -> SidecarOwnership {
-    let Some(runtime) = saved else {
-        return SidecarOwnership::ExternalOrUnknown;
-    };
-
-    if runtime.binary_source != Aria2BinarySource::Sidecar
-        || runtime.actual_port != candidate_port
-        || runtime.rpc_secret.trim().is_empty()
-        || runtime.pid == 0
-    {
-        return SidecarOwnership::ExternalOrUnknown;
-    }
-
-    let Some(command_line) = command_line else {
-        return SidecarOwnership::ExternalOrUnknown;
-    };
-    let evidence = analyze_sidecar_command_line(command_line, runtime, candidate_port);
-
-    if evidence.contains_sidecar_name
-        && evidence.contains_rpc_port
-        && evidence.contains_rpc_secret
-        && evidence.matched_count() >= 3
-    {
-        SidecarOwnership::OwnSidecar
-    } else {
-        SidecarOwnership::ExternalOrUnknown
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SidecarCommandLineEvidence {
-    pub contains_sidecar_name: bool,
-    pub contains_rpc_port: bool,
-    pub contains_rpc_secret: bool,
-    pub contains_app_data_path: bool,
-    pub contains_session_path: bool,
-    pub contains_log_path: bool,
-}
-
-impl SidecarCommandLineEvidence {
-    pub fn matched_count(&self) -> usize {
-        [
-            self.contains_sidecar_name,
-            self.contains_rpc_port,
-            self.contains_rpc_secret,
-            self.contains_app_data_path,
-            self.contains_session_path,
-            self.contains_log_path,
-        ]
-        .into_iter()
-        .filter(|matched| *matched)
-        .count()
-    }
-}
-
-pub(crate) fn analyze_sidecar_command_line(
-    command_line: &str,
-    runtime: &SavedAria2Runtime,
-    candidate_port: u16,
-) -> SidecarCommandLineEvidence {
-    let normalized_command = normalize_path_text(command_line);
-
-    SidecarCommandLineEvidence {
-        contains_sidecar_name: runtime
-            .sidecar_name
-            .as_deref()
-            .map(|name| !name.trim().is_empty() && command_line.contains(name))
-            .unwrap_or(false),
-        contains_rpc_port: command_line_contains_rpc_port(command_line, candidate_port),
-        contains_rpc_secret: !runtime.rpc_secret.trim().is_empty()
-            && command_line.contains(&format!("--rpc-secret={}", runtime.rpc_secret)),
-        contains_app_data_path: optional_path_matches(
-            &normalized_command,
-            runtime.app_data_dir.as_deref(),
-        ),
-        contains_session_path: optional_path_matches(
-            &normalized_command,
-            runtime.aria2_session_path.as_deref(),
-        ),
-        contains_log_path: optional_path_matches(
-            &normalized_command,
-            runtime.aria2_log_path.as_deref(),
-        ),
-    }
-}
-
-fn command_line_contains_rpc_port(command_line: &str, candidate_port: u16) -> bool {
-    let plain = format!("--rpc-listen-port={candidate_port}");
-    let quoted = format!("--rpc-listen-port=\"{candidate_port}\"");
-    command_line.contains(&plain) || command_line.contains(&quoted)
-}
-
-fn optional_path_matches(normalized_command: &str, path: Option<&str>) -> bool {
-    path.map(normalize_path_text)
-        .filter(|path| !path.trim().is_empty())
-        .map(|path| normalized_command.contains(&path))
-        .unwrap_or(false)
-}
-
-fn normalize_path_text(value: &str) -> String {
-    value.replace('\\', "/")
-}
-
-#[cfg(unix)]
-pub(crate) fn read_process_command_line(pid: u32) -> Result<String, String> {
-    let output = std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "command="])
-        .output()
-        .map_err(|error| format!("读取进程命令行失败，PID {}：{}", pid, error))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "读取进程命令行失败，PID {}：ps 退出状态 {}",
-            pid, output.status
-        ));
-    }
-
-    let command_line = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if command_line.is_empty() {
-        return Err(format!("读取进程命令行失败，PID {}：结果为空", pid));
-    }
-
-    Ok(command_line)
-}
-
-#[cfg(windows)]
-pub(crate) fn read_process_command_line(pid: u32) -> Result<String, String> {
-    let query = format!(
-        "(Get-CimInstance Win32_Process -Filter \"ProcessId = {}\").CommandLine",
-        pid
-    );
-    let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &query])
-        .output()
-        .map_err(|error| format!("读取进程命令行失败，PID {}：{}", pid, error))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "读取进程命令行失败，PID {}：PowerShell 退出状态 {}",
-            pid, output.status
-        ));
-    }
-
-    let command_line = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if command_line.is_empty() {
-        return Err(format!("读取进程命令行失败，PID {}：结果为空", pid));
-    }
-
-    Ok(command_line)
-}
-
-pub fn cleanup_saved_sidecar_if_owned(
-    saved: Option<&SavedAria2Runtime>,
-    candidate_port: u16,
-    debug_logs: &DebugLogStore,
-) -> bool {
-    let Some(runtime) = saved else {
-        return false;
-    };
-    if runtime.actual_port != candidate_port {
-        debug_logs.warn(
-            "aria2.cleanup",
-            format!(
-                "跳过残留 sidecar 清理：运行态端口 {} 与候选端口 {} 不一致",
-                runtime.actual_port, candidate_port
-            ),
-        );
-        return false;
-    }
-
-    if !terminate_process(runtime.pid) {
-        debug_logs.warn(
-            "aria2.cleanup",
-            format!("本应用残留 sidecar PID {} 清理未确认成功", runtime.pid),
-        );
-        return false;
-    }
-
-    debug_logs.info(
-        "aria2.cleanup",
-        format!(
-            "已清理本应用残留 Aria2 sidecar，PID {}，端口 {}",
-            runtime.pid, runtime.actual_port
-        ),
-    );
-    true
-}
-
-#[cfg(unix)]
-pub(crate) fn terminate_process(pid: u32) -> bool {
-    let _ = std::process::Command::new("kill")
-        .arg("-TERM")
-        .arg(pid.to_string())
-        .status();
-    if wait_until_process_exits(pid, Duration::from_millis(800)) {
-        return true;
-    }
-
-    let _ = std::process::Command::new("kill")
-        .arg("-KILL")
-        .arg(pid.to_string())
-        .status();
-    wait_until_process_exits(pid, Duration::from_millis(800))
-}
-
-#[cfg(unix)]
-fn process_is_running(pid: u32) -> bool {
-    std::process::Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(unix)]
-fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if !process_is_running(pid) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    !process_is_running(pid)
-}
-
-#[cfg(windows)]
-pub(crate) fn terminate_process(pid: u32) -> bool {
-    let _ = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status();
-    wait_until_process_exits(pid, Duration::from_millis(800))
-}
-
-#[cfg(windows)]
-fn process_is_running(pid: u32) -> bool {
-    std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if !process_is_running(pid) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    !process_is_running(pid)
 }
 
 #[derive(Debug, Deserialize)]
@@ -371,112 +65,6 @@ struct Aria2VersionResult {
 #[derive(Debug, Deserialize)]
 struct JsonRpcError {
     message: String,
-}
-
-impl Aria2ConfigStatus {
-    pub fn from_config(config: &Aria2Config) -> Self {
-        let path_exists = config
-            .aria2_path
-            .as_deref()
-            .map(|path| Path::new(path).is_file())
-            .unwrap_or(false);
-
-        Self {
-            configured: config.aria2_path.is_some()
-                || config.binary_source == Aria2BinarySource::Sidecar,
-            path: config.aria2_path.clone(),
-            path_exists,
-            binary_source: config.binary_source.clone(),
-            sidecar_name: config.sidecar_name.clone(),
-            target_triple: config.target_triple.clone(),
-            rpc_host: config.rpc_host.clone(),
-            rpc_port: config.rpc_port,
-            rpc_secret_configured: !config.rpc_secret.is_empty(),
-            ca_certificate_path: detect_ca_certificate_path()
-                .map(|path| path.display().to_string()),
-        }
-    }
-}
-
-fn rpc_port_in_use(config: &Aria2Config) -> bool {
-    let Ok(addresses) = (config.rpc_host.as_str(), config.rpc_port).to_socket_addrs() else {
-        return false;
-    };
-
-    addresses
-        .into_iter()
-        .any(|address| TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok())
-}
-
-pub fn rpc_ports_exhausted_message() -> String {
-    "Aria2 RPC 端口范围 6800, 16800-16820 均被占用，无法启动内置引擎".to_string()
-}
-
-pub fn rpc_port_candidates() -> Vec<u16> {
-    std::iter::once(6800).chain(16800..=16820).collect()
-}
-
-pub fn select_available_rpc_port(config: &Aria2Config) -> Option<u16> {
-    select_available_rpc_port_from(config, rpc_port_candidates())
-}
-
-pub fn select_rpc_port_with_saved_runtime(
-    config: &Aria2Config,
-    saved: Option<&SavedAria2Runtime>,
-    debug_logs: &DebugLogStore,
-) -> Option<u16> {
-    for port in rpc_port_candidates() {
-        let mut candidate_config = config.clone();
-        candidate_config.rpc_port = port;
-        if !rpc_port_in_use(&candidate_config) {
-            return Some(port);
-        }
-
-        match classify_saved_sidecar(saved, port, debug_logs) {
-            SidecarOwnership::OwnSidecar => {
-                if !cleanup_saved_sidecar_if_owned(saved, port, debug_logs) {
-                    debug_logs.error(
-                        "aria2.cleanup",
-                        format!(
-                            "检测到本应用残留 sidecar 占用端口 {}，但清理失败，停止启动新 Aria2 避免继续下载",
-                            port
-                        ),
-                    );
-                    return None;
-                }
-
-                std::thread::sleep(Duration::from_millis(300));
-                if !rpc_port_in_use(&candidate_config) {
-                    return Some(port);
-                }
-
-                debug_logs.warn(
-                    "aria2.cleanup",
-                    format!("清理本应用残留 sidecar 后端口 {} 仍被占用", port),
-                );
-                return None;
-            }
-            SidecarOwnership::ExternalOrUnknown => {
-                debug_logs.info(
-                    "aria2.cleanup",
-                    format!("端口 {} 已被占用但未确认属于本应用 sidecar，跳过该端口", port),
-                );
-            }
-        }
-    }
-
-    None
-}
-
-fn select_available_rpc_port_from(
-    config: &Aria2Config,
-    candidates: impl IntoIterator<Item = u16>,
-) -> Option<u16> {
-    candidates.into_iter().find(|port| {
-        let mut candidate_config = config.clone();
-        candidate_config.rpc_port = *port;
-        !rpc_port_in_use(&candidate_config)
-    })
 }
 
 fn detect_ca_certificate_path() -> Option<PathBuf> {
@@ -746,6 +334,7 @@ pub fn summarize_args(args: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::aria2::Aria2BinarySource;
 
     fn test_config(path: Option<&str>) -> Aria2Config {
         Aria2Config {
