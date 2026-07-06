@@ -126,15 +126,15 @@ server/
     tasks/
     aria2/
     config/
-    db/
-    logs/
+    database/
+    debug_logs/
 ```
 
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
 - `services/` 负责编排业务流程。
-- `tasks/`、`aria2/`、`config/`、`db/`、`logs/` 保持领域边界。
+- `tasks/`、`aria2/`、`config/`、`database/`、`debug_logs/` 保持领域边界。
 - 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
 ## 7. 数据流与事件流
