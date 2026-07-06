@@ -105,8 +105,8 @@ p {
 
 .help-sections section {
   padding: 16px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay);
 }
 
 .section-title {
@@ -119,14 +119,14 @@ p {
 
 .section-title h3 {
   min-width: 0;
-  color: #eef4ed;
+  color: var(--app-text-strong);
   font-size: 16px;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
 .help-sections p {
-  color: #b7bfb4;
+  color: var(--app-text-muted);
   font-size: 14px;
   line-height: 1.7;
   overflow-wrap: anywhere;

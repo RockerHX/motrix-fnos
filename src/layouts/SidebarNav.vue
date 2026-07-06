@@ -194,7 +194,7 @@ function selectCategory(category: MainNavCategory) {
     justify-content: center;
     gap: 4px;
     padding: 8px 6px;
-    border-radius: 12px;
+    border-radius: var(--app-radius-sm);
     flex-direction: column;
     font-size: 12px;
     line-height: 1.2;

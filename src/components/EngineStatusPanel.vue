@@ -113,9 +113,9 @@ onMounted(() => {
 <style scoped>
 .engine-panel {
   padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 18px;
-  background: #151b1a;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-xl);
+  background: var(--app-color-surface-panel);
 }
 
 .panel-header,
@@ -128,7 +128,7 @@ onMounted(() => {
 
 .eyebrow {
   margin: 0 0 6px;
-  color: #67dca0;
+  color: var(--app-text-accent-soft);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -150,14 +150,14 @@ h2 {
 .engine-card {
   min-width: 0;
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay-subtle);
 }
 
 .label,
 small {
-  color: #83958e;
+  color: var(--app-text-dim);
   font-size: 12px;
 }
 
@@ -180,7 +180,7 @@ button {
   border-radius: 999px;
   padding: 10px 14px;
   color: #082014;
-  background: #67dca0;
+  background: var(--app-text-accent-soft);
   font-weight: 700;
   cursor: pointer;
 }
@@ -201,14 +201,14 @@ button:disabled {
 
 .error-message {
   margin-bottom: 16px;
-  color: #ff8d8d;
+  color: var(--app-text-danger);
   white-space: normal;
 }
 
 @media (max-width: 767px) {
   .engine-panel {
     padding: 18px;
-    border-radius: 16px;
+    border-radius: var(--app-radius-lg);
   }
 
   .panel-header,

@@ -105,10 +105,10 @@ function formatEta(task: DownloadTask) {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  background: #1a1d1c;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-color-surface-elevated);
+  box-shadow: var(--app-shadow-card);
 }
 
 .task-card-header {
@@ -163,13 +163,13 @@ function formatEta(task: DownloadTask) {
 
 .task-card-meta dt {
   margin-bottom: 6px;
-  color: #83958e;
+  color: var(--app-text-dim);
   font-size: 12px;
 }
 
 .task-card-meta dd {
   margin: 0;
-  color: #d7dfd8;
+  color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.4;
   word-break: break-word;
@@ -189,7 +189,7 @@ function formatEta(task: DownloadTask) {
   .task-card {
     gap: 10px;
     padding: 14px;
-    border-radius: 18px;
+    border-radius: var(--app-radius-xl);
     background: #181b19;
   }
 

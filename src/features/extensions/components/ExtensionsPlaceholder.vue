@@ -31,11 +31,11 @@ const { t } = useI18n();
 .extensions-card {
   width: min(560px, 100%);
   border: 1px solid #344238;
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   padding: 34px;
-  color: #d7dfd8;
+  color: var(--app-text-secondary);
   background: linear-gradient(145deg, rgba(27, 35, 29, 0.96), rgba(18, 20, 18, 0.96));
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--app-shadow-hero);
 }
 
 .extensions-icon {
@@ -43,7 +43,7 @@ const { t } = useI18n();
   height: 54px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--app-radius-md);
   color: #101710;
   background: #68ae5a;
   font-size: 30px;
@@ -68,7 +68,7 @@ h1 {
 
 p {
   margin: 0;
-  color: #b7bfb4;
+  color: var(--app-text-muted);
   line-height: 1.7;
 }
 
@@ -91,13 +91,13 @@ ul {
   .extensions-card {
     width: 100%;
     padding: 24px 18px;
-    border-radius: 14px;
+    border-radius: var(--app-radius-md);
   }
 
   .extensions-icon {
     width: 46px;
     height: 46px;
-    border-radius: 12px;
+    border-radius: var(--app-radius-sm);
     font-size: 26px;
   }
 

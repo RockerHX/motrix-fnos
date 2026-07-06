@@ -100,14 +100,14 @@ h2 {
 
 .diagnostics-grid div {
   padding: 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay);
 }
 
 .diagnostics-grid span {
   display: block;
   margin-bottom: 8px;
-  color: #84968f;
+  color: var(--app-text-dim);
 }
 
 @media (max-width: 767px) {

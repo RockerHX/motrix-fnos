@@ -169,7 +169,7 @@ h2 {
 }
 
 .field-hint {
-  color: #83958e;
+  color: var(--app-text-dim);
   font-size: 12px;
   line-height: 1.5;
 }

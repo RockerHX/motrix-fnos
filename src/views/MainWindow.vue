@@ -184,7 +184,7 @@ onMounted(() => {
   font: inherit;
   font-size: 30px;
   line-height: 1;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--app-shadow-floating);
   cursor: pointer;
   z-index: 2;
 }

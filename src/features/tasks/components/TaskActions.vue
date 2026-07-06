@@ -330,7 +330,7 @@ function emitDeleteConfirm() {
 
 .delete-confirm-text {
   margin: 0 0 14px;
-  color: #d7dfd8;
+  color: var(--app-text-secondary);
   word-break: break-word;
 }
 
@@ -349,7 +349,7 @@ function emitDeleteConfirm() {
 
   .compact-actions :deep(.n-button) {
     min-height: var(--app-touch-target-min);
-    border-radius: 12px;
+    border-radius: var(--app-radius-sm);
   }
 
   .delete-confirm-card,

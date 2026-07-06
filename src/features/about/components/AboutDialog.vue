@@ -201,16 +201,16 @@ p {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 16px;
+  border-radius: var(--app-radius-lg);
   color: #102010;
-  background: #66e39a;
+  background: var(--app-text-accent);
   font-size: 28px;
   font-weight: 900;
 }
 
 .about-hero h3,
 .about-section h3 {
-  color: #eef4ed;
+  color: var(--app-text-strong);
   font-size: 18px;
   overflow-wrap: anywhere;
 }
@@ -235,8 +235,8 @@ p {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay);
 }
 
 .section-heading {
@@ -267,7 +267,7 @@ p {
   gap: 4px;
   padding: 10px 12px;
   border: 1px solid rgba(142, 240, 138, 0.22);
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   color: #dfe8dc;
   text-decoration: none;
   overflow-wrap: anywhere;
@@ -286,7 +286,7 @@ p {
   display: grid;
   gap: 10px;
   padding: 12px;
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   background: rgba(0, 0, 0, 0.16);
 }
 
@@ -294,7 +294,7 @@ p {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  color: #eef4ed;
+  color: var(--app-text-strong);
 }
 
 .changelog-entry header span,

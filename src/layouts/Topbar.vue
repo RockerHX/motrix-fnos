@@ -61,7 +61,7 @@ function openSettings() {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid #324036;
-  background: #151515;
+  background: var(--app-color-surface);
 }
 
 .topbar-title {
@@ -73,7 +73,7 @@ function openSettings() {
 }
 
 .topbar-title span {
-  color: #83958e;
+  color: var(--app-text-dim);
   font-size: 12px;
   line-height: 1.2;
 }
@@ -146,7 +146,7 @@ function openSettings() {
   .topbar-actions button {
     min-width: var(--app-touch-target-min);
     min-height: var(--app-touch-target-min);
-    border-radius: 12px;
+    border-radius: var(--app-radius-sm);
     font-size: 20px;
   }
 }

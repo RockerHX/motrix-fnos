@@ -253,10 +253,10 @@ h2 {
 
 .log-entry {
   padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--app-color-border-subtle);
   border-left: 3px solid #5d7280;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay-subtle);
 }
 
 .log-entry.level-warn {
@@ -264,7 +264,7 @@ h2 {
 }
 
 .log-entry.level-error {
-  border-left-color: #ff8d8d;
+  border-left-color: var(--app-text-danger);
 }
 
 .log-meta {
@@ -299,7 +299,7 @@ h2 {
   min-height: min(460px, calc(100vh - 260px));
   resize: vertical;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
+  border-radius: var(--app-radius-sm);
   padding: 12px;
   color: #edf5ef;
   background: rgba(0, 0, 0, 0.28);

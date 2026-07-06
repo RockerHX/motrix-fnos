@@ -76,8 +76,8 @@ function selectCategory(category: MainNavCategory) {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
   grid-template-areas: "sidebar main";
-  color: #d7dfd8;
-  background: #121212;
+  color: var(--app-text-secondary);
+  background: var(--app-color-shell);
 }
 
 .shell-sidebar {
@@ -93,7 +93,7 @@ function selectCategory(category: MainNavCategory) {
   min-height: 0;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
-  background: #151515;
+  background: var(--app-color-surface);
 }
 
 .content-stage {

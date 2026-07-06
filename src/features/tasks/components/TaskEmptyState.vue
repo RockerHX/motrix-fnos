@@ -136,7 +136,7 @@ function openSettings() {
 .empty-guide p {
   max-width: 360px;
   margin: 0 0 30px;
-  color: #b7bfb4;
+  color: var(--app-text-muted);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -242,7 +242,7 @@ button {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    border-radius: 12px;
+    border-radius: var(--app-radius-sm);
     padding: 12px 16px;
     font-size: 15px;
   }
