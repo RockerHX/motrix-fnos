@@ -2,5 +2,4 @@
 set -eu
 
 # 当前未完成 fnOS 实机“应用设置 -> 保存配置”验证，先保留此脚本避免引入未验证的平台行为变化。
-. "$(dirname -- "$0")/common.sh"
-run_required_noop_hook "$(basename "$0")"
+exit 0
