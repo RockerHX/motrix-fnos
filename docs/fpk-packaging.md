@@ -33,10 +33,10 @@
 
 ## 当前产物
 
-默认命令会同时生成 x86 与 ARM 两个 FPK：
+默认命令会同时生成 x86 与 ARM 两个 FPK，`<version>` 来自核心版本源；Release workflow 会校验 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 保持一致：
 
-- x86：`packaging/fnos/dist/motrix.fnos_1.3.3_x86.fpk`
-- ARM：`packaging/fnos/dist/motrix.fnos_1.3.3_arm.fpk`
+- x86：`packaging/fnos/dist/motrix.fnos_<version>_x86.fpk`
+- ARM：`packaging/fnos/dist/motrix.fnos_<version>_arm.fpk`
 
 对应 server 二进制：
 

@@ -5,13 +5,14 @@
 
 ## 1. 当前状态
 
-当前版本：**1.3.3**  
+版本来源：以 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 为准，Release tag 使用 `v<version>`。
+
 当前阶段：**阶段 11：关于页、版本检测与更新历史（✅ 已完成）**
 
 阶段摘要：
 
 - 当前发布主线已覆盖 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包链路。
-- 当前版本已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
+- 当前主线已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物；具体构建命令与产物路径见 `docs/fpk-packaging.md`。
 - 桌面 Web、手机浏览器和飞牛 App WebView 继续共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
 
@@ -34,7 +35,7 @@
 
 ## 3. 当前优先级
 
-当前正在准备 1.3.3 生命周期修复：卸载默认保留应用数据，并通过卸载向导提供“可选删除 Motrix 应用数据”。该修复不改变 HTTP / SSE / JSON-RPC 契约，不删除用户下载目录。后续工作仍应先确认是否影响以下边界：
+当前维护重点为生命周期行为：卸载默认保留应用数据，并通过卸载向导提供“可选删除 Motrix 应用数据”。该方向不改变 HTTP / SSE / JSON-RPC 契约，不删除用户下载目录。后续工作仍应先确认是否影响以下边界：
 
 - 是否新增或改变 HTTP / SSE / JSON-RPC 契约。
 - 是否新增长期状态、数据库字段或迁移。

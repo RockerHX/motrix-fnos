@@ -1,6 +1,6 @@
 # Motrix FNOS
 
-飞牛 fnOS 下载管理应用。当前版本为 1.3.3，基础功能、应用内国际化、手机端 UI 适配和关于页能力均已完成本轮开发。
+飞牛 fnOS 下载管理应用。项目版本以 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 为核心来源，Release tag 使用 `v<version>`。
 
 本仓库的目标是交付一个可在飞牛 fnOS 中安装、启动、停止、升级和卸载的 FPK-first 下载管理应用：
 
@@ -12,10 +12,10 @@
 
 ## 当前状态
 
-当前版本：`1.3.3`
+当前发布版本以 `package.json` 与 Release tag 为准；发布流程会校验 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 三个核心版本源一致。
 
 - 已具备 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包主线。
-- 当前版本已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
+- 当前主线已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物。
 
 详细阶段状态、已完成里程碑和验收口径见 [`docs/development-plan.md`](docs/development-plan.md)。
