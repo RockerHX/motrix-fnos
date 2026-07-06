@@ -12,17 +12,13 @@
 
 ## 当前状态
 
-截至 2026-07-05：
+当前版本：`1.2.1`
 
-- 已建立 `packaging/fnos/` FPK 目录、`manifest`、`cmd/start`、`cmd/stop`、`cmd/status` 和 Web UI 入口配置。
-- 已建立 Rust server、Web UI、Aria2 Next sidecar 的统一组装脚本。
-- 已可生成 x86 与 ARM 包：`packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk`、`packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk`。
-- 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
-- Web UI 已支持侧栏分类、回收站、扩展占位页、设置页、帮助入口、关于页、诊断日志和应用内中英文切换。
-- 手机端 UI 适配已完成本轮开发，覆盖移动端外壳布局、任务卡片和核心弹窗。
-- 关于页已支持应用信息、作者、项目链接、版本检测、手动更新说明和更新历史展示；版本更新仍需下载匹配架构 FPK 后在 fnOS 应用中心手动安装，或未来上架后通过应用中心更新。
+- 已具备 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包主线。
+- 当前版本已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
+- FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物。
 
-注意：FPK 必须与设备 CPU 架构匹配。x86 包不能安装到 ARM 飞牛设备；OES / A311D 等 ARM 飞牛应安装 ARM 包，否则会提示“应用包不符合系统要求”。
+详细阶段状态、已完成里程碑和验收口径见 [`docs/development-plan.md`](docs/development-plan.md)。
 
 ## FPK 构建
 
