@@ -95,17 +95,21 @@ packaging/fnos/
 
 关键内容：
 
-- `manifest`：FPK 元数据
+- `manifest.template`：源码态 manifest 模板输入
+- `.stage/<target>/manifest`：预组装后的真实 manifest
 - `cmd/`：启动、停止、状态脚本
 - `config/`：资源与权限声明
 - `app/bin/`：server 与 `aria2-next`
 - `app/ui/dist/`：Web UI 静态资源
 - `app/data/`：运行时数据目录
+- `.stage/`：预组装后的打包目录
 - `dist/`：最终输出的 `.fpk`
 
 约定：
 
-- `dist/`、`app/bin/` 中构建脚本放置的 server / Aria2 二进制、`app/ui/dist/`、`dist/*.fpk` 和 `motrix.fnos.fpk` 都是本地生成产物，不应作为源码态内容长期保留。
+- 源码态 `packaging/fnos/` **不是**可直接执行 `fnpack build` 的安全输入目录；真实打包输入由 `build:fpk:prepare` / `build:fpk*` 生成到 `.stage/<target>/`。
+- 如需手动检查 manifest、入口配置、端口配置或生命周期脚本，请检查 `.stage/x86/` 或 `.stage/arm/`，不要直接在源码态目录执行 `fnpack build`。
+- `dist/`、`.stage/`、`app/bin/` 中构建脚本放置的 server / Aria2 二进制、`app/ui/dist/`、`dist/*.fpk` 和 stage 目录内产物都是本地生成产物，不应作为源码态内容长期保留。
 - `assets/aria2/aria2-next-*` 是当前 `scripts/stage-aria2-sidecar.mjs` 使用的 sidecar 源资产，不是无用产物；只有未来改成下载缓存或发布资产拉取模式后，才可重新评估是否从仓库移除。
 
 ## 本地调试
@@ -116,7 +120,14 @@ packaging/fnos/
 rtk pnpm run build:fpk:prepare
 ```
 
-再调试脚本：
+需要检查预组装结果时，查看：
+
+```text
+packaging/fnos/.stage/x86/
+packaging/fnos/.stage/arm/
+```
+
+本地调试源码态脚本时，再执行：
 
 ```bash
 rtk packaging/fnos/cmd/start
@@ -172,10 +183,10 @@ appcenter-cli list
 仓库提供 `Release FPK` workflow：
 
 - 推送 `v*` tag 时自动构建 x86 与 ARM FPK，并创建 / 更新 GitHub Release。
-- 也可以在 GitHub Actions 页面手动运行 workflow，默认使用 `package.json` / `server/Cargo.toml` / `packaging/fnos/manifest` 中一致的版本号生成 tag。
+- 也可以在 GitHub Actions 页面手动运行 workflow，默认使用 `package.json` / `server/Cargo.toml` / `packaging/fnos/manifest.template` 中一致的版本号生成 tag。
 - workflow 会上传：
   - `motrix.fnos_<version>_x86.fpk`
   - `motrix.fnos_<version>_arm.fpk`
   - `SHA256SUMS.txt`
 
-发布前必须确认 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest` 三处版本一致；workflow 会在版本不一致时失败。
+发布前必须确认 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest.template` 三处版本一致；workflow 会在版本不一致时失败。
