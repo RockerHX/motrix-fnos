@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,12 +7,11 @@ import process from 'node:process';
 
 const repoRoot = process.cwd();
 const packagingRoot = path.join(repoRoot, 'packaging', 'fnos');
-const manifestPath = path.join(packagingRoot, 'manifest');
-const uiConfigPath = path.join(packagingRoot, 'app', 'ui', 'config');
-const portConfigPath = path.join(packagingRoot, 'MotrixFNOS.sc');
+const manifestTemplatePath = path.join(packagingRoot, 'manifest.template');
 const outputDir = path.join(packagingRoot, 'dist');
 const buildTarget = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
 const platform = buildTarget === 'aarch64-unknown-linux-gnu' ? 'arm' : 'x86';
+const stageDir = path.join(packagingRoot, '.stage', platform);
 const sidecarTarget = buildTarget;
 const prepareOnly = process.argv.includes('--prepare-only');
 const keepDist = process.argv.includes('--keep-dist');
@@ -22,35 +21,27 @@ const env = {
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
 };
 
-const manifestOriginal = readFileSync(manifestPath, 'utf8');
-const uiConfigOriginal = readFileSync(uiConfigPath, 'utf8');
-const portConfigOriginal = readFileSync(portConfigPath, 'utf8');
+resetSourceAppDataDir();
+run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
+run('node', ['scripts/build-web-ui-fpk.mjs'], env);
+run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
+stageServerBinary(buildTarget);
+syncUiIcons();
+prepareStageDir();
+resetStageAppDataDir(stageDir);
+renderManifest(stageDir, platform, servicePort);
+patchUiConfig(path.join(stageDir, 'app', 'ui', 'config'), servicePort);
+patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
+removeGitKeepFiles(stageDir);
 
-try {
-  resetAppDataDir();
-  run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
-  run('node', ['scripts/build-web-ui-fpk.mjs'], env);
-  run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
-  stageServerBinary(buildTarget);
-  syncUiIcons();
-  patchManifest(platform, servicePort);
-  patchUiConfig(servicePort);
-  patchPortConfig(servicePort);
-  removeGitKeepFiles(packagingRoot);
-
-  if (prepareOnly) {
-    console.log('FPK 预组装完成，已跳过 fnpack build');
-    process.exit(0);
-  }
-
-  const fnpack = ensureFnpack(env);
-  run(fnpack, ['build'], env, packagingRoot);
-  moveOutputFile();
-} finally {
-  writeFileSync(manifestPath, manifestOriginal);
-  writeFileSync(uiConfigPath, uiConfigOriginal);
-  writeFileSync(portConfigPath, portConfigOriginal);
+if (prepareOnly) {
+  console.log(`FPK 预组装完成，目录：${stageDir}`);
+  process.exit(0);
 }
+
+const fnpack = ensureFnpack(env);
+run(fnpack, ['build', '--directory', stageDir], env);
+moveOutputFile(stageDir);
 
 function removeGitKeepFiles(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -63,13 +54,20 @@ function removeGitKeepFiles(dir) {
   }
 }
 
-function resetAppDataDir() {
+function resetSourceAppDataDir() {
   const dataDir = path.join(packagingRoot, 'app', 'data');
   mkdirSync(dataDir, { recursive: true });
   for (const entry of readdirSync(dataDir)) {
     rmSync(path.join(dataDir, entry), { recursive: true, force: true });
   }
-  writeFileSync(path.join(dataDir, '.gitkeep'), '# 占位文件，供 Git 跟踪空目录\n');
+}
+
+function resetStageAppDataDir(dir) {
+  const dataDir = path.join(dir, 'app', 'data');
+  mkdirSync(dataDir, { recursive: true });
+  for (const entry of readdirSync(dataDir)) {
+    rmSync(path.join(dataDir, entry), { recursive: true, force: true });
+  }
 }
 
 function stageServerBinary(target) {
@@ -91,8 +89,23 @@ function syncUiIcons() {
   copyFileSync(path.join(packagingRoot, 'ICON_256.PNG'), path.join(imagesDir, 'icon-256.png'));
 }
 
-function patchManifest(platform, servicePort) {
-  let manifest = readFileSync(manifestPath, 'utf8');
+function prepareStageDir() {
+  rmSync(stageDir, { recursive: true, force: true });
+  mkdirSync(stageDir, { recursive: true });
+
+  for (const entry of readdirSync(packagingRoot, { withFileTypes: true })) {
+    if (entry.name === '.stage' || entry.name === 'dist' || entry.name === 'manifest.template' || entry.name === 'manifest') {
+      continue;
+    }
+
+    const source = path.join(packagingRoot, entry.name);
+    const destination = path.join(stageDir, entry.name);
+    cpSync(source, destination, { recursive: true });
+  }
+}
+
+function renderManifest(dir, platform, servicePort) {
+  let manifest = readFileSync(manifestTemplatePath, 'utf8');
   const isArm = platform === 'arm';
 
   if (isArm) {
@@ -107,7 +120,7 @@ function patchManifest(platform, servicePort) {
 
   manifest = removeManifestField(manifest, 'disable_authorization_path');
   manifest = upsertManifestField(manifest, 'service_port', servicePort);
-  writeFileSync(manifestPath, manifest);
+  writeFileSync(path.join(dir, 'manifest'), manifest);
 }
 
 function upsertManifestField(content, key, value) {
@@ -137,13 +150,13 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function patchUiConfig(servicePort) {
+function patchUiConfig(uiConfigPath, servicePort) {
   const config = JSON.parse(readFileSync(uiConfigPath, 'utf8'));
   config['.url']['motrix.fnos.main'].port = servicePort;
   writeFileSync(uiConfigPath, JSON.stringify(config, null, 2) + '\n');
 }
 
-function patchPortConfig(servicePort) {
+function patchPortConfig(portConfigPath, servicePort) {
   const port = `${servicePort}/tcp`;
   let config = readFileSync(portConfigPath, 'utf8');
   config = config.replace(/^src\.ports=.*$/m, `src.ports="${port}"`);
@@ -170,13 +183,13 @@ function ensureFnpack(env) {
   return binary;
 }
 
-function moveOutputFile() {
-  const manifest = parseManifest(readFileSync(manifestPath, 'utf8'));
-  const source = path.join(packagingRoot, `${manifest.appname}.fpk`);
+function moveOutputFile(dir) {
+  const manifest = parseManifest(readFileSync(path.join(dir, 'manifest'), 'utf8'));
+  const source = path.join(dir, `${manifest.appname}.fpk`);
   if (!existsSync(source)) {
     fail(`fnpack 未生成预期产物：${source}`);
   }
-  injectPackageRootFiles(source);
+  injectPackageRootFiles(source, path.join(dir, 'MotrixFNOS.sc'));
   mkdirSync(outputDir, { recursive: true });
   if (!keepDist) {
     resetDir(outputDir);
@@ -186,7 +199,7 @@ function moveOutputFile() {
   console.log(`FPK 已输出到 ${target}`);
 }
 
-function injectPackageRootFiles(fpkPath) {
+function injectPackageRootFiles(fpkPath, portConfigPath) {
   const workDir = mkdtempSync(path.join(os.tmpdir(), 'motrix-fnos-fpk-'));
   try {
     run('tar', ['-xzf', fpkPath, '-C', workDir], env);

@@ -69,7 +69,7 @@ jobs:
           set -euo pipefail
           package_version="$(node -p "require('./package.json').version")"
           cargo_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]"]/, "", $2); print $2; exit}' server/Cargo.toml)"
-          manifest_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' packaging/fnos/manifest)"
+          manifest_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' packaging/fnos/manifest.template)"
 
           if [ "${package_version}" != "${cargo_version}" ] || [ "${package_version}" != "${manifest_version}" ]; then
             echo "版本不一致：package=${package_version}, cargo=${cargo_version}, manifest=${manifest_version}" >&2
