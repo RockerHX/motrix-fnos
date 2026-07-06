@@ -33,6 +33,7 @@ renderManifest(stageDir, platform, servicePort);
 patchUiConfig(path.join(stageDir, 'app', 'ui', 'config'), servicePort);
 patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
 removeGitKeepFiles(stageDir);
+preflightStageDir(stageDir, platform, servicePort);
 
 if (prepareOnly) {
   console.log(`FPK 预组装完成，目录：${stageDir}`);
@@ -40,7 +41,13 @@ if (prepareOnly) {
 }
 
 const fnpack = ensureFnpack(env);
-run(fnpack, ['build', '--directory', stageDir], env);
+const stageManifest = parseManifest(readFileSync(path.join(stageDir, 'manifest'), 'utf8'));
+const stagedPackagePath = path.join(stageDir, `${stageManifest.appname}.fpk`);
+rmSync(stagedPackagePath, { force: true });
+const buildOutput = runAndCapture(fnpack, ['build', '--directory', stageDir], env, stageDir);
+if (buildOutput.includes('Packing failed')) {
+  fail('fnpack 输出包含 "Packing failed"，已中止打包流程');
+}
 moveOutputFile(stageDir);
 
 function removeGitKeepFiles(dir) {
@@ -121,6 +128,66 @@ function renderManifest(dir, platform, servicePort) {
   manifest = removeManifestField(manifest, 'disable_authorization_path');
   manifest = upsertManifestField(manifest, 'service_port', servicePort);
   writeFileSync(path.join(dir, 'manifest'), manifest);
+}
+
+function preflightStageDir(dir, platform, servicePort) {
+  const requiredPaths = [
+    'manifest',
+    'config/privilege',
+    'config/resource',
+    'ICON.PNG',
+    'ICON_256.PNG',
+    'app',
+    'cmd',
+    'cmd/main',
+    'cmd/install_init',
+    'cmd/install_callback',
+    'cmd/upgrade_init',
+    'cmd/upgrade_callback',
+    'cmd/uninstall_init',
+    'cmd/uninstall_callback',
+    'wizard',
+    'MotrixFNOS.sc',
+  ];
+
+  for (const relativePath of requiredPaths) {
+    if (!existsSync(path.join(dir, relativePath))) {
+      fail(`FPK 预检失败，缺少必需文件：${path.join(dir, relativePath)}`);
+    }
+  }
+
+  const manifest = parseManifest(readFileSync(path.join(dir, 'manifest'), 'utf8'));
+  const expectedUiDir = manifest.desktop_uidir || 'ui';
+  const desktopUiDir = path.join(dir, 'app', expectedUiDir);
+  if (!existsSync(desktopUiDir)) {
+    fail(`FPK 预检失败，desktop_uidir 对应目录不存在：${desktopUiDir}`);
+  }
+
+  if (manifest.service_port !== servicePort) {
+    fail(`FPK 预检失败，manifest.service_port=${manifest.service_port} 与预期 ${servicePort} 不一致`);
+  }
+
+  if (platform === 'x86') {
+    if (manifest.platform !== 'x86') {
+      fail(`FPK 预检失败，x86 包 platform 应为 x86，实际为 ${manifest.platform ?? '(missing)'}`);
+    }
+    if (manifest.arch !== 'x86_64') {
+      fail(`FPK 预检失败，x86 包 arch 应为 x86_64，实际为 ${manifest.arch ?? '(missing)'}`);
+    }
+    if (manifest.os_min_version !== '0.9.0') {
+      fail(`FPK 预检失败，x86 包 os_min_version 应为 0.9.0，实际为 ${manifest.os_min_version ?? '(missing)'}`);
+    }
+  } else {
+    if (manifest.platform !== 'arm') {
+      fail(`FPK 预检失败，ARM 包 platform 应为 arm，实际为 ${manifest.platform ?? '(missing)'}`);
+    }
+    if (manifest.arch) {
+      fail(`FPK 预检失败，ARM 包不应声明 arch，实际为 ${manifest.arch}`);
+    }
+    if (manifest.os_min_version !== '1.1.3100') {
+      fail(`FPK 预检失败，ARM 包 os_min_version 应为 1.1.3100，实际为 ${manifest.os_min_version ?? '(missing)'}`);
+    }
+  }
 }
 
 function upsertManifestField(content, key, value) {
@@ -238,6 +305,20 @@ function run(command, args, env, cwd = repoRoot) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function runAndCapture(command, args, env, cwd = repoRoot) {
+  const result = spawnSync(command, args, { cwd, env, encoding: 'utf8' });
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
+  }
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+  return `${result.stdout ?? ''}${result.stderr ?? ''}`;
 }
 
 function which(command, env) {
