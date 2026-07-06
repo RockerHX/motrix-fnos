@@ -164,7 +164,7 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 卸载向导的 `switch` 初始值必须使用 JSON 布尔值 `false`；虽然脚本最终收到的是环境变量字符串，但 2026-07-06 实机反馈 `initValue: "false"` 会导致开关关闭时反复回弹。
+- 卸载向导的 `switch` 初始值必须使用字符串 `"false"`；当前 `fnpack` 的 wizard schema 将 `items.initValue` 解析为 string，使用 JSON 布尔值会导致打包失败。
 
 ## 生命周期实机验证矩阵
 
