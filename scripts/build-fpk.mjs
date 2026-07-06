@@ -147,6 +147,8 @@ function preflightStageDir(dir, platform, servicePort) {
     'cmd/uninstall_init',
     'cmd/uninstall_callback',
     'wizard',
+    'wizard/install',
+    'wizard/uninstall',
     'MotrixFNOS.sc',
   ];
 
@@ -155,6 +157,9 @@ function preflightStageDir(dir, platform, servicePort) {
       fail(`FPK 预检失败，缺少必需文件：${path.join(dir, relativePath)}`);
     }
   }
+
+  validateJsonFile(path.join(dir, 'wizard', 'install'), '安装向导');
+  validateJsonFile(path.join(dir, 'wizard', 'uninstall'), '卸载向导');
 
   const manifest = parseManifest(readFileSync(path.join(dir, 'manifest'), 'utf8'));
   const expectedUiDir = manifest.desktop_uidir || 'ui';
@@ -187,6 +192,16 @@ function preflightStageDir(dir, platform, servicePort) {
     if (manifest.os_min_version !== '1.1.3100') {
       fail(`FPK 预检失败，ARM 包 os_min_version 应为 1.1.3100，实际为 ${manifest.os_min_version ?? '(missing)'}`);
     }
+  }
+}
+
+
+function validateJsonFile(filePath, label) {
+  try {
+    JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`FPK 预检失败，${label} JSON 格式无效：${filePath}，${message}`);
   }
 }
 
