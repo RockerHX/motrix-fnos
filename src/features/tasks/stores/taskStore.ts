@@ -11,6 +11,7 @@ import {
   resumeDownloadTask,
 } from "../services/taskService";
 import { t } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError } from "../utils/taskFormat";
 import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
@@ -59,7 +60,7 @@ export const useTaskStore = defineStore("tasks", () => {
       const shouldReport = options.showError || now - lastRefreshErrorAt.value > 10000;
       if (shouldReport) {
         lastRefreshErrorAt.value = now;
-        return { refreshError: getErrorMessage(error), taskErrorMessages: [] };
+        return { refreshError: getErrorMessage(error, t("task.operationFailed")), taskErrorMessages: [] };
       }
       return { taskErrorMessages: [] };
     } finally {
@@ -81,7 +82,7 @@ export const useTaskStore = defineStore("tasks", () => {
       const shouldReport = options.showError || now - lastRemovedRefreshErrorAt.value > 10000;
       if (shouldReport) {
         lastRemovedRefreshErrorAt.value = now;
-        return { refreshError: getErrorMessage(error), taskErrorMessages: [] };
+        return { refreshError: getErrorMessage(error, t("task.operationFailed")), taskErrorMessages: [] };
       }
       return { taskErrorMessages: [] };
     } finally {
@@ -272,11 +273,3 @@ function taskKey(task: DownloadTask) {
   return task.gid || String(task.id);
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const message = String(error);
-  return message || t("task.operationFailed");
-}

@@ -16,6 +16,7 @@ import {
 import { useSettingsStore } from "../stores/settingsStore";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
 
 const props = defineProps<{
@@ -91,7 +92,7 @@ async function loadSettings() {
     const [config] = await Promise.all([settingsStore.loadConfig(), settingsStore.loadAccessiblePaths()]);
     applyConfig(config);
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("settings.failed")));
   }
 }
 
@@ -102,7 +103,7 @@ async function saveSettings() {
     message.success(t("settings.saved"));
     closeDialog();
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("settings.failed")));
   }
 }
 
@@ -150,14 +151,6 @@ function kbToBytes(value: number) {
   return Math.floor(Math.max(0, value || 0) * 1024);
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const message = String(error);
-  return message || t("settings.failed");
-}
 </script>
 
 <template>

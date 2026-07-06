@@ -4,6 +4,7 @@ import { NButton, NCard, NEmpty, NModal, NTag, useMessage } from "naive-ui";
 import { nextTick, ref, watch } from "vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
 import { useI18n } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import type { DebugLogEntry, DebugLogLevel } from "../types";
 
 const props = defineProps<{
@@ -54,7 +55,7 @@ async function refreshLogs() {
     await debugLogStore.refreshLogs();
     await scrollToBottom();
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("common.unknown")));
   }
 }
 
@@ -63,7 +64,7 @@ async function clearLogs() {
     await debugLogStore.clearLogs();
     message.success(t("logs.cleared"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("common.unknown")));
   }
 }
 
@@ -79,7 +80,7 @@ async function copyAllLogs() {
     message.success(t("logs.copied"));
   } catch (error) {
     showManualCopyDialog(text);
-    message.warning(t("logs.autoCopyLimited", { message: getErrorMessage(error) }));
+    message.warning(t("logs.autoCopyLimited", { message: getErrorMessage(error, t("common.unknown")) }));
   }
 }
 
@@ -161,14 +162,6 @@ function levelType(level: DebugLogLevel) {
   return types[level];
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const text = String(error);
-  return text || t("common.unknown");
-}
 </script>
 
 <template>

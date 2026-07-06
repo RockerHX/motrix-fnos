@@ -3,6 +3,7 @@ import { ref } from "vue";
 import { getAccessiblePaths } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
 import { normalizeLanguage, setLanguage, t } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
 
 export const useSettingsStore = defineStore("settings", () => {
@@ -49,7 +50,7 @@ export const useSettingsStore = defineStore("settings", () => {
       return response.paths;
     } catch (error) {
       accessiblePaths.value = [];
-      accessiblePathsError.value = getErrorMessage(error);
+      accessiblePathsError.value = getErrorMessage(error, t("settings.accessiblePathsFailed"));
       throw error;
     } finally {
       isLoadingAccessiblePaths.value = false;
@@ -69,10 +70,3 @@ export const useSettingsStore = defineStore("settings", () => {
   };
 });
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error) || t("settings.accessiblePathsFailed");
-}

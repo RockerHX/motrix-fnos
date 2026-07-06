@@ -4,6 +4,7 @@ import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import { useTaskStore } from "../stores/taskStore";
 import { formatDateTime, useI18n } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 
@@ -38,7 +39,7 @@ async function pauseTask() {
     await taskStore.pauseTask(props.task.id);
     message.success(t("task.actions.paused"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
@@ -48,7 +49,7 @@ async function resumeTask() {
     await taskStore.resumeTask(props.task.id);
     message.success(t("task.actions.resumed"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
@@ -58,7 +59,7 @@ async function confirmRedownloadTask() {
     await taskStore.redownloadTask(props.task.id);
     message.success(t("task.actions.redownloaded"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
@@ -68,7 +69,7 @@ async function confirmDeleteTask(deleteFiles: boolean) {
     await taskStore.deleteTask(props.task.id, deleteFiles);
     message.success(deleteFiles ? t("task.actions.deletedWithFiles") : t("task.actions.deleted"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
@@ -78,7 +79,7 @@ async function confirmPermanentDeleteTask() {
     await taskStore.permanentlyDeleteTask(props.task.id);
     message.success(t("task.actions.permanentlyDeleted"));
   } catch (error) {
-    message.error(getErrorMessage(error));
+    message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
@@ -90,14 +91,6 @@ function ensureCanOperate() {
   return true;
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  const message = String(error);
-  return message || t("task.operationFailed");
-}
 
 function formatTimestamp(timestamp: number) {
   if (!timestamp) {

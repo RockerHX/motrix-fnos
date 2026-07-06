@@ -2,6 +2,7 @@ import { computed, onMounted, reactive, ref, watch, type Ref } from "vue";
 import { useMessage } from "naive-ui";
 import { getAccessiblePaths } from "../../../services/storage";
 import { useI18n } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 
@@ -90,7 +91,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
       onClose();
       onCreated();
     } catch (error) {
-      message.error(getErrorMessage(error));
+      message.error(getErrorMessage(error, t("task.operationFailed")));
     }
   }
 
@@ -123,7 +124,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     } catch (error) {
       accessiblePaths.value = [];
       form.saveDir = "";
-      accessiblePathsError.value = getErrorMessage(error);
+      accessiblePathsError.value = getErrorMessage(error, t("task.operationFailed"));
     } finally {
       isLoadingAccessiblePaths.value = false;
     }
@@ -162,14 +163,6 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     return localStorage.getItem(LAST_SAVE_DIR_KEY) || "";
   }
 
-  function getErrorMessage(error: unknown) {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    const message = String(error);
-    return message || t("task.operationFailed");
-  }
 
   return {
     taskStore,
