@@ -13,6 +13,7 @@ const steps = quick
   ? [
       { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端类型检查", command: packageManager, args: ["run", "typecheck"] },
+      { title: "前端单元测试", command: packageManager, args: ["run", "test:unit"] },
     ]
   : [
       { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
