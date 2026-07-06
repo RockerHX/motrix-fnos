@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
-fi
-exit 0
+
+# 当前未完成 fnOS 实机“应用设置 -> 保存配置”验证，先保留此脚本避免引入未验证的平台行为变化。
+. "$(dirname -- "$0")/common.sh"
+run_required_noop_hook "$(basename "$0")"

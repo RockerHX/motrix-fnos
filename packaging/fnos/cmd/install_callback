@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
-fi
-exit 0
+
+# 因 fnpack 1.2.1 会校验该文件存在而保留；当前无额外安装后置逻辑。
+. "$(dirname -- "$0")/common.sh"
+run_required_noop_hook "$(basename "$0")"
