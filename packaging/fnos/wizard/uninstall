@@ -10,7 +10,7 @@
         "type": "switch",
         "field": "MOTRIX_FNOS_DELETE_APP_DATA",
         "label": "同时删除 Motrix 应用数据",
-        "initValue": false,
+        "initValue": "false",
         "helpText": "开启后会删除任务记录、设置、JSON-RPC 密钥、Aria2 session 和日志等应用私有数据；不会删除用户下载目录中的文件。"
       }
     ]
