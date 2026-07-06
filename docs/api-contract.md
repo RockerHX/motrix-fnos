@@ -1,6 +1,6 @@
 # 前后端 HTTP / SSE / JSON-RPC API 契约
 
-> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；阶段状态见 `docs/development-plan.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；设计归档参考见 `docs/design/archive/ui-stitch-prompts.md`。
+> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；阶段状态见 `docs/development-plan.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；设计归档参考见 `docs/design/archive/ui-stitch-prompts.md`；JSON-RPC 远程访问说明见 `docs/jsonrpc-remote-access.md`。
 
 ## 1. 运行时约定
 
@@ -245,7 +245,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ## 6. JSON-RPC 兼容入口
 
-`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。远程使用说明见 [`docs/jsonrpc-remote-access.md`](jsonrpc-remote-access.md)。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
