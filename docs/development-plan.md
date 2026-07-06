@@ -3,48 +3,19 @@
 > 更新时间：2026-07-05  
 > 本文档记录当前阶段状态、已完成里程碑、优先级和验收口径。长期架构边界见 `docs/architecture.md`；HTTP / SSE 与 JSON-RPC 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
-## 1. 项目目标
-
-在飞牛 fnOS 上交付一个可安装、可运行、可维护的 **FPK 下载管理应用**。
-
-当前主线：
-
-- 交付形态：FPK + fnOS 服务 + Web UI。
-- 后端：Rust server + Axum。
-- 前端：Vue 3 + TypeScript + Vite + Naive UI + Pinia。
-- 下载引擎：Aria2 Next sidecar。
-- 本地持久化：SQLite。
-- 通信：HTTP API + SSE；公网/解析站兼容入口使用 `/jsonrpc`。
-- 长期维护范围：`server/`、`src/`、`packaging/fnos/`。
-
-## 2. 当前状态
+## 1. 当前状态
 
 当前版本：**1.2.1**  
 当前阶段：**阶段 11：关于页、版本检测与更新历史（✅ 已完成）**
 
-已完成能力：
+阶段摘要：
 
-- Rust server 已落地 Axum API、SSE 事件流、Aria2 进程管理、SQLite 持久化、任务同步、日志诊断和退出收口。
-- Web UI 已切换到相对路径 HTTP API / SSE 主线，支持任务列表、分类侧栏、回收站、Extensions 占位页、设置、帮助、诊断日志和应用内中英文切换。
-- 新建任务保存目录来自 fnOS 已授权目录，不提供任意本地路径输入。
-- FPK 目录、manifest、权限配置、Web UI 入口、启动/停止/状态脚本和卸载私有数据清理脚本已建立。
-- 打包脚本可输出 x86 与 ARM FPK：
-  - `packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk`
-  - `packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk`
-- 飞牛实机已验证安装、启动、停止、状态查询、Web UI、HTTP/HTTPS 下载、暂停、继续、删除、设置、日志和 session 恢复可用。
-- JSON-RPC 兼容入口已支持 `aria2.addUri`、`aria2.getVersion` 和 `system.multicall`，并通过设置页的 `jsonRpcToken` 控制添加任务鉴权。
-- 手机端 UI 适配本轮开发已完成，覆盖移动端外壳布局、任务卡片、空态、创建任务、设置、帮助、诊断与日志弹窗。
-- 关于页已支持应用信息、维护者、项目链接、版本检测、手动更新说明和内置更新历史；应用内不执行 FPK 自动安装。
+- 当前发布主线已覆盖 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包链路。
+- 当前版本已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
+- FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物；具体构建命令与产物路径见 `docs/fpk-packaging.md`。
+- 桌面 Web、手机浏览器和飞牛 App WebView 继续共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
 
-当前约束：
-
-- `x86_64` 设备安装 `motrix.fnos_1.2.1_x86.fpk`。
-- `aarch64` / `arm64` 设备安装 `motrix.fnos_1.2.1_arm.fpk`。
-- FPK 必须与设备 CPU 架构匹配；x86 包不能安装到 ARM 飞牛设备。
-- 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
-- 侧栏菜单、移动端展示和后续新增前端交互继续遵守 `docs/architecture.md` 的分层边界。
-
-## 3. 已完成里程碑
+## 2. 已完成里程碑
 
 | 阶段 | 状态 | 完成结论 |
 | --- | --- | --- |
@@ -61,7 +32,7 @@
 | 阶段 10：手机端 UI 适配 | ✅ 2026-07-05 | 移动端切换为单列外壳、底部导航、任务卡片和移动端弹窗；桌面布局保持不回退。 |
 | 阶段 11：关于页、版本检测与更新历史 | ✅ 2026-07-05 | 新增关于页入口，展示应用信息、版本检测结果、手动更新说明和 `CHANGELOG.md` 更新历史。 |
 
-## 4. 当前优先级
+## 3. 当前优先级
 
 当前没有新的进行中阶段。关于页、版本检测与更新历史能力已完成；该能力只展示信息和引导手动更新，不改变 FPK 生命周期，也不执行应用内自动安装。后续工作仍应先确认是否影响以下边界：
 
@@ -70,7 +41,7 @@
 - 是否涉及 fnOS / FPK 生命周期、权限、端口入口或文件夹授权行为。
 - 是否需要更新 `docs/architecture.md` 的长期架构约束。
 
-## 5. 验证口径
+## 4. 验证口径
 
 常规自动验证：
 
@@ -78,15 +49,9 @@
 rtk pnpm run verify:pre-commit
 ```
 
-发布前验证：
+发布前补充验证：
 
-```bash
-rtk pnpm run verify
-rtk pnpm run build:fpk
-```
-
-实机重点验证：
-
+- `rtk pnpm run verify`
 - 按设备架构安装对应 FPK。
 - 启动服务并打开 Web UI。
 - 验证 `/api/app/ping`、任务列表、SSE 刷新和退出态提示。
@@ -96,7 +61,7 @@ rtk pnpm run build:fpk
 - 验证手机端首屏、分类导航、创建任务、任务卡片、设置、帮助、关于、诊断和日志弹窗。
 - 验证关于页应用信息、版本检测失败回退、Release 链接和更新历史展示。
 
-## 6. 文档关系
+## 5. 文档关系
 
 - `docs/architecture.md`：长期架构边界和分层约束。
 - `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约。
