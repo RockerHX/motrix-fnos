@@ -1,0 +1,33 @@
+.app-dialog {
+  width: min(var(--app-dialog-width), calc(100vw - var(--app-dialog-desktop-margin)));
+  max-height: calc(var(--app-viewport-height) - var(--app-dialog-desktop-margin));
+  overflow: auto;
+}
+
+.app-dialog-eyebrow {
+  margin: 0 0 6px;
+  color: var(--app-dialog-eyebrow-color, var(--app-text-accent));
+  font-size: 12px;
+  font-weight: var(--app-dialog-eyebrow-weight, 800);
+  letter-spacing: var(--app-dialog-eyebrow-letter-spacing, 0.1em);
+  text-transform: uppercase;
+}
+
+.app-dialog-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 767px) {
+  .app-dialog {
+    width: calc(100vw - var(--app-dialog-mobile-margin));
+    max-height: calc(var(--app-viewport-height) - var(--app-dialog-mobile-margin));
+    border-radius: var(--app-dialog-mobile-radius);
+  }
+
+  .app-dialog-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}

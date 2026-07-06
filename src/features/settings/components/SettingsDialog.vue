@@ -162,7 +162,7 @@ function getErrorMessage(error: unknown) {
 
 <template>
   <NModal :show="show" :mask-closable="!settingsStore.isSaving" @update:show="emit('update:show', $event)">
-    <NCard class="settings-card" role="dialog" aria-modal="true" :title="t('settings.title')">
+    <NCard class="settings-card app-dialog" role="dialog" aria-modal="true" :title="t('settings.title')">
       <NForm
         class="settings-form"
         :label-placement="isMobileLayout ? 'top' : 'left'"
@@ -241,9 +241,7 @@ function getErrorMessage(error: unknown) {
 
 <style scoped>
 .settings-card {
-  width: min(620px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  --app-dialog-width: 620px;
 }
 
 .setting-stack {
@@ -259,12 +257,6 @@ function getErrorMessage(error: unknown) {
 }
 
 @media (max-width: 767px) {
-  .settings-card {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
   .settings-form :deep(.n-form-item-label) {
     padding-bottom: 8px;
   }

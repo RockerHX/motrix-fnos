@@ -173,15 +173,15 @@ function getErrorMessage(error: unknown) {
 
 <template>
   <NModal :show="show" @update:show="updateShow">
-    <NCard class="debug-log-dialog" role="dialog" aria-modal="true">
+    <NCard class="debug-log-dialog app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("logs.eyebrow") }}</p>
+          <p class="app-dialog-eyebrow">{{ t("logs.eyebrow") }}</p>
           <h2>{{ t("logs.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
-        <div class="header-actions">
+        <div class="debug-log-actions app-dialog-header-actions">
           <NButton size="small" secondary :loading="isLoading" @click="refreshLogs">{{ t("logs.refresh") }}</NButton>
           <NButton size="small" secondary @click="copyAllLogs">{{ t("logs.copyAll") }}</NButton>
           <NButton size="small" secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
@@ -205,10 +205,10 @@ function getErrorMessage(error: unknown) {
   </NModal>
 
   <NModal :show="showManualCopy" @update:show="showManualCopy = $event">
-    <NCard class="manual-copy-dialog" role="dialog" aria-modal="true">
+    <NCard class="manual-copy-dialog app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("logs.manualCopy.eyebrow") }}</p>
+          <p class="app-dialog-eyebrow">{{ t("logs.manualCopy.eyebrow") }}</p>
           <h2>{{ t("logs.manualCopy.title") }}</h2>
         </div>
       </template>
@@ -228,37 +228,18 @@ function getErrorMessage(error: unknown) {
 
 <style scoped>
 .debug-log-dialog {
-  width: min(980px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  --app-dialog-width: 980px;
 }
 
 .manual-copy-dialog {
-  width: min(900px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: #66e39a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  --app-dialog-width: 900px;
 }
 
 h2 {
   margin: 0;
 }
 
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-actions :deep(.n-button) {
+.debug-log-actions :deep(.n-button) {
   white-space: normal;
 }
 
@@ -333,19 +314,7 @@ h2 {
 }
 
 @media (max-width: 767px) {
-  .debug-log-dialog,
-  .manual-copy-dialog {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
-  .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
-  .header-actions :deep(.n-button) {
+  .debug-log-actions :deep(.n-button) {
     min-width: 0;
   }
 

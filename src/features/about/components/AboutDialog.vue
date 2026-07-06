@@ -75,10 +75,10 @@ function targetArchLabel(arch: string | undefined) {
 
 <template>
   <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="about-dialog" role="dialog" aria-modal="true">
+    <NCard class="about-dialog app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("about.eyebrow") }}</p>
+          <p class="app-dialog-eyebrow">{{ t("about.eyebrow") }}</p>
           <h2>{{ t("about.title", { name: appName }) }}</h2>
         </div>
       </template>
@@ -175,25 +175,13 @@ function targetArchLabel(arch: string | undefined) {
 
 <style scoped>
 .about-dialog {
-  width: min(760px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  --app-dialog-width: 760px;
 }
 
-.eyebrow,
 h2,
 h3,
 p {
   margin: 0;
-}
-
-.eyebrow {
-  margin-bottom: 6px;
-  color: #66e39a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .about-content {
@@ -339,12 +327,6 @@ a {
 }
 
 @media (max-width: 767px) {
-  .about-dialog {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
   .about-content {
     gap: 14px;
   }

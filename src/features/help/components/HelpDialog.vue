@@ -23,10 +23,10 @@ function closeDialog() {
 
 <template>
   <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="help-dialog" role="dialog" aria-modal="true">
+    <NCard class="help-dialog app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("help.eyebrow") }}</p>
+          <p class="app-dialog-eyebrow">{{ t("help.eyebrow") }}</p>
           <h2>{{ t("help.title") }}</h2>
         </div>
       </template>
@@ -89,18 +89,7 @@ function closeDialog() {
 
 <style scoped>
 .help-dialog {
-  width: min(760px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: #66e39a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  --app-dialog-width: 760px;
 }
 
 h2,
@@ -144,12 +133,6 @@ p {
 }
 
 @media (max-width: 767px) {
-  .help-dialog {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
   .help-sections {
     gap: 12px;
   }

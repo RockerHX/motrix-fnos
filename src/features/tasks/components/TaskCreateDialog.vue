@@ -57,10 +57,10 @@ const {
 
 <template>
   <NModal :show="show" :mask-closable="isMaskClosable" @update:show="(nextShow: boolean) => !nextShow && closeDialog()">
-    <NCard class="task-create-card" role="dialog" aria-modal="true">
+    <NCard class="task-create-card app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("create.eyebrow") }}</p>
+          <p class="task-create-eyebrow app-dialog-eyebrow">{{ t("create.eyebrow") }}</p>
           <h2>{{ t("create.title") }}</h2>
         </div>
       </template>
@@ -148,20 +148,15 @@ const {
 
 <style scoped>
 .task-create-card {
-  width: min(720px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
+  --app-dialog-width: 720px;
   min-width: 0;
-  overflow: auto;
   overscroll-behavior: contain;
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: #67dca0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.task-create-eyebrow {
+  --app-dialog-eyebrow-color: var(--app-text-accent-soft);
+  --app-dialog-eyebrow-weight: 700;
+  --app-dialog-eyebrow-letter-spacing: 0.08em;
 }
 
 h2 {
@@ -194,12 +189,6 @@ h2 {
 }
 
 @media (max-width: 767px) {
-  .task-create-card {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
   .task-create-form {
     width: 100%;
     padding-bottom: 4px;

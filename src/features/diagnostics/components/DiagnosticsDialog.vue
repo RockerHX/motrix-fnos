@@ -53,15 +53,15 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
 
 <template>
   <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="diagnostics-dialog" role="dialog" aria-modal="true">
+    <NCard class="diagnostics-dialog app-dialog" role="dialog" aria-modal="true">
       <template #header>
         <div>
-          <p class="eyebrow">{{ t("diagnostics.eyebrow") }}</p>
+          <p class="app-dialog-eyebrow">{{ t("diagnostics.eyebrow") }}</p>
           <h2>{{ t("diagnostics.title") }}</h2>
         </div>
       </template>
       <template #header-extra>
-        <div class="header-actions">
+        <div class="app-dialog-header-actions">
           <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
           <NButton quaternary circle @click="closeDialog">×</NButton>
         </div>
@@ -84,28 +84,11 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
 
 <style scoped>
 .diagnostics-dialog {
-  width: min(900px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: #66e39a;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  --app-dialog-width: 900px;
 }
 
 h2 {
   margin: 0;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .diagnostics-grid {
@@ -128,17 +111,6 @@ h2 {
 }
 
 @media (max-width: 767px) {
-  .diagnostics-dialog {
-    width: calc(100vw - 16px);
-    max-height: calc(var(--app-viewport-height) - 16px);
-    border-radius: 18px;
-  }
-
-  .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-
   .diagnostics-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;

@@ -223,7 +223,7 @@ function emitDeleteConfirm() {
   </NSpace>
 
   <NModal v-model:show="showDetails">
-    <NCard class="task-detail-card" role="dialog" aria-modal="true" :title="props.detailTitle">
+    <NCard class="task-detail-card app-dialog" role="dialog" aria-modal="true" :title="props.detailTitle">
       <NDescriptions :column="1" label-placement="left" bordered>
         <NDescriptionsItem :label="props.detailFileNameLabel">{{ props.detailFileName }}</NDescriptionsItem>
         <NDescriptionsItem :label="props.detailStatusLabel">{{ props.detailStatus }}</NDescriptionsItem>
@@ -250,7 +250,7 @@ function emitDeleteConfirm() {
   </NModal>
 
   <NModal v-model:show="showRedownloadConfirm" :mask-closable="!props.isOperating">
-    <NCard class="redownload-confirm-card" role="dialog" aria-modal="true" :title="props.redownloadTitle">
+    <NCard class="redownload-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.redownloadTitle">
       <p class="delete-confirm-text">
         {{ props.redownloadConfirmText }}
       </p>
@@ -267,7 +267,7 @@ function emitDeleteConfirm() {
   </NModal>
 
   <NModal v-model:show="showDeleteConfirm" :mask-closable="!props.isOperating">
-    <NCard class="delete-confirm-card" role="dialog" aria-modal="true" :title="props.deleteTitle">
+    <NCard class="delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.deleteTitle">
       <p class="delete-confirm-text">{{ props.deleteConfirmText }}</p>
       <NCheckbox v-model:checked="deleteFiles">{{ props.deleteFilesLabel }}</NCheckbox>
 
@@ -283,7 +283,7 @@ function emitDeleteConfirm() {
   </NModal>
 
   <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!props.isOperating">
-    <NCard class="permanent-delete-confirm-card" role="dialog" aria-modal="true" :title="props.permanentDeleteTitle">
+    <NCard class="permanent-delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.permanentDeleteTitle">
       <p class="delete-confirm-text">
         {{ props.permanentDeleteConfirmText }}
       </p>
@@ -319,15 +319,13 @@ function emitDeleteConfirm() {
 .delete-confirm-card,
 .permanent-delete-confirm-card,
 .redownload-confirm-card {
-  width: min(420px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  --app-dialog-width: 420px;
+  --app-dialog-mobile-margin: 24px;
 }
 
 .task-detail-card {
-  width: min(720px, calc(100vw - 48px));
-  max-height: calc(var(--app-viewport-height) - 48px);
-  overflow: auto;
+  --app-dialog-width: 720px;
+  --app-dialog-mobile-margin: 24px;
 }
 
 .delete-confirm-text {
@@ -352,14 +350,6 @@ function emitDeleteConfirm() {
   .compact-actions :deep(.n-button) {
     min-height: var(--app-touch-target-min);
     border-radius: 12px;
-  }
-
-  .delete-confirm-card,
-  .permanent-delete-confirm-card,
-  .redownload-confirm-card,
-  .task-detail-card {
-    width: calc(100vw - 24px);
-    max-height: calc(var(--app-viewport-height) - 24px);
   }
 
   .delete-confirm-card,
