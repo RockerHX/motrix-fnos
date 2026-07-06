@@ -36,7 +36,7 @@ impl Aria2ConfigStatus {
             rpc_host: config.rpc_host.clone(),
             rpc_port: config.rpc_port,
             rpc_secret_configured: !config.rpc_secret.is_empty(),
-            ca_certificate_path: super::detect_ca_certificate_path()
+            ca_certificate_path: super::args::detect_ca_certificate_path()
                 .map(|path| path.display().to_string()),
         }
     }
