@@ -60,7 +60,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 ```json
 {
   "name": "Motrix",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "backendStatus": "ready",
   "maintainer": "rockerhx",
   "repositoryUrl": "https://github.com/RockerHX/motrix-fnos",
@@ -74,7 +74,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ```json
 {
-  "currentVersion": "1.3.2",
+  "currentVersion": "1.3.3",
   "latestVersion": "1.3.3",
   "hasUpdate": true,
   "status": "available",
