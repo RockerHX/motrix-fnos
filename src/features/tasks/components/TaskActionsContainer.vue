@@ -7,6 +7,13 @@ import { formatDateTime, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
+import type {
+  TaskActionConfirmTexts,
+  TaskActionDetails,
+  TaskActionLabels,
+  TaskActionPermissions,
+  TaskActionState,
+} from "./taskActionViewModel";
 
 const props = defineProps<{
   task: DownloadTask;
@@ -17,21 +24,61 @@ const taskStore = useTaskStore();
 const message = useMessage();
 const { t } = useI18n();
 
-const isOperating = computed(() => taskStore.isTaskOperating(props.task.id));
-const isActionDisabled = computed(() => isOperating.value || taskStore.isRuntimeExiting);
-const canPause = computed(() => props.task.status === "active" || props.task.status === "pending");
-const canResume = computed(() => props.task.status === "paused" || props.task.status === "error");
-const canRedownload = computed(() => props.task.status === "complete");
-const canDelete = computed(() => props.task.status !== "removed");
-const canPermanentDelete = computed(() => props.task.status === "removed");
-const progressText = computed(() => formatTaskProgress(props.task));
-const detailSize = computed(() => formatTaskSizePair(props.task));
-const detailSpeed = computed(() => `${formatTaskSize(props.task.downloadSpeed)}/s`);
-const detailFilePath = computed(() => props.task.filePath || t("common.notAvailable"));
-const detailGid = computed(() => props.task.gid || t("common.notAvailable"));
-const detailCreatedAt = computed(() => formatTimestamp(props.task.createdAt));
-const detailUpdatedAt = computed(() => formatTimestamp(props.task.updatedAt));
-const detailErrorReason = computed(() => (props.task.errorMessage ? formatTaskError(props.task) : undefined));
+const actionState = computed<TaskActionState>(() => ({
+  isOperating: taskStore.isTaskOperating(props.task.id),
+  isActionDisabled: taskStore.isTaskOperating(props.task.id) || taskStore.isRuntimeExiting,
+  isRuntimeExiting: taskStore.isRuntimeExiting,
+}));
+const permissions = computed<TaskActionPermissions>(() => ({
+  canPause: props.task.status === "active" || props.task.status === "pending",
+  canResume: props.task.status === "paused" || props.task.status === "error",
+  canRedownload: props.task.status === "complete",
+  canDelete: props.task.status !== "removed",
+  canPermanentDelete: props.task.status === "removed",
+}));
+const labels = computed<TaskActionLabels>(() => ({
+  details: t("task.actions.details"),
+  pause: t("task.actions.pause"),
+  resume: t("task.actions.resume"),
+  redownload: t("task.actions.redownload"),
+  delete: t("task.actions.delete"),
+  permanentDelete: t("task.actions.permanentDelete"),
+  cancel: t("common.cancel"),
+  close: t("common.close"),
+}));
+const details = computed<TaskActionDetails>(() => {
+  const items = [
+    { label: t("task.detail.fileName"), value: props.task.fileName },
+    { label: t("task.detail.status"), value: formatTaskStatusLabel(props.task.status) },
+    { label: t("task.detail.progress"), value: formatTaskProgress(props.task) },
+    { label: t("task.detail.size"), value: formatTaskSizePair(props.task) },
+    { label: t("task.detail.speed"), value: `${formatTaskSize(props.task.downloadSpeed)}/s` },
+    { label: t("task.detail.saveDir"), value: props.task.saveDir },
+    { label: t("task.detail.filePath"), value: props.task.filePath || t("common.notAvailable") },
+    { label: t("task.detail.gid"), value: props.task.gid || t("common.notAvailable") },
+    { label: t("task.detail.url"), value: props.task.url },
+    { label: t("task.detail.createdAt"), value: formatTimestamp(props.task.createdAt) },
+    { label: t("task.detail.updatedAt"), value: formatTimestamp(props.task.updatedAt) },
+  ];
+
+  if (props.task.errorMessage) {
+    items.push({ label: t("task.detail.errorReason"), value: formatTaskError(props.task) });
+  }
+
+  return {
+    title: t("task.detail.title"),
+    items,
+  };
+});
+const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
+  redownloadTitle: t("task.redownload.title"),
+  redownloadConfirmText: t("task.redownload.confirm", { name: props.task.fileName }),
+  deleteTitle: t("task.delete.title"),
+  deleteConfirmText: t("task.delete.confirm", { name: props.task.fileName }),
+  deleteFilesLabel: t("task.delete.files"),
+  permanentDeleteTitle: t("task.permanentDelete.title"),
+  permanentDeleteConfirmText: t("task.permanentDelete.confirm", { name: props.task.fileName }),
+}));
 
 async function pauseTask() {
   if (!ensureCanOperate()) return;
@@ -91,7 +138,6 @@ function ensureCanOperate() {
   return true;
 }
 
-
 function formatTimestamp(timestamp: number) {
   if (!timestamp) {
     return "--";
@@ -104,54 +150,11 @@ function formatTimestamp(timestamp: number) {
 <template>
   <TaskActions
     :compact="props.compact"
-    :is-operating="isOperating"
-    :is-action-disabled="isActionDisabled"
-    :is-runtime-exiting="taskStore.isRuntimeExiting"
-    :can-pause="canPause"
-    :can-resume="canResume"
-    :can-redownload="canRedownload"
-    :can-delete="canDelete"
-    :can-permanent-delete="canPermanentDelete"
-    :details-label="t('task.actions.details')"
-    :pause-label="t('task.actions.pause')"
-    :resume-label="t('task.actions.resume')"
-    :redownload-label="t('task.actions.redownload')"
-    :delete-label="t('task.actions.delete')"
-    :permanent-delete-label="t('task.actions.permanentDelete')"
-    :cancel-label="t('common.cancel')"
-    :close-label="t('common.close')"
-    :detail-title="t('task.detail.title')"
-    :detail-file-name-label="t('task.detail.fileName')"
-    :detail-status-label="t('task.detail.status')"
-    :detail-progress-label="t('task.detail.progress')"
-    :detail-size-label="t('task.detail.size')"
-    :detail-speed-label="t('task.detail.speed')"
-    :detail-save-dir-label="t('task.detail.saveDir')"
-    :detail-file-path-label="t('task.detail.filePath')"
-    :detail-gid-label="t('task.detail.gid')"
-    :detail-url-label="t('task.detail.url')"
-    :detail-created-at-label="t('task.detail.createdAt')"
-    :detail-updated-at-label="t('task.detail.updatedAt')"
-    :detail-error-reason-label="t('task.detail.errorReason')"
-    :detail-file-name="props.task.fileName"
-    :detail-status="formatTaskStatusLabel(props.task.status)"
-    :detail-progress="progressText"
-    :detail-size="detailSize"
-    :detail-speed="detailSpeed"
-    :detail-save-dir="props.task.saveDir"
-    :detail-file-path="detailFilePath"
-    :detail-gid="detailGid"
-    :detail-url="props.task.url"
-    :detail-created-at="detailCreatedAt"
-    :detail-updated-at="detailUpdatedAt"
-    :detail-error-reason="detailErrorReason"
-    :redownload-title="t('task.redownload.title')"
-    :redownload-confirm-text="t('task.redownload.confirm', { name: props.task.fileName })"
-    :delete-title="t('task.delete.title')"
-    :delete-confirm-text="t('task.delete.confirm', { name: props.task.fileName })"
-    :delete-files-label="t('task.delete.files')"
-    :permanent-delete-title="t('task.permanentDelete.title')"
-    :permanent-delete-confirm-text="t('task.permanentDelete.confirm', { name: props.task.fileName })"
+    :state="actionState"
+    :permissions="permissions"
+    :labels="labels"
+    :details="details"
+    :confirm-texts="confirmTexts"
     @pause="pauseTask"
     @resume="resumeTask"
     @confirm-redownload="confirmRedownloadTask"

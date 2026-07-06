@@ -1,57 +1,21 @@
 <script setup lang="ts">
 import { watch, ref } from "vue";
 import { NButton, NCard, NCheckbox, NDescriptions, NDescriptionsItem, NModal, NSpace } from "naive-ui";
+import type {
+  TaskActionConfirmTexts,
+  TaskActionDetails,
+  TaskActionLabels,
+  TaskActionPermissions,
+  TaskActionState,
+} from "./taskActionViewModel";
 
 const props = defineProps<{
   compact?: boolean;
-  isOperating: boolean;
-  isActionDisabled: boolean;
-  isRuntimeExiting: boolean;
-  canPause: boolean;
-  canResume: boolean;
-  canRedownload: boolean;
-  canDelete: boolean;
-  canPermanentDelete: boolean;
-  detailsLabel: string;
-  pauseLabel: string;
-  resumeLabel: string;
-  redownloadLabel: string;
-  deleteLabel: string;
-  permanentDeleteLabel: string;
-  cancelLabel: string;
-  closeLabel: string;
-  detailTitle: string;
-  detailFileNameLabel: string;
-  detailStatusLabel: string;
-  detailProgressLabel: string;
-  detailSizeLabel: string;
-  detailSpeedLabel: string;
-  detailSaveDirLabel: string;
-  detailFilePathLabel: string;
-  detailGidLabel: string;
-  detailUrlLabel: string;
-  detailCreatedAtLabel: string;
-  detailUpdatedAtLabel: string;
-  detailErrorReasonLabel: string;
-  detailFileName: string;
-  detailStatus: string;
-  detailProgress: string;
-  detailSize: string;
-  detailSpeed: string;
-  detailSaveDir: string;
-  detailFilePath: string;
-  detailGid: string;
-  detailUrl: string;
-  detailCreatedAt: string;
-  detailUpdatedAt: string;
-  detailErrorReason?: string;
-  redownloadTitle: string;
-  redownloadConfirmText: string;
-  deleteTitle: string;
-  deleteConfirmText: string;
-  deleteFilesLabel: string;
-  permanentDeleteTitle: string;
-  permanentDeleteConfirmText: string;
+  state: TaskActionState;
+  permissions: TaskActionPermissions;
+  labels: TaskActionLabels;
+  details: TaskActionDetails;
+  confirmTexts: TaskActionConfirmTexts;
 }>();
 
 const emit = defineEmits<{
@@ -69,7 +33,7 @@ const showDetails = ref(false);
 const deleteFiles = ref(false);
 
 watch(
-  () => props.isRuntimeExiting,
+  () => props.state.isRuntimeExiting,
   (isRuntimeExiting) => {
     if (!isRuntimeExiting) {
       return;
@@ -98,206 +62,200 @@ function emitDeleteConfirm() {
     <NButton
       size="small"
       secondary
-      :title="props.detailsLabel"
-      :aria-label="props.detailsLabel"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.details"
+      :aria-label="props.labels.details"
+      :disabled="props.state.isActionDisabled"
       @click="showDetails = true"
     >
-      {{ props.detailsLabel }}
+      {{ props.labels.details }}
     </NButton>
     <NButton
-      v-if="props.canPause"
+      v-if="props.permissions.canPause"
       size="small"
       secondary
-      :title="props.pauseLabel"
-      :aria-label="props.pauseLabel"
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.pause"
+      :aria-label="props.labels.pause"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
-      {{ props.pauseLabel }}
+      {{ props.labels.pause }}
     </NButton>
     <NButton
-      v-if="props.canResume"
+      v-if="props.permissions.canResume"
       size="small"
       secondary
-      :title="props.resumeLabel"
-      :aria-label="props.resumeLabel"
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.resume"
+      :aria-label="props.labels.resume"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
-      {{ props.resumeLabel }}
+      {{ props.labels.resume }}
     </NButton>
     <NButton
-      v-if="props.canRedownload"
+      v-if="props.permissions.canRedownload"
       size="small"
       secondary
-      :title="props.redownloadLabel"
-      :aria-label="props.redownloadLabel"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.redownload"
+      :aria-label="props.labels.redownload"
+      :disabled="props.state.isActionDisabled"
       @click="showRedownloadConfirm = true"
     >
-      {{ props.redownloadLabel }}
+      {{ props.labels.redownload }}
     </NButton>
     <NButton
-      v-if="props.canDelete"
+      v-if="props.permissions.canDelete"
       size="small"
       secondary
       type="error"
-      :title="props.deleteLabel"
-      :aria-label="props.deleteLabel"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.delete"
+      :aria-label="props.labels.delete"
+      :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
-      {{ props.deleteLabel }}
+      {{ props.labels.delete }}
     </NButton>
     <NButton
-      v-if="props.canPermanentDelete"
+      v-if="props.permissions.canPermanentDelete"
       size="small"
       secondary
       type="error"
-      :title="props.permanentDeleteLabel"
-      :aria-label="props.permanentDeleteLabel"
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :title="props.labels.permanentDelete"
+      :aria-label="props.labels.permanentDelete"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
     >
-      {{ props.permanentDeleteLabel }}
+      {{ props.labels.permanentDelete }}
     </NButton>
   </div>
   <NSpace v-else :size="6" wrap>
-    <NButton size="small" secondary :disabled="props.isActionDisabled" @click="showDetails = true">
-      {{ props.detailsLabel }}
+    <NButton size="small" secondary :disabled="props.state.isActionDisabled" @click="showDetails = true">
+      {{ props.labels.details }}
     </NButton>
     <NButton
-      v-if="props.canPause"
+      v-if="props.permissions.canPause"
       size="small"
       secondary
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
-      {{ props.pauseLabel }}
+      {{ props.labels.pause }}
     </NButton>
     <NButton
-      v-if="props.canResume"
+      v-if="props.permissions.canResume"
       size="small"
       secondary
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
-      {{ props.resumeLabel }}
+      {{ props.labels.resume }}
     </NButton>
     <NButton
-      v-if="props.canRedownload"
+      v-if="props.permissions.canRedownload"
       size="small"
       secondary
-      :disabled="props.isActionDisabled"
+      :disabled="props.state.isActionDisabled"
       @click="showRedownloadConfirm = true"
     >
-      {{ props.redownloadLabel }}
+      {{ props.labels.redownload }}
     </NButton>
     <NButton
-      v-if="props.canDelete"
+      v-if="props.permissions.canDelete"
       size="small"
       secondary
       type="error"
-      :disabled="props.isActionDisabled"
+      :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
-      {{ props.deleteLabel }}
+      {{ props.labels.delete }}
     </NButton>
     <NButton
-      v-if="props.canPermanentDelete"
+      v-if="props.permissions.canPermanentDelete"
       size="small"
       secondary
       type="error"
-      :loading="props.isOperating"
-      :disabled="props.isActionDisabled"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
     >
-      {{ props.permanentDeleteLabel }}
+      {{ props.labels.permanentDelete }}
     </NButton>
   </NSpace>
 
   <NModal v-model:show="showDetails">
-    <NCard class="task-detail-card app-dialog" role="dialog" aria-modal="true" :title="props.detailTitle">
+    <NCard class="task-detail-card app-dialog" role="dialog" aria-modal="true" :title="props.details.title">
       <NDescriptions :column="1" label-placement="left" bordered>
-        <NDescriptionsItem :label="props.detailFileNameLabel">{{ props.detailFileName }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailStatusLabel">{{ props.detailStatus }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailProgressLabel">{{ props.detailProgress }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailSizeLabel">{{ props.detailSize }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailSpeedLabel">{{ props.detailSpeed }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailSaveDirLabel">{{ props.detailSaveDir }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailFilePathLabel">{{ props.detailFilePath }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailGidLabel">{{ props.detailGid }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailUrlLabel">{{ props.detailUrl }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailCreatedAtLabel">{{ props.detailCreatedAt }}</NDescriptionsItem>
-        <NDescriptionsItem :label="props.detailUpdatedAtLabel">{{ props.detailUpdatedAt }}</NDescriptionsItem>
-        <NDescriptionsItem v-if="props.detailErrorReason" :label="props.detailErrorReasonLabel">
-          {{ props.detailErrorReason }}
+        <NDescriptionsItem v-for="item in props.details.items" :key="item.label" :label="item.label">
+          {{ item.value }}
         </NDescriptionsItem>
       </NDescriptions>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton @click="showDetails = false">{{ props.closeLabel }}</NButton>
+          <NButton @click="showDetails = false">{{ props.labels.close }}</NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
-  <NModal v-model:show="showRedownloadConfirm" :mask-closable="!props.isOperating">
-    <NCard class="redownload-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.redownloadTitle">
+  <NModal v-model:show="showRedownloadConfirm" :mask-closable="!props.state.isOperating">
+    <NCard class="redownload-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.redownloadTitle">
       <p class="delete-confirm-text">
-        {{ props.redownloadConfirmText }}
+        {{ props.confirmTexts.redownloadConfirmText }}
       </p>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="props.isActionDisabled" @click="showRedownloadConfirm = false">{{ props.cancelLabel }}</NButton>
-          <NButton type="primary" :loading="props.isOperating" :disabled="props.isActionDisabled" @click="emit('confirmRedownload')">
-            {{ props.redownloadLabel }}
+          <NButton :disabled="props.state.isActionDisabled" @click="showRedownloadConfirm = false">{{ props.labels.cancel }}</NButton>
+          <NButton
+            type="primary"
+            :loading="props.state.isOperating"
+            :disabled="props.state.isActionDisabled"
+            @click="emit('confirmRedownload')"
+          >
+            {{ props.labels.redownload }}
           </NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
-  <NModal v-model:show="showDeleteConfirm" :mask-closable="!props.isOperating">
-    <NCard class="delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.deleteTitle">
-      <p class="delete-confirm-text">{{ props.deleteConfirmText }}</p>
-      <NCheckbox v-model:checked="deleteFiles">{{ props.deleteFilesLabel }}</NCheckbox>
+  <NModal v-model:show="showDeleteConfirm" :mask-closable="!props.state.isOperating">
+    <NCard class="delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.deleteTitle">
+      <p class="delete-confirm-text">{{ props.confirmTexts.deleteConfirmText }}</p>
+      <NCheckbox v-model:checked="deleteFiles">{{ props.confirmTexts.deleteFilesLabel }}</NCheckbox>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="props.isActionDisabled" @click="showDeleteConfirm = false">{{ props.cancelLabel }}</NButton>
-          <NButton type="error" :loading="props.isOperating" :disabled="props.isActionDisabled" @click="emitDeleteConfirm">
-            {{ props.deleteLabel }}
+          <NButton :disabled="props.state.isActionDisabled" @click="showDeleteConfirm = false">{{ props.labels.cancel }}</NButton>
+          <NButton type="error" :loading="props.state.isOperating" :disabled="props.state.isActionDisabled" @click="emitDeleteConfirm">
+            {{ props.labels.delete }}
           </NButton>
         </NSpace>
       </template>
     </NCard>
   </NModal>
 
-  <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!props.isOperating">
-    <NCard class="permanent-delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.permanentDeleteTitle">
+  <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!props.state.isOperating">
+    <NCard class="permanent-delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.permanentDeleteTitle">
       <p class="delete-confirm-text">
-        {{ props.permanentDeleteConfirmText }}
+        {{ props.confirmTexts.permanentDeleteConfirmText }}
       </p>
 
       <template #footer>
         <NSpace justify="end">
-          <NButton :disabled="props.isActionDisabled" @click="showPermanentDeleteConfirm = false">{{ props.cancelLabel }}</NButton>
+          <NButton :disabled="props.state.isActionDisabled" @click="showPermanentDeleteConfirm = false">{{ props.labels.cancel }}</NButton>
           <NButton
             type="error"
-            :loading="props.isOperating"
-            :disabled="props.isActionDisabled"
+            :loading="props.state.isOperating"
+            :disabled="props.state.isActionDisabled"
             @click="emit('confirmPermanentDelete')"
           >
-            {{ props.permanentDeleteLabel }}
+            {{ props.labels.permanentDelete }}
           </NButton>
         </NSpace>
       </template>
