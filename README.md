@@ -28,45 +28,13 @@
 rtk pnpm install
 ```
 
-同时构建 x86 和 ARM 包：
+构建 FPK：
 
 ```bash
 rtk pnpm run build:fpk
 ```
 
-输出：
-
-```text
-packaging/fnos/dist/motrix.fnos_1.2.1_x86.fpk
-packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk
-```
-
-如需只构建 x86 包：
-
-```bash
-rtk pnpm run build:fpk:x64
-```
-
-如需只构建 ARM64 / aarch64 包：
-
-```bash
-rtk pnpm run build:fpk:arm64
-```
-
-输出：
-
-```text
-packaging/fnos/dist/motrix.fnos_1.2.1_arm.fpk
-```
-
-非 Linux x86_64 主机进行交叉构建时，脚本会自动检查并安装缺失的 Rust target；仍需要先安装 `cargo-zigbuild` / `ziglang`：
-
-```bash
-rtk cargo install --locked cargo-zigbuild
-rtk python3 -m pip install --user --break-system-packages ziglang
-```
-
-如果只想验证 FPK 组装目录，不执行 `fnpack build`：
+只做预组装检查：
 
 ```bash
 rtk pnpm run build:fpk:prepare
@@ -78,16 +46,7 @@ rtk pnpm run build:fpk:prepare
 rtk pnpm run clean
 ```
 
-该命令只清理源码态仓库不应长期保留的构建输出和系统残留，例如 `dist/`、`packaging/fnos/app/bin/` 中 staged 的二进制、`packaging/fnos/app/ui/dist/`、`packaging/fnos/dist/`、`packaging/fnos/motrix.fnos.fpk` 和 `.DS_Store`。`assets/aria2/` 下的 Aria2 Next Linux sidecar 是当前打包脚本的源资产，不属于可清理产物。
-
-## 当前仓库中哪些内容可复用
-
-以下内容仍保留较高迁移价值：
-
-- Vue 3 + Naive UI 的任务、设置、诊断界面结构
-- Pinia 状态管理与任务运行态管理模式
-- Rust 中的下载任务模型、Aria2 管理、SQLite 持久化、日志与 session 恢复逻辑
-- Linux x86_64 / ARM64 的 Aria2 Next sidecar 资产
+详细构建矩阵、产物位置、交叉构建说明和打包排障见 [`docs/fpk-packaging.md`](docs/fpk-packaging.md)。
 
 ## 文档入口
 
