@@ -31,7 +31,16 @@ clear_dir_contents() {
 CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PACKAGE_ROOT=$(CDPATH= cd -- "${CMD_DIR}/.." && pwd)
 PKG_VAR=${TRIM_PKGVAR:-"${PACKAGE_ROOT}/app/data"}
+DELETE_APP_DATA=$(printf '%s' "${MOTRIX_FNOS_DELETE_APP_DATA:-}" | tr '[:upper:]' '[:lower:]')
 
-clear_dir_contents "${PKG_VAR}" || true
+case "${DELETE_APP_DATA}" in
+  "1"|"true"|"yes"|"on")
+    log_uninstall "卸载向导已选择删除 Motrix 应用数据"
+    clear_dir_contents "${PKG_VAR}" || true
+    ;;
+  *)
+    log_uninstall "卸载默认保留 Motrix 应用数据：${PKG_VAR}"
+    ;;
+esac
 
 exit 0
