@@ -2,9 +2,9 @@
 
 ## 作用
 
-这份文档只说明 **如何构建和定位 FPK 产物**。
+这份文档只说明 **如何构建和定位 FPK 产物**，以及最小调试 / 排障入口。
 
-它本身不参与运行时逻辑，也不会影响前后端代码行为；但其中记录的命令、路径、产物命名和 manifest 约定必须与仓库脚本保持一致。
+它不记录项目阶段状态，也不承担运行时能力说明；其中命令、路径、产物命名和 manifest 约定必须与仓库脚本保持一致。
 
 ## 当前产物
 
@@ -122,7 +122,8 @@ rtk packaging/fnos/cmd/stop
 ## 相关文档
 
 - 总体架构：`docs/architecture.md`
-- 当前状态与验证记录：`README.md`、`docs/development-plan.md`
+- 阶段状态与验收：`docs/development-plan.md`
+- HTTP / SSE / JSON-RPC 契约：`docs/api-contract.md`
 
 ## GitHub Release 在线打包
 
