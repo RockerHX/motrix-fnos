@@ -75,20 +75,20 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 ```json
 {
   "currentVersion": "1.3.3",
-  "latestVersion": "1.3.3",
+  "latestVersion": "1.3.4",
   "hasUpdate": true,
   "status": "available",
-  "releaseUrl": "https://github.com/RockerHX/motrix-fnos/releases/tag/v1.3.3",
+  "releaseUrl": "https://github.com/RockerHX/motrix-fnos/releases/tag/v1.3.4",
   "assets": [
     {
       "architecture": "x86",
-      "name": "motrix.fnos_1.3.3_x86.fpk",
-      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.3/motrix.fnos_1.3.3_x86.fpk"
+      "name": "motrix.fnos_1.3.4_x86.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix.fnos_1.3.4_x86.fpk"
     },
     {
       "architecture": "arm",
-      "name": "motrix.fnos_1.3.3_arm.fpk",
-      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.3/motrix.fnos_1.3.3_arm.fpk"
+      "name": "motrix.fnos_1.3.4_arm.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix.fnos_1.3.4_arm.fpk"
     }
   ],
   "checkedAt": 1760000000000,
