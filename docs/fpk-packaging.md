@@ -121,9 +121,9 @@ rtk packaging/fnos/cmd/stop
 
 ## 相关文档
 
-- 总体架构：`docs/architecture.md`
-- 阶段状态与验收：`docs/development-plan.md`
-- HTTP / SSE / JSON-RPC 契约：`docs/api-contract.md`
+- 长期架构：`docs/architecture.md`
+- 阶段状态：`docs/development-plan.md`
+- 接口契约：`docs/api-contract.md`
 
 ## GitHub Release 在线打包
 

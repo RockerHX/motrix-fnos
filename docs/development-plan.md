@@ -63,7 +63,9 @@ rtk pnpm run verify:pre-commit
 
 ## 5. 文档关系
 
-- `docs/architecture.md`：长期架构边界和分层约束。
-- `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约。
-- `docs/fpk-packaging.md`：FPK 构建命令、产物路径和排障入口。
+- `docs/architecture.md`：长期架构边界和分层约束的唯一来源。
+- `docs/development-plan.md`：当前阶段状态、里程碑、优先级和验收口径的唯一来源。
+- `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约的唯一来源。
+- `docs/fpk-packaging.md`：FPK 构建命令、产物位置和打包排障入口的唯一来源。
+- `docs/design/archive/ui-stitch-prompts.md`：历史设计归档参考，不作为当前实现契约。
 - `CHANGELOG.md`：发布历史。

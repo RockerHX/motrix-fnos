@@ -50,10 +50,10 @@ rtk pnpm run clean
 
 ## 文档入口
 
-- 架构边界：[`docs/architecture.md`](docs/architecture.md)
-- 阶段计划：[`docs/development-plan.md`](docs/development-plan.md)
-- HTTP / SSE 契约：[`docs/api-contract.md`](docs/api-contract.md)
-- FPK 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
+- 长期架构：[`docs/architecture.md`](docs/architecture.md)
+- 阶段状态：[`docs/development-plan.md`](docs/development-plan.md)
+- 接口契约：[`docs/api-contract.md`](docs/api-contract.md)
+- 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
 
 ## 本地开发说明
 
