@@ -7,28 +7,25 @@ import process from 'node:process';
 
 const repoRoot = process.cwd();
 const target = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
+const cargoTarget = resolveCargoTarget(target);
+const rustTarget = stripGlibcSuffix(cargoTarget);
 const manifestPath = path.join(repoRoot, 'server', 'Cargo.toml');
-const outputPath = path.join(repoRoot, 'server', 'target', target, 'release', 'motrix-fnos-server');
+const outputPath = path.join(repoRoot, 'server', 'target', rustTarget, 'release', 'motrix-fnos-server');
 let env = {
   ...process.env,
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
 };
 
-const isNativeLinuxX64 = process.platform === 'linux' && process.arch === 'x64' && target === 'x86_64-unknown-linux-gnu';
-const args = isNativeLinuxX64
-  ? ['build', '--manifest-path', manifestPath, '--release', '--target', target]
-  : ['zigbuild', '--manifest-path', manifestPath, '--release', '--target', target];
+const args = ['zigbuild', '--manifest-path', manifestPath, '--release', '--target', cargoTarget];
 
-if (!isNativeLinuxX64 && !hasCargoSubcommand('zigbuild', env)) {
+if (!hasCargoSubcommand('zigbuild', env)) {
   fail('未检测到 cargo-zigbuild。请先安装交叉构建依赖，例如：python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang');
 }
-if (!isNativeLinuxX64) {
-  env = ensureZig(env);
-}
+env = ensureZig(env);
 
-ensureRustTarget(target, env);
+ensureRustTarget(rustTarget, env);
 run('cargo', args, env);
-console.log(`Linux server 构建完成：${outputPath}`);
+console.log(`Linux server 构建完成：${outputPath}（glibc baseline: ${cargoTarget}）`);
 
 function readOption(name) {
   const index = process.argv.indexOf(name);
@@ -92,6 +89,33 @@ function ensureRustTarget(target, env) {
 
   console.log(`未检测到 Rust target ${target}，准备执行 rustup target add ${target}`);
   run('rustup', ['target', 'add', target], env);
+}
+
+function resolveCargoTarget(target) {
+  if (!target.endsWith('-linux-gnu')) {
+    return target;
+  }
+
+  const baseline = resolveGlibcBaseline(target);
+  return `${target}.${baseline}`;
+}
+
+function resolveGlibcBaseline(target) {
+  const archKey = target.startsWith('aarch64-') ? 'ARM64' : target.startsWith('x86_64-') ? 'X64' : null;
+  const baseline =
+    readOption('--glibc-baseline')
+    ?? (archKey ? process.env[`MOTRIX_FNOS_GLIBC_BASELINE_${archKey}`] : undefined)
+    ?? process.env.MOTRIX_FNOS_GLIBC_BASELINE
+    ?? '2.36';
+
+  if (!/^\d+\.\d+$/.test(baseline)) {
+    fail(`无效的 glibc baseline：${baseline}`);
+  }
+  return baseline;
+}
+
+function stripGlibcSuffix(target) {
+  return target.replace(/\.\d+\.\d+$/, '');
 }
 
 function which(command, env) {
