@@ -70,7 +70,7 @@ log_msg() {
 
 run_required_noop_hook() {
   hook_name="${1:-$(basename "$0")}"
-  reason="保留空壳生命周期脚本（fnpack 1.2.1 文件校验要求）"
+  reason="保留空壳生命周期脚本（当前已验证 fnpack 版本存在文件校验要求）"
 
   if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "${reason}：${hook_name}" >> "${TRIM_TEMP_LOGFILE}"

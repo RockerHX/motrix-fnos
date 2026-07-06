@@ -12,11 +12,18 @@
 
 - 官方 Manifest 文档明确了 `platform=x86|arm|all`、`os_min_version`、`service_port` 等字段，但**没有文档化 `arch` 字段**。当前仓库仍保留 x86 staging 中的 `arch = x86_64`，直到官方资料或实机验证证明可删。
 - 官方应用框架文档列出了 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*`、`config_*` 生命周期脚本。
-- 使用 `fnpack 1.2.1` 创建最小工程并在本地验证后确认：
+- 使用**当前已验证版本** `fnpack 1.2.1` 创建最小工程并在本地验证后确认：
   - 缺少 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*` 时，`fnpack build` 会报告 `Required file ... is missing`。
   - 缺少 `config_init` 或 `config_callback` 时，`fnpack build` 仍可成功。
   - `fnpack build` 在打印 `Packing failed` 时**仍可能返回退出码 0**，因此仓库构建脚本必须额外校验产物和日志，不能只信退出码。
 - `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
+
+如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：
+
+- 缺少哪些生命周期脚本会导致打包失败；
+- `fnpack build` 失败时退出码是否可靠；
+- `--directory` 模式下 `.fpk` 产物写入位置；
+- x86 staging 中 `arch = x86_64` 是否仍有必要保留。
 
 相关官方资料：
 
