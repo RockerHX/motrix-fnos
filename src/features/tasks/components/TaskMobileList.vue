@@ -3,56 +3,13 @@ import TaskActionsContainer from "./TaskActionsContainer.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { t } from "../../../i18n";
+import { formatTaskError, formatTaskEta, formatTaskSize, formatTaskSizePair } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
   tasks: DownloadTask[];
 }>();
 
-function formatTaskError(task: DownloadTask) {
-  const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
-  return `${code}${task.errorMessage || t("common.unknown")}`;
-}
-
-function formatSize(size: number) {
-  if (size <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = size;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-function formatSizePair(task: DownloadTask) {
-  if (task.totalLength <= 0) {
-    return `${formatSize(task.completedLength)} / ${t("common.unknown")}`;
-  }
-
-  return `${formatSize(task.completedLength)} / ${formatSize(task.totalLength)}`;
-}
-
-function formatEta(task: DownloadTask) {
-  if (task.downloadSpeed <= 0 || task.totalLength <= task.completedLength) {
-    return "--";
-  }
-
-  const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = seconds % 60;
-  return `${minutes}m ${restSeconds}s`;
-}
 </script>
 
 <template>
@@ -73,15 +30,15 @@ function formatEta(task: DownloadTask) {
       <dl class="task-card-meta">
         <div>
           <dt>{{ t("task.table.size") }}</dt>
-          <dd>{{ formatSizePair(task) }}</dd>
+          <dd>{{ formatTaskSizePair(task) }}</dd>
         </div>
         <div>
           <dt>{{ t("task.table.speed") }}</dt>
-          <dd>{{ formatSize(task.downloadSpeed) }}/s</dd>
+          <dd>{{ formatTaskSize(task.downloadSpeed) }}/s</dd>
         </div>
         <div>
           <dt>{{ t("task.table.eta") }}</dt>
-          <dd>{{ formatEta(task) }}</dd>
+          <dd>{{ formatTaskEta(task) }}</dd>
         </div>
       </dl>
 

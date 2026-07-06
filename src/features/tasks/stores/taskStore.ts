@@ -11,6 +11,7 @@ import {
   resumeDownloadTask,
 } from "../services/taskService";
 import { t } from "../../../i18n";
+import { formatTaskError } from "../utils/taskFormat";
 import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 
@@ -269,11 +270,6 @@ export const useTaskStore = defineStore("tasks", () => {
 
 function taskKey(task: DownloadTask) {
   return task.gid || String(task.id);
-}
-
-function formatTaskError(task: DownloadTask) {
-  const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
-  return `${code}${task.errorMessage || t("common.unknown")}`;
 }
 
 function getErrorMessage(error: unknown) {

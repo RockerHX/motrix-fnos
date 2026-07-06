@@ -7,6 +7,7 @@ import TaskProgressCell from "./TaskProgressCell.vue";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { getUiPreferences, saveUiPreferences } from "../../../services/settings";
 import { language, t } from "../../../i18n";
+import { formatTaskError, formatTaskEta, formatTaskSize, formatTaskSizePair } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
@@ -84,7 +85,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
       width: widths.size,
       minWidth: 150,
       resizable: true,
-      render: (task) => formatSizePair(task),
+      render: (task) => formatTaskSizePair(task),
     },
     {
       key: "speed",
@@ -92,7 +93,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
       width: widths.speed,
       minWidth: 110,
       resizable: true,
-      render: (task) => `${formatSize(task.downloadSpeed)}/s`,
+      render: (task) => `${formatTaskSize(task.downloadSpeed)}/s`,
     },
     {
       key: "eta",
@@ -100,7 +101,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
       width: widths.eta,
       minWidth: 100,
       resizable: true,
-      render: (task) => formatEta(task),
+      render: (task) => formatTaskEta(task),
     },
     {
       key: "actions",
@@ -137,50 +138,6 @@ function normalizeColumnWidth(width: unknown) {
   return typeof width === "number" ? width : 0;
 }
 
-function formatTaskError(task: DownloadTask) {
-  const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
-  return `${code}${task.errorMessage || t("common.unknown")}`;
-}
-
-function formatSizePair(task: DownloadTask) {
-  if (task.totalLength <= 0) {
-    return `${formatSize(task.completedLength)} / ${t("common.unknown")}`;
-  }
-
-  return `${formatSize(task.completedLength)} / ${formatSize(task.totalLength)}`;
-}
-
-function formatEta(task: DownloadTask) {
-  if (task.downloadSpeed <= 0 || task.totalLength <= task.completedLength) {
-    return "--";
-  }
-
-  const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = seconds % 60;
-  return `${minutes}m ${restSeconds}s`;
-}
-
-function formatSize(size: number) {
-  if (size <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = size;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
 </script>
 
 <template>

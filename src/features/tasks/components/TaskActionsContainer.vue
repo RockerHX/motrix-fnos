@@ -3,8 +3,9 @@ import { computed } from "vue";
 import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import { useTaskStore } from "../stores/taskStore";
-import { formatDateTime, useI18n, type TranslationKey } from "../../../i18n";
-import type { DownloadTask, DownloadTaskStatus } from "../../../types/tasks";
+import { formatDateTime, useI18n } from "../../../i18n";
+import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
+import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
   task: DownloadTask;
@@ -22,27 +23,14 @@ const canResume = computed(() => props.task.status === "paused" || props.task.st
 const canRedownload = computed(() => props.task.status === "complete");
 const canDelete = computed(() => props.task.status !== "removed");
 const canPermanentDelete = computed(() => props.task.status === "removed");
-const progressText = computed(() => {
-  if (props.task.totalLength <= 0) {
-    return "0.00%";
-  }
-
-  const percentage = Math.min(100, (props.task.completedLength / props.task.totalLength) * 100);
-  return `${percentage.toFixed(2)}%`;
-});
-const detailSize = computed(() =>
-  `${formatSize(props.task.completedLength)} / ${props.task.totalLength > 0 ? formatSize(props.task.totalLength) : t("common.unknown")}`,
-);
-const detailSpeed = computed(() => `${formatSize(props.task.downloadSpeed)}/s`);
+const progressText = computed(() => formatTaskProgress(props.task));
+const detailSize = computed(() => formatTaskSizePair(props.task));
+const detailSpeed = computed(() => `${formatTaskSize(props.task.downloadSpeed)}/s`);
 const detailFilePath = computed(() => props.task.filePath || t("common.notAvailable"));
 const detailGid = computed(() => props.task.gid || t("common.notAvailable"));
 const detailCreatedAt = computed(() => formatTimestamp(props.task.createdAt));
 const detailUpdatedAt = computed(() => formatTimestamp(props.task.updatedAt));
-const detailErrorReason = computed(() =>
-  props.task.errorMessage
-    ? `${props.task.errorCode ? t("task.errorCode", { code: props.task.errorCode }) : ""}${props.task.errorMessage}`
-    : undefined,
-);
+const detailErrorReason = computed(() => (props.task.errorMessage ? formatTaskError(props.task) : undefined));
 
 async function pauseTask() {
   if (!ensureCanOperate()) return;
@@ -111,35 +99,6 @@ function getErrorMessage(error: unknown) {
   return message || t("task.operationFailed");
 }
 
-function statusLabel(status: DownloadTaskStatus) {
-  const labels: Record<DownloadTaskStatus, TranslationKey> = {
-    pending: "task.status.pending",
-    active: "task.status.active",
-    paused: "task.status.paused",
-    complete: "task.status.complete",
-    error: "task.status.error",
-    removed: "task.status.removed",
-  };
-  return t(labels[status]);
-}
-
-function formatSize(size: number) {
-  if (size <= 0) {
-    return "0 B";
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = size;
-  let unitIndex = 0;
-
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
 function formatTimestamp(timestamp: number) {
   if (!timestamp) {
     return "--";
@@ -182,7 +141,7 @@ function formatTimestamp(timestamp: number) {
     :detail-updated-at-label="t('task.detail.updatedAt')"
     :detail-error-reason-label="t('task.detail.errorReason')"
     :detail-file-name="props.task.fileName"
-    :detail-status="statusLabel(props.task.status)"
+    :detail-status="formatTaskStatusLabel(props.task.status)"
     :detail-progress="progressText"
     :detail-size="detailSize"
     :detail-speed="detailSpeed"
