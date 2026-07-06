@@ -1,7 +1,7 @@
 # 飞牛版 Motrix UI 设计文档（Stitch 提示词版）
 
 > 用途：给 Google Stitch 生成飞牛版 Motrix 的 UI 原型。  
-> 状态：设计原型参考，不是当前实现契约；实际架构、接口和响应式约束以 `docs/architecture.md`、`docs/api-contract.md` 和源码为准。  
+> 状态：设计归档参考，不是当前实现契约；实际架构、接口和响应式约束以 `docs/architecture.md`、`docs/api-contract.md` 和源码为准。  
 > 结构：**前半部分是中文设计说明**，**后半部分统一放 Stitch 英文提示词**。  
 > 说明：每个页面都标了对应的提示词编号，方便你直接对照。
 
@@ -436,4 +436,3 @@
 - 风格克制
 - 易于长期维护
 - 也适合直接喂给 Stitch 做页面生成
-
