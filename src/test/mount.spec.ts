@@ -30,13 +30,14 @@ describe("mountWithPinia", () => {
 describe("createEventSourceMock", () => {
   it("records listeners and emits events", () => {
     const { EventSourceMock, instances } = createEventSourceMock();
-    const source = EventSourceMock("/api/events");
+    const source = new EventSourceMock("/api/events");
     const listener = vi.fn();
 
     source.addEventListener("tasks.snapshot", listener);
     source.emit("tasks.snapshot", new MessageEvent("tasks.snapshot", { data: "{\"tasks\":[]}" }));
 
     expect(instances).toHaveLength(1);
+    expect(EventSourceMock.calls).toHaveLength(1);
     expect(listener).toHaveBeenCalledTimes(1);
     expect(instances[0]?.url).toBe("/api/events");
   });

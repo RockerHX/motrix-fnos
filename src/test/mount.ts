@@ -282,11 +282,15 @@ export function createEventSourceMock() {
     }
   }
 
-  const EventSourceMock = vi.fn((url: string | URL) => {
-    const instance = new MockEventSourceInstance(url);
-    instances.push(instance);
-    return instance;
-  });
+  class EventSourceMock extends MockEventSourceInstance {
+    static calls: Array<string | URL> = [];
+
+    constructor(url: string | URL) {
+      super(url);
+      EventSourceMock.calls.push(url);
+      instances.push(this);
+    }
+  }
 
   return {
     EventSourceMock,
