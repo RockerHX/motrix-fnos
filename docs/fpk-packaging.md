@@ -137,6 +137,30 @@ rtk packaging/fnos/cmd/stop
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
 - 卸载后重装仍有旧任务：检查 `cmd/uninstall_callback` 是否清理了 `TRIM_PKGVAR` 应用私有数据目录
 
+## 生命周期实机验证矩阵
+
+下列项目用于 P6 及后续发布前的 fnOS 实机验证；未完成的项不得在文档中宣称“已验证通过”。
+
+| 场景 | 操作 | 预期结果 | 重点观察 |
+| --- | --- | --- | --- |
+| 安装 | 安装匹配架构的 `.fpk` | 应用中心安装成功 | 安装界面报错、`TRIM_TEMP_LOGFILE`、应用中心任务日志 |
+| 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`server.log`、监听端口 |
+| 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
+| 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`server.log`、配置保存日志 |
+| 升级 | 安装旧版本后升级到新包 | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
+| 卸载 | 卸载应用 | 应用私有数据按脚本约定清理 | `cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
+
+建议实机验证命令：
+
+```bash
+appcenter-cli install-fpk <package>.fpk
+appcenter-cli start motrix.fnos
+appcenter-cli stop motrix.fnos
+appcenter-cli list
+```
+
+如涉及向导或交互式配置，优先使用应用中心界面完成；`appcenter-cli` 更适合重复安装和脚本化验证。
+
 ## 相关文档
 
 - 长期架构：`docs/architecture.md`
