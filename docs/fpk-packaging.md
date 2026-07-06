@@ -153,7 +153,17 @@ rtk packaging/fnos/cmd/stop
 - 启动失败：先看 `server.log`
 - Web UI 打不开：先看 `cmd/status` 和 `service_port`
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
-- 卸载后重装仍有旧任务：检查 `cmd/uninstall_callback` 是否清理了 `TRIM_PKGVAR` 应用私有数据目录
+- 升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
+- 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”
+
+## 数据保留与卸载向导
+
+fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以保留用户数据为默认策略：
+
+- 升级必须保留 `TRIM_PKGVAR` 中的 SQLite、设置、JSON-RPC 密钥、Aria2 session 和日志。
+- 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
+- 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
+- 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
 
 ## 生命周期实机验证矩阵
 
@@ -166,7 +176,8 @@ rtk packaging/fnos/cmd/stop
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
 | 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`server.log`、配置保存日志 |
 | 升级 | 安装旧版本后升级到新包 | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
-| 卸载 | 卸载应用 | 应用私有数据按脚本约定清理 | `cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
+| 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
+| 卸载（删除数据） | 卸载应用并勾选“同时删除 Motrix 应用数据” | 仅清理 `TRIM_PKGVAR` 内的 Motrix 应用数据，不删除用户下载文件 | `cmd/uninstall_callback` 日志、数据库/设置/session/log 是否被清理 |
 
 建议实机验证命令：
 
