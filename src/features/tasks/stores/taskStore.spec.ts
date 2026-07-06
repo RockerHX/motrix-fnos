@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { t } from "../../../i18n";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 import { useTaskStore } from "./taskStore";
 import {
@@ -157,6 +158,115 @@ describe("taskStore refresh and operation state", () => {
     await expect(promise).resolves.toBeUndefined();
     expect(store.isTaskOperating(removedTask.id)).toBe(false);
     expect(store.removedTasks).toEqual([]);
+  });
+});
+
+describe("taskStore snapshot and runtime exiting", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("does not report historical error tasks on first load but reports new errors on later snapshots", async () => {
+    const store = useTaskStore();
+    const existingErrorTask = createTask({
+      id: 41,
+      gid: "gid-41",
+      status: "error",
+      errorCode: "3",
+      errorMessage: "disk full",
+    });
+    const newErrorTask = createTask({
+      id: 42,
+      gid: "gid-42",
+      status: "error",
+      errorCode: "5",
+      errorMessage: "network lost",
+    });
+
+    mockedListDownloadTasks.mockResolvedValueOnce([existingErrorTask]);
+    await store.refreshTasks();
+    expect(store.consumeTaskErrorMessages()).toEqual([]);
+
+    store.applyTaskSnapshot({
+      tasks: [existingErrorTask, newErrorTask],
+    });
+
+    const messages = store.consumeTaskErrorMessages();
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("network lost");
+    expect(store.consumeTaskErrorMessages()).toEqual([]);
+  });
+
+  it("applyTaskSnapshot replaces task list when runtime is active", () => {
+    const store = useTaskStore();
+    const snapshotTasks = [createTask({ id: 51, status: "complete" })];
+
+    store.applyTaskSnapshot({ tasks: snapshotTasks });
+
+    expect(store.tasks).toEqual(snapshotTasks);
+  });
+
+  it("markRuntimeExiting sets exit state and default reason", () => {
+    const store = useTaskStore();
+
+    store.markRuntimeExiting({
+      reason: "",
+      timestamp: Date.now(),
+    });
+
+    expect(store.isRuntimeExiting).toBe(true);
+    expect(store.runtimeExitReason).toBe(t("task.runtimeExiting"));
+  });
+
+  it("runtime exiting prevents refreshes and ignores future snapshots", async () => {
+    const store = useTaskStore();
+    const nextTasks = [createTask({ id: 61, status: "active" })];
+
+    store.tasks = [createTask({ id: 60, status: "pending" })];
+    store.markRuntimeExiting({
+      reason: "shutting down",
+      timestamp: Date.now(),
+    });
+
+    mockedListDownloadTasks.mockResolvedValue(nextTasks);
+    mockedListRemovedDownloadTasks.mockResolvedValue([createTask({ id: 62, status: "removed" })]);
+
+    await expect(store.refreshTasks()).resolves.toEqual({ taskErrorMessages: [] });
+    await expect(store.refreshRemovedTasks()).resolves.toEqual({ taskErrorMessages: [] });
+
+    store.applyTaskSnapshot({ tasks: nextTasks });
+
+    expect(mockedListDownloadTasks).not.toHaveBeenCalled();
+    expect(mockedListRemovedDownloadTasks).not.toHaveBeenCalled();
+    expect(store.tasks).toEqual([createTask({ id: 60, status: "pending" })]);
+  });
+
+  it("runtime exiting rejects create and operation calls", async () => {
+    const store = useTaskStore();
+    const removedTask = createTask({ id: 71, status: "removed" });
+
+    store.removedTasks = [removedTask];
+    store.markRuntimeExiting({
+      reason: "shutting down",
+      timestamp: Date.now(),
+    });
+
+    await expect(
+      store.createTask({
+        url: "https://example.com/new.iso",
+        fileName: "new.iso",
+        saveDir: "/downloads",
+      }),
+    ).rejects.toThrow(t("task.runtimeExiting"));
+
+    await expect(store.pauseTask(71)).rejects.toThrow(t("task.runtimeExiting"));
+    await expect(store.permanentlyDeleteTask(removedTask.id)).rejects.toThrow(t("task.runtimeExiting"));
+
+    expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
+    expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
+    expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
   });
 });
 
