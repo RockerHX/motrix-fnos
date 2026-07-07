@@ -186,6 +186,7 @@ jobs:
             packaging/fnos/dist/*.fpk
             packaging/fnos/dist/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 1
 
       - name: Create or update GitHub Release
         env:
