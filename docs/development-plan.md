@@ -39,30 +39,50 @@
 
 当前开发重点切换为阶段 12：完善“新建下载任务”能力。该阶段应以现有 HTTP API / SSE / Aria2 JSON-RPC 主线为基础，复用 `features/tasks` 的 store/service/composable，不引入独立前端状态或绕过后端直接访问 Aria2。
 
-阶段 12 任务拆分：
+阶段 12 小任务清单：
 
-1. **创建请求契约扩展**
-   - 明确单 URL、批量 URL、种子文件和磁力链接的请求模型。
-   - 支持“立即开始 / 添加后暂停”，并将语义映射到 Aria2 创建后的暂停状态。
-   - 将分类、连接数、限速、代理等高级选项映射为受控的 Aria2 options 白名单。
-   - 如新增或调整字段，先同步更新 `docs/api-contract.md`。
-2. **后端任务创建能力**
-   - URL / 磁力链接继续走 Aria2 `addUri`。
-   - 批量 URL 创建应提供逐条校验、部分失败反馈和任务列表刷新策略。
-   - 种子文件创建应评估上传入口、文件大小限制、临时文件清理和 Aria2 `addTorrent` 调用。
-   - 校验保存路径必须仍基于 fnOS 授权目录，不允许前端绕过路径安全。
-3. **前端新建任务弹窗**
-   - 补齐四个 Tab 的可用交互：URL 下载、批量 URL、种子文件、磁力链接。
-   - 高级设置仅展示已接入后端并实际生效的字段；未实现字段不得作为可编辑承诺。
-   - 桌面端和移动端共用同一 store/service，组件可按布局拆分展示但业务逻辑不得分叉。
-4. **状态、错误和事件刷新**
-   - 创建成功后任务列表与 SSE 快照保持一致。
-   - 批量创建和种子创建需要给出可理解的成功 / 失败反馈。
-   - 运行时退出态继续禁用创建操作，并保持已有提示。
-5. **测试与实机验证**
-   - 增加后端单 URL、磁力链接、批量 URL、添加后暂停和高级 options 映射测试。
-   - 增加前端表单校验、Tab 切换、提交 payload 和错误提示测试。
-   - 发布前在 fnOS 授权目录下验证 HTTP/HTTPS、磁力链接、批量 URL 和种子文件创建。
+- [x] **小任务 0：落地阶段 12 可勾选清单**
+  - 在本文档记录阶段 12 的可勾选实施清单、验收命令和提交规范。
+  - 验收命令：`rtk pnpm run verify:pre-commit`。
+  - 提交信息：`docs: 细化阶段 12 新建任务实施清单`。
+- [ ] **小任务 1：扩展任务模型、分类字段和接口契约**
+  - 后端 `DownloadTask` / 前端 `DownloadTask` 增加 `category`，SQLite 新库和老库迁移均提供默认分类 `默认`。
+  - 新建任务请求类型加入 `sourceType`、`startMode`、`category`、`advancedOptions`，并保持旧请求兼容。
+  - 同步更新 `docs/api-contract.md`。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml database`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
+  - 提交信息：`feat: 扩展新建任务契约和任务分类字段`。
+- [ ] **小任务 2：支持单任务磁力链接和添加后暂停**
+  - `sourceType=url` 仅接受 HTTP/HTTPS，`sourceType=magnet` 仅接受 `magnet:?`。
+  - `POST /api/tasks` 支持磁力链接；`startMode=paused` 映射 Aria2 暂停选项并持久化为暂停态。
+  - JSON-RPC `aria2.addUri` 复用同一套选项过滤并接受 HTTP/HTTPS 与磁力链接。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
+  - 提交信息：`feat: 支持磁力链接和添加后暂停`。
+- [ ] **小任务 3：支持批量 URL 创建**
+  - 新增 `/api/tasks/batch`，逐条校验和创建，部分失败不回滚已创建任务。
+  - 前端 service/store 增加批量创建能力，成功任务写入任务列表。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
+  - 提交信息：`feat: 支持批量 URL 创建任务`。
+- [ ] **小任务 4：支持 Multipart 种子文件创建**
+  - 新增 `/api/tasks/torrent`，接收 `torrent` 文件和 `request` JSON 字段，限制 torrent 文件不超过 10 MiB。
+  - 后端调用 Aria2 `addTorrent`，不持久化种子原文件。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
+  - 提交信息：`feat: 支持种子文件上传创建任务`。
+- [ ] **小任务 5：接入高级设置四项**
+  - 分类作为任务标签持久化，不改变保存路径和侧栏状态分类。
+  - 连接数、下载限速和代理映射为受控 Aria2 options，并集中校验过滤。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
+  - 提交信息：`feat: 接入新建任务高级设置`。
+- [ ] **小任务 6：完善新建任务弹窗交互**
+  - 启用 URL、批量 URL、种子文件、磁力链接四个 Tab。
+  - 公共区域接入保存路径、开始方式、分类、连接数、限速、代理；移除未持久化备注。
+  - 批量部分失败时保留弹窗并展示失败列表，全部成功时重置并关闭。
+  - 验收命令：`rtk pnpm test:unit -- src/features/tasks/composables/useTaskCreateForm.spec.ts`、`rtk pnpm test:unit -- src/features/tasks/components/TaskCreateDialog.spec.ts`、`rtk pnpm run typecheck`。
+  - 提交信息：`feat: 完善新建下载任务弹窗`。
+- [ ] **小任务 7：阶段 12 收口验证**
+  - 运行快速总验证，必要时运行完整验证。
+  - 将阶段 12 状态改为已完成，并补充发布前手工验收清单。
+  - 验收命令：`rtk pnpm run verify:pre-commit`、必要时 `rtk pnpm run verify`。
+  - 提交信息：`docs: 标记阶段 12 新建任务能力完成`。
 
 阶段 12 实现前仍应确认是否影响以下边界：
 
