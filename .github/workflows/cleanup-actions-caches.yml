@@ -2,6 +2,15 @@ name: Cleanup Actions Caches
 
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: "Cache cleanup scope"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - non-main
   schedule:
     - cron: "23 19 * * 0"
 
@@ -13,10 +22,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Delete non-main caches
+      - name: Delete selected caches
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          CACHE_SCOPE: ${{ inputs.scope || 'all' }}
         run: |
           set -euo pipefail
           page=1
@@ -33,12 +43,17 @@ jobs:
               break
             fi
 
-            jq -r '.actions_caches[] | select(.ref != "refs/heads/main") | .id' <<<"${response}" >> "${ids_file}"
+            jq -r --arg scope "${CACHE_SCOPE}" '
+              .actions_caches[]
+              | select($scope == "all" or .ref != "refs/heads/main")
+              | [.id, .key, .ref, .size_in_bytes]
+              | @tsv
+            ' <<<"${response}" >> "${ids_file}"
 
             page=$((page + 1))
           done
 
-          while IFS= read -r id; do
+          while IFS=$'\t' read -r id key ref size; do
             if [ -z "${id}" ]; then
               continue
             fi
@@ -47,7 +62,7 @@ jobs:
               -H "Accept: application/vnd.github+json" \
               "/repos/${REPO}/actions/caches/${id}" >/dev/null
             deleted=$((deleted + 1))
-            echo "deleted cache ${id}"
+            echo "deleted cache ${id}: ${key} (${ref}, ${size} bytes)"
           done < <(sort -u "${ids_file}")
 
-          echo "deleted ${deleted} non-main cache(s)"
+          echo "deleted ${deleted} cache(s), scope=${CACHE_SCOPE}"

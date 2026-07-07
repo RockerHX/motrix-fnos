@@ -272,6 +272,13 @@ packaging/fnos/app/ui/config
 - 任意 PR 会触发 `Verify`；release PR 的这一次 Verify 是发版流程唯一的完整代码验证。
 - `Release FPK` 不重复运行 `pnpm run verify`，只负责最终 FPK 构建、产物校验和 GitHub Release 发布。
 
+### GitHub Actions 缓存策略
+
+- `Verify` 只缓存 pnpm store 和 Cargo registry，不缓存 `server/target` 编译产物。
+- Rust `server/target` 缓存体积容易达到数百 MB 到 1GB，且版本号 / `Cargo.lock` 变化会产生新 key；当前项目优先控制缓存占用，而不是追求最大 CI 加速。
+- `Cleanup Actions Caches` 手动执行默认删除全部 Actions caches；如只想删除非 `main` 分支缓存，可在运行 workflow 时将 `scope` 选为 `non-main`。
+- 清空缓存不会影响源码或 Release 产物，只会让下一次 CI 重新下载 / 编译依赖。
+
 ### 本地发版备用流程
 
 如 GitHub 自动 PR 流程异常，可在本地使用备用命令：
