@@ -1,36 +1,45 @@
 name: Release FPK
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag, for example v0.1.3. Empty uses package.json version."
-        required: false
+      version:
+        description: "Release version without v prefix, for example 1.4.2"
+        required: true
         type: string
-      create_release:
-        description: "Create or update GitHub Release"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
   contents: write
+  pull-requests: write
+  models: read
+
+concurrency:
+  group: release-fpk
+  cancel-in-progress: false
 
 jobs:
-  build-release:
+  release-fpk:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+
+      - name: Cache Rust registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server -> target
+          cache-targets: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -46,34 +55,47 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve release version
-        id: version
-        shell: bash
+      - name: Prepare release files
+        id: release_files
+        env:
+          VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MOTRIX_RELEASE_CHANGELOG_PROVIDER: github-models
+          MOTRIX_RELEASE_CHANGELOG_MODEL: openai/gpt-4o-mini
         run: |
           set -euo pipefail
-          package_version="$(node -p "require('./package.json').version")"
 
-          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-            release_tag="${GITHUB_REF_NAME}"
-          else
-            release_tag="${{ inputs.tag }}"
-            if [ -z "${release_tag}" ]; then
-              release_tag="v${package_version}"
-            fi
-          fi
-
-          expected_tag="v${package_version}"
-          if [ "${release_tag}" != "${expected_tag}" ]; then
-            echo "Release tag ${release_tag} 与项目版本 ${package_version} 不一致，期望 ${expected_tag}" >&2
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "版本号必须使用 x.y.z 格式，实际为：${VERSION}" >&2
             exit 1
           fi
 
-          echo "version=${package_version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${release_tag}"
+          git fetch origin main --tags --force
+          git switch -C main origin/main
+
+          current_version="$(node -p "require('./package.json').version")"
+          if [ "${current_version}" = "${VERSION}" ]; then
+            echo "main 已经是 ${VERSION}，进入幂等发布模式。"
+            node scripts/version-check.mjs
+            echo "mode=existing" >> "${GITHUB_OUTPUT}"
+          else
+            node scripts/release-prepare.mjs "${VERSION}" --no-verify --no-commit --no-tag
+            cargo metadata --manifest-path server/Cargo.toml --format-version 1 >/dev/null
+            node scripts/version-check.mjs
+            echo "mode=new" >> "${GITHUB_OUTPUT}"
+          fi
+
+          node scripts/release-notes.mjs "${VERSION}" > release-notes.md
+          node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run verification
+        run: pnpm run verify
 
       - name: Install FPK cross build dependencies
         run: |
+          set -euo pipefail
           cargo install --locked cargo-zigbuild
           python3 -m pip install --user --break-system-packages ziglang
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
@@ -87,39 +109,125 @@ jobs:
         run: pnpm run build:fpk
 
       - name: Verify FPK artifacts
-        shell: bash
+        env:
+          VERSION: ${{ steps.release_files.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          test -f "packaging/fnos/dist/motrix.fnos_${version}_x86.fpk"
-          test -f "packaging/fnos/dist/motrix.fnos_${version}_arm.fpk"
-          (cd packaging/fnos/dist && sha256sum "motrix.fnos_${version}_"*.fpk > SHA256SUMS.txt)
+          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_x86.fpk"
+          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_arm.fpk"
+          (cd packaging/fnos/dist && sha256sum "motrix.fnos_${VERSION}_"*.fpk > SHA256SUMS.txt)
           cat packaging/fnos/dist/SHA256SUMS.txt
+
+      - name: Commit release files and tag
+        env:
+          VERSION: ${{ steps.release_files.outputs.version }}
+          RELEASE_TAG: ${{ steps.release_files.outputs.tag }}
+          RELEASE_MODE: ${{ steps.release_files.outputs.mode }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main --tags --force
+          remote_main_sha="$(git rev-parse origin/main)"
+
+          if [ "${RELEASE_MODE}" = "new" ]; then
+            git add \
+              CHANGELOG.md \
+              package.json \
+              packaging/fnos/app/ui/config \
+              packaging/fnos/manifest.template \
+              server/Cargo.lock \
+              server/Cargo.toml
+
+            if git diff --cached --quiet; then
+              echo "没有 release 文件改动，已中止。" >&2
+              exit 1
+            fi
+
+            git commit -m "chore: 发布 ${VERSION} 版本" -m "$(cat release-notes-body.md)"
+
+            base_sha="$(git rev-parse HEAD^)"
+            if [ "${base_sha}" != "${remote_main_sha}" ]; then
+              echo "远端 main 已从 ${base_sha} 前进到 ${remote_main_sha}，为避免覆盖新提交，已中止。" >&2
+              exit 1
+            fi
+          else
+            head_sha="$(git rev-parse HEAD)"
+            if [ "${head_sha}" != "${remote_main_sha}" ]; then
+              echo "当前 HEAD ${head_sha} 不是远端 main ${remote_main_sha}，已中止。" >&2
+              exit 1
+            fi
+          fi
+
+          if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}" >/dev/null; then
+            tag_sha="$(git rev-list -n 1 "${RELEASE_TAG}")"
+            head_sha="$(git rev-parse HEAD)"
+            if [ "${tag_sha}" != "${head_sha}" ]; then
+              echo "Tag ${RELEASE_TAG} 已存在但不指向当前提交，已中止。" >&2
+              exit 1
+            fi
+            echo "Tag ${RELEASE_TAG} 已存在且指向当前提交，跳过创建 tag。"
+          else
+            git tag "${RELEASE_TAG}"
+            if [ "${RELEASE_MODE}" = "new" ]; then
+              git push --atomic origin HEAD:refs/heads/main "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            else
+              git push origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+            fi
+          fi
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: motrix-fnos-${{ steps.version.outputs.version }}-fpk
+          name: motrix-fnos-${{ steps.release_files.outputs.version }}-fpk
           path: |
             packaging/fnos/dist/*.fpk
             packaging/fnos/dist/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Create or update GitHub Release
-        if: github.event_name == 'push' || inputs.create_release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        shell: bash
+          RELEASE_TAG: ${{ steps.release_files.outputs.tag }}
+          VERSION: ${{ steps.release_files.outputs.version }}
         run: |
           set -euo pipefail
-          notes="FPK release ${RELEASE_TAG}"$'\n\n'"Artifacts:"$'\n'"- motrix.fnos_${VERSION}_x86.fpk"$'\n'"- motrix.fnos_${VERSION}_arm.fpk"$'\n'"- SHA256SUMS.txt"
+
+          {
+            cat release-notes.md
+            echo
+            echo "Artifacts:"
+            echo "- motrix.fnos_${VERSION}_x86.fpk"
+            echo "- motrix.fnos_${VERSION}_arm.fpk"
+            echo "- SHA256SUMS.txt"
+          } > github-release-notes.md
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt --clobber
+            gh release edit "${RELEASE_TAG}" --title "Motrix ${RELEASE_TAG}" --notes-file github-release-notes.md
           else
             gh release create "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt \
               --title "Motrix ${RELEASE_TAG}" \
-              --notes "${notes}"
+              --notes-file github-release-notes.md
           fi
+
+      - name: Close obsolete release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_files.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERSION}" ]; then
+            exit 0
+          fi
+
+          branch="release/v${VERSION}"
+          pr_number="$(gh pr list --head "${branch}" --base main --state open --json number --jq '.[0].number // empty')"
+          if [ -z "${pr_number}" ]; then
+            echo "没有需要关闭的旧 release PR。"
+            exit 0
+          fi
+
+          gh pr close "${pr_number}" --delete-branch --comment "已改由 Release FPK workflow 直接发布 v${VERSION}，关闭旧自动 PR。" || true

@@ -213,38 +213,26 @@ appcenter-cli list
 
 ## GitHub Actions 自动发版流程
 
-当前默认发版入口是 `Prepare Release PR` workflow。正常路径只需要人工输入一次版本号：
+当前默认发版入口是 `Release FPK` workflow。正常路径只需要人工输入一次版本号：
 
 ```text
-Actions -> Prepare Release PR -> Run workflow -> 输入 x.y.z
+Actions -> Release FPK -> Run workflow -> 输入 x.y.z
 ```
 
 后续流程自动完成：
 
 ```text
-Prepare Release PR
+Release FPK
   -> 读取 latest tag..HEAD commit log
   -> 优先通过 GitHub Models 生成中文 CHANGELOG
   -> GitHub Models 不可用时回退到 commit log 简单归类
   -> 同步 package / Cargo / FPK manifest / UI cache 版本
   -> 更新 Cargo.lock
-  -> 创建或更新 release/v<x.y.z> PR
-
-Verify
-  -> 对 release PR 跑完整验证
-
-Auto Merge Release PR
-  -> Verify 成功后检查 release PR 安全边界
-  -> 只允许 release/v* -> main
-  -> 只允许发版白名单文件改动
-  -> 自动 squash merge PR
-
-Tag Release PR
-  -> release PR 合并后创建 v<x.y.z> tag
-
-Release FPK
-  -> tag 触发 x86 / ARM FPK 构建
+  -> 跑完整 `pnpm run verify`
+  -> x86 / ARM FPK 构建
   -> 校验产物并生成 SHA256SUMS.txt
+  -> 提交 `chore: 发布 x.y.z 版本` 到 main
+  -> 创建 `v<x.y.z>` tag
   -> 创建或更新 GitHub Release
 ```
 
@@ -265,12 +253,14 @@ packaging/fnos/app/ui/config
 - `motrix.fnos_<version>_arm.fpk`
 - `SHA256SUMS.txt`
 
+`Release FPK` 在同一个 workflow 内完成验证、构建、提交、打 tag 和上传 Release，不依赖 PR 自动批准、自动合并，也不依赖 `GITHUB_TOKEN` 推送 tag 后再触发另一个 workflow。
+
 ### 验证触发策略
 
 - `push main` 默认触发 `Verify`。
-- 仅包含发版白名单文件的 `push main` 会跳过 `Verify`，避免 release PR 合并后重复验证。
-- 任意 PR 会触发 `Verify`；release PR 的这一次 Verify 是发版流程唯一的完整代码验证。
-- `Release FPK` 不重复运行 `pnpm run verify`，只负责最终 FPK 构建、产物校验和 GitHub Release 发布。
+- 仅包含发版白名单文件的 `push main` 会跳过 `Verify`，避免 `Release FPK` 提交发版 commit 后重复验证。
+- 任意 PR 会触发 `Verify`，用于普通代码审查。
+- `Release FPK` 自身会运行完整 `pnpm run verify`，这是发版流程的完整代码验证。
 
 ### GitHub Actions 缓存策略
 
