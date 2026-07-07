@@ -195,13 +195,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          release_download_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+
           {
             cat release-notes.md
             echo
-            echo "Artifacts:"
-            echo "- motrix.fnos_${VERSION}_x86.fpk"
-            echo "- motrix.fnos_${VERSION}_arm.fpk"
-            echo "- SHA256SUMS.txt"
+            echo "## 下载与校验"
+            echo
+            echo "请根据 fnOS 设备 CPU 架构选择对应的 FPK："
+            echo
+            echo "- x86_64：[motrix.fnos_${VERSION}_x86.fpk](${release_download_base}/motrix.fnos_${VERSION}_x86.fpk)"
+            echo "- aarch64 / arm64：[motrix.fnos_${VERSION}_arm.fpk](${release_download_base}/motrix.fnos_${VERSION}_arm.fpk)"
+            echo "- 校验文件：[SHA256SUMS.txt](${release_download_base}/SHA256SUMS.txt)"
           } > github-release-notes.md
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
