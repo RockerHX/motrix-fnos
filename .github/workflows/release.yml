@@ -32,11 +32,6 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server -> target
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:

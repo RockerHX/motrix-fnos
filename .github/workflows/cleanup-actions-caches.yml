@@ -1,0 +1,53 @@
+name: Cleanup Actions Caches
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 19 * * 0"
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-caches:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete non-main caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          page=1
+          deleted=0
+          ids_file="$(mktemp)"
+
+          while :; do
+            response="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPO}/actions/caches?per_page=100&page=${page}")"
+
+            count="$(jq '.actions_caches | length' <<<"${response}")"
+            if [ "${count}" -eq 0 ]; then
+              break
+            fi
+
+            jq -r '.actions_caches[] | select(.ref != "refs/heads/main") | .id' <<<"${response}" >> "${ids_file}"
+
+            page=$((page + 1))
+          done
+
+          while IFS= read -r id; do
+            if [ -z "${id}" ]; then
+              continue
+            fi
+            gh api \
+              --method DELETE \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${REPO}/actions/caches/${id}" >/dev/null
+            deleted=$((deleted + 1))
+            echo "deleted cache ${id}"
+          done < <(sort -u "${ids_file}")
+
+          echo "deleted ${deleted} non-main cache(s)"

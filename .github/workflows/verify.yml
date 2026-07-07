@@ -27,6 +27,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: server -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
