@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import process from "node:process";
 
 const quick = process.argv.includes("--quick");
+const keepRustIncremental = process.argv.includes("--keep-rust-incremental");
 const packageManager = resolvePackageManager();
 const rustEnv = {
   ...process.env,
@@ -25,11 +26,17 @@ const steps = quick
       { title: "前端构建", command: packageManager, args: ["run", "build"] },
     ];
 
-for (const step of steps) {
-  await runStep(step);
-}
+try {
+  for (const step of steps) {
+    await runStep(step);
+  }
 
-console.log(quick ? "快速验证通过。" : "完整验证通过。");
+  console.log(quick ? "快速验证通过。" : "完整验证通过。");
+} finally {
+  if (!keepRustIncremental) {
+    await pruneRustIncrementalCache();
+  }
+}
 
 function runStep(step) {
   console.log(`\n==> ${step.title}`);
@@ -51,6 +58,20 @@ function runStep(step) {
       reject(new Error(`${step.title} 失败：${signal ?? code}`));
     });
   });
+}
+
+async function pruneRustIncrementalCache() {
+  console.log("\n==> 清理 Rust incremental 缓存");
+  try {
+    await runStep({
+      title: "Rust incremental 缓存清理",
+      command: "node",
+      args: ["scripts/clean-rust-target.mjs", "--incremental"],
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Rust incremental 缓存清理失败，已忽略：${message}`);
+  }
 }
 
 function resolvePackageManager() {

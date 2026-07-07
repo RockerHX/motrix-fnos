@@ -92,6 +92,20 @@ rtk pnpm run clean
 rtk pnpm run clean:dry-run
 ```
 
+清理 Rust 增量编译缓存，保留主要依赖构建缓存：
+
+```bash
+rtk pnpm run clean:rust:incremental
+```
+
+彻底清理 Rust 构建缓存：
+
+```bash
+rtk pnpm run clean:rust
+```
+
+`pnpm run verify` / `pnpm run verify:pre-commit` 默认会在验证结束后自动执行 Rust incremental 缓存清理；如需临时保留增量缓存，可追加 `--keep-rust-incremental`。
+
 ## 打包目录
 
 当前 FPK 主目录：
