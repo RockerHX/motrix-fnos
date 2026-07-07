@@ -20,12 +20,14 @@ try {
     fail(`Tag 已存在：${releaseTag}`);
   }
 
+  const existingChangelog = readExistingChangelog(options.version);
   const statusBefore = gitStatus();
   if (statusBefore.length > 0) {
-    if (!options.dryRun) {
-      fail(`工作区不干净，拒绝继续：\n${formatStatus(statusBefore)}`);
+    const unexpectedDirtyEntries = initialUnexpectedDirtyEntries(statusBefore, existingChangelog);
+    if (unexpectedDirtyEntries.length > 0) {
+      fail(`工作区存在非 release prepare 可接管的改动，拒绝继续：\n${formatStatus(unexpectedDirtyEntries)}`);
     }
-    console.warn(`工作区不干净，dry-run 仅预览，不会改文件：\n${formatStatus(statusBefore)}`);
+    console.warn(`工作区已有 CHANGELOG.md 目标版本条目，将由 release prepare 复用：\n${formatStatus(statusBefore)}`);
   }
 
   const baseRef = options.from ?? latestReleaseTag();
@@ -34,7 +36,6 @@ try {
     fail(`${baseRef}..HEAD 没有可用于生成 CHANGELOG 的提交`);
   }
 
-  const existingChangelog = readExistingChangelog(options.version);
   const changelogBody = existingChangelog?.body ?? generateChangelogBody(options.version, commits);
   const changelogSection = existingChangelog?.section ?? renderChangelogSection(options.version, changelogBody);
   const changelogSource = existingChangelog ? 'CHANGELOG.md 已有条目' : 'commit log 生成';
@@ -191,18 +192,25 @@ function renderChangelogSection(version, body) {
 function readExistingChangelog(version) {
   const changelogPath = path.join(repoRoot, 'CHANGELOG.md');
   const content = readFileSync(changelogPath, 'utf8');
-  const pattern = new RegExp(`(^##\\s+${escapeRegExp(version)}\\b[^\\n]*\\n[\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, 'm');
-  const match = content.match(pattern);
-  if (!match) {
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^##\\s+${escapeRegExp(version)}\\b`).test(line));
+  if (start === -1) {
     return null;
   }
 
-  const section = match[1].trimEnd();
+  const next = lines.findIndex((line, index) => index > start && /^##\s+/.test(line));
+  const sectionLines = lines.slice(start, next === -1 ? undefined : next);
+  const section = sectionLines.join('\n').trimEnd();
   const body = section.replace(/^##[^\n]*\n*/, '').trim();
   if (!body) {
     fail(`CHANGELOG.md 中 ${version} 条目为空`);
   }
   return { section: `${section}\n`, body };
+}
+
+function initialUnexpectedDirtyEntries(statusEntries, existingChangelog) {
+  const allowedPaths = existingChangelog ? new Set(['CHANGELOG.md']) : new Set();
+  return statusEntries.filter((entry) => !allowedPaths.has(entry.path));
 }
 
 function updateChangelog(section, version) {
@@ -262,7 +270,7 @@ function printPlan({ currentVersion, targetVersion, baseRef, releaseTag, commits
 }
 
 function gitStatus() {
-  const output = git(['status', '--porcelain']);
+  const output = execFileSync('git', ['status', '--porcelain'], { cwd: repoRoot, encoding: 'utf8' });
   return output
     .split('\n')
     .filter(Boolean)
