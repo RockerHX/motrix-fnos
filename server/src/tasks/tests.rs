@@ -111,6 +111,96 @@ fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
 }
 
 #[test]
+fn prepare_task_maps_advanced_options_and_category() {
+    let task = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("prepare-advanced")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: Some(" 电影 ".to_string()),
+        advanced_options: CreateTaskAdvancedOptions {
+            connections: Some(8),
+            download_limit_kb: Some(512),
+            proxy: Some(" http://127.0.0.1:7890 ".to_string()),
+        },
+        aria2_options: serde_json::Map::from_iter([
+            (
+                "unknown-option".to_string(),
+                serde_json::Value::String("ignored".to_string()),
+            ),
+            (
+                "user-agent".to_string(),
+                serde_json::Value::String(" Motrix ".to_string()),
+            ),
+        ]),
+    })
+    .expect("advanced options task should be prepared");
+
+    assert_eq!(task.category, "电影");
+    assert_eq!(task.aria2_options["split"], "8");
+    assert_eq!(task.aria2_options["max-connection-per-server"], "8");
+    assert_eq!(task.aria2_options["max-download-limit"], "524288");
+    assert_eq!(task.aria2_options["all-proxy"], "http://127.0.0.1:7890");
+    assert_eq!(task.aria2_options["user-agent"], "Motrix");
+    assert!(!task.aria2_options.contains_key("unknown-option"));
+}
+
+#[test]
+fn prepare_task_rejects_invalid_advanced_options() {
+    let invalid_connections = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("prepare-invalid-connections")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions {
+            connections: Some(65),
+            download_limit_kb: None,
+            proxy: None,
+        },
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect_err("connections above limit should fail");
+    assert!(invalid_connections.contains("连接数"));
+
+    let blank_proxy = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("prepare-blank-proxy")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions {
+            connections: None,
+            download_limit_kb: None,
+            proxy: Some("   ".to_string()),
+        },
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect_err("blank proxy should fail");
+    assert!(blank_proxy.contains("代理地址不能为空"));
+
+    let invalid_proxy = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("prepare-invalid-proxy")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions {
+            connections: None,
+            download_limit_kb: None,
+            proxy: Some("ftp://127.0.0.1:7890".to_string()),
+        },
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect_err("unsupported proxy should fail");
+    assert!(invalid_proxy.contains("代理地址必须"));
+}
+
+#[test]
 fn store_created_task_persists_gid() {
     let tasks = TaskMemoryState::new(Vec::new());
     let next_id = AtomicU64::new(1);
@@ -852,11 +942,19 @@ fn add_uri_request_contains_url_and_options() {
             aria2_options: serde_json::Map::from_iter([
                 (
                     "split".to_string(),
-                    serde_json::Value::String("64".to_string()),
+                    serde_json::Value::String("8".to_string()),
                 ),
                 (
                     "max-connection-per-server".to_string(),
-                    serde_json::Value::String("64".to_string()),
+                    serde_json::Value::String("8".to_string()),
+                ),
+                (
+                    "max-download-limit".to_string(),
+                    serde_json::Value::String("524288".to_string()),
+                ),
+                (
+                    "all-proxy".to_string(),
+                    serde_json::Value::String("http://127.0.0.1:7890".to_string()),
                 ),
             ]),
         },
@@ -866,8 +964,10 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][0][0], "https://example.com/file.zip");
     assert_eq!(request["params"][1]["dir"], "/downloads");
     assert_eq!(request["params"][1]["out"], "custom.zip");
-    assert_eq!(request["params"][1]["split"], "64");
-    assert_eq!(request["params"][1]["max-connection-per-server"], "64");
+    assert_eq!(request["params"][1]["split"], "8");
+    assert_eq!(request["params"][1]["max-connection-per-server"], "8");
+    assert_eq!(request["params"][1]["max-download-limit"], "524288");
+    assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
 }
 
 #[test]

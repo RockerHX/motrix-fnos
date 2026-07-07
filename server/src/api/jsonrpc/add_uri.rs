@@ -5,8 +5,8 @@ use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, DownloadTaskSourceType,
-    DownloadTaskStartMode,
+    sanitize_aria2_options, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    DownloadTaskSourceType, DownloadTaskStartMode,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         url,
         save_dir: options.and_then(|options| string_option(options.get("dir"))),
         file_name: options.and_then(|options| string_option(options.get("out"))),
-        aria2_options: options.map(collect_aria2_options).unwrap_or_default(),
+        aria2_options: options.map(sanitize_aria2_options).unwrap_or_default(),
     })
 }
 
@@ -89,64 +89,6 @@ fn detect_source_type(url: &str) -> DownloadTaskSourceType {
         DownloadTaskSourceType::Magnet
     } else {
         DownloadTaskSourceType::Url
-    }
-}
-
-fn collect_aria2_options(
-    options: &serde_json::Map<String, Value>,
-) -> serde_json::Map<String, Value> {
-    const PASSTHROUGH_OPTIONS: &[&str] = &[
-        "allow-overwrite",
-        "auto-file-renaming",
-        "check-certificate",
-        "connect-timeout",
-        "continue",
-        "header",
-        "lowest-speed-limit",
-        "max-connection-per-server",
-        "max-download-limit",
-        "max-file-not-found",
-        "max-tries",
-        "min-split-size",
-        "referer",
-        "retry-wait",
-        "split",
-        "timeout",
-        "user-agent",
-    ];
-
-    options
-        .iter()
-        .filter(|(key, _)| PASSTHROUGH_OPTIONS.contains(&key.as_str()))
-        .filter_map(|(key, value)| {
-            normalize_aria2_option_value(value).map(|value| (key.clone(), value))
-        })
-        .collect()
-}
-
-fn normalize_aria2_option_value(value: &Value) -> Option<Value> {
-    match value {
-        Value::Null | Value::Object(_) => None,
-        Value::String(value) => {
-            let value = value.trim();
-            if value.is_empty() {
-                None
-            } else {
-                Some(Value::String(value.to_string()))
-            }
-        }
-        Value::Array(items) => {
-            let normalized = items
-                .iter()
-                .filter_map(|item| normalize_aria2_option_value(item))
-                .collect::<Vec<_>>();
-            if normalized.is_empty() {
-                None
-            } else {
-                Some(Value::Array(normalized))
-            }
-        }
-        Value::Bool(_) | Value::Number(_) => Some(value.clone()),
     }
 }
 

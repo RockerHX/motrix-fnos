@@ -169,6 +169,8 @@ fn parse_add_uri_preserves_speed_related_options() {
             "out": "file.zip",
             "split": "256",
             "max-connection-per-server": "256",
+            "max-download-limit": "524288",
+            "all-proxy": "socks5://127.0.0.1:7890",
             "min-split-size": "1M",
             "user-agent": "Motrix",
             "header": ["Referer: https://example.com"],
@@ -179,6 +181,11 @@ fn parse_add_uri_preserves_speed_related_options() {
 
     assert_eq!(command.aria2_options["split"], "256");
     assert_eq!(command.aria2_options["max-connection-per-server"], "256");
+    assert_eq!(command.aria2_options["max-download-limit"], "524288");
+    assert_eq!(
+        command.aria2_options["all-proxy"],
+        "socks5://127.0.0.1:7890"
+    );
     assert_eq!(command.aria2_options["min-split-size"], "1M");
     assert_eq!(command.aria2_options["user-agent"], "Motrix");
     assert_eq!(

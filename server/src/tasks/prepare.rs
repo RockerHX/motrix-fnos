@@ -6,7 +6,9 @@ use crate::tasks::{
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-use super::{current_timestamp_ms, log_error, log_info, redact_url_for_log};
+use super::{
+    current_timestamp_ms, log_error, log_info, redact_url_for_log, sanitize_create_task_options,
+};
 
 pub fn prepare_task(request: CreateDownloadTaskRequest) -> Result<PreparedDownloadTask, String> {
     prepare_task_inner(request, None)
@@ -31,6 +33,8 @@ pub fn prepare_torrent_task_with_logs(
     let save_dir = resolve_save_dir_with_logs(Some(request.save_dir), Some(debug_logs))?;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
+    let aria2_options =
+        sanitize_create_task_options(&request.advanced_options, &serde_json::Map::new())?;
     log_info(
         Some(debug_logs),
         "tasks.create",
@@ -48,7 +52,7 @@ pub fn prepare_torrent_task_with_logs(
         source_type: DownloadTaskSourceType::Url,
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
-        aria2_options: serde_json::Map::new(),
+        aria2_options,
     })
 }
 
@@ -73,6 +77,8 @@ fn prepare_task_inner(
     let save_dir = resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
+    let aria2_options =
+        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
     log_info(
         debug_logs,
         "tasks.create",
@@ -93,7 +99,7 @@ fn prepare_task_inner(
         source_type: request.source_type,
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
-        aria2_options: request.aria2_options,
+        aria2_options,
     })
 }
 

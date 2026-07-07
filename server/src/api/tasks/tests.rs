@@ -103,6 +103,43 @@ async fn create_route_accepts_paused_magnet_task() {
 }
 
 #[tokio::test]
+async fn create_route_accepts_category_and_advanced_options() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-advanced-downloads").display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let created = response_json::<DownloadTask>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &json!({
+                "url": "https://example.com/archive.zip",
+                "fileName": "archive.zip",
+                "saveDir": save_dir,
+                "category": "电影",
+                "advancedOptions": {
+                    "connections": 8,
+                    "downloadLimitKb": 512,
+                    "proxy": "http://127.0.0.1:7890"
+                }
+            }),
+        ))
+        .await
+        .expect("create response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(created.category, "电影");
+    assert_eq!(created.gid.as_deref(), Some("gid-1"));
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn create_batch_route_returns_created_and_failed_items() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;

@@ -67,7 +67,7 @@
   - 后端调用 Aria2 `addTorrent`，不持久化种子原文件。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
   - 提交信息：`feat: 支持种子文件上传创建任务`。
-- [ ] **小任务 5：接入高级设置四项**
+- [x] **小任务 5：接入高级设置四项**
   - 分类作为任务标签持久化，不改变保存路径和侧栏状态分类。
   - 连接数、下载限速和代理映射为受控 Aria2 options，并集中校验过滤。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
