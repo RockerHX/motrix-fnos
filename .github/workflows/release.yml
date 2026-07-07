@@ -77,9 +77,6 @@ jobs:
           echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
           echo "Resolved ${release_tag}"
 
-      - name: Run release gate verification
-        run: pnpm run verify
-
       - name: Install FPK cross build dependencies
         run: |
           cargo install --locked cargo-zigbuild

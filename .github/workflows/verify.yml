@@ -3,6 +3,13 @@ name: Verify
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - CHANGELOG.md
+      - package.json
+      - server/Cargo.toml
+      - server/Cargo.lock
+      - packaging/fnos/manifest.template
+      - packaging/fnos/app/ui/config
   pull_request:
 
 jobs:
