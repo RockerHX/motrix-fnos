@@ -6,7 +6,10 @@ use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADD
 use crate::database::settings::set_app_config_value;
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn validate_add_uri_token_rejects_empty_configured_token() {
@@ -210,9 +213,12 @@ async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
 }
 
 fn temp_dir(label: &str) -> PathBuf {
+    let index = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "motrix-fnos-{}-{}",
+        "motrix-fnos-{}-{}-{}-{}",
         label,
+        std::process::id(),
+        index,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be valid")
