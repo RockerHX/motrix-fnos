@@ -51,30 +51,12 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install FPK cross build dependencies
-        run: |
-          cargo install --locked cargo-zigbuild
-          python3 -m pip install --user --break-system-packages ziglang
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-          cargo-zigbuild --version
-          cargo zigbuild --help >/dev/null
-          command -v python-zig
-
       - name: Resolve release version
         id: version
         shell: bash
         run: |
           set -euo pipefail
           package_version="$(node -p "require('./package.json').version")"
-          cargo_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]"]/, "", $2); print $2; exit}' server/Cargo.toml)"
-          manifest_version="$(awk -F '=' '/^version[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' packaging/fnos/manifest.template)"
-
-          if [ "${package_version}" != "${cargo_version}" ] || [ "${package_version}" != "${manifest_version}" ]; then
-            echo "版本不一致：package=${package_version}, cargo=${cargo_version}, manifest=${manifest_version}" >&2
-            exit 1
-          fi
 
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             release_tag="${GITHUB_REF_NAME}"
@@ -94,6 +76,20 @@ jobs:
           echo "version=${package_version}" >> "$GITHUB_OUTPUT"
           echo "tag=${release_tag}" >> "$GITHUB_OUTPUT"
           echo "Resolved ${release_tag}"
+
+      - name: Run release gate verification
+        run: pnpm run verify
+
+      - name: Install FPK cross build dependencies
+        run: |
+          cargo install --locked cargo-zigbuild
+          python3 -m pip install --user --break-system-packages ziglang
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cargo-zigbuild --version
+          cargo zigbuild --help >/dev/null
+          command -v python-zig
 
       - name: Build FPK packages
         run: pnpm run build:fpk

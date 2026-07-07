@@ -11,11 +11,13 @@ const rustEnv = {
 
 const steps = quick
   ? [
+      { title: "项目版本一致性检查", command: "node", args: ["scripts/version-check.mjs"] },
       { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端类型检查", command: packageManager, args: ["run", "typecheck"] },
       { title: "前端单元测试", command: packageManager, args: ["run", "test:unit"] },
     ]
   : [
+      { title: "项目版本一致性检查", command: "node", args: ["scripts/version-check.mjs"] },
       { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端类型检查", command: packageManager, args: ["run", "typecheck"] },
