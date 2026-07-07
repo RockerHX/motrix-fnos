@@ -4,7 +4,7 @@
 
 ## 适用场景
 
-- 解析站、浏览器扩展或自动化脚本希望按 Aria2 JSON-RPC 习惯远程添加 HTTP / HTTPS 下载任务。
+- 解析站、浏览器扩展或自动化脚本希望按 Aria2 JSON-RPC 习惯远程添加 HTTP / HTTPS 或磁力链接下载任务。
 - 外部工具只需要提交任务，不直接访问 Motrix 内部 Aria2 RPC secret。
 - 需要通过 `aria2.getVersion` 做连通性测试。
 
@@ -44,8 +44,9 @@ curl -X POST 'http://<host>:<port>/jsonrpc' \
 
 - `dir` 必须来自 `/api/storage/accessible-paths` 返回的 fnOS 已授权目录。
 - 未传 `dir` 时使用后端默认下载目录，默认目录同样必须已授权。
-- `out` 会映射为 Motrix 任务文件名。
-- 当前仅支持 HTTP / HTTPS URL。
+- `out` 会映射为 Motrix 任务文件名；磁力链接不会设置 `out`。
+- 支持 HTTP / HTTPS URL 与 `magnet:?` 磁力链接；不支持通过 JSON-RPC 上传种子文件，种子文件请使用 Web UI 或 `/api/tasks/torrent`。
+- 常用 Aria2 选项会经过后端白名单过滤；`dir` / `out` 仍由 Motrix 统一校验和覆盖。
 
 ## 安全注意事项
 

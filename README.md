@@ -15,7 +15,8 @@
 当前发布版本以 `package.json` 与 Release tag 为准；发布流程会校验 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 三个核心版本源一致。
 
 - 已具备 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包主线。
-- 当前主线已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
+- 当前主线已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配、关于页和新建下载任务增强能力。
+- 新建任务支持单 URL、批量 URL、磁力链接、Multipart 种子文件、立即开始 / 添加后暂停，以及分类、连接数、下载限速和代理高级选项。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物。
 
 详细阶段状态、已完成里程碑和验收口径见 [`docs/development-plan.md`](docs/development-plan.md)。
