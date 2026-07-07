@@ -197,15 +197,75 @@ appcenter-cli list
 - 阶段状态：`docs/development-plan.md`
 - 接口契约：`docs/api-contract.md`
 
-## GitHub Release 在线打包
+## GitHub Actions 自动发版流程
 
-仓库提供 `Release FPK` workflow：
+当前默认发版入口是 `Prepare Release PR` workflow。正常路径只需要人工输入一次版本号：
 
-- 推送 `v*` tag 时自动构建 x86 与 ARM FPK，并创建 / 更新 GitHub Release。
-- 也可以在 GitHub Actions 页面手动运行 workflow，默认使用 `package.json` / `server/Cargo.toml` / `packaging/fnos/manifest.template` 中一致的版本号生成 tag。
-- workflow 会上传：
-  - `motrix.fnos_<version>_x86.fpk`
-  - `motrix.fnos_<version>_arm.fpk`
-  - `SHA256SUMS.txt`
+```text
+Actions -> Prepare Release PR -> Run workflow -> 输入 x.y.z
+```
 
-发布前必须确认 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest.template` 三处版本一致；workflow 会在版本不一致时失败。
+后续流程自动完成：
+
+```text
+Prepare Release PR
+  -> 读取 latest tag..HEAD commit log
+  -> 优先通过 GitHub Models 生成中文 CHANGELOG
+  -> GitHub Models 不可用时回退到 commit log 简单归类
+  -> 同步 package / Cargo / FPK manifest / UI cache 版本
+  -> 更新 Cargo.lock
+  -> 创建或更新 release/v<x.y.z> PR
+
+Verify
+  -> 对 release PR 跑完整验证
+
+Auto Merge Release PR
+  -> Verify 成功后检查 release PR 安全边界
+  -> 只允许 release/v* -> main
+  -> 只允许发版白名单文件改动
+  -> 自动 squash merge PR
+
+Tag Release PR
+  -> release PR 合并后创建 v<x.y.z> tag
+
+Release FPK
+  -> tag 触发 x86 / ARM FPK 构建
+  -> 校验产物并生成 SHA256SUMS.txt
+  -> 创建或更新 GitHub Release
+```
+
+发版白名单文件：
+
+```text
+CHANGELOG.md
+package.json
+server/Cargo.toml
+server/Cargo.lock
+packaging/fnos/manifest.template
+packaging/fnos/app/ui/config
+```
+
+`Release FPK` workflow 会上传：
+
+- `motrix.fnos_<version>_x86.fpk`
+- `motrix.fnos_<version>_arm.fpk`
+- `SHA256SUMS.txt`
+
+### 验证触发策略
+
+- `push main` 默认触发 `Verify`。
+- 仅包含发版白名单文件的 `push main` 会跳过 `Verify`，避免 release PR 合并后重复验证。
+- 任意 PR 会触发 `Verify`；release PR 的这一次 Verify 是发版流程唯一的完整代码验证。
+- `Release FPK` 不重复运行 `pnpm run verify`，只负责最终 FPK 构建、产物校验和 GitHub Release 发布。
+
+### 本地发版备用流程
+
+如 GitHub 自动 PR 流程异常，可在本地使用备用命令：
+
+```bash
+rtk pnpm run release:prepare <x.y.z>
+rtk git push
+rtk git push origin v<x.y.z>
+```
+
+本地命令会复用 `CHANGELOG.md` 中已填写的目标版本条目；如果未填写，会按 commit log 生成确定性草稿。

@@ -22,17 +22,12 @@ jobs:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-
       - name: Create release tag
         env:
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
+          version="$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')"
           tag="v${version}"
           expected_branch="release/${tag}"
 

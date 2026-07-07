@@ -30,16 +30,10 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11
-
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
 
       - name: Prepare release files
         env:
@@ -50,9 +44,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --tags --force
-          pnpm run release:prepare "${VERSION}" --no-verify --no-commit --no-tag
+          node scripts/release-prepare.mjs "${VERSION}" --no-verify --no-commit --no-tag
           cargo metadata --manifest-path server/Cargo.toml --format-version 1 >/dev/null
-          pnpm run version:check
+          node scripts/version-check.mjs
           node scripts/release-notes.mjs "${VERSION}" > release-notes.md
           node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
 

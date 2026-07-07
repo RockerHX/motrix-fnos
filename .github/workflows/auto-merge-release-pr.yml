@@ -32,7 +32,7 @@ jobs:
             --head "${HEAD_BRANCH}" \
             --base main \
             --state open \
-            --json number,title,headRefName,baseRefName,headRefOid,isCrossRepository \
+            --json number,headRefName,baseRefName,headRefOid,isCrossRepository \
             --limit 1)"
 
           pr_number="$(jq -r '.[0].number // empty' <<<"${pr_json}")"
