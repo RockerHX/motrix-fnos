@@ -66,6 +66,7 @@ jobs:
             echo
             cat release-notes.md
             echo
+            echo "Verify 通过后 \`Auto Merge Release PR\` workflow 会自动合并此 PR。"
             echo "合并后 \`Tag Release PR\` workflow 会创建 \`v${VERSION}\` tag，并触发 \`Release FPK\`。"
           } > pr-body.md
 
