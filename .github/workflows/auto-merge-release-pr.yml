@@ -4,6 +4,8 @@ on:
   workflow_run:
     workflows: ["Verify"]
     types: [completed]
+    branches:
+      - 'release/v*'
 
 permissions:
   contents: write
