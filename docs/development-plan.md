@@ -51,7 +51,7 @@
   - 同步更新 `docs/api-contract.md`。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml database`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
   - 提交信息：`feat: 扩展新建任务契约和任务分类字段`。
-- [ ] **小任务 2：支持单任务磁力链接和添加后暂停**
+- [x] **小任务 2：支持单任务磁力链接和添加后暂停**
   - `sourceType=url` 仅接受 HTTP/HTTPS，`sourceType=magnet` 仅接受 `magnet:?`。
   - `POST /api/tasks` 支持磁力链接；`startMode=paused` 映射 Aria2 暂停选项并持久化为暂停态。
   - JSON-RPC `aria2.addUri` 复用同一套选项过滤并接受 HTTP/HTTPS 与磁力链接。

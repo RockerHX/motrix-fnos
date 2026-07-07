@@ -233,7 +233,11 @@ pub(crate) async fn readd_download_task(
         file_name: task.file_name.clone(),
         save_dir: task.save_dir.clone(),
         category: task.category.clone(),
-        source_type: DownloadTaskSourceType::Url,
+        source_type: if task.url.to_ascii_lowercase().starts_with("magnet:?") {
+            DownloadTaskSourceType::Magnet
+        } else {
+            DownloadTaskSourceType::Url
+        },
         start_mode: DownloadTaskStartMode::Now,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),

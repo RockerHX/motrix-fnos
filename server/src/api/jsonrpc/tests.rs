@@ -142,6 +142,24 @@ fn parse_add_uri_accepts_uri_without_token() {
 }
 
 #[test]
+fn parse_add_uri_detects_magnet_source_type() {
+    let command = parse_add_uri_command(&json!([
+        "token:anything",
+        ["magnet:?xt=urn:btih:test"],
+        {
+            "dir": "/vol1/1000/tmp"
+        }
+    ]))
+    .expect("magnet addUri params should parse");
+
+    assert_eq!(command.url, "magnet:?xt=urn:btih:test");
+    assert_eq!(
+        command.source_type,
+        crate::tasks::DownloadTaskSourceType::Magnet
+    );
+}
+
+#[test]
 fn parse_add_uri_preserves_speed_related_options() {
     let command = parse_add_uri_command(&json!([
         "token:anything",

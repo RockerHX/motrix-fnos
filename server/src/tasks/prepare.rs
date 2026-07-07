@@ -1,5 +1,7 @@
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::{CreateDownloadTaskRequest, PreparedDownloadTask, DEFAULT_TASK_CATEGORY};
+use crate::tasks::{
+    CreateDownloadTaskRequest, DownloadTaskSourceType, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
+};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -27,12 +29,13 @@ fn prepare_task_inner(
             return Err(error);
         }
     };
-    if let Err(error) = validate_http_url(&url) {
+    if let Err(error) = validate_task_url(request.source_type, &url) {
         log_error(debug_logs, "tasks.create", &error);
         return Err(error);
     }
 
-    let file_name = normalize_optional(request.file_name).unwrap_or_else(|| infer_file_name(&url));
+    let file_name = normalize_optional(request.file_name)
+        .unwrap_or_else(|| infer_file_name(request.source_type, &url));
     let save_dir = resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
@@ -182,16 +185,25 @@ fn home_dir() -> Result<PathBuf, String> {
         .ok_or_else(|| "无法读取当前用户目录，不能确定默认下载目录".to_string())
 }
 
-fn validate_http_url(url: &str) -> Result<(), String> {
+fn validate_task_url(source_type: DownloadTaskSourceType, url: &str) -> Result<(), String> {
     let lower = url.to_ascii_lowercase();
-    if lower.starts_with("http://") || lower.starts_with("https://") {
-        return Ok(());
+    match source_type {
+        DownloadTaskSourceType::Url
+            if lower.starts_with("http://") || lower.starts_with("https://") =>
+        {
+            Ok(())
+        }
+        DownloadTaskSourceType::Url => Err("当前仅支持 HTTP / HTTPS 下载链接".to_string()),
+        DownloadTaskSourceType::Magnet if lower.starts_with("magnet:?") => Ok(()),
+        DownloadTaskSourceType::Magnet => Err("请输入有效的磁力链接".to_string()),
     }
-
-    Err("当前仅支持 HTTP / HTTPS 下载链接".to_string())
 }
 
-fn infer_file_name(url: &str) -> String {
+fn infer_file_name(source_type: DownloadTaskSourceType, url: &str) -> String {
+    if source_type == DownloadTaskSourceType::Magnet {
+        return "磁力链接任务".to_string();
+    }
+
     let path = url
         .split(['?', '#'])
         .next()

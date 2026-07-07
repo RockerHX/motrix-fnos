@@ -2,7 +2,10 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use serde::Deserialize;
 
-use super::{log_error, log_info, redact_url_for_log, Aria2TaskStatus, PreparedDownloadTask};
+use super::{
+    log_error, log_info, redact_url_for_log, Aria2TaskStatus, DownloadTaskSourceType,
+    DownloadTaskStartMode, PreparedDownloadTask,
+};
 
 #[derive(Debug, Deserialize)]
 struct AddUriResponse {
@@ -372,8 +375,14 @@ pub(crate) fn build_add_uri_request(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
+    if task.start_mode == DownloadTaskStartMode::Paused {
+        options.insert("pause".to_string(), serde_json::json!("true"));
+        if task.source_type == DownloadTaskSourceType::Magnet {
+            options.insert("pause-metadata".to_string(), serde_json::json!("true"));
+        }
+    }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
-    if !task.file_name.trim().is_empty() {
+    if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {
         options.insert("out".to_string(), serde_json::json!(task.file_name));
     }
     params.push(serde_json::Value::Object(options));

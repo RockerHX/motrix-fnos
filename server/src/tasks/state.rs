@@ -1,5 +1,6 @@
 use crate::tasks::{
-    should_pause_task_on_exit, DownloadTask, DownloadTaskStatus, PreparedDownloadTask,
+    should_pause_task_on_exit, DownloadTask, DownloadTaskStartMode, DownloadTaskStatus,
+    PreparedDownloadTask,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,7 +63,10 @@ pub fn store_created_task(
         category: prepared.category,
         url: prepared.url,
         gid: Some(gid),
-        status: DownloadTaskStatus::Pending,
+        status: match prepared.start_mode {
+            DownloadTaskStartMode::Now => DownloadTaskStatus::Pending,
+            DownloadTaskStartMode::Paused => DownloadTaskStatus::Paused,
+        },
         total_length: 0,
         completed_length: 0,
         download_speed: 0,

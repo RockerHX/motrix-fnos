@@ -14,6 +14,7 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub(super) struct AddUriCommand {
     pub(super) url: String,
+    pub(super) source_type: DownloadTaskSourceType,
     pub(super) save_dir: Option<String>,
     pub(super) file_name: Option<String>,
     pub(super) aria2_options: serde_json::Map<String, Value>,
@@ -49,7 +50,7 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
                 url: command.url,
                 file_name: command.file_name,
                 save_dir: Some(save_dir),
-                source_type: DownloadTaskSourceType::Url,
+                source_type: command.source_type,
                 start_mode: DownloadTaskStartMode::Now,
                 category: None,
                 advanced_options: CreateTaskAdvancedOptions::default(),
@@ -75,11 +76,20 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
     let options = params.get(1).and_then(Value::as_object);
 
     Ok(AddUriCommand {
+        source_type: detect_source_type(&url),
         url,
         save_dir: options.and_then(|options| string_option(options.get("dir"))),
         file_name: options.and_then(|options| string_option(options.get("out"))),
         aria2_options: options.map(collect_aria2_options).unwrap_or_default(),
     })
+}
+
+fn detect_source_type(url: &str) -> DownloadTaskSourceType {
+    if url.to_ascii_lowercase().starts_with("magnet:?") {
+        DownloadTaskSourceType::Magnet
+    } else {
+        DownloadTaskSourceType::Url
+    }
 }
 
 fn collect_aria2_options(

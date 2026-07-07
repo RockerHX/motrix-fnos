@@ -92,6 +92,25 @@ fn prepare_task_rejects_non_http_url() {
 }
 
 #[test]
+fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
+    let task = prepare_task(CreateDownloadTaskRequest {
+        url: " magnet:?xt=urn:btih:test ".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("prepare-magnet")),
+        source_type: DownloadTaskSourceType::Magnet,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect("magnet task should be prepared");
+
+    assert_eq!(task.url, "magnet:?xt=urn:btih:test");
+    assert_eq!(task.file_name, "磁力链接任务");
+    assert_eq!(task.source_type, DownloadTaskSourceType::Magnet);
+}
+
+#[test]
 fn store_created_task_persists_gid() {
     let tasks = TaskMemoryState::new(Vec::new());
     let next_id = AtomicU64::new(1);
@@ -118,6 +137,30 @@ fn store_created_task_persists_gid() {
         list_tasks(&tasks).expect("tasks should be readable").len(),
         1
     );
+}
+
+#[test]
+fn store_created_task_preserves_paused_start_mode() {
+    let tasks = TaskMemoryState::new(Vec::new());
+    let next_id = AtomicU64::new(1);
+    let task = store_created_task(
+        &tasks,
+        &next_id,
+        PreparedDownloadTask {
+            url: "https://example.com/file.zip".to_string(),
+            file_name: "file.zip".to_string(),
+            save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Paused,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: serde_json::Map::new(),
+        },
+        "abc123".to_string(),
+    )
+    .expect("task should be stored");
+
+    assert_eq!(task.status, DownloadTaskStatus::Paused);
 }
 
 #[test]
@@ -825,6 +868,29 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][1]["out"], "custom.zip");
     assert_eq!(request["params"][1]["split"], "64");
     assert_eq!(request["params"][1]["max-connection-per-server"], "64");
+}
+
+#[test]
+fn add_uri_request_sets_pause_options_for_paused_magnet() {
+    let request = build_add_uri_request(
+        &test_config(),
+        &PreparedDownloadTask {
+            url: "magnet:?xt=urn:btih:test".to_string(),
+            file_name: "磁力链接任务".to_string(),
+            save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Magnet,
+            start_mode: DownloadTaskStartMode::Paused,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: serde_json::Map::new(),
+        },
+    );
+
+    assert_eq!(request["method"], "aria2.addUri");
+    assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
+    assert_eq!(request["params"][1]["pause"], "true");
+    assert_eq!(request["params"][1]["pause-metadata"], "true");
+    assert!(request["params"][1].get("out").is_none());
 }
 
 #[test]

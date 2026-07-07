@@ -71,6 +71,38 @@ async fn create_and_list_routes_work_with_ready_aria2() {
 }
 
 #[tokio::test]
+async fn create_route_accepts_paused_magnet_task() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-magnet-downloads").display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let created = response_json::<DownloadTask>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &json!({
+                "url": "magnet:?xt=urn:btih:test",
+                "saveDir": save_dir,
+                "sourceType": "magnet",
+                "startMode": "paused"
+            }),
+        ))
+        .await
+        .expect("create response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(created.status, DownloadTaskStatus::Paused);
+    assert_eq!(created.file_name, "磁力链接任务");
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn pause_resume_and_delete_routes_update_task_state() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;
