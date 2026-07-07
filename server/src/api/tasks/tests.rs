@@ -103,6 +103,74 @@ async fn create_route_accepts_paused_magnet_task() {
 }
 
 #[tokio::test]
+async fn create_batch_route_returns_created_and_failed_items() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-batch-downloads").display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let result = response_json::<CreateBatchDownloadTasksResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/batch",
+            &json!({
+                "urls": [
+                    "https://example.com/archive-a.zip",
+                    "ftp://example.com/archive-b.zip"
+                ],
+                "saveDir": save_dir
+            }),
+        ))
+        .await
+        .expect("batch response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(result.created.len(), 1);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.created[0].url, "https://example.com/archive-a.zip");
+    assert_eq!(result.failed[0].input, "ftp://example.com/archive-b.zip");
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_batch_route_returns_bad_request_when_all_items_fail() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-batch-failed-downloads")
+        .display()
+        .to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let result = response_json::<CreateBatchDownloadTasksResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/batch",
+            &json!({
+                "urls": ["ftp://example.com/archive.zip"],
+                "saveDir": save_dir
+            }),
+        ))
+        .await
+        .expect("batch response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+
+    assert!(result.created.is_empty());
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(result.failed[0].input, "ftp://example.com/archive.zip");
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn pause_resume_and_delete_routes_update_task_state() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;

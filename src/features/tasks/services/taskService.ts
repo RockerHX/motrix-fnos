@@ -1,8 +1,19 @@
 import { httpDelete, httpGet, httpPost } from "../../../services/http";
-import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
+import type {
+  CreateBatchDownloadTasksRequest,
+  CreateBatchDownloadTasksResponse,
+  CreateDownloadTaskRequest,
+  DownloadTask,
+} from "../../../types/tasks";
 
 export function createDownloadTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
   return httpPost<DownloadTask>("/api/tasks", payload);
+}
+
+export function createBatchDownloadTasks(
+  payload: CreateBatchDownloadTasksRequest,
+): Promise<CreateBatchDownloadTasksResponse> {
+  return httpPost<CreateBatchDownloadTasksResponse>("/api/tasks/batch", payload);
 }
 
 export function listDownloadTasks(): Promise<DownloadTask[]> {

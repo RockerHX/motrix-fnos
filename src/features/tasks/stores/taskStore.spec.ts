@@ -4,6 +4,7 @@ import { t } from "../../../i18n";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 import { useTaskStore } from "./taskStore";
 import {
+  createBatchDownloadTasks,
   createDownloadTask,
   deleteDownloadTask,
   listDownloadTasks,
@@ -15,6 +16,7 @@ import {
 } from "../services/taskService";
 
 vi.mock("../services/taskService", () => ({
+  createBatchDownloadTasks: vi.fn(),
   createDownloadTask: vi.fn(),
   deleteDownloadTask: vi.fn(),
   listDownloadTasks: vi.fn(),
@@ -25,6 +27,7 @@ vi.mock("../services/taskService", () => ({
   resumeDownloadTask: vi.fn(),
 }));
 
+const mockedCreateBatchDownloadTasks = vi.mocked(createBatchDownloadTasks);
 const mockedCreateDownloadTask = vi.mocked(createDownloadTask);
 const mockedDeleteDownloadTask = vi.mocked(deleteDownloadTask);
 const mockedListDownloadTasks = vi.mocked(listDownloadTasks);
@@ -110,6 +113,33 @@ describe("taskStore refresh and operation state", () => {
     await expect(promise).resolves.toEqual(createdTask);
     expect(store.isCreating).toBe(false);
     expect(store.tasks[0]).toEqual(createdTask);
+  });
+
+  it("createBatchTasks toggles isCreating and inserts created tasks", async () => {
+    const store = useTaskStore();
+    const createdTasks = [createTask({ id: 12, fileName: "a.iso" }), createTask({ id: 13, fileName: "b.iso" })];
+    const deferred = createDeferred<{
+      created: DownloadTask[];
+      failed: Array<{ input: string; message: string }>;
+    }>();
+    mockedCreateBatchDownloadTasks.mockReturnValueOnce(deferred.promise);
+
+    const promise = store.createBatchTasks({
+      urls: ["https://example.com/a.iso", "https://example.com/b.iso"],
+      saveDir: "/downloads",
+    });
+    expect(store.isCreating).toBe(true);
+
+    deferred.resolve({
+      created: createdTasks,
+      failed: [{ input: "ftp://example.com/c.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" }],
+    });
+    await expect(promise).resolves.toEqual({
+      created: createdTasks,
+      failed: [{ input: "ftp://example.com/c.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" }],
+    });
+    expect(store.isCreating).toBe(false);
+    expect(store.tasks.map((task) => task.id)).toEqual([12, 13]);
   });
 
   it("task operations toggle operating ids and update task collections", async () => {
@@ -265,6 +295,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     await expect(store.permanentlyDeleteTask(removedTask.id)).rejects.toThrow(t("task.runtimeExiting"));
 
     expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
+    expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
     expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
     expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
   });

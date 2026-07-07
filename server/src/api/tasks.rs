@@ -4,17 +4,21 @@ use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
-use crate::tasks::{CreateDownloadTaskRequest, DownloadTask};
+use crate::tasks::{
+    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType,
+    DownloadTaskStartMode,
+};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/tasks", get(list_tasks).post(create_task))
+        .route("/tasks/batch", post(create_batch_tasks))
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
@@ -31,6 +35,32 @@ struct DeleteTaskQuery {
 #[derive(Debug, Deserialize, Default)]
 struct ListTasksQuery {
     status: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBatchDownloadTasksRequest {
+    urls: Vec<String>,
+    save_dir: String,
+    #[serde(default)]
+    start_mode: DownloadTaskStartMode,
+    category: Option<String>,
+    #[serde(default)]
+    advanced_options: CreateTaskAdvancedOptions,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBatchDownloadTasksResponse {
+    created: Vec<DownloadTask>,
+    failed: Vec<CreateBatchDownloadTaskFailure>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBatchDownloadTaskFailure {
+    input: String,
+    message: String,
 }
 
 enum ListTasksFilter {
@@ -94,6 +124,69 @@ async fn create_task(
     broadcast_tasks_snapshot(&state)
         .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
+}
+
+async fn create_batch_tasks(
+    State(state): State<Arc<HttpAppState>>,
+    ApiJson(payload): ApiJson<CreateBatchDownloadTasksRequest>,
+) -> Result<(StatusCode, Json<CreateBatchDownloadTasksResponse>), ApiError> {
+    let service = task_service(&state);
+    service.ensure_not_exiting().map_err(classify_task_error)?;
+    ensure_authorized_save_dir(&state, Some(&payload.save_dir))?;
+    let config = ensure_aria2_ready(&state)
+        .await
+        .map_err(classify_aria2_ready_error)?;
+
+    let urls = payload
+        .urls
+        .into_iter()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+        .collect::<Vec<_>>();
+
+    let mut created = Vec::new();
+    let mut failed = Vec::new();
+    if urls.is_empty() {
+        failed.push(CreateBatchDownloadTaskFailure {
+            input: String::new(),
+            message: "请输入至少一个 HTTP / HTTPS 下载链接".to_string(),
+        });
+    }
+
+    for url in urls {
+        let request = CreateDownloadTaskRequest {
+            url: url.clone(),
+            file_name: None,
+            save_dir: Some(payload.save_dir.clone()),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: payload.start_mode,
+            category: payload.category.clone(),
+            advanced_options: payload.advanced_options.clone(),
+            aria2_options: serde_json::Map::new(),
+        };
+        match service.create_download_task(&config, request).await {
+            Ok(task) => created.push(task),
+            Err(error) => failed.push(CreateBatchDownloadTaskFailure {
+                input: url,
+                message: error,
+            }),
+        }
+    }
+
+    if !created.is_empty() {
+        broadcast_tasks_snapshot(&state)
+            .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+    }
+
+    let status = if created.is_empty() {
+        StatusCode::BAD_REQUEST
+    } else {
+        StatusCode::OK
+    };
+    Ok((
+        status,
+        Json(CreateBatchDownloadTasksResponse { created, failed }),
+    ))
 }
 
 async fn pause_task(

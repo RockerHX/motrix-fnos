@@ -57,7 +57,7 @@
   - JSON-RPC `aria2.addUri` 复用同一套选项过滤并接受 HTTP/HTTPS 与磁力链接。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
   - 提交信息：`feat: 支持磁力链接和添加后暂停`。
-- [ ] **小任务 3：支持批量 URL 创建**
+- [x] **小任务 3：支持批量 URL 创建**
   - 新增 `/api/tasks/batch`，逐条校验和创建，部分失败不回滚已创建任务。
   - 前端 service/store 增加批量创建能力，成功任务写入任务列表。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。

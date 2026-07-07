@@ -36,3 +36,21 @@ export interface CreateDownloadTaskRequest {
   advancedOptions?: CreateTaskAdvancedOptions;
   aria2Options?: Record<string, unknown>;
 }
+
+export interface CreateBatchDownloadTasksRequest {
+  urls: string[];
+  saveDir: string;
+  startMode?: DownloadTaskStartMode;
+  category?: string | null;
+  advancedOptions?: CreateTaskAdvancedOptions;
+}
+
+export interface CreateBatchDownloadTaskFailure {
+  input: string;
+  message: string;
+}
+
+export interface CreateBatchDownloadTasksResponse {
+  created: DownloadTask[];
+  failed: CreateBatchDownloadTaskFailure[];
+}

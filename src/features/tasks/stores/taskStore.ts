@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import {
+  createBatchDownloadTasks,
   createDownloadTask,
   deleteDownloadTask,
   listDownloadTasks,
@@ -14,7 +15,12 @@ import { t } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError } from "../utils/taskFormat";
 import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
-import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
+import type {
+  CreateBatchDownloadTasksRequest,
+  CreateBatchDownloadTasksResponse,
+  CreateDownloadTaskRequest,
+  DownloadTask,
+} from "../../../types/tasks";
 
 interface RefreshTasksOptions {
   showError?: boolean;
@@ -98,6 +104,23 @@ export const useTaskStore = defineStore("tasks", () => {
       const task = await createDownloadTask(payload);
       tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
       return task;
+    } finally {
+      isCreating.value = false;
+    }
+  }
+
+  async function createBatchTasks(
+    payload: CreateBatchDownloadTasksRequest,
+  ): Promise<CreateBatchDownloadTasksResponse> {
+    ensureRuntimeActive();
+    isCreating.value = true;
+
+    try {
+      const result = await createBatchDownloadTasks(payload);
+      for (const task of [...result.created].reverse()) {
+        upsertTask(task);
+      }
+      return result;
     } finally {
       isCreating.value = false;
     }
@@ -255,6 +278,7 @@ export const useTaskStore = defineStore("tasks", () => {
     isRuntimeExiting,
     runtimeExitReason,
     createTask,
+    createBatchTasks,
     pauseTask,
     resumeTask,
     redownloadTask,
@@ -272,4 +296,3 @@ export const useTaskStore = defineStore("tasks", () => {
 function taskKey(task: DownloadTask) {
   return task.gid || String(task.id);
 }
-
