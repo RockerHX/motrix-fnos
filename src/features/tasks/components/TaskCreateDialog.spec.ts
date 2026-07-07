@@ -90,19 +90,30 @@ vi.mock("naive-ui", async () => {
     }),
     NSelect: defineComponent({
       name: "NSelectStub",
+      inheritAttrs: false,
       props: {
         value: {
           type: String,
           default: "",
         },
+        options: {
+          type: Array,
+          default: () => [],
+        },
       },
       emits: ["update:value"],
       setup(props, { emit }) {
         return () =>
-          h("select", {
-            value: props.value,
-            onChange: (event: Event) => emit("update:value", (event.target as HTMLSelectElement).value),
-          });
+          h(
+            "select",
+            {
+              value: props.value,
+              onChange: (event: Event) => emit("update:value", (event.target as HTMLSelectElement).value),
+            },
+            (props.options as Array<{ label: string; value: string }>).map((option) =>
+              h("option", { value: option.value }, option.label),
+            ),
+          );
       },
     }),
     NSpace: slotStub("n-space"),
