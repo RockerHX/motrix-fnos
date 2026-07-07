@@ -14,6 +14,7 @@
     "version:set": "node scripts/version-set.mjs",
     "version:check": "node scripts/version-check.mjs",
     "release:prepare": "node scripts/release-prepare.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
     "prepare": "git config core.hooksPath .githooks || true",

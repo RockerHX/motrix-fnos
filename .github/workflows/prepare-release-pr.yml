@@ -1,0 +1,97 @@
+name: Prepare Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v prefix, for example 1.4.2"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: prepare-release-pr-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare-release-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Prepare release files
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          pnpm run release:prepare "${VERSION}" --no-verify --no-commit --no-tag
+          cargo metadata --manifest-path server/Cargo.toml --format-version 1 >/dev/null
+          pnpm run version:check
+          node scripts/release-notes.mjs "${VERSION}" > release-notes.md
+          node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
+
+      - name: Create or update release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          branch="release/v${VERSION}"
+          title="chore: 发布 ${VERSION} 版本"
+
+          {
+            echo "自动生成的 Release PR。"
+            echo
+            cat release-notes.md
+            echo
+            echo "合并后 \`Tag Release PR\` workflow 会创建 \`v${VERSION}\` tag，并触发 \`Release FPK\`。"
+          } > pr-body.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "${branch}"
+          git add \
+            CHANGELOG.md \
+            package.json \
+            packaging/fnos/app/ui/config \
+            packaging/fnos/manifest.template \
+            server/Cargo.lock \
+            server/Cargo.toml
+
+          if git diff --cached --quiet; then
+            echo "没有 release 文件改动，已中止。" >&2
+            exit 1
+          fi
+
+          git commit -m "${title}" -m "$(cat release-notes-body.md)"
+          git push --force origin "HEAD:${branch}"
+
+          pr_number="$(gh pr list --head "${branch}" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${pr_number}" ]; then
+            gh pr edit "${pr_number}" --title "${title}" --body-file pr-body.md
+            echo "已更新 PR #${pr_number}"
+          else
+            gh pr create --base main --head "${branch}" --title "${title}" --body-file pr-body.md
+          fi
