@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.4.0 - 2026-07-07
+
+### 新增
+
+- 增加项目版本同步命令，可通过 `pnpm run version:set <x.y.z>` 一次性更新前端、后端、FPK manifest 与 UI 入口缓存版本。
+- 增加项目版本一致性检查命令 `pnpm run version:check`，用于在本地和 CI 中阻断版本号漏改或不一致的发布。
+
+### 改进
+
+- 将版本一致性检查纳入 `pnpm run verify`，使日常验证、提交前快速验证和 Release 门禁使用同一套版本校验逻辑。
+- 优化 Release FPK 工作流，在构建和发布 FPK 产物前先执行完整验证，避免出现 Release 成功但 Verify 失败的发版状态。
+- Release 版本解析改为复用统一版本检查脚本，减少 workflow 中重复的 shell 版本校验逻辑。
+
 ## 1.3.3 - 2026-07-06
 
 ### 新增
