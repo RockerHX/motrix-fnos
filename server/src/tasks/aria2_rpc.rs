@@ -1,5 +1,7 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::Deserialize;
 
 use super::{
@@ -89,6 +91,62 @@ pub async fn add_uri_to_aria2(
         debug_logs,
         "aria2.addUri",
         format!("Aria2 下载任务创建成功，GID {}", gid),
+    );
+    Ok(gid)
+}
+
+pub async fn add_torrent_to_aria2(
+    config: &Aria2Config,
+    task: &PreparedDownloadTask,
+    torrent_data: &[u8],
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    log_info(
+        debug_logs,
+        "aria2.addTorrent",
+        format!(
+            "开始创建 Aria2 种子任务，文件 {}，保存目录 {}",
+            task.file_name, task.save_dir
+        ),
+    );
+    let request_body = build_add_torrent_request(config, task, torrent_data);
+    let response = match reqwest::Client::new()
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => {
+            let error = "创建种子任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string();
+            log_error(debug_logs, "aria2.addTorrent", &error);
+            return Err(error);
+        }
+    };
+
+    let rpc_response = match response.json::<AddUriResponse>().await {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("创建种子任务失败，响应解析失败：{}", error);
+            log_error(debug_logs, "aria2.addTorrent", &error);
+            return Err(error);
+        }
+    };
+
+    if let Some(error) = rpc_response.error {
+        let error = format!("创建种子任务失败：{}", error.message);
+        log_error(debug_logs, "aria2.addTorrent", &error);
+        return Err(error);
+    }
+
+    let gid = rpc_response
+        .result
+        .filter(|gid| !gid.trim().is_empty())
+        .ok_or_else(|| "创建种子任务失败：响应缺少 GID".to_string())?;
+    log_info(
+        debug_logs,
+        "aria2.addTorrent",
+        format!("Aria2 种子任务创建成功，GID {}", gid),
     );
     Ok(gid)
 }
@@ -391,6 +449,38 @@ pub(crate) fn build_add_uri_request(
         "jsonrpc": "2.0",
         "id": "motrix-fnos-add-uri",
         "method": "aria2.addUri",
+        "params": params,
+    })
+}
+
+pub(crate) fn build_add_torrent_request(
+    config: &Aria2Config,
+    task: &PreparedDownloadTask,
+    torrent_data: &[u8],
+) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+
+    params.push(serde_json::json!(STANDARD.encode(torrent_data)));
+    params.push(serde_json::json!([]));
+
+    let mut options = serde_json::Map::new();
+    for (key, value) in task.aria2_options.clone() {
+        options.insert(key, value);
+    }
+    if task.start_mode == DownloadTaskStartMode::Paused {
+        options.insert("pause".to_string(), serde_json::json!("true"));
+        options.insert("pause-metadata".to_string(), serde_json::json!("true"));
+    }
+    options.insert("dir".to_string(), serde_json::json!(task.save_dir));
+    params.push(serde_json::Value::Object(options));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-add-torrent",
+        "method": "aria2.addTorrent",
         "params": params,
     })
 }

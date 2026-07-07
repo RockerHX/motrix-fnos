@@ -120,6 +120,16 @@ pub struct CreateDownloadTaskRequest {
     pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
 
+#[derive(Debug)]
+pub struct CreateTorrentDownloadTaskRequest {
+    pub torrent_file_name: String,
+    pub torrent_data: Vec<u8>,
+    pub save_dir: String,
+    pub start_mode: DownloadTaskStartMode,
+    pub category: Option<String>,
+    pub advanced_options: CreateTaskAdvancedOptions,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedDownloadTask {
     pub url: String,

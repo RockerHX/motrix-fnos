@@ -1,7 +1,7 @@
 use super::*;
 use crate::tasks::aria2_rpc::{
-    build_add_uri_request, build_gid_control_request, build_tell_many_request,
-    build_tell_status_request,
+    build_add_torrent_request, build_add_uri_request, build_gid_control_request,
+    build_tell_many_request, build_tell_status_request,
 };
 use crate::tasks::files::delete_file_candidates;
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
@@ -891,6 +891,31 @@ fn add_uri_request_sets_pause_options_for_paused_magnet() {
     assert_eq!(request["params"][1]["pause"], "true");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert!(request["params"][1].get("out").is_none());
+}
+
+#[test]
+fn add_torrent_request_contains_base64_payload_and_options() {
+    let request = build_add_torrent_request(
+        &test_config(),
+        &PreparedDownloadTask {
+            url: "torrent:example.torrent".to_string(),
+            file_name: "example".to_string(),
+            save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Paused,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: serde_json::Map::new(),
+        },
+        b"torrent-bytes",
+    );
+
+    assert_eq!(request["method"], "aria2.addTorrent");
+    assert_eq!(request["params"][0], "dG9ycmVudC1ieXRlcw==");
+    assert_eq!(request["params"][1], serde_json::json!([]));
+    assert_eq!(request["params"][2]["dir"], "/downloads");
+    assert_eq!(request["params"][2]["pause"], "true");
+    assert_eq!(request["params"][2]["pause-metadata"], "true");
 }
 
 #[test]

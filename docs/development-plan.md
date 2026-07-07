@@ -62,7 +62,7 @@
   - 前端 service/store 增加批量创建能力，成功任务写入任务列表。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
   - 提交信息：`feat: 支持批量 URL 创建任务`。
-- [ ] **小任务 4：支持 Multipart 种子文件创建**
+- [x] **小任务 4：支持 Multipart 种子文件创建**
   - 新增 `/api/tasks/torrent`，接收 `torrent` 文件和 `request` JSON 字段，限制 torrent 文件不超过 10 MiB。
   - 后端调用 Aria2 `addTorrent`，不持久化种子原文件。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。

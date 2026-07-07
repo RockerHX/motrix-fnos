@@ -11,14 +11,20 @@ pub mod state;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use aria2_rpc::tell_status;
-pub use aria2_rpc::{add_uri_to_aria2, pause_task, remove_task, unpause_task};
+pub use aria2_rpc::{
+    add_torrent_to_aria2, add_uri_to_aria2, pause_task, remove_task, unpause_task,
+};
 pub use files::delete_task_files;
 pub use model::{
     should_force_pause_task_on_startup, should_pause_task_on_exit, CreateDownloadTaskRequest,
-    CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
+    CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest, DownloadTask,
+    DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
+    DEFAULT_TASK_CATEGORY,
 };
-pub use prepare::{default_download_dir_string, prepare_task, prepare_task_with_logs};
+pub use prepare::{
+    default_download_dir_string, prepare_task, prepare_task_with_logs,
+    prepare_torrent_task_with_logs,
+};
 use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, is_aria2_status_error, parse_aria2_u64,
 };

@@ -1,6 +1,7 @@
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{
-    CreateDownloadTaskRequest, DownloadTaskSourceType, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
+    CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
+    PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
 use std::path::{Path, PathBuf};
 use std::{env, fs};
@@ -16,6 +17,39 @@ pub fn prepare_task_with_logs(
     debug_logs: &DebugLogStore,
 ) -> Result<PreparedDownloadTask, String> {
     prepare_task_inner(request, Some(debug_logs))
+}
+
+pub fn prepare_torrent_task_with_logs(
+    request: CreateTorrentDownloadTaskRequest,
+    debug_logs: &DebugLogStore,
+) -> Result<PreparedDownloadTask, String> {
+    let torrent_file_name = normalize_required(&request.torrent_file_name, "种子文件名不能为空")?;
+    if request.torrent_data.is_empty() {
+        return Err("种子文件不能为空".to_string());
+    }
+    let file_name = torrent_display_name(&torrent_file_name);
+    let save_dir = resolve_save_dir_with_logs(Some(request.save_dir), Some(debug_logs))?;
+    let category =
+        normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
+    log_info(
+        Some(debug_logs),
+        "tasks.create",
+        format!(
+            "种子任务参数已准备，文件 {}，任务名 {}，保存目录 {}，分类 {}",
+            torrent_file_name, file_name, save_dir, category
+        ),
+    );
+
+    Ok(PreparedDownloadTask {
+        file_name,
+        save_dir,
+        category,
+        url: format!("torrent:{}", torrent_file_name),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: request.start_mode,
+        advanced_options: request.advanced_options,
+        aria2_options: serde_json::Map::new(),
+    })
 }
 
 fn prepare_task_inner(
@@ -214,5 +248,15 @@ fn infer_file_name(source_type: DownloadTaskSourceType, url: &str) -> String {
         .next()
         .filter(|name| !name.is_empty())
         .unwrap_or("未命名下载任务")
+        .to_string()
+}
+
+fn torrent_display_name(file_name: &str) -> String {
+    let trimmed = file_name.trim();
+    trimmed
+        .strip_suffix(".torrent")
+        .or_else(|| trimmed.strip_suffix(".TORRENT"))
+        .filter(|value| !value.is_empty())
+        .unwrap_or(trimmed)
         .to_string()
 }

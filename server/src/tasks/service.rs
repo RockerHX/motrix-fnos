@@ -2,14 +2,15 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
 use crate::tasks::{
-    add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error, mark_task_paused,
-    mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
-    prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    remove_task_record, should_readd_task_after_resume_error, store_created_task,
+    add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
+    mark_task_paused, mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
+    prepare_task_with_logs, prepare_torrent_task_with_logs, readd_task_to_aria2,
+    refresh_tasks_from_aria2, remove_task, remove_task_record,
+    should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
-    TaskMemoryState,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, TaskMemoryState,
 };
 use std::sync::atomic::AtomicU64;
 
@@ -89,6 +90,32 @@ impl<'a> TaskService<'a> {
             "tasks.create",
             format!(
                 "下载任务已写入内存列表和 SQLite，ID {}，GID {}",
+                task.id,
+                task.gid.as_deref().unwrap_or("-")
+            ),
+        );
+        Ok(task)
+    }
+
+    pub async fn create_torrent_download_task(
+        &self,
+        config: &Aria2Config,
+        payload: CreateTorrentDownloadTaskRequest,
+    ) -> Result<DownloadTask, String> {
+        self.ensure_not_exiting()?;
+        if payload.save_dir.trim().is_empty() {
+            return Err("请选择已授权的保存目录".to_string());
+        }
+        let torrent_data = payload.torrent_data.clone();
+        let prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
+        let gid =
+            add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs)).await?;
+        let task = store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?;
+        self.repository.upsert_task(&task).await?;
+        self.debug_logs.info(
+            "tasks.create",
+            format!(
+                "种子任务已写入内存列表和 SQLite，ID {}，GID {}",
                 task.id,
                 task.gid.as_deref().unwrap_or("-")
             ),
@@ -398,6 +425,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_torrent_download_task_persists_with_fake_repository() {
+        let mock = MockAria2Server::spawn().await;
+        let fixture = ServiceFixture::new(Vec::new(), false);
+        let save_dir = temp_dir("service-create-torrent");
+        std::fs::create_dir_all(&save_dir).expect("save dir should create");
+        let config = test_config(mock.addr.port(), "secret");
+
+        let task = fixture
+            .service()
+            .create_torrent_download_task(
+                &config,
+                CreateTorrentDownloadTaskRequest {
+                    torrent_file_name: "example.torrent".to_string(),
+                    torrent_data: b"torrent-bytes".to_vec(),
+                    save_dir: save_dir.display().to_string(),
+                    start_mode: DownloadTaskStartMode::Paused,
+                    category: None,
+                    advanced_options: CreateTaskAdvancedOptions::default(),
+                },
+            )
+            .await
+            .expect("torrent task should create");
+
+        assert_eq!(task.id, 1);
+        assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
+        assert_eq!(task.status, DownloadTaskStatus::Paused);
+        assert_eq!(task.url, "torrent:example.torrent");
+        assert_eq!(task.file_name, "example");
+        assert_eq!(fixture.repository.upserted_tasks().len(), 1);
+
+        mock.abort();
+    }
+
+    #[tokio::test]
     async fn delete_download_task_marks_removed_and_persists() {
         let mock = MockAria2Server::spawn().await;
         let save_dir = temp_dir("service-delete");
@@ -597,6 +658,7 @@ mod tests {
 
         Json(match method {
             "aria2.addUri" => json!({ "result": "gid-created" }),
+            "aria2.addTorrent" => json!({ "result": "gid-torrent" }),
             "aria2.remove" | "aria2.removeDownloadResult" => {
                 let gid = payload
                     .get("params")

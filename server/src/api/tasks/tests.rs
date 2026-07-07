@@ -171,6 +171,38 @@ async fn create_batch_route_returns_bad_request_when_all_items_fail() {
 }
 
 #[tokio::test]
+async fn create_torrent_route_accepts_multipart_upload() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-torrent-downloads").display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let created = response_json::<DownloadTask>(
+        app.oneshot(multipart_torrent_request(
+            "/api/tasks/torrent",
+            "example.torrent",
+            b"torrent-bytes",
+            &json!({
+                "saveDir": save_dir,
+                "startMode": "paused"
+            }),
+        ))
+        .await
+        .expect("torrent response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(created.url, "torrent:example.torrent");
+    assert_eq!(created.file_name, "example");
+    assert_eq!(created.status, DownloadTaskStatus::Paused);
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn pause_resume_and_delete_routes_update_task_state() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;
@@ -560,6 +592,40 @@ fn json_request<T: Serialize>(method: &str, uri: &str, payload: &T) -> Request<B
         .expect("request should build")
 }
 
+fn multipart_torrent_request(
+    uri: &str,
+    file_name: &str,
+    data: &[u8],
+    request_payload: &Value,
+) -> Request<Body> {
+    let boundary = "motrix-fnos-test-boundary";
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"torrent\"; filename=\"{file_name}\"\r\nContent-Type: application/x-bittorrent\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(data);
+    body.extend_from_slice(
+        format!(
+            "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\nContent-Type: application/json\r\n\r\n{}\r\n--{boundary}--\r\n",
+            serde_json::to_string(request_payload).expect("request payload should serialize")
+        )
+        .as_bytes(),
+    );
+
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(
+            "content-type",
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .body(Body::from(body))
+        .expect("multipart request should build")
+}
+
 fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
@@ -696,6 +762,29 @@ async fn mock_aria2_rpc(
                     status: "active".to_string(),
                     dir,
                     file_name,
+                },
+            );
+            json!({ "result": gid })
+        }
+        "aria2.addTorrent" => {
+            let options_index = if first_param_is_token(&params) { 3 } else { 2 };
+            let options = params
+                .get(options_index)
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let dir = options
+                .get("dir")
+                .and_then(Value::as_str)
+                .unwrap_or("/downloads")
+                .to_string();
+            let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
+            state.tasks.lock().expect("tasks should lock").insert(
+                gid.clone(),
+                MockTask {
+                    status: "active".to_string(),
+                    dir,
+                    file_name: "example".to_string(),
                 },
             );
             json!({ "result": gid })

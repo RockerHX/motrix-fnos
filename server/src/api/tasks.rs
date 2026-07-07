@@ -5,20 +5,23 @@ use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType,
-    DownloadTaskStartMode,
+    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
+    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
 };
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+const MAX_TORRENT_FILE_SIZE: usize = 10 * 1024 * 1024;
+
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/batch", post(create_batch_tasks))
+        .route("/tasks/torrent", post(create_torrent_task))
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
@@ -61,6 +64,17 @@ struct CreateBatchDownloadTasksResponse {
 struct CreateBatchDownloadTaskFailure {
     input: String,
     message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateTorrentUploadRequest {
+    save_dir: String,
+    #[serde(default)]
+    start_mode: DownloadTaskStartMode,
+    category: Option<String>,
+    #[serde(default)]
+    advanced_options: CreateTaskAdvancedOptions,
 }
 
 enum ListTasksFilter {
@@ -187,6 +201,109 @@ async fn create_batch_tasks(
         status,
         Json(CreateBatchDownloadTasksResponse { created, failed }),
     ))
+}
+
+async fn create_torrent_task(
+    State(state): State<Arc<HttpAppState>>,
+    multipart: Multipart,
+) -> Result<Json<DownloadTask>, ApiError> {
+    let upload = parse_torrent_multipart(multipart).await?;
+    let service = task_service(&state);
+    service.ensure_not_exiting().map_err(classify_task_error)?;
+    ensure_authorized_save_dir(&state, Some(&upload.request.save_dir))?;
+    let config = ensure_aria2_ready(&state)
+        .await
+        .map_err(classify_aria2_ready_error)?;
+    let task = service
+        .create_torrent_download_task(
+            &config,
+            CreateTorrentDownloadTaskRequest {
+                torrent_file_name: upload.file_name,
+                torrent_data: upload.data,
+                save_dir: upload.request.save_dir,
+                start_mode: upload.request.start_mode,
+                category: upload.request.category,
+                advanced_options: upload.request.advanced_options,
+            },
+        )
+        .await
+        .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+    Ok(Json(task))
+}
+
+struct ParsedTorrentUpload {
+    file_name: String,
+    data: Vec<u8>,
+    request: CreateTorrentUploadRequest,
+}
+
+async fn parse_torrent_multipart(
+    mut multipart: Multipart,
+) -> Result<ParsedTorrentUpload, ApiError> {
+    let mut file_name = None;
+    let mut data = None;
+    let mut request = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        ApiError::bad_request("invalid_multipart", format!("上传表单无效：{}", error))
+    })? {
+        let name = field.name().unwrap_or_default().to_string();
+        match name.as_str() {
+            "torrent" => {
+                let next_file_name = field
+                    .file_name()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("download.torrent")
+                    .to_string();
+                let bytes = field.bytes().await.map_err(|error| {
+                    ApiError::bad_request(
+                        "invalid_torrent_file",
+                        format!("读取种子文件失败：{}", error),
+                    )
+                })?;
+                if bytes.is_empty() {
+                    return Err(ApiError::bad_request("torrent_empty", "种子文件不能为空"));
+                }
+                if bytes.len() > MAX_TORRENT_FILE_SIZE {
+                    return Err(ApiError::bad_request(
+                        "torrent_too_large",
+                        "种子文件不能超过 10 MiB",
+                    ));
+                }
+                file_name = Some(next_file_name);
+                data = Some(bytes.to_vec());
+            }
+            "request" => {
+                let text = field.text().await.map_err(|error| {
+                    ApiError::bad_request(
+                        "invalid_torrent_request",
+                        format!("读取种子请求失败：{}", error),
+                    )
+                })?;
+                request = Some(
+                    serde_json::from_str::<CreateTorrentUploadRequest>(&text).map_err(|error| {
+                        ApiError::bad_request(
+                            "invalid_torrent_request",
+                            format!("种子请求 JSON 无效：{}", error),
+                        )
+                    })?,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    Ok(ParsedTorrentUpload {
+        file_name: file_name
+            .ok_or_else(|| ApiError::bad_request("torrent_required", "请选择种子文件"))?,
+        data: data.ok_or_else(|| ApiError::bad_request("torrent_required", "请选择种子文件"))?,
+        request: request.ok_or_else(|| {
+            ApiError::bad_request("torrent_request_required", "缺少种子任务请求参数")
+        })?,
+    })
 }
 
 async fn pause_task(
