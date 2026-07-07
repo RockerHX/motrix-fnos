@@ -47,6 +47,7 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
         url: "https://example.com/archive.zip".to_string(),
         file_name: "archive.zip".to_string(),
         save_dir: temp_dir("monitor-downloads").display().to_string(),
+        category: "默认".to_string(),
         gid: Some("gid-1".to_string()),
         status,
         total_length: 1024,

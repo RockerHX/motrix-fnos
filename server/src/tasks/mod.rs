@@ -10,27 +10,28 @@ pub mod state;
 
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use aria2_rpc::tell_status;
 pub use aria2_rpc::{add_uri_to_aria2, pause_task, remove_task, unpause_task};
 pub use files::delete_task_files;
 pub use model::{
     should_force_pause_task_on_startup, should_pause_task_on_exit, CreateDownloadTaskRequest,
-    DownloadTask, DownloadTaskStatus, PreparedDownloadTask,
+    CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
 pub use prepare::{default_download_dir_string, prepare_task, prepare_task_with_logs};
 use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, is_aria2_status_error, parse_aria2_u64,
 };
-pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
+use serde::Deserialize;
 use session::readd_download_task;
+pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
+use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
     list_tasks, mark_task_paused, mark_task_paused_by_gid, mark_task_redownloaded,
     mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record,
     store_created_task, task_gid, task_snapshot, TaskMemoryState,
 };
-use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
-use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use aria2_rpc::tell_status;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,35 +124,34 @@ pub async fn refresh_tasks_from_aria2(
         }
     }
 
-    let mut guard = tasks
-        .with_tasks_mut(|tasks| {
-            for update in &updates {
-                match update {
-                    TaskRefreshUpdate::Status { gid, status } => {
-                        for task in tasks
-                            .iter_mut()
-                            .filter(|task| task.gid.as_ref() == Some(gid))
-                        {
-                            apply_aria2_status(task, status);
-                        }
+    let mut guard = tasks.with_tasks_mut(|tasks| {
+        for update in &updates {
+            match update {
+                TaskRefreshUpdate::Status { gid, status } => {
+                    for task in tasks
+                        .iter_mut()
+                        .filter(|task| task.gid.as_ref() == Some(gid))
+                    {
+                        apply_aria2_status(task, status);
                     }
-                    TaskRefreshUpdate::Readded {
-                        task_id,
-                        old_gid,
-                        new_gid,
-                    } => {
-                        if let Some(task) = tasks
-                            .iter_mut()
-                            .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
-                        {
-                            apply_readded_gid(task, new_gid);
-                        }
+                }
+                TaskRefreshUpdate::Readded {
+                    task_id,
+                    old_gid,
+                    new_gid,
+                } => {
+                    if let Some(task) = tasks
+                        .iter_mut()
+                        .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
+                    {
+                        apply_readded_gid(task, new_gid);
                     }
                 }
             }
+        }
 
-            tasks.clone()
-        })?;
+        tasks.clone()
+    })?;
 
     Ok(std::mem::take(&mut guard))
 }

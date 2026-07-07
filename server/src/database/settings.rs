@@ -124,9 +124,10 @@ mod tests {
                     .await
                     .expect("ui preference should save");
 
-                let app_config: Option<SampleConfig> = get_app_config_value(&database.pool, "download")
-                    .await
-                    .expect("app config should read");
+                let app_config: Option<SampleConfig> =
+                    get_app_config_value(&database.pool, "download")
+                        .await
+                        .expect("app config should read");
                 let ui_preference: Option<SampleConfig> =
                     get_ui_preference_value(&database.pool, "table")
                         .await

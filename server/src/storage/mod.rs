@@ -74,7 +74,10 @@ pub fn validate_default_download_dir(
         return Err("默认下载目录不在已授权目录列表中".to_string());
     }
 
-    if accessible_paths.iter().any(|path| path == default_download_dir) {
+    if accessible_paths
+        .iter()
+        .any(|path| path == default_download_dir)
+    {
         return Ok(());
     }
 

@@ -1,5 +1,5 @@
-pub mod app;
 pub mod api;
+pub mod app;
 pub mod aria2;
 pub mod config;
 pub mod database;

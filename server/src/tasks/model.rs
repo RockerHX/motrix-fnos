@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_TASK_CATEGORY: &str = "默认";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum DownloadTaskStatus {
@@ -54,6 +56,7 @@ pub struct DownloadTask {
     pub url: String,
     pub file_name: String,
     pub save_dir: String,
+    pub category: String,
     pub gid: Option<String>,
     pub status: DownloadTaskStatus,
     pub total_length: u64,
@@ -66,12 +69,53 @@ pub struct DownloadTask {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadTaskSourceType {
+    Url,
+    Magnet,
+}
+
+impl Default for DownloadTaskSourceType {
+    fn default() -> Self {
+        Self::Url
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DownloadTaskStartMode {
+    Now,
+    Paused,
+}
+
+impl Default for DownloadTaskStartMode {
+    fn default() -> Self {
+        Self::Now
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTaskAdvancedOptions {
+    pub connections: Option<u32>,
+    pub download_limit_kb: Option<u64>,
+    pub proxy: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDownloadTaskRequest {
     pub url: String,
     pub file_name: Option<String>,
     pub save_dir: Option<String>,
+    #[serde(default)]
+    pub source_type: DownloadTaskSourceType,
+    #[serde(default)]
+    pub start_mode: DownloadTaskStartMode,
+    pub category: Option<String>,
+    #[serde(default)]
+    pub advanced_options: CreateTaskAdvancedOptions,
     #[serde(default)]
     pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
@@ -81,6 +125,9 @@ pub struct PreparedDownloadTask {
     pub url: String,
     pub file_name: String,
     pub save_dir: String,
+    pub category: String,
+    pub source_type: DownloadTaskSourceType,
+    pub start_mode: DownloadTaskStartMode,
+    pub advanced_options: CreateTaskAdvancedOptions,
     pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
-

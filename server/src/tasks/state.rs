@@ -59,6 +59,7 @@ pub fn store_created_task(
         id: next_id.fetch_add(1, Ordering::Relaxed),
         file_name: prepared.file_name,
         save_dir: prepared.save_dir,
+        category: prepared.category,
         url: prepared.url,
         gid: Some(gid),
         status: DownloadTaskStatus::Pending,
@@ -117,10 +118,7 @@ pub fn task_gid(tasks: &TaskMemoryState, task_id: u64) -> Result<String, String>
         .ok_or_else(|| "下载任务缺少 Aria2 GID，无法控制".to_string())
 }
 
-pub fn task_snapshot(
-    tasks: &TaskMemoryState,
-    task_id: u64,
-) -> Result<DownloadTask, String> {
+pub fn task_snapshot(tasks: &TaskMemoryState, task_id: u64) -> Result<DownloadTask, String> {
     let guard = tasks
         .tasks
         .lock()
@@ -142,20 +140,14 @@ pub fn remove_task_record(tasks: &TaskMemoryState, task_id: u64) -> Result<(), S
     Ok(())
 }
 
-pub fn mark_task_paused(
-    tasks: &TaskMemoryState,
-    task_id: u64,
-) -> Result<DownloadTask, String> {
+pub fn mark_task_paused(tasks: &TaskMemoryState, task_id: u64) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         apply_paused_state(task);
         Ok(())
     })
 }
 
-pub fn mark_task_paused_by_gid(
-    tasks: &TaskMemoryState,
-    gid: &str,
-) -> Result<DownloadTask, String> {
+pub fn mark_task_paused_by_gid(tasks: &TaskMemoryState, gid: &str) -> Result<DownloadTask, String> {
     let mut guard = tasks.lock()?;
     let task = guard
         .iter_mut()
@@ -165,9 +157,7 @@ pub fn mark_task_paused_by_gid(
     Ok(task.clone())
 }
 
-pub fn mark_unfinished_tasks_paused(
-    tasks: &TaskMemoryState,
-) -> Result<Vec<DownloadTask>, String> {
+pub fn mark_unfinished_tasks_paused(tasks: &TaskMemoryState) -> Result<Vec<DownloadTask>, String> {
     let mut guard = tasks.lock()?;
     let mut updated = Vec::new();
     for task in guard
@@ -188,10 +178,7 @@ pub(crate) fn apply_paused_state(task: &mut DownloadTask) {
     task.error_message = None;
 }
 
-pub fn mark_task_resumed(
-    tasks: &TaskMemoryState,
-    task_id: u64,
-) -> Result<DownloadTask, String> {
+pub fn mark_task_resumed(tasks: &TaskMemoryState, task_id: u64) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         task.status = DownloadTaskStatus::Active;
         task.error_code = None;

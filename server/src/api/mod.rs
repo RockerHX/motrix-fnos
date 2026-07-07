@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-
 pub fn router(state: Arc<HttpAppState>) -> Router {
     let static_dir = static_assets_dir();
     let index_file = static_dir.join("index.html");

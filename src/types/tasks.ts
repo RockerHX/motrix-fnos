@@ -1,10 +1,19 @@
 export type DownloadTaskStatus = "pending" | "active" | "paused" | "complete" | "error" | "removed";
+export type DownloadTaskSourceType = "url" | "magnet";
+export type DownloadTaskStartMode = "now" | "paused";
+
+export interface CreateTaskAdvancedOptions {
+  connections?: number | null;
+  downloadLimitKb?: number | null;
+  proxy?: string | null;
+}
 
 export interface DownloadTask {
   id: number;
   url: string;
   fileName: string;
   saveDir: string;
+  category: string;
   gid?: string | null;
   status: DownloadTaskStatus;
   totalLength: number;
@@ -21,5 +30,9 @@ export interface CreateDownloadTaskRequest {
   url: string;
   fileName?: string | null;
   saveDir?: string | null;
+  sourceType?: DownloadTaskSourceType;
+  startMode?: DownloadTaskStartMode;
+  category?: string | null;
+  advancedOptions?: CreateTaskAdvancedOptions;
   aria2Options?: Record<string, unknown>;
 }

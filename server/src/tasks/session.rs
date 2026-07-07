@@ -1,8 +1,9 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{
-    add_uri_to_aria2, should_force_pause_task_on_startup, DownloadTask, DownloadTaskStatus,
-    PreparedDownloadTask, TaskMemoryState,
+    add_uri_to_aria2, should_force_pause_task_on_startup, CreateTaskAdvancedOptions, DownloadTask,
+    DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
+    TaskMemoryState,
 };
 
 use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
@@ -231,6 +232,10 @@ pub(crate) async fn readd_download_task(
         url: task.url.clone(),
         file_name: task.file_name.clone(),
         save_dir: task.save_dir.clone(),
+        category: task.category.clone(),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
     };
     add_uri_to_aria2(config, &prepared, debug_logs).await

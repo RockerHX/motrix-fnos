@@ -7,7 +7,8 @@ use crate::tasks::{
     prepare_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
     remove_task_record, should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
-    task_snapshot, unpause_task, CreateDownloadTaskRequest, DownloadTask, DownloadTaskStatus,
+    task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
     TaskMemoryState,
 };
 use std::sync::atomic::AtomicU64;
@@ -221,6 +222,10 @@ impl<'a> TaskService<'a> {
             url: task.url.clone(),
             file_name: task.file_name.clone(),
             save_dir: task.save_dir.clone(),
+            category: task.category.clone(),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Now,
+            advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
         };
         let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
@@ -338,6 +343,10 @@ mod tests {
                     url: "https://example.com/archive.zip".to_string(),
                     file_name: Some("archive.zip".to_string()),
                     save_dir: Some(temp_dir("service-exiting").display().to_string()),
+                    source_type: DownloadTaskSourceType::Url,
+                    start_mode: DownloadTaskStartMode::Now,
+                    category: None,
+                    advanced_options: CreateTaskAdvancedOptions::default(),
                     aria2_options: serde_json::Map::new(),
                 },
             )
@@ -365,6 +374,10 @@ mod tests {
                     url: "https://example.com/archive.zip".to_string(),
                     file_name: Some("archive.zip".to_string()),
                     save_dir: Some(save_dir.display().to_string()),
+                    source_type: DownloadTaskSourceType::Url,
+                    start_mode: DownloadTaskStartMode::Now,
+                    category: None,
+                    advanced_options: CreateTaskAdvancedOptions::default(),
                     aria2_options: serde_json::Map::new(),
                 },
             )
@@ -607,12 +620,18 @@ mod tests {
         }
     }
 
-    fn sample_task(id: u64, status: DownloadTaskStatus, gid: &str, save_dir: String) -> DownloadTask {
+    fn sample_task(
+        id: u64,
+        status: DownloadTaskStatus,
+        gid: &str,
+        save_dir: String,
+    ) -> DownloadTask {
         DownloadTask {
             id,
             url: "https://example.com/archive.zip".to_string(),
             file_name: "archive.zip".to_string(),
             save_dir: save_dir.clone(),
+            category: "默认".to_string(),
             gid: Some(gid.to_string()),
             status,
             total_length: 1024,

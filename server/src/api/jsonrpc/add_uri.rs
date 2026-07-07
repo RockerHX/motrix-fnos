@@ -4,7 +4,10 @@ use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
-use crate::tasks::CreateDownloadTaskRequest;
+use crate::tasks::{
+    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, DownloadTaskSourceType,
+    DownloadTaskStartMode,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -46,6 +49,10 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
                 url: command.url,
                 file_name: command.file_name,
                 save_dir: Some(save_dir),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions::default(),
                 aria2_options: command.aria2_options,
             },
         )

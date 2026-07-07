@@ -45,6 +45,25 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|error| format!("初始化 SQLite 数据表失败：{}", error))?;
     }
 
+    migrate_schema(pool).await?;
+
+    Ok(())
+}
+
+async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
+    let category_column_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("检查下载任务分类字段失败：{}", error))?;
+    if category_column_count == 0 {
+        sqlx::query("ALTER TABLE download_tasks ADD COLUMN category TEXT NOT NULL DEFAULT '默认'")
+            .execute(pool)
+            .await
+            .map_err(|error| format!("迁移下载任务分类字段失败：{}", error))?;
+    }
+
     Ok(())
 }
 
@@ -55,6 +74,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         url TEXT NOT NULL,
         file_name TEXT NOT NULL,
         save_dir TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT '默认',
         gid TEXT,
         status TEXT NOT NULL,
         total_length INTEGER NOT NULL DEFAULT 0,
@@ -138,6 +158,78 @@ mod tests {
                     .expect("table lookup should succeed");
                     assert_eq!(exists, 1, "{table} should exist");
                 }
+
+                let category_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
+                )
+                .fetch_one(&database.pool)
+                .await
+                .expect("column lookup should succeed");
+                assert_eq!(category_count, 1, "download_tasks.category should exist");
+
+                database.pool.close().await;
+                let _ = std::fs::remove_file(path);
+            });
+    }
+
+    #[test]
+    fn connect_database_migrates_existing_download_tasks_category() {
+        tokio::runtime::Runtime::new()
+            .expect("tokio runtime should create")
+            .block_on(async {
+                let path = std::env::temp_dir().join(format!(
+                    "motrix-fnos-db-migrate-test-{}.sqlite",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system time should be valid")
+                        .as_millis()
+                ));
+
+                {
+                    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                        .expect("sqlite options should build")
+                        .create_if_missing(true);
+                    let pool = SqlitePoolOptions::new()
+                        .max_connections(1)
+                        .connect_with(options)
+                        .await
+                        .expect("legacy db should connect");
+                    sqlx::query(
+                        r#"
+                        CREATE TABLE download_tasks (
+                            id INTEGER PRIMARY KEY,
+                            url TEXT NOT NULL,
+                            file_name TEXT NOT NULL,
+                            save_dir TEXT NOT NULL,
+                            gid TEXT,
+                            status TEXT NOT NULL,
+                            total_length INTEGER NOT NULL DEFAULT 0,
+                            completed_length INTEGER NOT NULL DEFAULT 0,
+                            download_speed INTEGER NOT NULL DEFAULT 0,
+                            error_code TEXT,
+                            error_message TEXT,
+                            file_path TEXT,
+                            created_at INTEGER NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        )
+                        "#,
+                    )
+                    .execute(&pool)
+                    .await
+                    .expect("legacy table should create");
+                    pool.close().await;
+                }
+
+                let database = connect_database(path.clone())
+                    .await
+                    .expect("database should connect and migrate");
+                let category_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
+                )
+                .fetch_one(&database.pool)
+                .await
+                .expect("column lookup should succeed");
+                assert_eq!(category_count, 1);
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);

@@ -150,6 +150,7 @@ describe("useTaskCreateForm", () => {
       url: "https://example.com/file.iso",
       fileName: "custom.iso",
       saveDir: "/backup",
+      category: "默认",
       status: "pending",
       totalLength: 1024,
       completedLength: 0,

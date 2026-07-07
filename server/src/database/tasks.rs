@@ -5,14 +5,15 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     sqlx::query(
         r#"
         INSERT INTO download_tasks (
-            id, url, file_name, save_dir, gid, status, total_length, completed_length,
+            id, url, file_name, save_dir, category, gid, status, total_length, completed_length,
             download_speed, error_code, error_message, file_path, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
             file_name = excluded.file_name,
             save_dir = excluded.save_dir,
+            category = excluded.category,
             gid = excluded.gid,
             status = excluded.status,
             total_length = excluded.total_length,
@@ -28,6 +29,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     .bind(&task.url)
     .bind(&task.file_name)
     .bind(&task.save_dir)
+    .bind(&task.category)
     .bind(&task.gid)
     .bind(task.status.as_storage_value())
     .bind(u64_to_i64(task.total_length, "总大小")?)
@@ -83,7 +85,7 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
     let rows = sqlx::query(
         r#"
         SELECT id, url, file_name, save_dir, gid, status, total_length, completed_length,
-               download_speed, error_code, error_message, file_path, created_at, updated_at
+               category, download_speed, error_code, error_message, file_path, created_at, updated_at
         FROM download_tasks
         ORDER BY created_at DESC, id DESC
         "#,
@@ -202,6 +204,7 @@ fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
         url: get(&row, "url")?,
         file_name: get(&row, "file_name")?,
         save_dir: get(&row, "save_dir")?,
+        category: get(&row, "category")?,
         gid: get(&row, "gid")?,
         status: DownloadTaskStatus::from_storage_value(&status),
         total_length: i64_to_u64(get(&row, "total_length")?, "总大小")?,
@@ -320,8 +323,10 @@ mod tests {
         tokio::runtime::Runtime::new()
             .expect("tokio runtime should create")
             .block_on(async {
-                let path = std::env::temp_dir()
-                    .join(format!("motrix-fnos-delete-record-test-{}.sqlite", now_ms()));
+                let path = std::env::temp_dir().join(format!(
+                    "motrix-fnos-delete-record-test-{}.sqlite",
+                    now_ms()
+                ));
                 let database = connect_database(path.clone())
                     .await
                     .expect("database should connect");
@@ -371,6 +376,7 @@ mod tests {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
             gid: Some("abc123".to_string()),
             status: DownloadTaskStatus::Active,
             total_length: 100,

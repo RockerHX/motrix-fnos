@@ -158,13 +158,13 @@ async fn pause_resume_and_delete_routes_update_task_state() {
     let removed_list = response_json::<Vec<DownloadTask>>(
         app.clone()
             .oneshot(
-            Request::builder()
-                .uri("/api/tasks?status=removed")
-                .body(Body::empty())
-                .expect("removed list request should build"),
-        )
-        .await
-        .expect("removed list response should succeed"),
+                Request::builder()
+                    .uri("/api/tasks?status=removed")
+                    .body(Body::empty())
+                    .expect("removed list request should build"),
+            )
+            .await
+            .expect("removed list response should succeed"),
         StatusCode::OK,
     )
     .await;
@@ -422,10 +422,7 @@ fn cleanup_state(state: &Arc<HttpAppState>, child_pid: u32) {
     let _ = crate::aria2::terminate_process(child_pid);
 }
 
-async fn response_json<T: DeserializeOwned>(
-    response: Response,
-    expected_status: StatusCode,
-) -> T {
+async fn response_json<T: DeserializeOwned>(response: Response, expected_status: StatusCode) -> T {
     let status = response.status();
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -469,6 +466,7 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
         url: format!("https://example.com/archive-{id}.zip"),
         file_name: format!("archive-{id}.zip"),
         save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
         gid: Some(format!("gid-{id}")),
         status,
         total_length: 1024,

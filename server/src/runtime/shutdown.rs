@@ -17,28 +17,26 @@ pub async fn run_shutdown_cleanup(state: &Arc<HttpAppState>) {
     pause_unfinished_tasks_before_exit(state).await;
     save_aria2_session_before_exit(state).await;
 
-    let should_clear_runtime = match super::aria2_process::stop_process(
-        &state.aria2_process,
-        &state.core.debug_logs,
-    ) {
-        Ok(status) => {
-            state.core.debug_logs.info(
-                "runtime.exit",
-                format!("退出流程已停止 Aria2：{}", status.message),
-            );
-            true
-        }
-        Err(error) => {
-            state.core.debug_logs.warn(
-                "runtime.exit",
-                format!(
-                    "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
-                    error
-                ),
-            );
-            false
-        }
-    };
+    let should_clear_runtime =
+        match super::aria2_process::stop_process(&state.aria2_process, &state.core.debug_logs) {
+            Ok(status) => {
+                state.core.debug_logs.info(
+                    "runtime.exit",
+                    format!("退出流程已停止 Aria2：{}", status.message),
+                );
+                true
+            }
+            Err(error) => {
+                state.core.debug_logs.warn(
+                    "runtime.exit",
+                    format!(
+                        "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
+                        error
+                    ),
+                );
+                false
+            }
+        };
 
     if should_clear_runtime {
         state.clear_aria2_runtime();
@@ -57,11 +55,17 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) {
     }
 
     let config = state.aria2_config();
-    match refresh_tasks_from_aria2(&state.core.download_tasks, &config, Some(&state.core.debug_logs))
-        .await
+    match refresh_tasks_from_aria2(
+        &state.core.download_tasks,
+        &config,
+        Some(&state.core.debug_logs),
+    )
+    .await
     {
         Ok(tasks) => {
-            if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
+            if let Err(error) =
+                persist_download_task_states(&state.core.database.pool, &tasks).await
+            {
                 state.core.debug_logs.error(
                     "runtime.exit",
                     format!("退出前保存最新任务状态失败：{}", error),
@@ -177,10 +181,10 @@ async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) {
 
 async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) {
     if state.aria2_runtime_snapshot().is_none() {
-        state
-            .core
-            .debug_logs
-            .info("runtime.exit", "退出前未发现 Aria2 运行态，跳过 session 保存");
+        state.core.debug_logs.info(
+            "runtime.exit",
+            "退出前未发现 Aria2 运行态，跳过 session 保存",
+        );
         return;
     }
 
@@ -204,19 +208,21 @@ async fn persist_last_known_tasks(
 ) {
     match list_tasks(&state.core.download_tasks) {
         Ok(tasks) => {
-            if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
-                state.core.debug_logs.error(
-                    "runtime.exit",
-                    format!("{}：{}", failure_prefix, error),
-                );
+            if let Err(error) =
+                persist_download_task_states(&state.core.database.pool, &tasks).await
+            {
+                state
+                    .core
+                    .debug_logs
+                    .error("runtime.exit", format!("{}：{}", failure_prefix, error));
             } else {
                 state.core.debug_logs.info("runtime.exit", success_message);
             }
         }
-        Err(error) => state.core.debug_logs.error(
-            "runtime.exit",
-            format!("退出前读取任务快照失败：{}", error),
-        ),
+        Err(error) => state
+            .core
+            .debug_logs
+            .error("runtime.exit", format!("退出前读取任务快照失败：{}", error)),
     }
 }
 
@@ -235,8 +241,8 @@ mod tests {
     use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::path::PathBuf;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Mutex;
 
     #[tokio::test]
     async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_aria2() {
@@ -266,13 +272,11 @@ mod tests {
         assert_eq!(mock.save_session_calls(), 1);
         assert!(state.aria2_runtime_snapshot().is_none());
         assert!(!state.core.aria2_runtime_path.exists());
-        assert!(
-            state
-                .aria2_process
-                .lock()
-                .expect("process lock should succeed")
-                .is_none()
-        );
+        assert!(state
+            .aria2_process
+            .lock()
+            .expect("process lock should succeed")
+            .is_none());
 
         mock.abort();
     }
@@ -283,6 +287,7 @@ mod tests {
             url: "https://example.com/archive.zip".to_string(),
             file_name: "archive.zip".to_string(),
             save_dir: temp_dir("shutdown-downloads").display().to_string(),
+            category: "默认".to_string(),
             gid: Some("gid-1".to_string()),
             status,
             total_length: 1024,
@@ -475,12 +480,7 @@ mod tests {
             "aria2.pause" => {
                 let gid = gid_param(&params);
                 state.pause_calls.fetch_add(1, Ordering::SeqCst);
-                if let Some(task) = state
-                    .tasks
-                    .lock()
-                    .expect("tasks should lock")
-                    .get_mut(&gid)
-                {
+                if let Some(task) = state.tasks.lock().expect("tasks should lock").get_mut(&gid) {
                     task.status = "paused".to_string();
                 }
                 json!({ "result": gid })

@@ -67,6 +67,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     url: "https://example.com/file.iso",
     fileName: "file.iso",
     saveDir: "/downloads",
+    category: "默认",
     gid: "gid-1",
     status: "active",
     totalLength: 100,

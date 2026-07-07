@@ -1,6 +1,6 @@
 use crate::tasks::DownloadTask;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
     delete_task_file(task)
@@ -42,7 +42,8 @@ pub(crate) fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
 }
 
 fn delete_local_file(file: &Path) -> Result<(), String> {
-    fs::remove_file(file).map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
+    fs::remove_file(file)
+        .map_err(|error| format!("删除本地文件失败：{}（{}）", file.display(), error))
 }
 
 pub(crate) fn cleanup_aria2_control_file(task: &DownloadTask) {
@@ -81,4 +82,3 @@ pub(crate) fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
         PathBuf::from(format!("{}.aria2", path.display())),
     ]
 }
-

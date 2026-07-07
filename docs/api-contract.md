@@ -120,6 +120,8 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `GET` | `/api/tasks` | - | `DownloadTask[]` |
 | `GET` | `/api/tasks?status=removed` | - | `DownloadTask[]` |
 | `POST` | `/api/tasks` | `CreateDownloadTaskRequest` | `DownloadTask` |
+| `POST` | `/api/tasks/batch` | `CreateBatchDownloadTasksRequest` | `CreateBatchDownloadTasksResponse` |
+| `POST` | `/api/tasks/torrent` | `multipart/form-data` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
@@ -140,18 +142,76 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
   "url": "https://example.com/file.zip",
   "fileName": "file.zip",
   "saveDir": "/vol1/downloads",
-  "aria2Options": {
-    "split": "8",
-    "max-connection-per-server": "8"
+  "sourceType": "url",
+  "startMode": "now",
+  "category": "默认",
+  "advancedOptions": {
+    "connections": 8,
+    "downloadLimitKb": 0,
+    "proxy": ""
   }
 }
 ```
 
 约定：
 
+- `sourceType` 可选值为 `url` / `magnet`，省略时兼容旧请求并按 `url` 处理。
+- `startMode` 可选值为 `now` / `paused`，省略时按 `now` 处理。
+- `category` 是 Motrix 任务标签，默认 `默认`；它不改变保存目录，也不影响侧栏状态分类。
+- `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速；`advancedOptions.proxy` 映射 `all-proxy`。
 - `saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
-- `aria2Options` 为可选字段；当前 Web UI 创建弹窗不发送该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
+- `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
 - 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
+
+`DownloadTask` 新增 `category` 字段：
+
+```json
+{
+  "id": 1,
+  "url": "https://example.com/file.zip",
+  "fileName": "file.zip",
+  "saveDir": "/vol1/downloads",
+  "category": "默认",
+  "gid": "abc123",
+  "status": "pending"
+}
+```
+
+`CreateBatchDownloadTasksRequest`：
+
+```json
+{
+  "urls": ["https://example.com/file-a.zip", "https://example.com/file-b.zip"],
+  "saveDir": "/vol1/downloads",
+  "startMode": "now",
+  "category": "默认",
+  "advancedOptions": {
+    "connections": 8,
+    "downloadLimitKb": 0,
+    "proxy": ""
+  }
+}
+```
+
+`CreateBatchDownloadTasksResponse`：
+
+```json
+{
+  "created": [],
+  "failed": [
+    {
+      "input": "ftp://example.com/file.zip",
+      "message": "当前仅支持 HTTP / HTTPS 下载链接"
+    }
+  ]
+}
+```
+
+`POST /api/tasks/torrent` 使用 `multipart/form-data`：
+
+- `torrent`：种子文件，大小不得超过 10 MiB。
+- `request`：JSON 字符串，字段为 `saveDir`、`startMode`、`category`、`advancedOptions`。
+- 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`。
 
 ### 4.4 设置
 

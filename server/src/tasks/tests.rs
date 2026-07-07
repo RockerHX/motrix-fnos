@@ -41,6 +41,7 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
         url: "https://example.com/file.zip".to_string(),
         file_name: "file.zip".to_string(),
         save_dir,
+        category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Active,
         total_length: 100,
@@ -60,6 +61,10 @@ fn prepare_task_accepts_https_url() {
         url: " https://example.com/file.zip?token=1 ".to_string(),
         file_name: None,
         save_dir: Some(format!(" {} ", temp_download_dir("prepare"))),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
     })
     .expect("https task should be prepared");
@@ -75,6 +80,10 @@ fn prepare_task_rejects_non_http_url() {
         url: "magnet:?xt=urn:btih:test".to_string(),
         file_name: None,
         save_dir: None,
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
     })
     .expect_err("non-http url should fail");
@@ -93,6 +102,10 @@ fn store_created_task_persists_gid() {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Now,
+            advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
         },
         "abc123".to_string(),
@@ -406,8 +419,7 @@ fn mark_task_removed_refuses_file_outside_save_dir() {
         save_dir.display().to_string(),
     )]);
 
-    let error =
-        mark_task_removed(&tasks, 1, true).expect_err("outside file should be rejected");
+    let error = mark_task_removed(&tasks, 1, true).expect_err("outside file should be rejected");
 
     assert!(error.contains("保存目录外"));
     assert!(file_path.exists());
@@ -432,6 +444,7 @@ fn apply_aria2_status_updates_progress_fields() {
         url: "https://example.com/file.zip".to_string(),
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,
         total_length: 0,
@@ -566,8 +579,8 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
         files: None,
     };
 
-    let synced = apply_aria2_status_by_gid(&tasks, "abc123", &status)
-        .expect("task progress should sync");
+    let synced =
+        apply_aria2_status_by_gid(&tasks, "abc123", &status).expect("task progress should sync");
     assert_eq!(synced.completed_length, 80);
 
     let paused = mark_task_paused(&tasks, 1).expect("task should pause");
@@ -584,6 +597,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         url: "https://example.com/file.zip".to_string(),
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,
         total_length: 0,
@@ -655,12 +669,11 @@ fn aria2_error_16_gets_readable_hint() {
     apply_aria2_status(&mut task, &status);
 
     assert_eq!(task.error_code.as_deref(), Some("16"));
-    assert!(
-        task.error_message
-            .as_deref()
-            .unwrap_or_default()
-            .contains("无法创建或写入目标文件")
-    );
+    assert!(task
+        .error_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("无法创建或写入目标文件"));
 }
 
 #[test]
@@ -754,8 +767,8 @@ fn expand_home_dir_supports_tilde_paths() {
 #[test]
 fn resolve_save_dir_creates_missing_directory() {
     let dir = temp_download_dir("missing-dir");
-    let resolved = resolve_save_dir_with_logs(Some(dir.clone()), None)
-        .expect("directory should be created");
+    let resolved =
+        resolve_save_dir_with_logs(Some(dir.clone()), None).expect("directory should be created");
 
     assert_eq!(resolved, dir);
     assert!(Path::new(&resolved).is_dir());
@@ -789,6 +802,10 @@ fn add_uri_request_contains_url_and_options() {
             url: "https://example.com/file.zip".to_string(),
             file_name: "custom.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Now,
+            advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::from_iter([
                 (
                     "split".to_string(),
@@ -812,8 +829,7 @@ fn add_uri_request_contains_url_and_options() {
 
 #[test]
 fn gid_control_request_contains_method_and_gid() {
-    let request =
-        build_gid_control_request(&test_config(), "abc123", "aria2.pause", "pause-test");
+    let request = build_gid_control_request(&test_config(), "abc123", "aria2.pause", "pause-test");
 
     assert_eq!(request["method"], "aria2.pause");
     assert_eq!(request["id"], "pause-test");

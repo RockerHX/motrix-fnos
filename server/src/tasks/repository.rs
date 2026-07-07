@@ -1,9 +1,9 @@
-use axum::async_trait;
 use crate::database::tasks::{
     delete_download_task_record, persist_download_task_state, persist_download_task_states,
     upsert_download_task,
 };
 use crate::tasks::DownloadTask;
+use axum::async_trait;
 use sqlx::SqlitePool;
 
 #[async_trait]

@@ -2,9 +2,7 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use serde::Deserialize;
 
-use super::{
-    log_error, log_info, redact_url_for_log, Aria2TaskStatus, PreparedDownloadTask,
-};
+use super::{log_error, log_info, redact_url_for_log, Aria2TaskStatus, PreparedDownloadTask};
 
 #[derive(Debug, Deserialize)]
 struct AddUriResponse {

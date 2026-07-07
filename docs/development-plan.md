@@ -45,7 +45,7 @@
   - 在本文档记录阶段 12 的可勾选实施清单、验收命令和提交规范。
   - 验收命令：`rtk pnpm run verify:pre-commit`。
   - 提交信息：`docs: 细化阶段 12 新建任务实施清单`。
-- [ ] **小任务 1：扩展任务模型、分类字段和接口契约**
+- [x] **小任务 1：扩展任务模型、分类字段和接口契约**
   - 后端 `DownloadTask` / 前端 `DownloadTask` 增加 `category`，SQLite 新库和老库迁移均提供默认分类 `默认`。
   - 新建任务请求类型加入 `sourceType`、`startMode`、`category`、`advancedOptions`，并保持旧请求兼容。
   - 同步更新 `docs/api-contract.md`。

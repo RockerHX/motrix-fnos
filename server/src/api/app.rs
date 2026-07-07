@@ -132,7 +132,10 @@ async fn fetch_latest_release() -> Result<GitHubRelease, String> {
         .map_err(|error| format!("创建版本检测客户端失败：{}", error))?;
     client
         .get(GITHUB_LATEST_RELEASE_API_URL)
-        .header(USER_AGENT, format!("motrix-fnos/{}", env!("CARGO_PKG_VERSION")))
+        .header(
+            USER_AGENT,
+            format!("motrix-fnos/{}", env!("CARGO_PKG_VERSION")),
+        )
         .header(ACCEPT, "application/vnd.github+json")
         .send()
         .await

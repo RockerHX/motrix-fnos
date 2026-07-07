@@ -1,17 +1,17 @@
 use super::*;
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
-use axum::body::to_bytes;
-use axum::http::StatusCode;
-use tower::ServiceExt;
 use crate::api::app::{AppInfo, BackendPing};
 use crate::api::error::ErrorResponse;
 use crate::api::storage::AccessiblePathsResponse;
+use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
 use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::{AppConfig, UiPreferences};
+use axum::body::to_bytes;
+use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
+use tower::ServiceExt;
 
 #[tokio::test]
 async fn app_routes_return_expected_payloads() {
@@ -35,7 +35,10 @@ async fn app_routes_return_expected_payloads() {
     assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
     assert_eq!(info.backend_status, "ready");
     assert_eq!(info.maintainer, "rockerhx");
-    assert_eq!(info.repository_url, "https://github.com/RockerHX/motrix-fnos");
+    assert_eq!(
+        info.repository_url,
+        "https://github.com/RockerHX/motrix-fnos"
+    );
     assert_eq!(
         info.release_page_url,
         "https://github.com/RockerHX/motrix-fnos/releases"

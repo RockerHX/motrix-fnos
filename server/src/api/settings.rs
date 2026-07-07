@@ -34,12 +34,10 @@ async fn update_settings(
     ApiJson(payload): ApiJson<AppConfig>,
 ) -> Result<Json<AppConfig>, ApiError> {
     let accessible_paths = accessible_paths(&state)?;
-    let default_download_dir = crate::storage::default_download_dir(
-        &accessible_paths,
-        &state.runtime.app_data_dir,
-    )
-    .display()
-    .to_string();
+    let default_download_dir =
+        crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
+            .display()
+            .to_string();
     let config = save_app_config(
         &state.core.database.pool,
         payload,
@@ -47,8 +45,8 @@ async fn update_settings(
         &accessible_paths,
         &state.runtime.app_data_dir,
     )
-        .await
-        .map_err(classify_settings_save_error)?;
+    .await
+    .map_err(classify_settings_save_error)?;
     state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))

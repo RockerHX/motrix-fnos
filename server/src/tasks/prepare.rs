@@ -1,5 +1,5 @@
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::{CreateDownloadTaskRequest, PreparedDownloadTask};
+use crate::tasks::{CreateDownloadTaskRequest, PreparedDownloadTask, DEFAULT_TASK_CATEGORY};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -34,21 +34,28 @@ fn prepare_task_inner(
 
     let file_name = normalize_optional(request.file_name).unwrap_or_else(|| infer_file_name(&url));
     let save_dir = resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
+    let category =
+        normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
     log_info(
         debug_logs,
         "tasks.create",
         format!(
-            "下载任务参数已准备，URL {}，文件名 {}，保存目录 {}",
+            "下载任务参数已准备，URL {}，文件名 {}，保存目录 {}，分类 {}",
             redact_url_for_log(&url),
             file_name,
-            save_dir
+            save_dir,
+            category
         ),
     );
 
     Ok(PreparedDownloadTask {
         file_name,
         save_dir,
+        category,
         url,
+        source_type: request.source_type,
+        start_mode: request.start_mode,
+        advanced_options: request.advanced_options,
         aria2_options: request.aria2_options,
     })
 }

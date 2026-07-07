@@ -1,8 +1,8 @@
 use super::*;
-use std::sync::atomic::Ordering;
-use std::sync::OnceLock;
 use crate::database::tasks::upsert_download_task;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use std::sync::atomic::Ordering;
+use std::sync::OnceLock;
 
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -68,11 +68,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 .await
                 .expect("state should bootstrap");
 
-            let tasks = state
-                .core
-                .download_tasks
-                .list()
-                .expect("tasks should lock");
+            let tasks = state.core.download_tasks.list().expect("tasks should lock");
 
             assert_eq!(state.runtime.app_data_dir, app_data_dir);
             assert_eq!(state.runtime.http_addr.to_string(), DEFAULT_HTTP_ADDR);
@@ -122,6 +118,7 @@ fn sample_task() -> DownloadTask {
         url: "https://example.com/archive.zip".to_string(),
         file_name: "archive.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
         gid: Some("gid-7".to_string()),
         status: DownloadTaskStatus::Paused,
         total_length: 1024,
