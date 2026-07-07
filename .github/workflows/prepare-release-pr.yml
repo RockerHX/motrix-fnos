@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  models: read
 
 concurrency:
   group: prepare-release-pr-${{ inputs.version }}
@@ -43,6 +44,9 @@ jobs:
       - name: Prepare release files
         env:
           VERSION: ${{ inputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MOTRIX_RELEASE_CHANGELOG_PROVIDER: github-models
+          MOTRIX_RELEASE_CHANGELOG_MODEL: openai/gpt-4o-mini
         run: |
           set -euo pipefail
           git fetch --tags --force
