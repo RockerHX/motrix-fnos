@@ -11,6 +11,7 @@ import {
   NGi,
   NGrid,
   NInput,
+  NInputNumber,
   NModal,
   NSelect,
   NSpace,
@@ -38,14 +39,18 @@ const {
   form,
   activeInputType,
   formErrorMessage,
+  batchFailedItems,
   accessiblePaths,
   isLoadingAccessiblePaths,
   accessiblePathsError,
   urlFeedback,
   urlValidationStatus,
+  magnetFeedback,
+  magnetValidationStatus,
   accessiblePathOptions,
   canSubmit,
   isMaskClosable,
+  selectTorrentFile,
   submitCreateTask,
   closeDialog,
 } = useTaskCreateForm({
@@ -53,6 +58,13 @@ const {
   onClose: () => emit("update:show", false),
   onCreated: () => emit("created"),
 });
+
+const selectedTorrentFileName = computed(() => form.torrentFile?.name || t("create.torrent.notSelected"));
+
+function handleTorrentFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  selectTorrentFile(input.files?.[0] ?? null);
+}
 </script>
 
 <template>
@@ -80,17 +92,39 @@ const {
       <NForm class="task-create-form" label-placement="top" @submit.prevent="submitCreateTask">
         <NTabs v-model:value="activeInputType" class="task-create-tabs" type="segment" animated>
           <NTabPane name="url" :tab="t('create.tab.url')" />
-          <NTabPane name="batch" :tab="t('create.tab.batch')" disabled />
-          <NTabPane name="torrent" :tab="t('create.tab.torrent')" disabled />
-          <NTabPane name="magnet" :tab="t('create.tab.magnet')" disabled />
+          <NTabPane name="batch" :tab="t('create.tab.batch')" />
+          <NTabPane name="torrent" :tab="t('create.tab.torrent')" />
+          <NTabPane name="magnet" :tab="t('create.tab.magnet')" />
         </NTabs>
 
-        <NFormItem :label="t('create.url.label')" :feedback="urlFeedback" :validation-status="urlValidationStatus">
-          <NInput v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
+        <template v-if="activeInputType === 'url'">
+          <NFormItem :label="t('create.url.label')" :feedback="urlFeedback" :validation-status="urlValidationStatus">
+            <NInput v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
+          </NFormItem>
+
+          <NFormItem :label="t('create.fileName.label')">
+            <NInput v-model:value="form.fileName" :placeholder="t('create.fileName.placeholder')" />
+          </NFormItem>
+        </template>
+
+        <NFormItem v-else-if="activeInputType === 'batch'" :label="t('create.batch.label')">
+          <NInput
+            v-model:value="form.batchUrls"
+            type="textarea"
+            :autosize="{ minRows: 5, maxRows: 10 }"
+            :placeholder="t('create.batch.placeholder')"
+          />
         </NFormItem>
 
-        <NFormItem :label="t('create.fileName.label')">
-          <NInput v-model:value="form.fileName" :placeholder="t('create.fileName.placeholder')" />
+        <NFormItem v-else-if="activeInputType === 'torrent'" :label="t('create.torrent.label')">
+          <NSpace vertical class="full-width">
+            <input class="torrent-file-input" type="file" accept=".torrent,application/x-bittorrent" @change="handleTorrentFileChange" />
+            <span class="field-hint">{{ selectedTorrentFileName }}</span>
+          </NSpace>
+        </NFormItem>
+
+        <NFormItem v-else :label="t('create.magnet.label')" :feedback="magnetFeedback" :validation-status="magnetValidationStatus">
+          <NInput v-model:value="form.magnet" type="text" placeholder="magnet:?xt=urn:btih:..." />
         </NFormItem>
 
         <NFormItem :label="t('create.saveDir.label')">
@@ -120,22 +154,43 @@ const {
           </NTabs>
         </NFormItem>
 
-        <NFormItem :label="t('create.note.label')">
-          <NInput v-model:value="form.note" :placeholder="t('create.note.placeholder')" />
-        </NFormItem>
-
         <NCollapse>
           <NCollapseItem :title="t('create.advanced')" name="advanced">
             <NGrid :cols="advancedGridCols" :x-gap="12" :y-gap="12">
-              <NGi><NInput :placeholder="t('create.advanced.category')" disabled /></NGi>
-              <NGi><NInput :placeholder="t('create.advanced.connections')" disabled /></NGi>
-              <NGi><NInput :placeholder="t('create.advanced.speedLimit')" disabled /></NGi>
-              <NGi><NInput :placeholder="t('create.advanced.proxy')" disabled /></NGi>
+              <NGi>
+                <NFormItem :label="t('create.advanced.category.label')" path="category">
+                  <NInput v-model:value="form.category" :placeholder="t('create.advanced.category.placeholder')" />
+                </NFormItem>
+              </NGi>
+              <NGi>
+                <NFormItem :label="t('create.advanced.connections.label')" path="connections">
+                  <NInputNumber v-model:value="form.connections" class="full-width" :min="1" :max="64" :precision="0" />
+                </NFormItem>
+              </NGi>
+              <NGi>
+                <NFormItem :label="t('create.advanced.speedLimit.label')" path="downloadLimitKb">
+                  <NInputNumber v-model:value="form.downloadLimitKb" class="full-width" :min="0" :precision="0" />
+                </NFormItem>
+              </NGi>
+              <NGi>
+                <NFormItem :label="t('create.advanced.proxy.label')" path="proxy">
+                  <NInput v-model:value="form.proxy" :placeholder="t('create.advanced.proxy.placeholder')" />
+                </NFormItem>
+              </NGi>
             </NGrid>
+            <p class="field-hint advanced-hint">{{ t("create.advanced.hint") }}</p>
           </NCollapseItem>
         </NCollapse>
 
         <NAlert v-if="formErrorMessage" type="error" class="form-alert">{{ formErrorMessage }}</NAlert>
+        <NAlert v-if="batchFailedItems.length > 0" type="warning" class="form-alert">
+          <p class="batch-failure-title">{{ t("create.batch.failedTitle") }}</p>
+          <ul class="batch-failure-list">
+            <li v-for="item in batchFailedItems" :key="`${item.input}-${item.message}`">
+              {{ item.input }}：{{ item.message }}
+            </li>
+          </ul>
+        </NAlert>
 
         <NSpace justify="end" class="dialog-actions">
           <NButton :disabled="taskStore.isCreating || taskStore.isRuntimeExiting" @click="closeDialog">{{ t("common.cancel") }}</NButton>
@@ -174,6 +229,15 @@ h2 {
   line-height: 1.5;
 }
 
+.torrent-file-input {
+  max-width: 100%;
+  color: var(--app-text);
+}
+
+.advanced-hint {
+  margin: 8px 0 0;
+}
+
 .inline-alert {
   width: 100%;
   word-break: break-word;
@@ -182,6 +246,16 @@ h2 {
 .form-alert {
   margin-top: 16px;
   word-break: break-word;
+}
+
+.batch-failure-title {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.batch-failure-list {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .dialog-actions {
@@ -202,6 +276,7 @@ h2 {
   .task-create-form :deep(.n-form-item-blank),
   .task-create-form :deep(.n-base-selection),
   .task-create-form :deep(.n-input),
+  .task-create-form :deep(.n-input-number),
   .task-create-tabs,
   .start-mode-tabs {
     width: 100%;

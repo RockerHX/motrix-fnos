@@ -72,7 +72,7 @@
   - 连接数、下载限速和代理映射为受控 Aria2 options，并集中校验过滤。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
   - 提交信息：`feat: 接入新建任务高级设置`。
-- [ ] **小任务 6：完善新建任务弹窗交互**
+- [x] **小任务 6：完善新建任务弹窗交互**
   - 启用 URL、批量 URL、种子文件、磁力链接四个 Tab。
   - 公共区域接入保存路径、开始方式、分类、连接数、限速、代理；移除未持久化备注。
   - 批量部分失败时保留弹窗并展示失败列表，全部成功时重置并关闭。

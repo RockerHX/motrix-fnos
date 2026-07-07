@@ -63,7 +63,7 @@ vi.mock("naive-ui", async () => {
       name: "NInputStub",
       props: {
         value: {
-          type: String,
+          type: [String, Number],
           default: "",
         },
       },
@@ -73,6 +73,24 @@ vi.mock("naive-ui", async () => {
           h("input", {
             value: props.value,
             onInput: (event: Event) => emit("update:value", (event.target as HTMLInputElement).value),
+          });
+      },
+    }),
+    NInputNumber: defineComponent({
+      name: "NInputNumberStub",
+      props: {
+        value: {
+          type: Number,
+          default: 0,
+        },
+      },
+      emits: ["update:value"],
+      setup(props, { emit }) {
+        return () =>
+          h("input", {
+            type: "number",
+            value: props.value,
+            onInput: (event: Event) => emit("update:value", Number((event.target as HTMLInputElement).value)),
           });
       },
     }),
@@ -218,21 +236,31 @@ function createComposableState(overrides: {
     }),
     form: reactive({
       url: "",
+      batchUrls: "",
+      magnet: "",
+      torrentFile: null,
       fileName: "",
       saveDir: "",
       startMode: "now",
-      note: "",
+      category: "默认",
+      connections: 16,
+      downloadLimitKb: 0,
+      proxy: "",
     }),
     activeInputType: ref("url"),
     formErrorMessage: ref(overrides.formErrorMessage ?? ""),
+    batchFailedItems: ref([]),
     accessiblePaths: ref<string[]>(["/downloads"]),
     isLoadingAccessiblePaths: ref(false),
     accessiblePathsError: ref(overrides.accessiblePathsError ?? ""),
     urlFeedback: ref<string | undefined>(undefined),
     urlValidationStatus: ref<string | undefined>(undefined),
+    magnetFeedback: ref<string | undefined>(undefined),
+    magnetValidationStatus: ref<string | undefined>(undefined),
     accessiblePathOptions: ref([{ label: "/downloads", value: "/downloads" }]),
     canSubmit: ref(overrides.canSubmit ?? true),
     isMaskClosable: ref(true),
+    selectTorrentFile: vi.fn(),
     submitCreateTask: mockSubmitCreateTask,
     closeDialog: mockCloseDialog,
   };

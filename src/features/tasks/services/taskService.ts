@@ -1,8 +1,9 @@
-import { httpDelete, httpGet, httpPost } from "../../../services/http";
+import { httpDelete, httpGet, httpPost, httpPostFormData } from "../../../services/http";
 import type {
   CreateBatchDownloadTasksRequest,
   CreateBatchDownloadTasksResponse,
   CreateDownloadTaskRequest,
+  CreateTorrentDownloadTaskRequest,
   DownloadTask,
 } from "../../../types/tasks";
 
@@ -14,6 +15,22 @@ export function createBatchDownloadTasks(
   payload: CreateBatchDownloadTasksRequest,
 ): Promise<CreateBatchDownloadTasksResponse> {
   return httpPost<CreateBatchDownloadTasksResponse>("/api/tasks/batch", payload);
+}
+
+export function createTorrentDownloadTask(payload: CreateTorrentDownloadTaskRequest): Promise<DownloadTask> {
+  const formData = new FormData();
+  formData.append("torrent", payload.torrent);
+  formData.append(
+    "request",
+    JSON.stringify({
+      saveDir: payload.saveDir,
+      startMode: payload.startMode,
+      category: payload.category,
+      advancedOptions: payload.advancedOptions,
+    }),
+  );
+
+  return httpPostFormData<DownloadTask>("/api/tasks/torrent", formData);
 }
 
 export function listDownloadTasks(): Promise<DownloadTask[]> {

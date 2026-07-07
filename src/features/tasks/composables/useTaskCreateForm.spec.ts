@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { mountWithPinia, flushPromises } from "../../../test/mount";
 import { getAccessiblePaths } from "../../../services/storage";
 import { getAppConfig } from "../../../services/settings";
-import { createDownloadTask } from "../services/taskService";
+import { createBatchDownloadTasks, createDownloadTask, createTorrentDownloadTask } from "../services/taskService";
 import { useTaskStore } from "../stores/taskStore";
 import { useTaskCreateForm } from "./useTaskCreateForm";
 
@@ -34,7 +34,9 @@ vi.mock("../../../services/settings", async (importOriginal) => {
 });
 
 vi.mock("../services/taskService", () => ({
+  createBatchDownloadTasks: vi.fn(),
   createDownloadTask: vi.fn(),
+  createTorrentDownloadTask: vi.fn(),
   deleteDownloadTask: vi.fn(),
   listDownloadTasks: vi.fn(),
   listRemovedDownloadTasks: vi.fn(),
@@ -46,7 +48,9 @@ vi.mock("../services/taskService", () => ({
 
 const mockedGetAccessiblePaths = vi.mocked(getAccessiblePaths);
 const mockedGetAppConfig = vi.mocked(getAppConfig);
+const mockedCreateBatchDownloadTasks = vi.mocked(createBatchDownloadTasks);
 const mockedCreateDownloadTask = vi.mocked(createDownloadTask);
+const mockedCreateTorrentDownloadTask = vi.mocked(createTorrentDownloadTask);
 
 describe("useTaskCreateForm", () => {
   beforeEach(() => {
@@ -162,7 +166,11 @@ describe("useTaskCreateForm", () => {
     wrapper.vm.form.url = "https://example.com/file.iso";
     wrapper.vm.form.fileName = "custom.iso";
     wrapper.vm.form.saveDir = "/backup";
-    wrapper.vm.form.note = "keep";
+    wrapper.vm.form.startMode = "paused";
+    wrapper.vm.form.category = "电影";
+    wrapper.vm.form.connections = 8;
+    wrapper.vm.form.downloadLimitKb = 512;
+    wrapper.vm.form.proxy = "http://127.0.0.1:7890";
 
     await wrapper.vm.submitCreateTask();
 
@@ -170,12 +178,142 @@ describe("useTaskCreateForm", () => {
       url: "https://example.com/file.iso",
       fileName: "custom.iso",
       saveDir: "/backup",
+      sourceType: "url",
+      startMode: "paused",
+      category: "电影",
+      advancedOptions: {
+        connections: 8,
+        downloadLimitKb: 512,
+        proxy: "http://127.0.0.1:7890",
+      },
     });
     expect(localStorage.getItem("motrix-fnos:last-save-dir")).toBe("/backup");
     expect(wrapper.vm.form.url).toBe("");
     expect(wrapper.vm.form.fileName).toBe("");
     expect(wrapper.vm.form.saveDir).toBe("");
-    expect(wrapper.vm.form.note).toBe("");
+    expect(wrapper.vm.form.category).toBe("默认");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps dialog open and displays failures when batch creation partially fails", async () => {
+    const { wrapper, onClose, onCreated } = mountHarness();
+    await flushPromises();
+    mockedCreateBatchDownloadTasks.mockResolvedValueOnce({
+      created: [
+        {
+          id: 101,
+          url: "https://example.com/a.iso",
+          fileName: "a.iso",
+          saveDir: "/downloads",
+          category: "默认",
+          status: "pending",
+          totalLength: 0,
+          completedLength: 0,
+          downloadSpeed: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      failed: [{ input: "ftp://example.com/b.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" }],
+    });
+
+    wrapper.vm.activeInputType = "batch";
+    wrapper.vm.form.batchUrls = " https://example.com/a.iso \n\n ftp://example.com/b.iso ";
+    wrapper.vm.form.saveDir = "/downloads";
+
+    await wrapper.vm.submitCreateTask();
+
+    expect(mockedCreateBatchDownloadTasks).toHaveBeenCalledWith({
+      urls: ["https://example.com/a.iso", "ftp://example.com/b.iso"],
+      saveDir: "/downloads",
+      startMode: "now",
+      category: "默认",
+      advancedOptions: {
+        connections: 16,
+        downloadLimitKb: 0,
+        proxy: null,
+      },
+    });
+    expect(wrapper.vm.batchFailedItems).toEqual([
+      { input: "ftp://example.com/b.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" },
+    ]);
+    expect(wrapper.vm.formErrorMessage).toBe("已创建部分任务，1 条链接创建失败");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits magnet task with magnet source type", async () => {
+    const { wrapper, onClose, onCreated } = mountHarness();
+    await flushPromises();
+    mockedCreateDownloadTask.mockResolvedValueOnce({
+      id: 102,
+      url: "magnet:?xt=urn:btih:test",
+      fileName: "磁力链接任务",
+      saveDir: "/downloads",
+      category: "默认",
+      status: "paused",
+      totalLength: 0,
+      completedLength: 0,
+      downloadSpeed: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    wrapper.vm.activeInputType = "magnet";
+    wrapper.vm.form.magnet = " magnet:?xt=urn:btih:test ";
+    wrapper.vm.form.saveDir = "/downloads";
+    wrapper.vm.form.startMode = "paused";
+
+    await wrapper.vm.submitCreateTask();
+
+    expect(mockedCreateDownloadTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "magnet:?xt=urn:btih:test",
+        fileName: null,
+        sourceType: "magnet",
+        startMode: "paused",
+      }),
+    );
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onCreated).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits torrent task through store", async () => {
+    const { wrapper, onClose, onCreated } = mountHarness();
+    await flushPromises();
+    const torrent = new File(["torrent"], "example.torrent", { type: "application/x-bittorrent" });
+    mockedCreateTorrentDownloadTask.mockResolvedValueOnce({
+      id: 103,
+      url: "torrent:example.torrent",
+      fileName: "example",
+      saveDir: "/downloads",
+      category: "默认",
+      status: "pending",
+      totalLength: 0,
+      completedLength: 0,
+      downloadSpeed: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+
+    wrapper.vm.activeInputType = "torrent";
+    wrapper.vm.form.saveDir = "/downloads";
+    wrapper.vm.selectTorrentFile(torrent);
+
+    await wrapper.vm.submitCreateTask();
+
+    expect(mockedCreateTorrentDownloadTask).toHaveBeenCalledWith({
+      torrent,
+      saveDir: "/downloads",
+      startMode: "now",
+      category: "默认",
+      advancedOptions: {
+        connections: 16,
+        downloadLimitKb: 0,
+        proxy: null,
+      },
+    });
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreated).toHaveBeenCalledTimes(1);
   });

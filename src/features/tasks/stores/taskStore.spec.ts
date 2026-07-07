@@ -6,6 +6,7 @@ import { useTaskStore } from "./taskStore";
 import {
   createBatchDownloadTasks,
   createDownloadTask,
+  createTorrentDownloadTask,
   deleteDownloadTask,
   listDownloadTasks,
   listRemovedDownloadTasks,
@@ -18,6 +19,7 @@ import {
 vi.mock("../services/taskService", () => ({
   createBatchDownloadTasks: vi.fn(),
   createDownloadTask: vi.fn(),
+  createTorrentDownloadTask: vi.fn(),
   deleteDownloadTask: vi.fn(),
   listDownloadTasks: vi.fn(),
   listRemovedDownloadTasks: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock("../services/taskService", () => ({
 
 const mockedCreateBatchDownloadTasks = vi.mocked(createBatchDownloadTasks);
 const mockedCreateDownloadTask = vi.mocked(createDownloadTask);
+const mockedCreateTorrentDownloadTask = vi.mocked(createTorrentDownloadTask);
 const mockedDeleteDownloadTask = vi.mocked(deleteDownloadTask);
 const mockedListDownloadTasks = vi.mocked(listDownloadTasks);
 const mockedListRemovedDownloadTasks = vi.mocked(listRemovedDownloadTasks);
@@ -140,6 +143,32 @@ describe("taskStore refresh and operation state", () => {
     });
     expect(store.isCreating).toBe(false);
     expect(store.tasks.map((task) => task.id)).toEqual([12, 13]);
+  });
+
+  it("createTorrentTask toggles isCreating and inserts created task", async () => {
+    const store = useTaskStore();
+    const createdTask = createTask({ id: 14, fileName: "movie" });
+    const deferred = createDeferred<DownloadTask>();
+    const torrent = new File(["torrent"], "movie.torrent", { type: "application/x-bittorrent" });
+    mockedCreateTorrentDownloadTask.mockReturnValueOnce(deferred.promise);
+
+    const promise = store.createTorrentTask({
+      torrent,
+      saveDir: "/downloads",
+      startMode: "paused",
+      category: "电影",
+      advancedOptions: {
+        connections: 8,
+        downloadLimitKb: 512,
+        proxy: "http://127.0.0.1:7890",
+      },
+    });
+    expect(store.isCreating).toBe(true);
+
+    deferred.resolve(createdTask);
+    await expect(promise).resolves.toEqual(createdTask);
+    expect(store.isCreating).toBe(false);
+    expect(store.tasks[0]).toEqual(createdTask);
   });
 
   it("task operations toggle operating ids and update task collections", async () => {
@@ -296,6 +325,7 @@ describe("taskStore snapshot and runtime exiting", () => {
 
     expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
     expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
+    expect(mockedCreateTorrentDownloadTask).not.toHaveBeenCalled();
     expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
     expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
   });

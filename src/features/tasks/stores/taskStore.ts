@@ -3,6 +3,7 @@ import { ref } from "vue";
 import {
   createBatchDownloadTasks,
   createDownloadTask,
+  createTorrentDownloadTask,
   deleteDownloadTask,
   listDownloadTasks,
   listRemovedDownloadTasks,
@@ -19,6 +20,7 @@ import type {
   CreateBatchDownloadTasksRequest,
   CreateBatchDownloadTasksResponse,
   CreateDownloadTaskRequest,
+  CreateTorrentDownloadTaskRequest,
   DownloadTask,
 } from "../../../types/tasks";
 
@@ -121,6 +123,19 @@ export const useTaskStore = defineStore("tasks", () => {
         upsertTask(task);
       }
       return result;
+    } finally {
+      isCreating.value = false;
+    }
+  }
+
+  async function createTorrentTask(payload: CreateTorrentDownloadTaskRequest): Promise<DownloadTask> {
+    ensureRuntimeActive();
+    isCreating.value = true;
+
+    try {
+      const task = await createTorrentDownloadTask(payload);
+      upsertTask(task);
+      return task;
     } finally {
       isCreating.value = false;
     }
@@ -279,6 +294,7 @@ export const useTaskStore = defineStore("tasks", () => {
     runtimeExitReason,
     createTask,
     createBatchTasks,
+    createTorrentTask,
     pauseTask,
     resumeTask,
     redownloadTask,

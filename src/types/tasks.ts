@@ -54,3 +54,11 @@ export interface CreateBatchDownloadTasksResponse {
   created: DownloadTask[];
   failed: CreateBatchDownloadTaskFailure[];
 }
+
+export interface CreateTorrentDownloadTaskRequest {
+  torrent: File;
+  saveDir: string;
+  startMode?: DownloadTaskStartMode;
+  category?: string | null;
+  advancedOptions?: CreateTaskAdvancedOptions;
+}

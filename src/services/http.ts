@@ -17,17 +17,19 @@ export class ApiError extends Error {
 
 interface RequestOptions {
   body?: unknown;
+  rawBody?: BodyInit;
   headers?: HeadersInit;
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const hasJsonBody = options.body !== undefined;
   const response = await fetch(path, {
     method,
     headers: {
-      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(hasJsonBody ? { "content-type": "application/json" } : {}),
       ...options.headers,
     },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.rawBody ?? (hasJsonBody ? JSON.stringify(options.body) : undefined),
   });
 
   if (response.status === 204) {
@@ -66,6 +68,10 @@ export function httpGet<T>(path: string) {
 
 export function httpPost<T>(path: string, body?: unknown) {
   return request<T>("POST", path, { body });
+}
+
+export function httpPostFormData<T>(path: string, formData: FormData) {
+  return request<T>("POST", path, { rawBody: formData });
 }
 
 export function httpPut<T>(path: string, body: unknown) {
