@@ -7,13 +7,13 @@
 
 版本来源：以 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 为准，Release tag 使用 `v<version>`。
 
-当前阶段：**阶段 12：新建下载任务能力完善（🟡 规划中）**
+当前阶段：**阶段 12：新建下载任务能力完善（✅ 2026-07-07）**
 
 阶段摘要：
 
 - 当前发布主线已覆盖 Rust server、Vue Web UI、Aria2 Next sidecar、SQLite 与 FPK 打包链路。
 - 当前主线已完成任务管理、设置、诊断日志、应用内国际化、手机端 UI 适配和关于页能力。
-- 当前新建任务链路仅覆盖单 HTTP/HTTPS URL 的基础创建；批量 URL、种子文件、磁力链接、开始方式和高级下载选项需要进入下一阶段补齐。
+- 新建任务链路已补齐单 URL、批量 URL、种子文件、磁力链接、开始方式和高级下载选项；发布前仍需按手工验收清单在目标 fnOS 环境复核。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物；具体构建命令与产物路径见 `docs/fpk-packaging.md`。
 - 桌面 Web、手机浏览器和飞牛 App WebView 继续共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
 
@@ -33,11 +33,11 @@
 | 阶段 9：应用内国际化 | ✅ 2026-07-05 | Web UI 支持简体中文 / English 手动切换并通过设置持久化；平台外壳保持中文。 |
 | 阶段 10：手机端 UI 适配 | ✅ 2026-07-05 | 移动端切换为单列外壳、底部导航、任务卡片和移动端弹窗；桌面布局保持不回退。 |
 | 阶段 11：关于页、版本检测与更新历史 | ✅ 2026-07-05 | 新增关于页入口，展示应用信息、版本检测结果、手动更新说明和 `CHANGELOG.md` 更新历史。 |
-| 阶段 12：新建下载任务能力完善 | 🟡 规划中 | 补齐新建任务弹窗中 URL / 批量 URL / 种子文件 / 磁力链接、开始方式和高级选项的前后端能力。 |
+| 阶段 12：新建下载任务能力完善 | ✅ 2026-07-07 | 已补齐 URL / 批量 URL / Multipart 种子文件 / 磁力链接、立即开始 / 添加后暂停、分类、连接数、下载限速和代理的前后端能力。 |
 
 ## 3. 当前优先级
 
-当前开发重点切换为阶段 12：完善“新建下载任务”能力。该阶段应以现有 HTTP API / SSE / Aria2 JSON-RPC 主线为基础，复用 `features/tasks` 的 store/service/composable，不引入独立前端状态或绕过后端直接访问 Aria2。
+阶段 12 已完成；新建任务能力继续以现有 HTTP API / SSE / Aria2 JSON-RPC 主线为基础，复用 `features/tasks` 的 store/service/composable，不引入独立前端状态或绕过后端直接访问 Aria2。
 
 阶段 12 小任务清单：
 
@@ -78,18 +78,28 @@
   - 批量部分失败时保留弹窗并展示失败列表，全部成功时重置并关闭。
   - 验收命令：`rtk pnpm test:unit -- src/features/tasks/composables/useTaskCreateForm.spec.ts`、`rtk pnpm test:unit -- src/features/tasks/components/TaskCreateDialog.spec.ts`、`rtk pnpm run typecheck`。
   - 提交信息：`feat: 完善新建下载任务弹窗`。
-- [ ] **小任务 7：阶段 12 收口验证**
+- [x] **小任务 7：阶段 12 收口验证**
   - 运行快速总验证，必要时运行完整验证。
   - 将阶段 12 状态改为已完成，并补充发布前手工验收清单。
   - 验收命令：`rtk pnpm run verify:pre-commit`、必要时 `rtk pnpm run verify`。
   - 提交信息：`docs: 标记阶段 12 新建任务能力完成`。
 
-阶段 12 实现前仍应确认是否影响以下边界：
+阶段 12 后续维护或扩展时仍应确认是否影响以下边界：
 
 - 是否新增或改变 HTTP / SSE / JSON-RPC 契约。
 - 是否新增长期状态、数据库字段或迁移。
 - 是否涉及 fnOS / FPK 生命周期、权限、端口入口或文件夹授权行为。
 - 是否需要更新 `docs/architecture.md` 的长期架构约束。
+
+阶段 12 发布前手工验收清单：
+
+- HTTP/HTTPS 单任务创建、立即开始与任务列表刷新。
+- 磁力链接创建，包含添加后暂停和元数据暂停行为。
+- 批量 URL 创建，覆盖部分成功保留弹窗和全部失败错误提示。
+- Multipart 种子文件上传创建，不持久化种子原文件。
+- 立即开始 / 添加后暂停在 URL、磁力链接和种子文件入口均生效。
+- 分类、连接数、下载限速、代理在新建任务时生效并可在任务记录中看到分类。
+- fnOS 授权目录校验仍拦截未授权保存路径。
 
 ## 4. 验证口径
 
