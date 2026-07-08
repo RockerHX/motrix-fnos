@@ -18,8 +18,7 @@ pub(crate) fn persist_torrent_metadata_copy(
     task: &PreparedDownloadTask,
     torrent_data: &[u8],
 ) -> Result<(), String> {
-    let torrent_name = format!("{}.torrent", safe_task_path_component(&task.file_name));
-    let torrent_path = Path::new(&task.save_dir).join(torrent_name);
+    let torrent_path = torrent_metadata_copy_path(task);
     fs::write(&torrent_path, torrent_data).map_err(|error| {
         format!(
             "保存种子文件副本失败：{}（{}）",
@@ -27,6 +26,11 @@ pub(crate) fn persist_torrent_metadata_copy(
             error
         )
     })
+}
+
+pub(crate) fn torrent_metadata_copy_path(task: &PreparedDownloadTask) -> PathBuf {
+    let torrent_name = format!("{}.torrent", safe_task_path_component(&task.file_name));
+    Path::new(&task.save_dir).join(torrent_name)
 }
 
 pub(crate) fn cleanup_empty_torrent_task_dir(task: &PreparedDownloadTask) {

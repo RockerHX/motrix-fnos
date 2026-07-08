@@ -36,6 +36,7 @@ pub fn process_args(config: &Aria2Config) -> Vec<String> {
         "--enable-peer-exchange=true".to_string(),
         "--bt-enable-lpd=true".to_string(),
         "--listen-port=6881-6999".to_string(),
+        "--rpc-save-upload-metadata=false".to_string(),
         "--save-session-interval=30".to_string(),
         "--force-save=true".to_string(),
         "--console-log-level=warn".to_string(),
