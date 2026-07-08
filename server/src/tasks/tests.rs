@@ -717,6 +717,36 @@ fn apply_aria2_status_updates_progress_fields() {
 }
 
 #[test]
+fn aria2_status_deserializes_file_index_from_string() {
+    let status: Aria2TaskStatus = serde_json::from_value(serde_json::json!({
+        "gid": "abc123",
+        "status": "paused",
+        "totalLength": "1024",
+        "completedLength": "0",
+        "downloadSpeed": "0",
+        "dir": "/downloads",
+        "files": [
+            {
+                "index": "1",
+                "path": "/downloads/archlinux.iso",
+                "length": "1024",
+                "completedLength": "0",
+                "selected": "true",
+                "uris": []
+            }
+        ]
+    }))
+    .expect("aria2 file index string should deserialize");
+    let mut task = sample_task(None, "/downloads".to_string());
+
+    apply_aria2_status(&mut task, &status);
+
+    assert_eq!(task.files.len(), 1);
+    assert_eq!(task.files[0].index, 1);
+    assert_eq!(task.files[0].name, "archlinux.iso");
+}
+
+#[test]
 fn apply_aria2_status_follows_completed_magnet_metadata_task() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.url = "magnet:?xt=urn:btih:test".to_string();

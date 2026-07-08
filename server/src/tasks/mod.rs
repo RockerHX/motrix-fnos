@@ -61,7 +61,7 @@ pub(crate) struct Aria2TaskStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Aria2FileStatus {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_aria2_u32")]
     index: u32,
     path: String,
     #[serde(default)]
@@ -72,6 +72,24 @@ struct Aria2FileStatus {
     selected: String,
     #[serde(default)]
     uris: Vec<Aria2UriStatus>,
+}
+
+fn deserialize_aria2_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| serde::de::Error::custom("invalid aria2 u32 number")),
+        serde_json::Value::String(text) => text
+            .parse::<u32>()
+            .map_err(|_| serde::de::Error::custom("invalid aria2 u32 string")),
+        serde_json::Value::Null => Ok(0),
+        _ => Err(serde::de::Error::custom("invalid aria2 u32 value")),
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
