@@ -53,6 +53,7 @@ pub(crate) struct Aria2TaskStatus {
     error_message: Option<String>,
     dir: Option<String>,
     files: Option<Vec<Aria2FileStatus>>,
+    followed_by: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -247,6 +248,7 @@ fn task_status_error(message: String) -> Aria2TaskStatus {
         error_message: Some(message),
         dir: None,
         files: None,
+        followed_by: None,
     }
 }
 

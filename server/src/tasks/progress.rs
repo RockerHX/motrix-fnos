@@ -20,6 +20,10 @@ pub(crate) fn apply_aria2_status_by_gid(
 }
 
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    if follow_magnet_metadata_task(task, status) {
+        return;
+    }
+
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
     let should_preserve_progress = should_preserve_existing_progress(
@@ -70,6 +74,35 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
         cleanup_aria2_control_file(task);
     }
     task.updated_at = current_timestamp_ms();
+}
+
+fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus) -> bool {
+    if !task.url.to_ascii_lowercase().starts_with("magnet:?") {
+        return false;
+    }
+    let Some(next_gid) = status
+        .followed_by
+        .as_ref()
+        .and_then(|gids| gids.first())
+        .map(String::as_str)
+        .filter(|gid| !gid.trim().is_empty())
+    else {
+        return false;
+    };
+
+    task.gid = Some(next_gid.to_string());
+    task.status = DownloadTaskStatus::Pending;
+    task.total_length = 0;
+    task.completed_length = 0;
+    task.download_speed = 0;
+    task.error_code = None;
+    task.error_message = None;
+    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
+        task.save_dir = dir;
+    }
+    task.file_path = None;
+    task.updated_at = current_timestamp_ms();
+    true
 }
 
 fn should_preserve_existing_progress(

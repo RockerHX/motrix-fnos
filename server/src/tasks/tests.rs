@@ -431,6 +431,7 @@ fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatu
                 uri: url.to_string(),
             }],
         }]),
+        followed_by: None,
     }
 }
 
@@ -656,6 +657,7 @@ fn apply_aria2_status_updates_progress_fields() {
                 path: "/downloads/file.zip".to_string(),
                 uris: Vec::new(),
             }]),
+            followed_by: None,
         },
     );
 
@@ -664,6 +666,38 @@ fn apply_aria2_status_updates_progress_fields() {
     assert_eq!(task.completed_length, 40);
     assert_eq!(task.download_speed, 20);
     assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
+}
+
+#[test]
+fn apply_aria2_status_follows_completed_magnet_metadata_task() {
+    let mut task = sample_task(None, "/downloads".to_string());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.file_name = "磁力链接任务".to_string();
+    task.gid = Some("metadata-gid".to_string());
+    task.status = DownloadTaskStatus::Active;
+
+    apply_aria2_status(
+        &mut task,
+        &Aria2TaskStatus {
+            gid: Some("metadata-gid".to_string()),
+            status: "complete".to_string(),
+            total_length: "60416".to_string(),
+            completed_length: "60416".to_string(),
+            download_speed: "0".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: Some("/downloads".to_string()),
+            files: None,
+            followed_by: Some(vec!["real-download-gid".to_string()]),
+        },
+    );
+
+    assert_eq!(task.gid.as_deref(), Some("real-download-gid"));
+    assert_eq!(task.status, DownloadTaskStatus::Pending);
+    assert_eq!(task.total_length, 0);
+    assert_eq!(task.completed_length, 0);
+    assert_eq!(task.download_speed, 0);
+    assert!(task.file_path.is_none());
 }
 
 #[test]
@@ -684,6 +718,7 @@ fn apply_aria2_status_keeps_active_progress_non_decreasing() {
             error_message: None,
             dir: None,
             files: None,
+            followed_by: None,
         },
     );
 
@@ -718,6 +753,7 @@ fn apply_aria2_status_removes_completed_control_file() {
                 path: file_path.display().to_string(),
                 uris: Vec::new(),
             }]),
+            followed_by: None,
         },
     );
 
@@ -737,6 +773,7 @@ fn pause_status_settles_only_after_paused_progress_is_stable() {
         error_message: None,
         dir: None,
         files: None,
+        followed_by: None,
     };
     let mut paused = active.clone();
     paused.status = "paused".to_string();
@@ -761,6 +798,7 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
         error_message: None,
         dir: Some("/downloads".to_string()),
         files: None,
+        followed_by: None,
     };
 
     let synced =
@@ -804,6 +842,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         error_message: Some("".to_string()),
         dir: None,
         files: None,
+        followed_by: None,
     };
 
     assert!(!is_aria2_status_error(&status));
@@ -826,6 +865,7 @@ fn non_zero_aria2_error_code_is_error() {
         error_message: Some("Resource not found".to_string()),
         dir: None,
         files: None,
+        followed_by: None,
     };
 
     assert!(is_aria2_status_error(&status));
@@ -848,6 +888,7 @@ fn aria2_error_16_gets_readable_hint() {
         error_message: Some("Download aborted.".to_string()),
         dir: None,
         files: None,
+        followed_by: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -874,6 +915,7 @@ fn apply_aria2_status_preserves_progress_when_active_status_is_temporarily_empty
         error_message: None,
         dir: None,
         files: None,
+        followed_by: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -901,6 +943,7 @@ fn apply_aria2_status_preserves_progress_when_error_has_no_lengths() {
         ),
         dir: None,
         files: None,
+        followed_by: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -1104,6 +1147,7 @@ fn stale_aria2_gid_error_is_detected() {
         error_message: Some("No URI available.".to_string()),
         dir: None,
         files: None,
+        followed_by: None,
     }));
     assert!(!is_stale_aria2_gid_error("连接失败"));
 }
