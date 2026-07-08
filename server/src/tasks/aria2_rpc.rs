@@ -513,6 +513,7 @@ pub(crate) fn build_add_uri_request(
     }
     if task.source_type == DownloadTaskSourceType::Magnet {
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
+        options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
     }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {

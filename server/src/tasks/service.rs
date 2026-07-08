@@ -84,7 +84,15 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
-        let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
+        let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
+            Ok(gid) => gid,
+            Err(error) => {
+                if prepared.source_type == DownloadTaskSourceType::Magnet {
+                    cleanup_empty_torrent_task_dir(&prepared);
+                }
+                return Err(error);
+            }
+        };
         let task = store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?;
         self.repository.upsert_task(&task).await?;
         self.debug_logs.info(

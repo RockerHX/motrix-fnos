@@ -32,7 +32,7 @@ pub fn prepare_torrent_task_with_logs(
     }
     let file_name = torrent_display_name(&torrent_file_name);
     let base_save_dir = resolve_save_dir_with_logs(Some(request.save_dir), Some(debug_logs))?;
-    let save_dir = create_torrent_task_dir(&base_save_dir, &file_name, Some(debug_logs))?;
+    let save_dir = create_bt_task_dir(&base_save_dir, &file_name, "种子", Some(debug_logs))?;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
     let aria2_options =
@@ -76,7 +76,13 @@ fn prepare_task_inner(
 
     let file_name = normalize_optional(request.file_name)
         .unwrap_or_else(|| infer_file_name(request.source_type, &url));
-    let save_dir = resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
+    let base_save_dir =
+        resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
+    let save_dir = if request.source_type == DownloadTaskSourceType::Magnet {
+        create_bt_task_dir(&base_save_dir, &file_name, "磁链", debug_logs)?
+    } else {
+        base_save_dir
+    };
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
     let aria2_options =
@@ -170,9 +176,10 @@ pub(crate) fn resolve_save_dir_with_logs(
     Ok(path.display().to_string())
 }
 
-fn create_torrent_task_dir(
+fn create_bt_task_dir(
     base_save_dir: &str,
     task_name: &str,
+    task_kind: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     let base_dir = Path::new(base_save_dir);
@@ -194,20 +201,28 @@ fn create_torrent_task_dir(
                 log_info(
                     debug_logs,
                     "tasks.path",
-                    format!("创建种子任务专属目录：{}", candidate.display()),
+                    format!("创建{}任务专属目录：{}", task_kind, candidate.display()),
                 );
                 return Ok(candidate.display().to_string());
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
-                let error = format!("创建种子任务目录失败：{}（{}）", candidate.display(), error);
+                let error = format!(
+                    "创建{}任务目录失败：{}（{}）",
+                    task_kind,
+                    candidate.display(),
+                    error
+                );
                 log_error(debug_logs, "tasks.path", &error);
                 return Err(error);
             }
         }
     }
 
-    Err(format!("无法创建种子任务目录，重名目录过多：{}", safe_name))
+    Err(format!(
+        "无法创建{}任务目录，重名目录过多：{}",
+        task_kind, safe_name
+    ))
 }
 
 fn verify_save_dir_writable(path: &Path) -> Result<(), String> {

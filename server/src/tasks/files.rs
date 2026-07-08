@@ -7,8 +7,9 @@ pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
 }
 
 pub(crate) fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
-    if task.url.to_ascii_lowercase().starts_with("torrent:") {
-        return delete_torrent_task_dir(task);
+    let lower_url = task.url.to_ascii_lowercase();
+    if lower_url.starts_with("torrent:") || lower_url.starts_with("magnet:?") {
+        return delete_bt_task_dir(task, lower_url.starts_with("magnet:?"));
     }
 
     delete_non_torrent_task_files(task)
@@ -46,7 +47,7 @@ pub(crate) fn safe_task_path_component(name: &str) -> String {
     }
 }
 
-fn delete_torrent_task_dir(task: &DownloadTask) -> Result<(), String> {
+fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> Result<(), String> {
     let task_dir = Path::new(&task.save_dir);
     if !task_dir.exists() {
         return Ok(());
@@ -70,16 +71,22 @@ fn delete_torrent_task_dir(task: &DownloadTask) -> Result<(), String> {
         .and_then(|value| value.to_str())
         .unwrap_or_default();
     let task_name = safe_task_path_component(&task.file_name);
-    if dir_name != task_name && !dir_name.starts_with(&format!("{} (", task_name)) {
+    let magnet_default_name = safe_task_path_component("磁力链接任务");
+    let matches_task_name =
+        dir_name == task_name || dir_name.starts_with(&format!("{} (", task_name));
+    let matches_magnet_default_name = allow_magnet_default_name
+        && (dir_name == magnet_default_name
+            || dir_name.starts_with(&format!("{} (", magnet_default_name)));
+    if !matches_task_name && !matches_magnet_default_name {
         return Err(format!(
-            "拒绝删除非种子任务专属目录：{}",
+            "拒绝删除非 BT 任务专属目录：{}",
             canonical_task_dir.display()
         ));
     }
 
     fs::remove_dir_all(&canonical_task_dir).map_err(|error| {
         format!(
-            "删除种子任务目录失败：{}（{}）",
+            "删除 BT 任务目录失败：{}（{}）",
             canonical_task_dir.display(),
             error
         )

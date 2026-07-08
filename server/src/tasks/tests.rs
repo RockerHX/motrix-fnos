@@ -95,10 +95,11 @@ fn prepare_task_rejects_non_http_url() {
 
 #[test]
 fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
+    let base_dir = temp_download_dir("prepare-magnet");
     let task = prepare_task(CreateDownloadTaskRequest {
         url: " magnet:?xt=urn:btih:test ".to_string(),
         file_name: None,
-        save_dir: Some(temp_download_dir("prepare-magnet")),
+        save_dir: Some(base_dir.clone()),
         source_type: DownloadTaskSourceType::Magnet,
         start_mode: DownloadTaskStartMode::Now,
         category: None,
@@ -110,6 +111,12 @@ fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
     assert_eq!(task.url, "magnet:?xt=urn:btih:test");
     assert_eq!(task.file_name, "磁力链接任务");
     assert_eq!(task.source_type, DownloadTaskSourceType::Magnet);
+    assert_eq!(
+        Path::new(&task.save_dir).file_name().unwrap(),
+        "磁力链接任务"
+    );
+    assert!(Path::new(&task.save_dir).is_dir());
+    assert!(Path::new(&task.save_dir).starts_with(base_dir));
 }
 
 #[test]
@@ -563,6 +570,32 @@ fn mark_task_removed_deletes_torrent_task_dir() {
         task_dir.display().to_string(),
     );
     task.url = "torrent:Ubuntu ISO.torrent".to_string();
+    task.file_name = "Ubuntu ISO".to_string();
+    let tasks = TaskMemoryState::new(vec![task]);
+
+    let task = mark_task_removed(&tasks, 1, true).expect("task should be removed");
+
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert!(!task_dir.exists());
+    assert!(base_dir.exists());
+}
+
+#[test]
+fn mark_task_removed_deletes_magnet_task_dir_with_saved_metadata() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-magnet"));
+    let task_dir = base_dir.join("磁力链接任务");
+    fs::create_dir_all(&task_dir).expect("task dir should be created");
+    let file_path = task_dir.join("ubuntu.iso");
+    let metadata_path = task_dir.join("abcdef.torrent");
+    let aria2_path = task_dir.join("ubuntu.iso.aria2");
+    fs::write(&file_path, b"iso").expect("downloaded file should be written");
+    fs::write(&metadata_path, b"torrent").expect("metadata should be written");
+    fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
+    let mut task = sample_task(
+        Some(file_path.display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "magnet:?xt=urn:btih:test".to_string();
     task.file_name = "Ubuntu ISO".to_string();
     let tasks = TaskMemoryState::new(vec![task]);
 
@@ -1116,6 +1149,7 @@ fn add_uri_request_sets_pause_options_for_paused_magnet() {
     assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
     assert_eq!(request["params"][1]["pause"], "true");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
+    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
     assert!(request["params"][1].get("out").is_none());
 }
 
@@ -1136,6 +1170,7 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
     );
 
     assert_eq!(request["params"][1]["pause-metadata"], "true");
+    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
     assert!(request["params"][1].get("pause").is_none());
 }
 

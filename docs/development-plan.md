@@ -99,11 +99,17 @@
   - 用户确认后调用 `/api/tasks/:id/confirm`，后端映射 Aria2 `select-file` 并 `unpause` 开始真实下载。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts src/features/tasks/components/TaskActions.spec.ts src/features/tasks/components/TaskFileConfirmDialog.spec.ts`、`rtk pnpm run typecheck`。
   - 提交信息：`feat: 支持磁链解析后确认文件`。
+- [x] **保存磁链解析种子元数据**
+  - 磁力链接创建时启用 Aria2 `bt-save-metadata=true`，metadata 解析完成后由 Aria2 将 hash 命名 `.torrent` 保存到任务专属目录。
+  - 磁链任务和种子任务一样使用授权父目录下的专属子目录；勾选删除文件时删除该目录，连同 `.torrent`、`.aria2` 和下载产物一起清理。
+  - 文档约定该 `.torrent` 是磁链解析过程产物，用于可见性 / 排障，不替代 Aria2 session 机制。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
+  - 提交信息：`feat: 保存磁链解析种子元数据`。
 
 阶段 12 发布前手工验收清单：
 
 - HTTP/HTTPS 单任务创建、立即开始与任务列表刷新。
-- 磁力链接创建，覆盖 metadata 解析、真实文件列表确认、部分文件选择、确认后开始下载、取消确认后保持暂停。
+- 磁力链接创建，覆盖 metadata 解析、真实文件列表确认、部分文件选择、确认后开始下载、取消确认后保持暂停，以及任务专属目录内生成 Aria2 hash 命名 `.torrent`。
 - 批量 URL 创建，覆盖部分成功保留弹窗和全部失败错误提示。
 - Multipart 种子文件上传创建，下载产物和 Aria2 原生 hash 命名 `.torrent` 元数据进入任务专属目录。
 - 立即开始 / 添加后暂停在 URL、磁力链接和种子文件入口均生效。
