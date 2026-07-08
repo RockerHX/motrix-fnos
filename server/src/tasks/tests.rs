@@ -111,6 +111,31 @@ fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
 }
 
 #[test]
+fn prepare_torrent_task_creates_dedicated_task_dir() {
+    let debug_logs = DebugLogStore::default();
+    let base_dir = temp_download_dir("prepare-torrent");
+    fs::create_dir_all(&base_dir).expect("base dir should create");
+
+    let task = prepare_torrent_task_with_logs(
+        CreateTorrentDownloadTaskRequest {
+            torrent_file_name: "Ubuntu ISO.torrent".to_string(),
+            torrent_data: b"torrent-bytes".to_vec(),
+            save_dir: base_dir.clone(),
+            start_mode: DownloadTaskStartMode::Now,
+            category: None,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+        },
+        &debug_logs,
+    )
+    .expect("torrent task should be prepared");
+
+    assert_eq!(task.file_name, "Ubuntu ISO");
+    assert_eq!(Path::new(&task.save_dir).file_name().unwrap(), "Ubuntu ISO");
+    assert!(Path::new(&task.save_dir).is_dir());
+    assert!(Path::new(&task.save_dir).starts_with(base_dir));
+}
+
+#[test]
 fn prepare_task_maps_advanced_options_and_category() {
     let task = prepare_task(CreateDownloadTaskRequest {
         url: "https://example.com/file.zip".to_string(),
@@ -511,6 +536,32 @@ fn mark_task_removed_deletes_file_under_save_dir() {
     assert_eq!(task.status, DownloadTaskStatus::Removed);
     assert!(!file_path.exists());
     assert!(!aria2_path.exists());
+}
+
+#[test]
+fn mark_task_removed_deletes_torrent_task_dir() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-torrent"));
+    let task_dir = base_dir.join("Ubuntu ISO");
+    fs::create_dir_all(&task_dir).expect("task dir should be created");
+    let file_path = task_dir.join("ubuntu.iso");
+    let torrent_path = task_dir.join("Ubuntu ISO.torrent");
+    let aria2_path = task_dir.join("ubuntu.iso.aria2");
+    fs::write(&file_path, b"iso").expect("downloaded file should be written");
+    fs::write(&torrent_path, b"torrent").expect("torrent file should be written");
+    fs::write(&aria2_path, b"control").expect("aria2 control file should be written");
+    let mut task = sample_task(
+        Some(file_path.display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "torrent:Ubuntu ISO.torrent".to_string();
+    task.file_name = "Ubuntu ISO".to_string();
+    let tasks = TaskMemoryState::new(vec![task]);
+
+    let task = mark_task_removed(&tasks, 1, true).expect("task should be removed");
+
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert!(!task_dir.exists());
+    assert!(base_dir.exists());
 }
 
 #[test]

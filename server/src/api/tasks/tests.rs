@@ -233,6 +233,13 @@ async fn create_torrent_route_accepts_multipart_upload() {
 
     assert_eq!(created.url, "torrent:example.torrent");
     assert_eq!(created.file_name, "example");
+    assert_eq!(
+        PathBuf::from(&created.save_dir).file_name().unwrap(),
+        "example"
+    );
+    assert!(PathBuf::from(&created.save_dir)
+        .join("example.torrent")
+        .is_file());
     assert_eq!(created.status, DownloadTaskStatus::Paused);
 
     cleanup_state(&state, child_pid);

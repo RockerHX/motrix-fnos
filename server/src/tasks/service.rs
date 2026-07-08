@@ -1,6 +1,7 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
+use crate::tasks::files::{cleanup_empty_torrent_task_dir, persist_torrent_metadata_copy};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
     mark_task_paused, mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
@@ -108,8 +109,20 @@ impl<'a> TaskService<'a> {
         }
         let torrent_data = payload.torrent_data.clone();
         let prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
+        if let Err(error) = persist_torrent_metadata_copy(&prepared, &torrent_data) {
+            cleanup_empty_torrent_task_dir(&prepared);
+            return Err(error);
+        }
         let gid =
-            add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs)).await?;
+            match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
+                .await
+            {
+                Ok(gid) => gid,
+                Err(error) => {
+                    cleanup_empty_torrent_task_dir(&prepared);
+                    return Err(error);
+                }
+            };
         let task = store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?;
         self.repository.upsert_task(&task).await?;
         self.debug_logs.info(
@@ -453,6 +466,13 @@ mod tests {
         assert_eq!(task.status, DownloadTaskStatus::Paused);
         assert_eq!(task.url, "torrent:example.torrent");
         assert_eq!(task.file_name, "example");
+        assert_eq!(
+            PathBuf::from(&task.save_dir).file_name().unwrap(),
+            "example"
+        );
+        assert!(PathBuf::from(&task.save_dir)
+            .join("example.torrent")
+            .is_file());
         assert_eq!(fixture.repository.upserted_tasks().len(), 1);
 
         mock.abort();

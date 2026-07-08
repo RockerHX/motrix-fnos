@@ -1,4 +1,4 @@
-use crate::tasks::DownloadTask;
+use crate::tasks::{DownloadTask, PreparedDownloadTask};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -7,6 +7,101 @@ pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
 }
 
 pub(crate) fn delete_task_file(task: &DownloadTask) -> Result<(), String> {
+    if task.url.to_ascii_lowercase().starts_with("torrent:") {
+        return delete_torrent_task_dir(task);
+    }
+
+    delete_non_torrent_task_files(task)
+}
+
+pub(crate) fn persist_torrent_metadata_copy(
+    task: &PreparedDownloadTask,
+    torrent_data: &[u8],
+) -> Result<(), String> {
+    let torrent_name = format!("{}.torrent", safe_task_path_component(&task.file_name));
+    let torrent_path = Path::new(&task.save_dir).join(torrent_name);
+    fs::write(&torrent_path, torrent_data).map_err(|error| {
+        format!(
+            "保存种子文件副本失败：{}（{}）",
+            torrent_path.display(),
+            error
+        )
+    })
+}
+
+pub(crate) fn cleanup_empty_torrent_task_dir(task: &PreparedDownloadTask) {
+    let path = Path::new(&task.save_dir);
+    if path.is_dir() {
+        let _ = fs::remove_dir_all(path);
+    }
+}
+
+pub(crate) fn safe_task_path_component(name: &str) -> String {
+    let sanitized = name
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .trim_matches([' ', '.'])
+        .chars()
+        .take(120)
+        .collect::<String>();
+
+    if sanitized.is_empty() {
+        "未命名种子任务".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn delete_torrent_task_dir(task: &DownloadTask) -> Result<(), String> {
+    let task_dir = Path::new(&task.save_dir);
+    if !task_dir.exists() {
+        return Ok(());
+    }
+    if !task_dir.is_dir() {
+        return delete_non_torrent_task_files(task);
+    }
+
+    let canonical_task_dir = task_dir
+        .canonicalize()
+        .map_err(|error| format!("校验种子任务目录失败：{}（{}）", task_dir.display(), error))?;
+    let Some(parent) = canonical_task_dir.parent() else {
+        return Err("拒绝删除根目录".to_string());
+    };
+    if parent == canonical_task_dir {
+        return Err("拒绝删除根目录".to_string());
+    }
+
+    let dir_name = canonical_task_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let task_name = safe_task_path_component(&task.file_name);
+    if dir_name != task_name && !dir_name.starts_with(&format!("{} (", task_name)) {
+        return Err(format!(
+            "拒绝删除非种子任务专属目录：{}",
+            canonical_task_dir.display()
+        ));
+    }
+
+    fs::remove_dir_all(&canonical_task_dir).map_err(|error| {
+        format!(
+            "删除种子任务目录失败：{}（{}）",
+            canonical_task_dir.display(),
+            error
+        )
+    })
+}
+
+fn delete_non_torrent_task_files(task: &DownloadTask) -> Result<(), String> {
     let Some(file_path) = task
         .file_path
         .as_deref()
