@@ -211,7 +211,9 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 - `torrent`：种子文件，大小不得超过 10 MiB。
 - `request`：JSON 字符串，字段为 `saveDir`、`startMode`、`category`、`advancedOptions`。
-- 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`。
+- `request.saveDir` 表示用户授权的父保存目录；服务端会按种子任务名创建专属子目录，并将 Aria2 下载目录设为该子目录。
+- 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`，`saveDir` 为任务专属子目录。
+- 服务端会在任务专属子目录保存一份同名 `.torrent` 副本；Aria2 可能同时保存用于 session 恢复的哈希命名元数据文件。
 
 ### 4.4 设置
 

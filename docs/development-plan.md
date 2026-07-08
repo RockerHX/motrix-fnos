@@ -64,7 +64,7 @@
   - 提交信息：`feat: 支持批量 URL 创建任务`。
 - [x] **小任务 4：支持 Multipart 种子文件创建**
   - 新增 `/api/tasks/torrent`，接收 `torrent` 文件和 `request` JSON 字段，限制 torrent 文件不超过 10 MiB。
-  - 后端调用 Aria2 `addTorrent`，不持久化种子原文件。
+  - 后端调用 Aria2 `addTorrent`；种子任务会在授权保存目录下创建任务专属子目录，并在该目录保存一份同名 `.torrent` 副本，便于用户识别和随任务清理。
   - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
   - 提交信息：`feat: 支持种子文件上传创建任务`。
 - [x] **小任务 5：接入高级设置四项**
@@ -96,7 +96,7 @@
 - HTTP/HTTPS 单任务创建、立即开始与任务列表刷新。
 - 磁力链接创建，包含添加后暂停和元数据暂停行为。
 - 批量 URL 创建，覆盖部分成功保留弹窗和全部失败错误提示。
-- Multipart 种子文件上传创建，不持久化种子原文件。
+- Multipart 种子文件上传创建，下载产物和同名 `.torrent` 副本进入任务专属目录。
 - 立即开始 / 添加后暂停在 URL、磁力链接和种子文件入口均生效。
 - 分类、连接数、下载限速、代理在新建任务时生效并可在任务记录中看到分类。
 - fnOS 授权目录校验仍拦截未授权保存路径。
