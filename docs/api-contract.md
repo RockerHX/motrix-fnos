@@ -122,6 +122,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `POST` | `/api/tasks` | `CreateDownloadTaskRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/batch` | `CreateBatchDownloadTasksRequest` | `CreateBatchDownloadTasksResponse` |
 | `POST` | `/api/tasks/torrent` | `multipart/form-data` | `DownloadTask` |
+| `POST` | `/api/tasks/:id/confirm` | `ConfirmTaskFilesRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
@@ -134,6 +135,8 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix 数据库记录，不删除用户下载文件。
+- 磁力链接会先由 Aria2 下载 metadata；metadata 完成后任务会跟随到真实 BT GID，状态保持 `paused`，并设置 `confirmationRequired=true`。前端必须展示 `files` 让用户确认后再调用 `/api/tasks/:id/confirm` 开始真实下载。
+- 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。
 
 `CreateDownloadTaskRequest`：
 
@@ -163,7 +166,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
 - 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
 
-`DownloadTask` 新增 `category` 字段：
+`DownloadTask`：
 
 ```json
 {
@@ -173,9 +176,39 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
   "saveDir": "/vol1/downloads",
   "category": "默认",
   "gid": "abc123",
-  "status": "pending"
+  "status": "pending",
+  "totalLength": 1024,
+  "completedLength": 0,
+  "downloadSpeed": 0,
+  "errorCode": null,
+  "errorMessage": null,
+  "filePath": "/vol1/downloads/file.zip",
+  "confirmationRequired": false,
+  "files": [],
+  "createdAt": 1760000000000,
+  "updatedAt": 1760000000000
 }
 ```
+
+`DownloadTaskFile`：
+
+```json
+{
+  "index": 1,
+  "path": "/vol1/downloads/movie/file-a.mkv",
+  "name": "file-a.mkv",
+  "length": 1024,
+  "completedLength": 0,
+  "selected": true
+}
+```
+
+约定：
+
+- `category` 是任务标签，默认 `默认`。
+- `confirmationRequired` 表示任务需要用户确认文件后才能继续下载。
+- `files` 来自 Aria2 `tellStatus` 的运行时文件列表，不写入 SQLite；应用重启后通过 Aria2 session 同步重新填充。
+- `DownloadTaskFile.index` 使用 Aria2 原生 one-based 文件索引，前端不得重排后再提交。
 
 `CreateBatchDownloadTasksRequest`：
 
@@ -214,6 +247,21 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `request.saveDir` 表示用户授权的父保存目录；服务端会按种子任务名创建专属子目录，并将 Aria2 下载目录设为该子目录。
 - 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`，`saveDir` 为任务专属子目录。
 - 服务端保留 Aria2 原生上传元数据落盘行为；任务专属子目录内可能出现 hash 命名 `.torrent` 文件，用于保持 Aria2 session 恢复语义，不再额外保存同名 `.torrent` 副本。
+
+`ConfirmTaskFilesRequest`：
+
+```json
+{
+  "selectedFileIndexes": [1, 3, 5]
+}
+```
+
+约定：
+
+- `selectedFileIndexes` 不能为空；后端会过滤非正数、去重并排序。
+- 后端将选择结果映射为 Aria2 `changeOption(gid, { "select-file": "1,3,5" })`，随后调用 `aria2.unpause` 开始真实 BT 下载。
+- 成功后返回更新后的 `DownloadTask`，其中 `confirmationRequired=false`，任务进入下载中状态。
+- 本接口只负责确认文件并开始下载；磁链解析出的 `.torrent` 元数据保存策略不属于本接口契约。
 
 ### 4.4 设置
 

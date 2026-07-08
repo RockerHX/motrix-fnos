@@ -2,6 +2,7 @@ import { httpDelete, httpGet, httpPost, httpPostFormData } from "../../../servic
 import type {
   CreateBatchDownloadTasksRequest,
   CreateBatchDownloadTasksResponse,
+  ConfirmDownloadTaskFilesRequest,
   CreateDownloadTaskRequest,
   CreateTorrentDownloadTaskRequest,
   DownloadTask,
@@ -47,6 +48,13 @@ export function pauseDownloadTask(taskId: number): Promise<DownloadTask> {
 
 export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/resume`);
+}
+
+export function confirmDownloadTaskFiles(
+  taskId: number,
+  payload: ConfirmDownloadTaskFilesRequest,
+): Promise<DownloadTask> {
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/confirm`, payload);
 }
 
 export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {

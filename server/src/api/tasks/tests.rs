@@ -3,7 +3,7 @@ use crate::api::error::ErrorResponse;
 use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
 use crate::config::aria2::Aria2BinarySource;
 use crate::runtime::ManagedAria2Process;
-use crate::tasks::DownloadTaskStatus;
+use crate::tasks::{DownloadTaskFile, DownloadTaskStatus};
 use axum::response::Response;
 use axum::routing::post;
 use axum::{
@@ -97,6 +97,86 @@ async fn create_route_accepts_paused_magnet_task() {
 
     assert_eq!(created.status, DownloadTaskStatus::Paused);
     assert_eq!(created.file_name, "磁力链接任务");
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn confirm_task_files_route_validates_selection_and_starts_task() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-confirm-downloads").display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+
+    let created = response_json::<DownloadTask>(
+        app.clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/tasks",
+                &json!({
+                    "url": "https://example.com/archive.zip",
+                    "fileName": "archive.zip",
+                    "saveDir": save_dir
+                }),
+            ))
+            .await
+            .expect("create response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            let task = tasks
+                .iter_mut()
+                .find(|task| task.id == created.id)
+                .expect("created task should exist");
+            task.status = DownloadTaskStatus::Paused;
+            task.confirmation_required = true;
+            task.files = vec![DownloadTaskFile {
+                index: 1,
+                path: format!("{}/archive.zip", task.save_dir),
+                name: "archive.zip".to_string(),
+                length: 1024,
+                completed_length: 0,
+                selected: true,
+            }];
+        })
+        .expect("tasks should lock");
+
+    let error = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/tasks/1/confirm",
+                &json!({ "selectedFileIndexes": [] }),
+            ))
+            .await
+            .expect("empty confirm response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(error.code, "task_operation_failed");
+    assert!(error.message.contains("至少选择一个文件"));
+
+    let confirmed = response_json::<DownloadTask>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/1/confirm",
+            &json!({ "selectedFileIndexes": [1, 1] }),
+        ))
+        .await
+        .expect("confirm response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(confirmed.status, DownloadTaskStatus::Active);
+    assert!(!confirmed.confirmation_required);
 
     cleanup_state(&state, child_pid);
     mock.abort();
@@ -682,6 +762,8 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some(format!("/downloads/archive-{id}.zip")),
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: id,
         updated_at: id,
     }
@@ -844,6 +926,10 @@ async fn mock_aria2_rpc(
             }
             json!({ "result": gid })
         }
+        "aria2.changeOption" => {
+            let gid = gid_param(&params);
+            json!({ "result": gid })
+        }
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = gid_param(&params);
             state.tasks.lock().expect("tasks should lock").remove(&gid);
@@ -868,7 +954,11 @@ async fn mock_aria2_rpc(
                         "dir": task.dir,
                         "files": [
                             {
+                                "index": 1,
                                 "path": format!("{}/{}", task.dir, task.file_name),
+                                "length": "1024",
+                                "completedLength": "256",
+                                "selected": "true",
                                 "uris": []
                             }
                         ]

@@ -1,6 +1,6 @@
 # 飞牛版 Motrix 开发计划
 
-> 更新时间：2026-07-07  
+> 更新时间：2026-07-08
 > 本文档记录当前阶段状态、已完成里程碑、优先级和验收口径。长期架构边界见 `docs/architecture.md`；HTTP / SSE 与 JSON-RPC 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 当前状态
@@ -91,10 +91,19 @@
 - 是否涉及 fnOS / FPK 生命周期、权限、端口入口或文件夹授权行为。
 - 是否需要更新 `docs/architecture.md` 的长期架构约束。
 
+阶段 12 后续增强记录：
+
+- [x] **磁链 metadata 完成后确认文件**
+  - 磁力链接创建后先由 Aria2 解析 metadata，并跟随 `followedBy` 切换到真实 BT GID。
+  - 真实 BT 任务保持暂停，后端返回 `confirmationRequired` 和 `files`，前端展示文件确认弹窗。
+  - 用户确认后调用 `/api/tasks/:id/confirm`，后端映射 Aria2 `select-file` 并 `unpause` 开始真实下载。
+  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts src/features/tasks/components/TaskActions.spec.ts src/features/tasks/components/TaskFileConfirmDialog.spec.ts`、`rtk pnpm run typecheck`。
+  - 提交信息：`feat: 支持磁链解析后确认文件`。
+
 阶段 12 发布前手工验收清单：
 
 - HTTP/HTTPS 单任务创建、立即开始与任务列表刷新。
-- 磁力链接创建，包含添加后暂停和元数据暂停行为。
+- 磁力链接创建，覆盖 metadata 解析、真实文件列表确认、部分文件选择、确认后开始下载、取消确认后保持暂停。
 - 批量 URL 创建，覆盖部分成功保留弹窗和全部失败错误提示。
 - Multipart 种子文件上传创建，下载产物和 Aria2 原生 hash 命名 `.torrent` 元数据进入任务专属目录。
 - 立即开始 / 添加后暂停在 URL、磁力链接和种子文件入口均生效。

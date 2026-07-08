@@ -51,20 +51,31 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
-    let category_column_count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|error| format!("检查下载任务分类字段失败：{}", error))?;
-    if category_column_count == 0 {
+    if download_tasks_column_count(pool, "category").await? == 0 {
         sqlx::query("ALTER TABLE download_tasks ADD COLUMN category TEXT NOT NULL DEFAULT '默认'")
             .execute(pool)
             .await
             .map_err(|error| format!("迁移下载任务分类字段失败：{}", error))?;
     }
 
+    if download_tasks_column_count(pool, "confirmation_required").await? == 0 {
+        sqlx::query(
+            "ALTER TABLE download_tasks ADD COLUMN confirmation_required INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("迁移下载任务文件确认字段失败：{}", error))?;
+    }
+
     Ok(())
+}
+
+async fn download_tasks_column_count(pool: &SqlitePool, column: &str) -> Result<i64, String> {
+    sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?")
+        .bind(column)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| format!("检查下载任务字段 {} 失败：{}", column, error))
 }
 
 const SCHEMA_STATEMENTS: &[&str] = &[
@@ -83,6 +94,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         error_code TEXT,
         error_message TEXT,
         file_path TEXT,
+        confirmation_required INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )

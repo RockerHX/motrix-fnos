@@ -4,6 +4,7 @@ import { t } from "../../../i18n";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 import { useTaskStore } from "./taskStore";
 import {
+  confirmDownloadTaskFiles,
   createBatchDownloadTasks,
   createDownloadTask,
   createTorrentDownloadTask,
@@ -17,6 +18,7 @@ import {
 } from "../services/taskService";
 
 vi.mock("../services/taskService", () => ({
+  confirmDownloadTaskFiles: vi.fn(),
   createBatchDownloadTasks: vi.fn(),
   createDownloadTask: vi.fn(),
   createTorrentDownloadTask: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock("../services/taskService", () => ({
   resumeDownloadTask: vi.fn(),
 }));
 
+const mockedConfirmDownloadTaskFiles = vi.mocked(confirmDownloadTaskFiles);
 const mockedCreateBatchDownloadTasks = vi.mocked(createBatchDownloadTasks);
 const mockedCreateDownloadTask = vi.mocked(createDownloadTask);
 const mockedCreateTorrentDownloadTask = vi.mocked(createTorrentDownloadTask);
@@ -193,6 +196,34 @@ describe("taskStore refresh and operation state", () => {
     await expect(store.resumeTask(activeTask.id)).resolves.toEqual(resumedTask);
     expect(store.tasks[0]).toEqual(resumedTask);
 
+    const confirmationTask = createTask({
+      id: 23,
+      status: "paused",
+      confirmationRequired: true,
+      files: [
+        {
+          index: 1,
+          path: "/downloads/movie/file-a.mkv",
+          name: "file-a.mkv",
+          length: 1024,
+          completedLength: 0,
+          selected: true,
+        },
+      ],
+    });
+    const confirmedTask = createTask({
+      ...confirmationTask,
+      status: "active",
+      confirmationRequired: false,
+    });
+    store.tasks = [...store.tasks, confirmationTask];
+    mockedConfirmDownloadTaskFiles.mockResolvedValueOnce(confirmedTask);
+    await expect(store.confirmTaskFiles(confirmationTask.id, [1])).resolves.toEqual(confirmedTask);
+    expect(mockedConfirmDownloadTaskFiles).toHaveBeenCalledWith(confirmationTask.id, {
+      selectedFileIndexes: [1],
+    });
+    expect(store.tasks.find((task) => task.id === confirmationTask.id)).toEqual(confirmedTask);
+
     mockedRedownloadDownloadTask.mockResolvedValueOnce(redownloadedTask);
     await expect(store.redownloadTask(completedTask.id)).resolves.toEqual(redownloadedTask);
     expect(store.tasks.find((task) => task.id === completedTask.id)).toEqual(redownloadedTask);
@@ -326,6 +357,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
     expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
     expect(mockedCreateTorrentDownloadTask).not.toHaveBeenCalled();
+    expect(mockedConfirmDownloadTaskFiles).not.toHaveBeenCalled();
     expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
     expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
   });
@@ -346,6 +378,8 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
+    confirmationRequired: false,
+    files: [],
     createdAt: 1,
     updatedAt: 1,
     ...overrides,

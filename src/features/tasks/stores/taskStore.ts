@@ -4,6 +4,7 @@ import {
   createBatchDownloadTasks,
   createDownloadTask,
   createTorrentDownloadTask,
+  confirmDownloadTaskFiles,
   deleteDownloadTask,
   listDownloadTasks,
   listRemovedDownloadTasks,
@@ -147,6 +148,14 @@ export const useTaskStore = defineStore("tasks", () => {
 
   async function resumeTask(taskId: number): Promise<DownloadTask> {
     return runTaskOperation(taskId, () => resumeDownloadTask(taskId));
+  }
+
+  async function confirmTaskFiles(taskId: number, selectedFileIndexes: number[]): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () =>
+      confirmDownloadTaskFiles(taskId, {
+        selectedFileIndexes,
+      }),
+    );
   }
 
   async function redownloadTask(taskId: number): Promise<DownloadTask> {
@@ -297,6 +306,7 @@ export const useTaskStore = defineStore("tasks", () => {
     createTorrentTask,
     pauseTask,
     resumeTask,
+    confirmTaskFiles,
     redownloadTask,
     deleteTask,
     permanentlyDeleteTask,

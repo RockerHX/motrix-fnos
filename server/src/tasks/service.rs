@@ -3,11 +3,11 @@ use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
 use crate::tasks::files::cleanup_empty_torrent_task_dir;
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
-    mark_task_paused, mark_task_redownloaded, mark_task_removed, mark_task_resumed, pause_task,
-    prepare_task_with_logs, prepare_torrent_task_with_logs, readd_task_to_aria2,
-    refresh_tasks_from_aria2, remove_task, remove_task_record,
-    should_readd_task_after_resume_error, store_created_task,
+    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, delete_task_files,
+    is_stale_aria2_gid_error, mark_task_files_confirmed, mark_task_paused, mark_task_redownloaded,
+    mark_task_removed, mark_task_resumed, pause_task, prepare_task_with_logs,
+    prepare_torrent_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
+    remove_task_record, should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
@@ -199,6 +199,9 @@ impl<'a> TaskService<'a> {
         self.ensure_not_exiting()?;
         let gid = task_gid(self.download_tasks, task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
+        if task_before_resume.confirmation_required {
+            return Err("请先确认要下载的文件".to_string());
+        }
         let task = match unpause_task(config, &gid, Some(self.debug_logs)).await {
             Ok(_) => {
                 if let Err(error) = sync_task_progress_from_aria2_by_gid(
@@ -238,6 +241,63 @@ impl<'a> TaskService<'a> {
                 gid,
                 task.gid.as_deref().unwrap_or("-")
             ),
+        );
+        Ok(task)
+    }
+
+    pub async fn confirm_download_task_files(
+        &self,
+        config: &Aria2Config,
+        task_id: u64,
+        selected_file_indexes: Vec<u32>,
+    ) -> Result<DownloadTask, String> {
+        self.ensure_not_exiting()?;
+        let mut selected = selected_file_indexes
+            .into_iter()
+            .filter(|index| *index > 0)
+            .collect::<Vec<_>>();
+        selected.sort_unstable();
+        selected.dedup();
+        if selected.is_empty() {
+            return Err("请至少选择一个文件".to_string());
+        }
+
+        let task = task_snapshot(self.download_tasks, task_id)?;
+        if !task.confirmation_required {
+            return Err("当前任务不需要确认文件".to_string());
+        }
+        let gid = task_gid(self.download_tasks, task_id)?;
+        let select_file = selected
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut options = serde_json::Map::new();
+        options.insert("select-file".to_string(), serde_json::json!(select_file));
+        change_task_options(config, &gid, options, Some(self.debug_logs)).await?;
+        unpause_task(config, &gid, Some(self.debug_logs)).await?;
+
+        if let Err(error) = sync_task_progress_from_aria2_by_gid(
+            self.download_tasks,
+            config,
+            &gid,
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            self.debug_logs.warn(
+                "tasks.control",
+                format!(
+                    "确认文件后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
+                    task_id, gid, error
+                ),
+            );
+        }
+        let task = mark_task_files_confirmed(self.download_tasks, task_id, &selected)?;
+        self.sync_task_to_database(&task).await?;
+        self.debug_logs.info(
+            "tasks.control",
+            format!("任务文件已确认并开始下载，ID {}，GID {}", task_id, gid),
         );
         Ok(task)
     }
@@ -724,6 +784,8 @@ mod tests {
                     .display()
                     .to_string(),
             ),
+            confirmation_required: false,
+            files: Vec::new(),
             created_at: 1,
             updated_at: 1,
         }

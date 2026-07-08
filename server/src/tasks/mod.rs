@@ -13,12 +13,13 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
-    add_torrent_to_aria2, add_uri_to_aria2, pause_task, remove_task, unpause_task,
+    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task, remove_task,
+    unpause_task,
 };
 pub use files::delete_task_files;
 pub use model::{
     should_force_pause_task_on_startup, should_pause_task_on_exit, CreateDownloadTaskRequest,
-    CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest, DownloadTask,
+    CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskFile,
     DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
     DEFAULT_TASK_CATEGORY,
 };
@@ -35,9 +36,9 @@ use session::readd_download_task;
 pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
-    list_tasks, mark_task_paused, mark_task_paused_by_gid, mark_task_redownloaded,
-    mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record,
-    store_created_task, task_gid, task_snapshot, TaskMemoryState,
+    list_tasks, mark_task_files_confirmed, mark_task_paused, mark_task_paused_by_gid,
+    mark_task_redownloaded, mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused,
+    remove_task_record, store_created_task, task_gid, task_snapshot, TaskMemoryState,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -54,12 +55,21 @@ pub(crate) struct Aria2TaskStatus {
     dir: Option<String>,
     files: Option<Vec<Aria2FileStatus>>,
     followed_by: Option<Vec<String>>,
+    bittorrent: Option<Aria2BittorrentStatus>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Aria2FileStatus {
+    #[serde(default)]
+    index: u32,
     path: String,
+    #[serde(default)]
+    length: String,
+    #[serde(default)]
+    completed_length: String,
+    #[serde(default)]
+    selected: String,
     #[serde(default)]
     uris: Vec<Aria2UriStatus>,
 }
@@ -68,6 +78,18 @@ struct Aria2FileStatus {
 #[serde(rename_all = "camelCase")]
 struct Aria2UriStatus {
     uri: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2BittorrentStatus {
+    info: Option<Aria2BittorrentInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Aria2BittorrentInfo {
+    name: Option<String>,
 }
 
 pub async fn refresh_tasks_from_aria2(
@@ -112,7 +134,33 @@ pub async fn refresh_tasks_from_aria2(
                     }),
                 }
             }
-            Ok(status) => updates.push(TaskRefreshUpdate::Status { gid, status }),
+            Ok(status) => {
+                if let Some(followed_gid) = followed_gid(&status) {
+                    if let Err(error) = pause_task(config, &followed_gid, debug_logs).await {
+                        log_info(
+                            debug_logs,
+                            "tasks.magnet",
+                            format!(
+                                "磁链 metadata 完成后暂停真实任务失败，继续同步状态，GID {}：{}",
+                                followed_gid, error
+                            ),
+                        );
+                    }
+                    match tell_status(&client, config, &followed_gid, debug_logs).await {
+                        Ok(followed_status) => updates.push(TaskRefreshUpdate::Followed {
+                            old_gid: gid,
+                            new_gid: followed_gid,
+                            status: followed_status,
+                        }),
+                        Err(error) => updates.push(TaskRefreshUpdate::Status {
+                            gid,
+                            status: task_status_error(error),
+                        }),
+                    }
+                } else {
+                    updates.push(TaskRefreshUpdate::Status { gid, status });
+                }
+            }
             Err(error) if is_stale_aria2_gid_error(&error) => {
                 match readd_download_task(config, &candidate, debug_logs).await {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
@@ -154,6 +202,23 @@ pub async fn refresh_tasks_from_aria2(
                         .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
                     {
                         apply_readded_gid(task, new_gid);
+                    }
+                }
+                TaskRefreshUpdate::Followed {
+                    old_gid,
+                    new_gid,
+                    status,
+                } => {
+                    if let Some(task) = tasks
+                        .iter_mut()
+                        .find(|task| task.gid.as_ref() == Some(old_gid))
+                    {
+                        task.gid = Some(new_gid.clone());
+                        task.confirmation_required = true;
+                        apply_aria2_status(task, status);
+                        task.status = DownloadTaskStatus::Paused;
+                        task.confirmation_required = true;
+                        task.download_speed = 0;
                     }
                 }
             }
@@ -235,6 +300,21 @@ enum TaskRefreshUpdate {
         old_gid: String,
         new_gid: String,
     },
+    Followed {
+        old_gid: String,
+        new_gid: String,
+        status: Aria2TaskStatus,
+    },
+}
+
+fn followed_gid(status: &Aria2TaskStatus) -> Option<String> {
+    status
+        .followed_by
+        .as_ref()
+        .and_then(|gids| gids.first())
+        .map(|gid| gid.trim())
+        .filter(|gid| !gid.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn task_status_error(message: String) -> Aria2TaskStatus {
@@ -249,6 +329,7 @@ fn task_status_error(message: String) -> Aria2TaskStatus {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     }
 }
 

@@ -50,6 +50,8 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
         error_code: Some("old".to_string()),
         error_message: Some("old".to_string()),
         file_path,
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: 1,
         updated_at: 1,
     }
@@ -376,6 +378,7 @@ fn mark_task_redownloaded_resets_completed_task_progress() {
 
     assert_eq!(task.gid.as_deref(), Some("new-gid"));
     assert_eq!(task.status, DownloadTaskStatus::Pending);
+    assert!(!task.confirmation_required);
     assert_eq!(task.total_length, 0);
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
@@ -426,12 +429,17 @@ fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatu
         error_message: None,
         dir: Some(dir.to_string()),
         files: Some(vec![Aria2FileStatus {
+            index: 1,
             path: path.to_string(),
+            length: "100".to_string(),
+            completed_length: "40".to_string(),
+            selected: "true".to_string(),
             uris: vec![Aria2UriStatus {
                 uri: url.to_string(),
             }],
         }]),
         followed_by: None,
+        bittorrent: None,
     }
 }
 
@@ -638,6 +646,8 @@ fn apply_aria2_status_updates_progress_fields() {
         error_code: None,
         error_message: None,
         file_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: 1,
         updated_at: 1,
     };
@@ -654,10 +664,15 @@ fn apply_aria2_status_updates_progress_fields() {
             error_message: None,
             dir: Some("/downloads".to_string()),
             files: Some(vec![Aria2FileStatus {
+                index: 1,
                 path: "/downloads/file.zip".to_string(),
+                length: "100".to_string(),
+                completed_length: "40".to_string(),
+                selected: "true".to_string(),
                 uris: Vec::new(),
             }]),
             followed_by: None,
+            bittorrent: None,
         },
     );
 
@@ -689,11 +704,13 @@ fn apply_aria2_status_follows_completed_magnet_metadata_task() {
             dir: Some("/downloads".to_string()),
             files: None,
             followed_by: Some(vec!["real-download-gid".to_string()]),
+            bittorrent: None,
         },
     );
 
     assert_eq!(task.gid.as_deref(), Some("real-download-gid"));
-    assert_eq!(task.status, DownloadTaskStatus::Pending);
+    assert_eq!(task.status, DownloadTaskStatus::Paused);
+    assert!(task.confirmation_required);
     assert_eq!(task.total_length, 0);
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
@@ -719,6 +736,7 @@ fn apply_aria2_status_keeps_active_progress_non_decreasing() {
             dir: None,
             files: None,
             followed_by: None,
+            bittorrent: None,
         },
     );
 
@@ -750,10 +768,15 @@ fn apply_aria2_status_removes_completed_control_file() {
             error_message: None,
             dir: Some(save_dir.display().to_string()),
             files: Some(vec![Aria2FileStatus {
+                index: 1,
                 path: file_path.display().to_string(),
+                length: "8".to_string(),
+                completed_length: "8".to_string(),
+                selected: "true".to_string(),
                 uris: Vec::new(),
             }]),
             followed_by: None,
+            bittorrent: None,
         },
     );
 
@@ -774,6 +797,7 @@ fn pause_status_settles_only_after_paused_progress_is_stable() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
     let mut paused = active.clone();
     paused.status = "paused".to_string();
@@ -799,6 +823,7 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
         dir: Some("/downloads".to_string()),
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     let synced =
@@ -828,6 +853,8 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         error_code: Some("old".to_string()),
         error_message: Some("old".to_string()),
         file_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: 1,
         updated_at: 1,
     };
@@ -843,6 +870,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     assert!(!is_aria2_status_error(&status));
@@ -866,6 +894,7 @@ fn non_zero_aria2_error_code_is_error() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     assert!(is_aria2_status_error(&status));
@@ -889,6 +918,7 @@ fn aria2_error_16_gets_readable_hint() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -916,6 +946,7 @@ fn apply_aria2_status_preserves_progress_when_active_status_is_temporarily_empty
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -944,6 +975,7 @@ fn apply_aria2_status_preserves_progress_when_error_has_no_lengths() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     };
 
     apply_aria2_status(&mut task, &status);
@@ -1088,6 +1120,26 @@ fn add_uri_request_sets_pause_options_for_paused_magnet() {
 }
 
 #[test]
+fn add_uri_request_sets_pause_metadata_for_started_magnet() {
+    let request = build_add_uri_request(
+        &test_config(),
+        &PreparedDownloadTask {
+            url: "magnet:?xt=urn:btih:test".to_string(),
+            file_name: "磁力链接任务".to_string(),
+            save_dir: "/downloads".to_string(),
+            category: "默认".to_string(),
+            source_type: DownloadTaskSourceType::Magnet,
+            start_mode: DownloadTaskStartMode::Now,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: serde_json::Map::new(),
+        },
+    );
+
+    assert_eq!(request["params"][1]["pause-metadata"], "true");
+    assert!(request["params"][1].get("pause").is_none());
+}
+
+#[test]
 fn add_torrent_request_contains_base64_payload_and_options() {
     let request = build_add_torrent_request(
         &test_config(),
@@ -1148,6 +1200,7 @@ fn stale_aria2_gid_error_is_detected() {
         dir: None,
         files: None,
         followed_by: None,
+        bittorrent: None,
     }));
     assert!(!is_stale_aria2_gid_error("连接失败"));
 }

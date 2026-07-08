@@ -76,6 +76,8 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
+    confirmationRequired: false,
+    files: [],
     createdAt: 1,
     updatedAt: 1,
     ...overrides,

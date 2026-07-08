@@ -127,6 +127,8 @@ fn sample_task() -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some("/downloads/archive.zip".to_string()),
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: 100,
         updated_at: 101,
     }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
+import TaskFileConfirmDialog from "./TaskFileConfirmDialog.vue";
 import { useTaskStore } from "../stores/taskStore";
 import { formatDateTime, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -23,6 +24,7 @@ const props = defineProps<{
 const taskStore = useTaskStore();
 const message = useMessage();
 const { t } = useI18n();
+const showFileConfirm = ref(false);
 
 const actionState = computed<TaskActionState>(() => ({
   isOperating: taskStore.isTaskOperating(props.task.id),
@@ -31,7 +33,8 @@ const actionState = computed<TaskActionState>(() => ({
 }));
 const permissions = computed<TaskActionPermissions>(() => ({
   canPause: props.task.status === "active" || props.task.status === "pending",
-  canResume: props.task.status === "paused" || props.task.status === "error",
+  canResume: !props.task.confirmationRequired && (props.task.status === "paused" || props.task.status === "error"),
+  canConfirmFiles: props.task.confirmationRequired && props.task.files.length > 0,
   canRedownload: props.task.status === "complete",
   canDelete: props.task.status !== "removed",
   canPermanentDelete: props.task.status === "removed",
@@ -40,12 +43,23 @@ const labels = computed<TaskActionLabels>(() => ({
   details: t("task.actions.details"),
   pause: t("task.actions.pause"),
   resume: t("task.actions.resume"),
+  confirmFiles: t("task.actions.confirmFiles"),
   redownload: t("task.actions.redownload"),
   delete: t("task.actions.delete"),
   permanentDelete: t("task.actions.permanentDelete"),
   cancel: t("common.cancel"),
   close: t("common.close"),
 }));
+
+watch(
+  () => [props.task.id, props.task.confirmationRequired, props.task.files.length],
+  () => {
+    if (props.task.confirmationRequired && props.task.files.length > 0) {
+      showFileConfirm.value = true;
+    }
+  },
+  { immediate: true },
+);
 const details = computed<TaskActionDetails>(() => {
   const items = [
     { label: t("task.detail.fileName"), value: props.task.fileName },
@@ -95,6 +109,17 @@ async function resumeTask() {
   try {
     await taskStore.resumeTask(props.task.id);
     message.success(t("task.actions.resumed"));
+  } catch (error) {
+    message.error(getErrorMessage(error, t("task.operationFailed")));
+  }
+}
+
+async function confirmTaskFiles(selectedFileIndexes: number[]) {
+  if (!ensureCanOperate()) return;
+  try {
+    await taskStore.confirmTaskFiles(props.task.id, selectedFileIndexes);
+    showFileConfirm.value = false;
+    message.success(t("task.fileConfirm.started"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
   }
@@ -157,8 +182,15 @@ function formatTimestamp(timestamp: number) {
     :confirm-texts="confirmTexts"
     @pause="pauseTask"
     @resume="resumeTask"
+    @confirm-files="showFileConfirm = true"
     @confirm-redownload="confirmRedownloadTask"
     @confirm-delete="confirmDeleteTask"
     @confirm-permanent-delete="confirmPermanentDeleteTask"
+  />
+  <TaskFileConfirmDialog
+    v-model:show="showFileConfirm"
+    :task="props.task"
+    :is-loading="taskStore.isTaskOperating(props.task.id)"
+    @confirm="confirmTaskFiles"
   />
 </template>

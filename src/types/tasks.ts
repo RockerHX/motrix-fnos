@@ -22,8 +22,19 @@ export interface DownloadTask {
   errorCode?: string | null;
   errorMessage?: string | null;
   filePath?: string | null;
+  confirmationRequired: boolean;
+  files: DownloadTaskFile[];
   createdAt: number;
   updatedAt: number;
+}
+
+export interface DownloadTaskFile {
+  index: number;
+  path: string;
+  name: string;
+  length: number;
+  completedLength: number;
+  selected: boolean;
 }
 
 export interface CreateDownloadTaskRequest {
@@ -61,4 +72,8 @@ export interface CreateTorrentDownloadTaskRequest {
   startMode?: DownloadTaskStartMode;
   category?: string | null;
   advancedOptions?: CreateTaskAdvancedOptions;
+}
+
+export interface ConfirmDownloadTaskFilesRequest {
+  selectedFileIndexes: number[];
 }

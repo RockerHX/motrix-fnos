@@ -73,6 +73,8 @@ pub fn store_created_task(
         error_code: None,
         error_message: None,
         file_path: Some(file_path),
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: now,
         updated_at: now,
     };
@@ -84,6 +86,9 @@ pub fn store_created_task(
 }
 
 pub(crate) fn should_refresh_task(task: &DownloadTask) -> bool {
+    if task.confirmation_required {
+        return true;
+    }
     matches!(
         task.status,
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active
@@ -184,9 +189,30 @@ pub(crate) fn apply_paused_state(task: &mut DownloadTask) {
 
 pub fn mark_task_resumed(tasks: &TaskMemoryState, task_id: u64) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
+        if task.confirmation_required {
+            return Err("请先确认要下载的文件".to_string());
+        }
         task.status = DownloadTaskStatus::Active;
         task.error_code = None;
         task.error_message = None;
+        Ok(())
+    })
+}
+
+pub fn mark_task_files_confirmed(
+    tasks: &TaskMemoryState,
+    task_id: u64,
+    selected_indexes: &[u32],
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        task.confirmation_required = false;
+        task.status = DownloadTaskStatus::Active;
+        task.download_speed = 0;
+        task.error_code = None;
+        task.error_message = None;
+        for file in &mut task.files {
+            file.selected = selected_indexes.contains(&file.index);
+        }
         Ok(())
     })
 }
@@ -225,6 +251,7 @@ pub fn mark_task_redownloaded(
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;
+        task.confirmation_required = false;
         task.file_path = Some(
             Path::new(&task.save_dir)
                 .join(&task.file_name)

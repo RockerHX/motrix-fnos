@@ -123,6 +123,15 @@ describe("TaskActions", () => {
     expect(pausedWrapper.text()).toContain("继续");
     expect(pausedWrapper.text()).not.toContain("暂停");
 
+    const { wrapper: confirmWrapper } = mountTaskActions({
+      permissions: {
+        canConfirmFiles: true,
+        canResume: false,
+      },
+    });
+    expect(confirmWrapper.text()).toContain("确认文件");
+    expect(confirmWrapper.text()).not.toContain("继续");
+
     const { wrapper: completeWrapper } = mountTaskActions({
       permissions: { canRedownload: true },
     });
@@ -137,33 +146,39 @@ describe("TaskActions", () => {
     expect(removedWrapper.text()).toContain("永久删除");
   });
 
-  it("emits pause and resume in both normal and compact layouts", async () => {
+  it("emits pause, resume and confirmFiles in both normal and compact layouts", async () => {
     const { wrapper } = mountTaskActions({
       permissions: {
         canPause: true,
         canResume: true,
+        canConfirmFiles: true,
       },
     });
 
     await clickButton(wrapper, "暂停");
     await clickButton(wrapper, "继续");
+    await clickButton(wrapper, "确认文件");
 
     expect(wrapper.emitted("pause")).toHaveLength(1);
     expect(wrapper.emitted("resume")).toHaveLength(1);
+    expect(wrapper.emitted("confirmFiles")).toHaveLength(1);
 
     const { wrapper: compactWrapper } = mountTaskActions({
       compact: true,
       permissions: {
         canPause: true,
         canResume: true,
+        canConfirmFiles: true,
       },
     });
 
     await clickButton(compactWrapper, "暂停");
     await clickButton(compactWrapper, "继续");
+    await clickButton(compactWrapper, "确认文件");
 
     expect(compactWrapper.emitted("pause")).toHaveLength(1);
     expect(compactWrapper.emitted("resume")).toHaveLength(1);
+    expect(compactWrapper.emitted("confirmFiles")).toHaveLength(1);
   });
 
   it("emits confirmDelete with deleteFiles=true when checkbox is selected", async () => {
@@ -237,6 +252,7 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
     permissions: {
       canPause: false,
       canResume: false,
+      canConfirmFiles: false,
       canRedownload: false,
       canDelete: true,
       canPermanentDelete: false,
@@ -246,6 +262,7 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
       details: "详情",
       pause: "暂停",
       resume: "继续",
+      confirmFiles: "确认文件",
       redownload: "重新下载",
       delete: "删除",
       permanentDelete: "永久删除",

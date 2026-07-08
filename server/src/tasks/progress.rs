@@ -1,4 +1,4 @@
-use crate::tasks::{DownloadTask, DownloadTaskStatus, TaskMemoryState};
+use crate::tasks::{DownloadTask, DownloadTaskFile, DownloadTaskStatus, TaskMemoryState};
 use std::path::Path;
 
 use super::{current_timestamp_ms, Aria2TaskStatus};
@@ -56,6 +56,17 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
         task.save_dir = dir;
     }
+    if let Some(name) = status
+        .bittorrent
+        .as_ref()
+        .and_then(|bt| bt.info.as_ref())
+        .and_then(|info| info.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        task.file_name = name.to_string();
+    }
+    task.files = task_files(status);
     task.file_path = status
         .files
         .as_ref()
@@ -91,18 +102,43 @@ fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus
     };
 
     task.gid = Some(next_gid.to_string());
-    task.status = DownloadTaskStatus::Pending;
+    task.status = DownloadTaskStatus::Paused;
     task.total_length = 0;
     task.completed_length = 0;
     task.download_speed = 0;
     task.error_code = None;
     task.error_message = None;
+    task.confirmation_required = true;
     if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
         task.save_dir = dir;
     }
     task.file_path = None;
     task.updated_at = current_timestamp_ms();
     true
+}
+
+fn task_files(status: &Aria2TaskStatus) -> Vec<DownloadTaskFile> {
+    status
+        .files
+        .as_ref()
+        .map(|files| {
+            files
+                .iter()
+                .map(|file| DownloadTaskFile {
+                    index: file.index,
+                    path: file.path.clone(),
+                    name: Path::new(&file.path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or(&file.path)
+                        .to_string(),
+                    length: parse_aria2_u64(&file.length),
+                    completed_length: parse_aria2_u64(&file.completed_length),
+                    selected: file.selected != "false",
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn should_preserve_existing_progress(

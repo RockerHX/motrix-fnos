@@ -22,6 +22,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/batch", post(create_batch_tasks))
         .route("/tasks/torrent", post(create_torrent_task))
+        .route("/tasks/:id/confirm", post(confirm_task_files))
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
@@ -75,6 +76,12 @@ struct CreateTorrentUploadRequest {
     category: Option<String>,
     #[serde(default)]
     advanced_options: CreateTaskAdvancedOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfirmTaskFilesRequest {
+    selected_file_indexes: Vec<u32>,
 }
 
 enum ListTasksFilter {
@@ -324,6 +331,25 @@ async fn pause_task(
     Ok(Json(task))
 }
 
+async fn confirm_task_files(
+    State(state): State<Arc<HttpAppState>>,
+    Path(task_id): Path<u64>,
+    ApiJson(payload): ApiJson<ConfirmTaskFilesRequest>,
+) -> Result<Json<DownloadTask>, ApiError> {
+    let service = task_service(&state);
+    service.ensure_not_exiting().map_err(classify_task_error)?;
+    let config = ensure_aria2_ready(&state)
+        .await
+        .map_err(classify_aria2_ready_error)?;
+    let task = service
+        .confirm_download_task_files(&config, task_id, payload.selected_file_indexes)
+        .await
+        .map_err(classify_task_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+    Ok(Json(task))
+}
+
 async fn resume_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
@@ -446,6 +472,9 @@ fn classify_task_error(error: String) -> ApiError {
     }
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")
+        || error.contains("请先确认")
+        || error.contains("请至少选择")
+        || error.contains("不需要确认")
         || error.contains("URL")
         || error.contains("文件名")
         || error.contains("保存目录")

@@ -56,6 +56,8 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
         created_at: 1,
         updated_at: 2,
     }

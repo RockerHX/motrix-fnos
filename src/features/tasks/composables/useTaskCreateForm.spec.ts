@@ -159,6 +159,8 @@ describe("useTaskCreateForm", () => {
       totalLength: 1024,
       completedLength: 0,
       downloadSpeed: 0,
+      confirmationRequired: false,
+      files: [],
       createdAt: 1,
       updatedAt: 1,
     });
@@ -211,6 +213,8 @@ describe("useTaskCreateForm", () => {
           totalLength: 0,
           completedLength: 0,
           downloadSpeed: 0,
+          confirmationRequired: false,
+          files: [],
           createdAt: 1,
           updatedAt: 1,
         },
@@ -256,6 +260,8 @@ describe("useTaskCreateForm", () => {
       totalLength: 0,
       completedLength: 0,
       downloadSpeed: 0,
+      confirmationRequired: false,
+      files: [],
       createdAt: 1,
       updatedAt: 1,
     });
@@ -293,6 +299,8 @@ describe("useTaskCreateForm", () => {
       totalLength: 0,
       completedLength: 0,
       downloadSpeed: 0,
+      confirmationRequired: false,
+      files: [],
       createdAt: 1,
       updatedAt: 1,
     });

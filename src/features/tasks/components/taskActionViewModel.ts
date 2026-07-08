@@ -7,6 +7,7 @@ export interface TaskActionState {
 export interface TaskActionPermissions {
   canPause: boolean;
   canResume: boolean;
+  canConfirmFiles: boolean;
   canRedownload: boolean;
   canDelete: boolean;
   canPermanentDelete: boolean;
@@ -16,6 +17,7 @@ export interface TaskActionLabels {
   details: string;
   pause: string;
   resume: string;
+  confirmFiles: string;
   redownload: string;
   delete: string;
   permanentDelete: string;

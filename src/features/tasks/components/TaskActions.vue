@@ -21,6 +21,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   pause: [];
   resume: [];
+  confirmFiles: [];
   confirmRedownload: [];
   confirmDelete: [deleteFiles: boolean];
   confirmPermanentDelete: [];
@@ -94,6 +95,19 @@ function emitDeleteConfirm() {
       {{ props.labels.resume }}
     </NButton>
     <NButton
+      v-if="props.permissions.canConfirmFiles"
+      size="small"
+      secondary
+      type="primary"
+      :title="props.labels.confirmFiles"
+      :aria-label="props.labels.confirmFiles"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('confirmFiles')"
+    >
+      {{ props.labels.confirmFiles }}
+    </NButton>
+    <NButton
       v-if="props.permissions.canRedownload"
       size="small"
       secondary
@@ -153,6 +167,17 @@ function emitDeleteConfirm() {
       @click="emit('resume')"
     >
       {{ props.labels.resume }}
+    </NButton>
+    <NButton
+      v-if="props.permissions.canConfirmFiles"
+      size="small"
+      secondary
+      type="primary"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('confirmFiles')"
+    >
+      {{ props.labels.confirmFiles }}
     </NButton>
     <NButton
       v-if="props.permissions.canRedownload"

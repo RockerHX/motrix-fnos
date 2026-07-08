@@ -51,6 +51,17 @@ pub fn should_force_pause_task_on_startup(task: &DownloadTask) -> bool {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct DownloadTaskFile {
+    pub index: u32,
+    pub path: String,
+    pub name: String,
+    pub length: u64,
+    pub completed_length: u64,
+    pub selected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
     pub id: u64,
     pub url: String,
@@ -65,6 +76,8 @@ pub struct DownloadTask {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub file_path: Option<String>,
+    pub confirmation_required: bool,
+    pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,
     pub updated_at: u64,
 }

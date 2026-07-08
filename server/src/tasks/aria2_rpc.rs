@@ -183,6 +183,45 @@ pub async fn unpause_task(
     .await
 }
 
+pub async fn change_task_options(
+    config: &Aria2Config,
+    gid: &str,
+    options: serde_json::Map<String, serde_json::Value>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    let request_body = build_change_option_request(config, gid, options);
+    let response = match reqwest::Client::new()
+        .post(config.rpc_url())
+        .json(&request_body)
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(_) => {
+            let error = "更新任务选项失败：无法连接 Aria2 RPC".to_string();
+            log_error(debug_logs, "aria2.changeOption", &error);
+            return Err(error);
+        }
+    };
+
+    let rpc_response = match response.json::<GidResponse>().await {
+        Ok(response) => response,
+        Err(error) => {
+            let error = format!("更新任务选项失败，响应解析失败：{}", error);
+            log_error(debug_logs, "aria2.changeOption", &error);
+            return Err(error);
+        }
+    };
+
+    if let Some(error) = rpc_response.error {
+        let error = format!("更新任务选项失败：{}", error.message);
+        log_error(debug_logs, "aria2.changeOption", &error);
+        return Err(error);
+    }
+
+    Ok(rpc_response.result.unwrap_or_else(|| gid.to_string()))
+}
+
 pub async fn remove_task(
     config: &Aria2Config,
     gid: &str,
@@ -434,6 +473,26 @@ pub(crate) fn build_gid_control_request(
     })
 }
 
+pub(crate) fn build_change_option_request(
+    config: &Aria2Config,
+    gid: &str,
+    options: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Value {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+    params.push(serde_json::json!(gid));
+    params.push(serde_json::Value::Object(options));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-change-option",
+        "method": "aria2.changeOption",
+        "params": params,
+    })
+}
+
 pub(crate) fn build_add_uri_request(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
@@ -451,9 +510,9 @@ pub(crate) fn build_add_uri_request(
     }
     if task.start_mode == DownloadTaskStartMode::Paused {
         options.insert("pause".to_string(), serde_json::json!("true"));
-        if task.source_type == DownloadTaskSourceType::Magnet {
-            options.insert("pause-metadata".to_string(), serde_json::json!("true"));
-        }
+    }
+    if task.source_type == DownloadTaskSourceType::Magnet {
+        options.insert("pause-metadata".to_string(), serde_json::json!("true"));
     }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {
