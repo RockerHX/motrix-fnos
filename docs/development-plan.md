@@ -7,7 +7,7 @@
 
 版本来源：以 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 为准，Release tag 使用 `v<version>`。
 
-当前阶段：**阶段 12：新建下载任务能力完善（✅ 2026-07-07）**
+当前阶段：**阶段 12 已完成，发布前验收与缺陷修复中；下一阶段待定（✅ 2026-07-07）**
 
 阶段摘要：
 
@@ -37,83 +37,28 @@
 
 ## 3. 当前优先级
 
-阶段 12 已完成；新建任务能力继续以现有 HTTP API / SSE / Aria2 JSON-RPC 主线为基础，复用 `features/tasks` 的 store/service/composable，不引入独立前端状态或绕过后端直接访问 Aria2。
+阶段 12 已完成；当前进入发布前验收、缺陷修复和发版准备。下一阶段尚未启动，除紧急修复外，新功能应先更新本计划再实施。
 
-阶段 12 小任务清单：
+阶段 12 完成摘要：
 
-- [x] **小任务 0：落地阶段 12 可勾选清单**
-  - 在本文档记录阶段 12 的可勾选实施清单、验收命令和提交规范。
-  - 验收命令：`rtk pnpm run verify:pre-commit`。
-  - 提交信息：`docs: 细化阶段 12 新建任务实施清单`。
-- [x] **小任务 1：扩展任务模型、分类字段和接口契约**
-  - 后端 `DownloadTask` / 前端 `DownloadTask` 增加 `category`，SQLite 新库和老库迁移均提供默认分类 `默认`。
-  - 新建任务请求类型加入 `sourceType`、`startMode`、`category`、`advancedOptions`，并保持旧请求兼容。
-  - 同步更新 `docs/api-contract.md`。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml database`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
-  - 提交信息：`feat: 扩展新建任务契约和任务分类字段`。
-- [x] **小任务 2：支持单任务磁力链接和添加后暂停**
-  - `sourceType=url` 仅接受 HTTP/HTTPS，`sourceType=magnet` 仅接受 `magnet:?`。
-  - `POST /api/tasks` 支持磁力链接；`startMode=paused` 映射 Aria2 暂停选项并持久化为暂停态。
-  - JSON-RPC `aria2.addUri` 复用同一套选项过滤并接受 HTTP/HTTPS 与磁力链接。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
-  - 提交信息：`feat: 支持磁力链接和添加后暂停`。
-- [x] **小任务 3：支持批量 URL 创建**
-  - 新增 `/api/tasks/batch`，逐条校验和创建，部分失败不回滚已创建任务。
-  - 前端 service/store 增加批量创建能力，成功任务写入任务列表。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts`。
-  - 提交信息：`feat: 支持批量 URL 创建任务`。
-- [x] **小任务 4：支持 Multipart 种子文件创建**
-  - 新增 `/api/tasks/torrent`，接收 `torrent` 文件和 `request` JSON 字段，限制 torrent 文件不超过 10 MiB。
-  - 后端调用 Aria2 `addTorrent`；种子任务会在授权保存目录下创建任务专属子目录，并保留 Aria2 原生 hash 命名 `.torrent` 元数据，避免破坏 Aria2 session 恢复语义。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
-  - 提交信息：`feat: 支持种子文件上传创建任务`。
-- [x] **小任务 5：接入高级设置四项**
-  - 分类作为任务标签持久化，不改变保存路径和侧栏状态分类。
-  - 连接数、下载限速和代理映射为受控 Aria2 options，并集中校验过滤。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::jsonrpc::tests`。
-  - 提交信息：`feat: 接入新建任务高级设置`。
-- [x] **小任务 6：完善新建任务弹窗交互**
-  - 启用 URL、批量 URL、种子文件、磁力链接四个 Tab。
-  - 公共区域接入保存路径、开始方式、分类、连接数、限速、代理；移除未持久化备注。
-  - 批量部分失败时保留弹窗并展示失败列表，全部成功时重置并关闭。
-  - 验收命令：`rtk pnpm test:unit -- src/features/tasks/composables/useTaskCreateForm.spec.ts`、`rtk pnpm test:unit -- src/features/tasks/components/TaskCreateDialog.spec.ts`、`rtk pnpm run typecheck`。
-  - 提交信息：`feat: 完善新建下载任务弹窗`。
-- [x] **小任务 7：阶段 12 收口验证**
-  - 运行快速总验证，必要时运行完整验证。
-  - 将阶段 12 状态改为已完成，并补充发布前手工验收清单。
-  - 验收命令：`rtk pnpm run verify:pre-commit`、必要时 `rtk pnpm run verify`。
-  - 提交信息：`docs: 标记阶段 12 新建任务能力完成`。
+- 新建任务入口已覆盖单 URL、批量 URL、Multipart 种子文件和磁力链接。
+- 开始方式、分类、连接数、下载限速和代理高级选项已接入前后端。
+- 磁链流程已支持 metadata 解析、真实文件确认、部分文件选择、解析种子元数据保存和任务专属目录清理。
 
-阶段 12 后续维护或扩展时仍应确认是否影响以下边界：
+后续维护阶段 12 能力时仍应确认是否影响以下边界：
 
 - 是否新增或改变 HTTP / SSE / JSON-RPC 契约。
 - 是否新增长期状态、数据库字段或迁移。
 - 是否涉及 fnOS / FPK 生命周期、权限、端口入口或文件夹授权行为。
 - 是否需要更新 `docs/architecture.md` 的长期架构约束。
 
-阶段 12 后续增强记录：
+发布前手工验收清单：
 
-- [x] **磁链 metadata 完成后确认文件**
-  - 磁力链接创建后先由 Aria2 解析 metadata，并跟随 `followedBy` 切换到真实 BT GID。
-  - 真实 BT 任务保持暂停，后端返回 `confirmationRequired` 和 `files`，前端展示文件确认弹窗。
-  - 用户确认后调用 `/api/tasks/:id/confirm`，后端映射 Aria2 `select-file` 并 `unpause` 开始真实下载。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`、`rtk pnpm test:unit -- src/features/tasks/stores/taskStore.spec.ts src/features/tasks/components/TaskActions.spec.ts src/features/tasks/components/TaskFileConfirmDialog.spec.ts`、`rtk pnpm run typecheck`。
-  - 提交信息：`feat: 支持磁链解析后确认文件`。
-- [x] **保存磁链解析种子元数据**
-  - 磁力链接创建时启用 Aria2 `bt-save-metadata=true`，metadata 解析完成后由 Aria2 将 hash 命名 `.torrent` 保存到任务专属目录。
-  - 磁链任务和种子任务一样使用授权父目录下的专属子目录；勾选删除文件时删除该目录，连同 `.torrent`、`.aria2` 和下载产物一起清理。
-  - 文档约定该 `.torrent` 是磁链解析过程产物，用于可见性 / 排障，不替代 Aria2 session 机制。
-  - 验收命令：`rtk cargo test --manifest-path server/Cargo.toml tasks::tests`、`rtk cargo test --manifest-path server/Cargo.toml api::tasks::tests`。
-  - 提交信息：`feat: 保存磁链解析种子元数据`。
-
-阶段 12 发布前手工验收清单：
-
-- HTTP/HTTPS 单任务创建、立即开始与任务列表刷新。
-- 磁力链接创建，覆盖 metadata 解析、真实文件列表确认、部分文件选择、确认后开始下载、取消确认后保持暂停，以及任务专属目录内生成 Aria2 hash 命名 `.torrent`。
-- 批量 URL 创建，覆盖部分成功保留弹窗和全部失败错误提示。
-- Multipart 种子文件上传创建，下载产物和 Aria2 原生 hash 命名 `.torrent` 元数据进入任务专属目录。
-- 立即开始 / 添加后暂停在 URL、磁力链接和种子文件入口均生效。
-- 分类、连接数、下载限速、代理在新建任务时生效并可在任务记录中看到分类。
+- HTTP/HTTPS、批量 URL、Multipart 种子文件和磁力链接均可创建任务。
+- 磁链可完成 metadata 解析、文件确认、部分文件选择、确认后开始下载，并在任务专属目录生成 Aria2 hash 命名 `.torrent`。
+- URL、磁力链接和种子文件入口的立即开始 / 添加后暂停均生效。
+- 分类、连接数、下载限速、代理在新建任务时生效，任务记录可见分类。
+- 删除任务并勾选删除文件时，普通文件、种子任务目录和磁链任务目录均按预期清理。
 - fnOS 授权目录校验仍拦截未授权保存路径。
 
 ## 4. 验证口径
@@ -143,6 +88,7 @@ rtk pnpm run verify:pre-commit
 
 - `docs/architecture.md`：长期架构边界和分层约束的唯一来源。
 - `docs/development-plan.md`：当前阶段状态、里程碑、优先级和验收口径的唯一来源。
+- `docs/development/archive/`：阶段实施细节的历史归档，不作为当前优先级来源。
 - `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约的唯一来源。
 - `docs/fpk-packaging.md`：FPK 构建命令、产物位置和打包排障入口的唯一来源。
 - `docs/design/archive/ui-stitch-prompts.md`：历史设计归档参考，不作为当前实现契约。

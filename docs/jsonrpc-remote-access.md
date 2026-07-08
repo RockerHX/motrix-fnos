@@ -45,6 +45,8 @@ curl -X POST 'http://<host>:<port>/jsonrpc' \
 - `dir` 必须来自 `/api/storage/accessible-paths` 返回的 fnOS 已授权目录。
 - 未传 `dir` 时使用后端默认下载目录，默认目录同样必须已授权。
 - `out` 会映射为 Motrix 任务文件名；磁力链接不会设置 `out`。
+- 磁力链接的 `dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，解析出的 hash 命名 `.torrent` 仅用于可见性 / 排障，不替代 Aria2 session。
+- 磁力链接解析完成后，真实 BT 下载仍需要在 Web UI 中确认文件；远程入口只负责添加任务。
 - 支持 HTTP / HTTPS URL 与 `magnet:?` 磁力链接；不支持通过 JSON-RPC 上传种子文件，种子文件请使用 Web UI 或 `/api/tasks/torrent`。
 - 常用 Aria2 选项会经过后端白名单过滤；`dir` / `out` 仍由 Motrix 统一校验和覆盖。
 
