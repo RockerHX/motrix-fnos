@@ -1,10 +1,9 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::files::torrent_metadata_copy_path;
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, should_force_pause_task_on_startup,
-    CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
+    add_uri_to_aria2, should_force_pause_task_on_startup, CreateTaskAdvancedOptions, DownloadTask,
+    DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
+    TaskMemoryState,
 };
 
 use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
@@ -229,7 +228,6 @@ pub(crate) async fn readd_download_task(
             );
         }
     }
-    let is_torrent_task = task.url.to_ascii_lowercase().starts_with("torrent:");
     let prepared = PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
@@ -244,18 +242,6 @@ pub(crate) async fn readd_download_task(
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
     };
-    if is_torrent_task {
-        let torrent_path = torrent_metadata_copy_path(&prepared);
-        let torrent_data = std::fs::read(&torrent_path).map_err(|error| {
-            format!(
-                "重新加入种子任务失败：无法读取种子文件 {}（{}）",
-                torrent_path.display(),
-                error
-            )
-        })?;
-        return add_torrent_to_aria2(config, &prepared, &torrent_data, debug_logs).await;
-    }
-
     add_uri_to_aria2(config, &prepared, debug_logs).await
 }
 

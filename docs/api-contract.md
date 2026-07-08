@@ -213,7 +213,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `request`：JSON 字符串，字段为 `saveDir`、`startMode`、`category`、`advancedOptions`。
 - `request.saveDir` 表示用户授权的父保存目录；服务端会按种子任务名创建专属子目录，并将 Aria2 下载目录设为该子目录。
 - 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`，`saveDir` 为任务专属子目录。
-- 服务端会在任务专属子目录保存一份同名 `.torrent` 副本，并关闭 Aria2 上传元数据自动落盘，避免出现哈希命名的重复种子文件。
+- 服务端保留 Aria2 原生上传元数据落盘行为；任务专属子目录内可能出现 hash 命名 `.torrent` 文件，用于保持 Aria2 session 恢复语义，不再额外保存同名 `.torrent` 副本。
 
 ### 4.4 设置
 
