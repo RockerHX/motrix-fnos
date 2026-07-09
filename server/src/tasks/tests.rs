@@ -1157,6 +1157,7 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][1]["max-connection-per-server"], "8");
     assert_eq!(request["params"][1]["max-download-limit"], "524288");
     assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
+    assert_eq!(request["params"][1]["pause"], "false");
 }
 
 #[test]
@@ -1180,6 +1181,10 @@ fn add_uri_request_sets_pause_options_for_paused_magnet() {
     assert_eq!(request["params"][1]["pause"], "true");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");
+    assert!(request["params"][1]["bt-tracker"]
+        .as_str()
+        .expect("bt-tracker should be string")
+        .contains("tracker.opentrackr.org"));
     assert!(request["params"][1].get("out").is_none());
 }
 
@@ -1201,7 +1206,11 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
 
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");
-    assert!(request["params"][1].get("pause").is_none());
+    assert_eq!(request["params"][1]["pause"], "false");
+    assert!(request["params"][1]["bt-tracker"]
+        .as_str()
+        .expect("bt-tracker should be string")
+        .contains("tracker.opentrackr.org"));
 }
 
 #[test]
@@ -1227,6 +1236,10 @@ fn add_torrent_request_contains_base64_payload_and_options() {
     assert_eq!(request["params"][2]["dir"], "/downloads");
     assert_eq!(request["params"][2]["pause"], "true");
     assert_eq!(request["params"][2]["pause-metadata"], "true");
+    assert!(request["params"][2]["bt-tracker"]
+        .as_str()
+        .expect("bt-tracker should be string")
+        .contains("tracker.opentrackr.org"));
 }
 
 #[test]

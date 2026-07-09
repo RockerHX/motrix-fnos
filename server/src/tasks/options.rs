@@ -20,6 +20,7 @@ const PASSTHROUGH_OPTIONS: &[&str] = &[
     "timeout",
     "user-agent",
     "all-proxy",
+    "bt-tracker",
 ];
 
 pub fn sanitize_create_task_options(

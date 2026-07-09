@@ -9,6 +9,15 @@ use super::{
     DownloadTaskStartMode, PreparedDownloadTask,
 };
 
+const DEFAULT_BT_TRACKERS: &[&str] = &[
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.openbittorrent.com:80/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://open.demonii.com:1337/announce",
+];
+
 #[derive(Debug, Deserialize)]
 struct AddUriResponse {
     result: Option<String>,
@@ -508,12 +517,11 @@ pub(crate) fn build_add_uri_request(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
-    if task.start_mode == DownloadTaskStartMode::Paused {
-        options.insert("pause".to_string(), serde_json::json!("true"));
-    }
+    apply_start_mode_option(&mut options, task.start_mode);
     if task.source_type == DownloadTaskSourceType::Magnet {
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
         options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
+        apply_default_bt_trackers(&mut options);
     }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {
@@ -527,6 +535,23 @@ pub(crate) fn build_add_uri_request(
         "method": "aria2.addUri",
         "params": params,
     })
+}
+
+fn apply_start_mode_option(
+    options: &mut serde_json::Map<String, serde_json::Value>,
+    start_mode: DownloadTaskStartMode,
+) {
+    let pause = match start_mode {
+        DownloadTaskStartMode::Now => "false",
+        DownloadTaskStartMode::Paused => "true",
+    };
+    options.insert("pause".to_string(), serde_json::json!(pause));
+}
+
+fn apply_default_bt_trackers(options: &mut serde_json::Map<String, serde_json::Value>) {
+    options
+        .entry("bt-tracker".to_string())
+        .or_insert_with(|| serde_json::json!(DEFAULT_BT_TRACKERS.join(",")));
 }
 
 pub(crate) fn build_add_torrent_request(
@@ -546,8 +571,9 @@ pub(crate) fn build_add_torrent_request(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
+    apply_start_mode_option(&mut options, task.start_mode);
+    apply_default_bt_trackers(&mut options);
     if task.start_mode == DownloadTaskStartMode::Paused {
-        options.insert("pause".to_string(), serde_json::json!("true"));
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
     }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));

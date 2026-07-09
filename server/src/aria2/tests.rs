@@ -84,10 +84,12 @@ fn process_args_include_session_paths_when_configured() {
     assert!(args.contains(&"--enable-peer-exchange=true".to_string()));
     assert!(args.contains(&"--bt-enable-lpd=true".to_string()));
     assert!(args.contains(&"--listen-port=6881-6999".to_string()));
+    assert!(args.contains(&"--dht-listen-port=6881-6999".to_string()));
     assert!(args.contains(&"--save-session-interval=30".to_string()));
     assert!(args.contains(&"--force-save=true".to_string()));
     assert!(args.contains(&"--input-file=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
     assert!(args.contains(&"--save-session=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
+    assert!(args.contains(&"--dht-file-path=/tmp/motrix-fnos/aria2/dht.dat".to_string()));
     assert!(args.contains(&"--log=/tmp/motrix-fnos/aria2/aria2.log".to_string()));
 }
 

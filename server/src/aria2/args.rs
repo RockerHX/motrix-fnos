@@ -36,6 +36,7 @@ pub fn process_args(config: &Aria2Config) -> Vec<String> {
         "--enable-peer-exchange=true".to_string(),
         "--bt-enable-lpd=true".to_string(),
         "--listen-port=6881-6999".to_string(),
+        "--dht-listen-port=6881-6999".to_string(),
         "--save-session-interval=30".to_string(),
         "--force-save=true".to_string(),
         "--console-log-level=warn".to_string(),
@@ -44,6 +45,12 @@ pub fn process_args(config: &Aria2Config) -> Vec<String> {
     if let Some(session_path) = config.session_path.as_deref() {
         args.push(format!("--input-file={session_path}"));
         args.push(format!("--save-session={session_path}"));
+        if let Some(runtime_dir) = PathBuf::from(session_path).parent() {
+            args.push(format!(
+                "--dht-file-path={}",
+                runtime_dir.join("dht.dat").display()
+            ));
+        }
     }
 
     if let Some(log_path) = config.log_path.as_deref() {
