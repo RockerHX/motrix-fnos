@@ -92,8 +92,13 @@ function stageServerBinary(target) {
 function syncUiIcons() {
   const imagesDir = path.join(packagingRoot, 'app', 'ui', 'images');
   mkdirSync(imagesDir, { recursive: true });
-  copyFileSync(path.join(packagingRoot, 'ICON.PNG'), path.join(imagesDir, 'icon-128.png'));
-  copyFileSync(path.join(packagingRoot, 'ICON_256.PNG'), path.join(imagesDir, 'icon-256.png'));
+  rmSync(path.join(imagesDir, 'icon-64.png'), { force: true });
+  rmSync(path.join(imagesDir, 'icon-128.png'), { force: true });
+  rmSync(path.join(imagesDir, 'icon-256.png'), { force: true });
+  rmSync(path.join(imagesDir, 'icon_64.png'), { force: true });
+  rmSync(path.join(imagesDir, 'icon_256.png'), { force: true });
+  copyFileSync(path.join(packagingRoot, 'ICON.PNG'), path.join(imagesDir, 'icon_64.png'));
+  copyFileSync(path.join(packagingRoot, 'ICON_256.PNG'), path.join(imagesDir, 'icon_256.png'));
 }
 
 function prepareStageDir() {
@@ -160,6 +165,11 @@ function preflightStageDir(dir, platform, servicePort) {
 
   validateJsonFile(path.join(dir, 'wizard', 'install'), '安装向导');
   validateJsonFile(path.join(dir, 'wizard', 'uninstall'), '卸载向导');
+  validateFnosIcon(path.join(dir, 'ICON.PNG'), 64, '包根小图标 ICON.PNG');
+  validateFnosIcon(path.join(dir, 'ICON_256.PNG'), 256, '包根大图标 ICON_256.PNG');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_64.png'), 64, '入口小图标 icon_64.png');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_256.png'), 256, '入口大图标 icon_256.png');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'dist', 'icon.png'), 128, 'Web 图标 icon.png');
 
   const manifest = parseManifest(readFileSync(path.join(dir, 'manifest'), 'utf8'));
   const expectedUiDir = manifest.desktop_uidir || 'ui';
@@ -195,6 +205,30 @@ function preflightStageDir(dir, platform, servicePort) {
   }
 }
 
+function validateFnosIcon(filePath, expectedSize, label) {
+  if (!existsSync(filePath)) {
+    fail(`FPK 预检失败，缺少${label}：${filePath}`);
+  }
+
+  const content = readFileSync(filePath);
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (content.length < 33 || !content.subarray(0, 8).equals(pngSignature)) {
+    fail(`FPK 预检失败，${label} 必须是 PNG：${filePath}`);
+  }
+
+  const width = content.readUInt32BE(16);
+  const height = content.readUInt32BE(20);
+  const bitDepth = content.readUInt8(24);
+  const colorType = content.readUInt8(25);
+
+  if (width !== expectedSize || height !== expectedSize) {
+    fail(`FPK 预检失败，${label} 尺寸应为 ${expectedSize}x${expectedSize}，实际为 ${width}x${height}`);
+  }
+
+  if (bitDepth !== 8 || colorType !== 6) {
+    fail(`FPK 预检失败，${label} 必须是 8-bit RGBA PNG，实际 bitDepth=${bitDepth} colorType=${colorType}`);
+  }
+}
 
 function validateJsonFile(filePath, label) {
   try {

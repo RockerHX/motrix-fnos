@@ -2,7 +2,7 @@
   ".url": {
     "motrix.fnos.main": {
       "title": "Motrix",
-      "icon": "images/icon-{0}.png",
+      "icon": "images/icon_{0}.png",
       "type": "iframe",
       "protocol": "http",
       "port": "17080",
