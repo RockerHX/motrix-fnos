@@ -1,13 +1,13 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
-use crate::tasks::files::cleanup_empty_torrent_task_dir;
+use crate::tasks::files::{cleanup_empty_torrent_task_dir, read_saved_torrent_metadata};
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, delete_task_files,
-    is_stale_aria2_gid_error, mark_task_files_confirmed, mark_task_paused, mark_task_redownloaded,
-    mark_task_removed, mark_task_resumed, pause_task, prepare_task_with_logs,
-    prepare_torrent_task_with_logs, readd_task_to_aria2, refresh_tasks_from_aria2, remove_task,
-    remove_task_record, should_readd_task_after_resume_error, store_created_task,
+    add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
+    mark_task_files_confirmed, mark_task_paused, mark_task_redownloaded, mark_task_removed,
+    mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
+    readd_task_to_aria2, refresh_tasks_from_aria2, remove_task, remove_task_record,
+    should_readd_task_after_resume_error, store_created_task,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
@@ -205,11 +205,11 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let gid = task_gid(self.download_tasks, task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
         if task_before_resume.confirmation_required {
             return Err("请先确认要下载的文件".to_string());
         }
+        let gid = task_gid(self.download_tasks, task_id)?;
         let task = match unpause_task(config, &gid, Some(self.debug_logs)).await {
             Ok(_) => {
                 if let Err(error) = sync_task_progress_from_aria2_by_gid(
@@ -274,18 +274,30 @@ impl<'a> TaskService<'a> {
         if !task.confirmation_required {
             return Err("当前任务不需要确认文件".to_string());
         }
-        let gid = task_gid(self.download_tasks, task_id)?;
         let select_file = selected
             .iter()
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(",");
+        let torrent_data = read_saved_torrent_metadata(&task)?;
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
-        change_task_options(config, &gid, options, Some(self.debug_logs)).await?;
-        unpause_task(config, &gid, Some(self.debug_logs)).await?;
+        let prepared = crate::tasks::PreparedDownloadTask {
+            url: task.url.clone(),
+            file_name: task.file_name.clone(),
+            save_dir: task.save_dir.clone(),
+            category: task.category.clone(),
+            source_type: DownloadTaskSourceType::Magnet,
+            start_mode: DownloadTaskStartMode::Now,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: options,
+        };
+        let gid =
+            add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs)).await?;
+        let mut task =
+            mark_task_files_confirmed(self.download_tasks, task_id, gid.clone(), &selected)?;
 
-        if let Err(error) = sync_task_progress_from_aria2_by_gid(
+        match sync_task_progress_from_aria2_by_gid(
             self.download_tasks,
             config,
             &gid,
@@ -293,15 +305,15 @@ impl<'a> TaskService<'a> {
         )
         .await
         {
-            self.debug_logs.warn(
+            Ok(synced_task) => task = synced_task,
+            Err(error) => self.debug_logs.warn(
                 "tasks.control",
                 format!(
                     "确认文件后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
                     task_id, gid, error
                 ),
-            );
+            ),
         }
-        let task = mark_task_files_confirmed(self.download_tasks, task_id, &selected)?;
         self.sync_task_to_database(&task).await?;
         self.debug_logs.info(
             "tasks.control",
@@ -356,18 +368,22 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let gid = task_gid(self.download_tasks, task_id)?;
-        if let Err(error) = remove_task(config, &gid, Some(self.debug_logs)).await {
-            if is_stale_aria2_gid_error(&error) {
-                self.debug_logs.warn(
-                    "tasks.control",
-                    format!(
-                        "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
-                        task_id, gid, error
-                    ),
-                );
-            } else {
-                return Err(error);
+        let gid = task_snapshot(self.download_tasks, task_id)?
+            .gid
+            .filter(|gid| !gid.trim().is_empty());
+        if let Some(gid) = gid.as_deref() {
+            if let Err(error) = remove_task(config, gid, Some(self.debug_logs)).await {
+                if is_stale_aria2_gid_error(&error) {
+                    self.debug_logs.warn(
+                        "tasks.control",
+                        format!(
+                            "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
+                            task_id, gid, error
+                        ),
+                    );
+                } else {
+                    return Err(error);
+                }
             }
         }
         let task = mark_task_removed(self.download_tasks, task_id, delete_files)?;
@@ -377,7 +393,7 @@ impl<'a> TaskService<'a> {
             format!(
                 "任务已删除，ID {}，GID {}，删除本地文件 {}",
                 task_id,
-                gid,
+                gid.as_deref().unwrap_or("-"),
                 if delete_files { "是" } else { "否" }
             ),
         );

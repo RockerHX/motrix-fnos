@@ -22,6 +22,57 @@ pub(crate) fn cleanup_empty_torrent_task_dir(task: &PreparedDownloadTask) {
     }
 }
 
+pub(crate) fn read_saved_torrent_metadata(task: &DownloadTask) -> Result<Vec<u8>, String> {
+    let torrent_path = find_saved_torrent_metadata_path(task)?;
+    fs::read(&torrent_path).map_err(|error| {
+        format!(
+            "读取磁链 metadata 种子失败：{}（{}）",
+            torrent_path.display(),
+            error
+        )
+    })
+}
+
+fn find_saved_torrent_metadata_path(task: &DownloadTask) -> Result<PathBuf, String> {
+    let task_dir = Path::new(&task.save_dir);
+    if !task_dir.is_dir() {
+        return Err(format!("磁链 metadata 目录不存在：{}", task_dir.display()));
+    }
+
+    let mut candidates = fs::read_dir(task_dir)
+        .map_err(|error| {
+            format!(
+                "读取磁链 metadata 目录失败：{}（{}）",
+                task_dir.display(),
+                error
+            )
+        })?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_file()
+                && path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .map(|extension| extension.eq_ignore_ascii_case("torrent"))
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    candidates.sort();
+
+    match candidates.len() {
+        0 => Err(format!(
+            "磁链 metadata 已解析但未找到 .torrent 文件：{}",
+            task_dir.display()
+        )),
+        1 => Ok(candidates.remove(0)),
+        _ => Err(format!(
+            "磁链 metadata 目录存在多个 .torrent 文件，无法确定要使用哪一个：{}",
+            task_dir.display()
+        )),
+    }
+}
+
 pub(crate) fn safe_task_path_component(name: &str) -> String {
     let sanitized = name
         .trim()

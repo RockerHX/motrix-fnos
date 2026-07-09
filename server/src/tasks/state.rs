@@ -1,6 +1,6 @@
 use crate::tasks::{
-    should_pause_task_on_exit, DownloadTask, DownloadTaskStartMode, DownloadTaskStatus,
-    PreparedDownloadTask,
+    should_pause_task_on_exit, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -55,6 +55,7 @@ pub fn store_created_task(
         .join(&prepared.file_name)
         .display()
         .to_string();
+    let status = initial_task_status(&prepared);
     let now = current_timestamp_ms();
     let task = DownloadTask {
         id: next_id.fetch_add(1, Ordering::Relaxed),
@@ -63,10 +64,7 @@ pub fn store_created_task(
         category: prepared.category,
         url: prepared.url,
         gid: Some(gid),
-        status: match prepared.start_mode {
-            DownloadTaskStartMode::Now => DownloadTaskStatus::Pending,
-            DownloadTaskStartMode::Paused => DownloadTaskStatus::Paused,
-        },
+        status,
         total_length: 0,
         completed_length: 0,
         download_speed: 0,
@@ -83,6 +81,17 @@ pub fn store_created_task(
     guard.push(task.clone());
 
     Ok(task)
+}
+
+fn initial_task_status(prepared: &PreparedDownloadTask) -> DownloadTaskStatus {
+    if prepared.source_type == DownloadTaskSourceType::Magnet {
+        return DownloadTaskStatus::Pending;
+    }
+
+    match prepared.start_mode {
+        DownloadTaskStartMode::Now => DownloadTaskStatus::Pending,
+        DownloadTaskStartMode::Paused => DownloadTaskStatus::Paused,
+    }
 }
 
 pub(crate) fn should_refresh_task(task: &DownloadTask) -> bool {
@@ -202,9 +211,11 @@ pub fn mark_task_resumed(tasks: &TaskMemoryState, task_id: u64) -> Result<Downlo
 pub fn mark_task_files_confirmed(
     tasks: &TaskMemoryState,
     task_id: u64,
+    gid: String,
     selected_indexes: &[u32],
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
+        task.gid = Some(gid);
         task.confirmation_required = false;
         task.status = DownloadTaskStatus::Active;
         task.download_speed = 0;

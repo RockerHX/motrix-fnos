@@ -11,6 +11,7 @@ describe("useTaskCategoryView", () => {
       createTask({ id: 3, status: "complete" }),
       createTask({ id: 4, status: "paused" }),
       createTask({ id: 5, status: "error" }),
+      createTask({ id: 7, status: "paused", confirmationRequired: true }),
     ]);
     const removedTasks = ref<DownloadTask[]>([createTask({ id: 6, status: "removed" })]);
     const view = useTaskCategoryView({
@@ -20,7 +21,7 @@ describe("useTaskCategoryView", () => {
       isMobileLayout: ref(false),
     });
 
-    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2]);
+    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2, 7]);
 
     view.activeCategory.value = "completed";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([3]);

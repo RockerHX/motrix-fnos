@@ -112,11 +112,15 @@ function filterTasksByCategory(
 ) {
   switch (category) {
     case "downloading":
-      return tasks.filter((task) => task.status === "pending" || task.status === "active");
+      return tasks.filter(
+        (task) => task.confirmationRequired || task.status === "pending" || task.status === "active",
+      );
     case "completed":
       return tasks.filter((task) => task.status === "complete");
     case "stopped":
-      return tasks.filter((task) => task.status === "paused" || task.status === "error");
+      return tasks.filter(
+        (task) => !task.confirmationRequired && (task.status === "paused" || task.status === "error"),
+      );
     case "extensions":
       return [];
     case "trash":

@@ -71,7 +71,7 @@ async fn create_and_list_routes_work_with_ready_aria2() {
 }
 
 #[tokio::test]
-async fn create_route_accepts_paused_magnet_task() {
+async fn create_route_starts_paused_magnet_metadata_resolution() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;
     let app = test_router(state.clone());
@@ -95,7 +95,7 @@ async fn create_route_accepts_paused_magnet_task() {
     )
     .await;
 
-    assert_eq!(created.status, DownloadTaskStatus::Paused);
+    assert_eq!(created.status, DownloadTaskStatus::Pending);
     assert_eq!(created.file_name, "磁力链接任务");
 
     cleanup_state(&state, child_pid);
@@ -135,7 +135,14 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
                 .iter_mut()
                 .find(|task| task.id == created.id)
                 .expect("created task should exist");
-            task.status = DownloadTaskStatus::Paused;
+            std::fs::create_dir_all(&task.save_dir).expect("task dir should create");
+            std::fs::write(
+                std::path::Path::new(&task.save_dir).join("metadata.torrent"),
+                b"torrent-bytes",
+            )
+            .expect("metadata torrent should write");
+            task.gid = None;
+            task.status = DownloadTaskStatus::Pending;
             task.confirmation_required = true;
             task.files = vec![DownloadTaskFile {
                 index: 1,
@@ -176,6 +183,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
     .await;
 
     assert_eq!(confirmed.status, DownloadTaskStatus::Active);
+    assert_eq!(confirmed.gid.as_deref(), Some("gid-2"));
     assert!(!confirmed.confirmation_required);
 
     cleanup_state(&state, child_pid);

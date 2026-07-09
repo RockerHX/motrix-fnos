@@ -7,6 +7,7 @@ import { useUpdateCheck } from "../features/about/composables/useUpdateCheck";
 import { useAria2Status } from "../features/diagnostics/composables/useAria2Status";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
+import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileConfirmCoordinator.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
@@ -166,6 +167,7 @@ onMounted(() => {
         @refresh-status="refreshAria2Status"
         @engine-status-updated="updateAria2Status"
       />
+      <TaskFileConfirmCoordinator />
     </template>
   </AppShell>
 </template>

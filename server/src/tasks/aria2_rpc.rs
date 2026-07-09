@@ -517,11 +517,13 @@ pub(crate) fn build_add_uri_request(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
-    apply_start_mode_option(&mut options, task.start_mode);
     if task.source_type == DownloadTaskSourceType::Magnet {
+        apply_start_mode_option(&mut options, DownloadTaskStartMode::Now);
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
         options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
         apply_default_bt_trackers(&mut options);
+    } else {
+        apply_start_mode_option(&mut options, task.start_mode);
     }
     options.insert("dir".to_string(), serde_json::json!(task.save_dir));
     if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {

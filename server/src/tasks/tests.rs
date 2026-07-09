@@ -5,7 +5,7 @@ use crate::tasks::aria2_rpc::{
 };
 use crate::tasks::files::delete_file_candidates;
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
-use crate::tasks::progress::normalize_aria2_error_code;
+use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
 use crate::tasks::session::find_matching_sqlite_task;
 use std::env;
 use std::fs;
@@ -321,6 +321,10 @@ fn exit_pause_scope_only_includes_unfinished_tasks() {
 
     task.status = DownloadTaskStatus::Pending;
     assert!(should_pause_task_on_exit(&task));
+
+    task.confirmation_required = true;
+    assert!(!should_pause_task_on_exit(&task));
+    task.confirmation_required = false;
 
     task.status = DownloadTaskStatus::Active;
     assert!(should_pause_task_on_exit(&task));
@@ -747,36 +751,49 @@ fn aria2_status_deserializes_file_index_from_string() {
 }
 
 #[test]
-fn apply_aria2_status_follows_completed_magnet_metadata_task() {
+fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.url = "magnet:?xt=urn:btih:test".to_string();
     task.file_name = "磁力链接任务".to_string();
     task.gid = Some("metadata-gid".to_string());
     task.status = DownloadTaskStatus::Active;
 
-    apply_aria2_status(
+    apply_magnet_metadata_confirmation(
         &mut task,
         &Aria2TaskStatus {
-            gid: Some("metadata-gid".to_string()),
-            status: "complete".to_string(),
-            total_length: "60416".to_string(),
-            completed_length: "60416".to_string(),
+            gid: Some("real-download-gid".to_string()),
+            status: "paused".to_string(),
+            total_length: "1024".to_string(),
+            completed_length: "0".to_string(),
             download_speed: "0".to_string(),
             error_code: None,
             error_message: None,
             dir: Some("/downloads".to_string()),
-            files: None,
-            followed_by: Some(vec!["real-download-gid".to_string()]),
-            bittorrent: None,
+            files: Some(vec![Aria2FileStatus {
+                index: 1,
+                path: "/downloads/archlinux.iso".to_string(),
+                length: "1024".to_string(),
+                completed_length: "0".to_string(),
+                selected: "true".to_string(),
+                uris: Vec::new(),
+            }]),
+            followed_by: None,
+            bittorrent: Some(Aria2BittorrentStatus {
+                info: Some(Aria2BittorrentInfo {
+                    name: Some("archlinux.iso".to_string()),
+                }),
+            }),
         },
     );
 
-    assert_eq!(task.gid.as_deref(), Some("real-download-gid"));
-    assert_eq!(task.status, DownloadTaskStatus::Paused);
+    assert!(task.gid.is_none());
+    assert_eq!(task.status, DownloadTaskStatus::Pending);
     assert!(task.confirmation_required);
-    assert_eq!(task.total_length, 0);
+    assert_eq!(task.file_name, "archlinux.iso");
+    assert_eq!(task.total_length, 1024);
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
+    assert_eq!(task.files.len(), 1);
     assert!(task.file_path.is_none());
 }
 
@@ -1161,7 +1178,7 @@ fn add_uri_request_contains_url_and_options() {
 }
 
 #[test]
-fn add_uri_request_sets_pause_options_for_paused_magnet() {
+fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
     let request = build_add_uri_request(
         &test_config(),
         &PreparedDownloadTask {
@@ -1178,7 +1195,7 @@ fn add_uri_request_sets_pause_options_for_paused_magnet() {
 
     assert_eq!(request["method"], "aria2.addUri");
     assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
-    assert_eq!(request["params"][1]["pause"], "true");
+    assert_eq!(request["params"][1]["pause"], "false");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");
     assert!(request["params"][1]["bt-tracker"]

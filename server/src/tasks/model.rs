@@ -39,6 +39,10 @@ impl DownloadTaskStatus {
 }
 
 pub fn should_pause_task_on_exit(task: &DownloadTask) -> bool {
+    if task.confirmation_required {
+        return false;
+    }
+
     matches!(
         task.status,
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active

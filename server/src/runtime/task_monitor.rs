@@ -67,6 +67,16 @@ pub fn broadcast_tasks_snapshot(state: &HttpAppState) -> Result<(), String> {
 }
 
 fn should_monitor_task(task: &DownloadTask) -> bool {
+    let has_gid = task
+        .gid
+        .as_deref()
+        .map(|gid| !gid.trim().is_empty())
+        .unwrap_or(false);
+
+    if !has_gid {
+        return false;
+    }
+
     matches!(
         task.status,
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskFileConfirmDialog from "./TaskFileConfirmDialog.vue";
@@ -51,15 +51,6 @@ const labels = computed<TaskActionLabels>(() => ({
   close: t("common.close"),
 }));
 
-watch(
-  () => [props.task.id, props.task.confirmationRequired, props.task.files.length],
-  () => {
-    if (props.task.confirmationRequired && props.task.files.length > 0) {
-      showFileConfirm.value = true;
-    }
-  },
-  { immediate: true },
-);
 const details = computed<TaskActionDetails>(() => {
   const items = [
     { label: t("task.detail.fileName"), value: props.task.fileName },

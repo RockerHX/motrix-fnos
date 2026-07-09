@@ -29,7 +29,8 @@ pub use prepare::{
     prepare_torrent_task_with_logs,
 };
 use progress::{
-    apply_aria2_status, apply_aria2_status_by_gid, is_aria2_status_error, parse_aria2_u64,
+    apply_aria2_status, apply_aria2_status_by_gid, apply_magnet_metadata_confirmation,
+    is_aria2_status_error, parse_aria2_u64,
 };
 use serde::Deserialize;
 use session::readd_download_task;
@@ -165,11 +166,14 @@ pub async fn refresh_tasks_from_aria2(
                         );
                     }
                     match tell_status(&client, config, &followed_gid, debug_logs).await {
-                        Ok(followed_status) => updates.push(TaskRefreshUpdate::Followed {
-                            old_gid: gid,
-                            new_gid: followed_gid,
-                            status: followed_status,
-                        }),
+                        Ok(followed_status) => {
+                            remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
+                            remove_temporary_magnet_gid(config, &gid, debug_logs).await;
+                            updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
+                                old_gid: gid,
+                                status: followed_status,
+                            });
+                        }
                         Err(error) => updates.push(TaskRefreshUpdate::Status {
                             gid,
                             status: task_status_error(error),
@@ -222,21 +226,12 @@ pub async fn refresh_tasks_from_aria2(
                         apply_readded_gid(task, new_gid);
                     }
                 }
-                TaskRefreshUpdate::Followed {
-                    old_gid,
-                    new_gid,
-                    status,
-                } => {
+                TaskRefreshUpdate::MagnetMetadataResolved { old_gid, status } => {
                     if let Some(task) = tasks
                         .iter_mut()
                         .find(|task| task.gid.as_ref() == Some(old_gid))
                     {
-                        task.gid = Some(new_gid.clone());
-                        task.confirmation_required = true;
-                        apply_aria2_status(task, status);
-                        task.status = DownloadTaskStatus::Paused;
-                        task.confirmation_required = true;
-                        task.download_speed = 0;
+                        apply_magnet_metadata_confirmation(task, status);
                     }
                 }
             }
@@ -318,11 +313,32 @@ enum TaskRefreshUpdate {
         old_gid: String,
         new_gid: String,
     },
-    Followed {
+    MagnetMetadataResolved {
         old_gid: String,
-        new_gid: String,
         status: Aria2TaskStatus,
     },
+}
+
+async fn remove_temporary_magnet_gid(
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) {
+    if let Err(error) = remove_task(config, gid, debug_logs).await {
+        if is_stale_aria2_gid_error(&error) {
+            log_info(
+                debug_logs,
+                "tasks.magnet",
+                format!("临时磁链 GID 已不存在，跳过清理，GID {}：{}", gid, error),
+            );
+            return;
+        }
+        log_info(
+            debug_logs,
+            "tasks.magnet",
+            format!("清理临时磁链 GID 失败，GID {}：{}", gid, error),
+        );
+    }
 }
 
 fn followed_gid(status: &Aria2TaskStatus) -> Option<String> {

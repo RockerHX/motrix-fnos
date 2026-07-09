@@ -19,6 +19,43 @@ pub(crate) fn apply_aria2_status_by_gid(
     })?
 }
 
+pub(crate) fn apply_magnet_metadata_confirmation(
+    task: &mut DownloadTask,
+    status: &Aria2TaskStatus,
+) {
+    let files = task_files(status);
+    let total_length = if files.is_empty() {
+        parse_aria2_u64(&status.total_length)
+    } else {
+        files.iter().map(|file| file.length).sum()
+    };
+
+    task.gid = None;
+    task.status = DownloadTaskStatus::Pending;
+    task.total_length = total_length;
+    task.completed_length = 0;
+    task.download_speed = 0;
+    task.error_code = None;
+    task.error_message = None;
+    task.confirmation_required = true;
+    task.files = files;
+    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
+        task.save_dir = dir;
+    }
+    if let Some(name) = status
+        .bittorrent
+        .as_ref()
+        .and_then(|bt| bt.info.as_ref())
+        .and_then(|info| info.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        task.file_name = name.to_string();
+    }
+    task.file_path = None;
+    task.updated_at = current_timestamp_ms();
+}
+
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     if follow_magnet_metadata_task(task, status) {
         return;
