@@ -889,31 +889,33 @@ fn apply_aria2_status_does_not_override_pending_magnet_metadata_save_dir() {
     task.status = DownloadTaskStatus::Pending;
     task.file_path = None;
 
-    apply_aria2_status(
-        &mut task,
-        &Aria2TaskStatus {
-            gid: Some("metadata-gid".to_string()),
-            status: "active".to_string(),
-            total_length: "0".to_string(),
-            completed_length: "0".to_string(),
-            download_speed: "0".to_string(),
-            error_code: None,
-            error_message: None,
-            dir: Some("/app/data/magnet-metadata/task-1".to_string()),
-            files: Some(vec![Aria2FileStatus {
-                index: 1,
-                path: "/app/data/magnet-metadata/task-1/metadata.torrent".to_string(),
-                length: "1".to_string(),
-                completed_length: "1".to_string(),
-                selected: "true".to_string(),
-                uris: Vec::new(),
-            }]),
-            followed_by: None,
-            bittorrent: None,
-        },
-    );
+    let status = Aria2TaskStatus {
+        gid: Some("metadata-gid".to_string()),
+        status: "active".to_string(),
+        total_length: "0".to_string(),
+        completed_length: "0".to_string(),
+        download_speed: "0".to_string(),
+        error_code: None,
+        error_message: None,
+        dir: Some("/app/data/magnet-metadata/task-1".to_string()),
+        files: Some(vec![Aria2FileStatus {
+            index: 1,
+            path: "/app/data/magnet-metadata/task-1/metadata.torrent".to_string(),
+            length: "1".to_string(),
+            completed_length: "1".to_string(),
+            selected: "true".to_string(),
+            uris: Vec::new(),
+        }]),
+        followed_by: None,
+        bittorrent: None,
+    };
+
+    apply_aria2_status(&mut task, &status);
+    apply_aria2_status(&mut task, &status);
 
     assert_eq!(task.save_dir, original_save_dir);
+    assert!(task.file_path.is_none());
+    assert!(task.files.is_empty());
 }
 
 #[test]

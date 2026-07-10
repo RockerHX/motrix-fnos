@@ -62,6 +62,7 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     if follow_magnet_metadata_task(task, status) {
         return;
     }
+    let is_pending_magnet_metadata = is_pending_magnet_metadata_task(task);
 
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
@@ -92,7 +93,7 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message =
         readable_aria2_error_message(task.error_code.as_deref(), status.error_message.as_deref());
-    if !is_pending_magnet_metadata_task(task) {
+    if !is_pending_magnet_metadata {
         if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
             task.save_dir = dir;
         }
@@ -107,21 +108,26 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     {
         task.file_name = name.to_string();
     }
-    task.files = task_files(status);
-    task.file_path = status
-        .files
-        .as_ref()
-        .and_then(|files| files.first())
-        .map(|file| file.path.clone())
-        .filter(|path| !path.is_empty())
-        .or_else(|| {
-            Some(
-                Path::new(&task.save_dir)
-                    .join(&task.file_name)
-                    .display()
-                    .to_string(),
-            )
-        });
+    if is_pending_magnet_metadata {
+        task.files.clear();
+        task.file_path = None;
+    } else {
+        task.files = task_files(status);
+        task.file_path = status
+            .files
+            .as_ref()
+            .and_then(|files| files.first())
+            .map(|file| file.path.clone())
+            .filter(|path| !path.is_empty())
+            .or_else(|| {
+                Some(
+                    Path::new(&task.save_dir)
+                        .join(&task.file_name)
+                        .display()
+                        .to_string(),
+                )
+            });
+    }
     if task.status == DownloadTaskStatus::Complete {
         cleanup_aria2_control_file(task);
     }
