@@ -37,12 +37,8 @@ function selectCategory(category: MainNavCategory) {
 
 <template>
   <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark" />
-      <div>
-        <strong>{{ appInfo?.name ?? "Motrix" }}</strong>
-        <span>v{{ appInfo?.version ?? "2.1.0" }}</span>
-      </div>
+    <div class="sidebar-heading">
+      <strong>{{ t("nav.taskList") }}</strong>
     </div>
 
     <nav class="category-list" :aria-label="t('nav.categories')">
@@ -82,71 +78,51 @@ function selectCategory(category: MainNavCategory) {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 22px 8px 24px;
-  border-right: 1px solid #324036;
-  background: #0f100f;
+  padding: 42px 14px 24px;
+  border-right: 1px solid var(--app-color-border-subtle);
+  background: var(--app-color-shell);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 0 22px 30px;
+.sidebar-heading {
+  padding: 0 0 34px;
 }
 
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  background: #6ab75f;
-}
-
-.brand strong,
-.brand span {
+.sidebar-heading strong {
   display: block;
-}
-
-.brand strong {
-  color: #8ef08a;
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.brand span {
-  margin-top: 4px;
-  color: #d8e0d7;
-  font-size: 12px;
+  color: var(--app-text-strong);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .category-list,
 .sidebar-footer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .category-list button,
 .sidebar-footer button {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 18px;
   width: 100%;
-  min-height: var(--app-touch-target-min);
+  min-height: 72px;
   border: 0;
   border-radius: 6px;
-  padding: 10px 12px;
-  color: #cfd8ce;
+  padding: 10px 22px;
+  color: var(--app-text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 16px;
+  font-size: 22px;
   text-align: left;
   cursor: pointer;
 }
 
 .category-list button.active {
-  color: #8ef08a;
-  background: #4a4b48;
+  color: var(--app-text-strong);
+  background: var(--app-color-card-overlay);
 }
 
 .nav-spaced {
@@ -154,10 +130,11 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .nav-icon {
-  width: 22px;
+  width: 28px;
   color: currentColor;
   text-align: center;
-  font-weight: 800;
+  font-size: 22px;
+  font-weight: 700;
 }
 
 .nav-label {
@@ -167,7 +144,15 @@ function selectCategory(category: MainNavCategory) {
 .sidebar-footer {
   margin: 0;
   padding: 26px 8px 0;
-  border-top: 1px solid #39443b;
+  border-top: 1px solid var(--app-color-border-subtle);
+}
+
+.sidebar-footer button {
+  min-height: var(--app-touch-target-min);
+  gap: 14px;
+  padding: 10px 12px;
+  color: var(--app-text-muted);
+  font-size: 16px;
 }
 
 @media (max-width: 767px) {
@@ -178,7 +163,7 @@ function selectCategory(category: MainNavCategory) {
     border-right: 0;
   }
 
-  .brand,
+  .sidebar-heading,
   .sidebar-footer {
     display: none;
   }
