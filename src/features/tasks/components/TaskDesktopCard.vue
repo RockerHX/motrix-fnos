@@ -28,9 +28,11 @@ const props = defineProps<{
         </aside>
       </header>
 
-      <p v-if="props.task.status === 'error'" class="task-card-error" :title="formatTaskError(props.task)">
-        {{ formatTaskError(props.task) }}
-      </p>
+      <div class="task-card-error-slot" data-test="task-card-error-slot">
+        <p v-if="props.task.status === 'error'" class="task-card-error" :title="formatTaskError(props.task)">
+          {{ formatTaskError(props.task) }}
+        </p>
+      </div>
 
       <TaskProgressCell class="task-card-progress" :task="props.task" :show-label="false" variant="card" />
 
@@ -109,6 +111,11 @@ const props = defineProps<{
   min-width: 0;
   display: flex;
   justify-content: flex-end;
+}
+
+.task-card-error-slot {
+  min-height: 20px;
+  min-width: 0;
 }
 
 .task-card-error {

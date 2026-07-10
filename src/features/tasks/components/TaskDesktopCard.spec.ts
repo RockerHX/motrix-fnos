@@ -38,6 +38,7 @@ describe("TaskDesktopCard", () => {
 
     expect(wrapper.find('[data-test="task-desktop-card"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("ubuntu.iso");
+    expect(wrapper.get(".task-card-title").attributes("title")).toBe("ubuntu.iso");
     expect(wrapper.text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.text()).toContain("1.0 KB/s");
     expect(wrapper.text()).toContain("1s");
@@ -57,7 +58,25 @@ describe("TaskDesktopCard", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("错误码 16：network unreachable");
+    const error = wrapper.get(".task-card-error");
+    expect(error.text()).toBe("错误码 16：network unreachable");
+    expect(error.attributes("title")).toBe("错误码 16：network unreachable");
+  });
+
+  it("keeps stable error slot for non-error task without rendering error text", () => {
+    const { wrapper } = mountWithPinia(TaskDesktopCard, {
+      props: {
+        task: createTask({
+          fileName: "very-long-download-file-name-that-should-stay-readable-in-title.iso",
+        }),
+      },
+    });
+
+    expect(wrapper.get(".task-card-title").attributes("title")).toBe(
+      "very-long-download-file-name-that-should-stay-readable-in-title.iso",
+    );
+    expect(wrapper.find('[data-test="task-card-error-slot"]').exists()).toBe(true);
+    expect(wrapper.find(".task-card-error").exists()).toBe(false);
   });
 });
 

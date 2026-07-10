@@ -125,12 +125,14 @@ const props = defineProps<{
 }
 
 .task-card-meta dd {
+  overflow: hidden;
   margin: 0;
   color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
-  word-break: break-word;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-card-actions {
