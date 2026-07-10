@@ -37,6 +37,8 @@ describe("TaskDesktopCard", () => {
     });
 
     expect(wrapper.find('[data-test="task-desktop-card"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="task-card-status-rail"]').exists()).toBe(true);
+    expect(wrapper.find(".task-card-grip").exists()).toBe(false);
     expect(wrapper.text()).toContain("ubuntu.iso");
     expect(wrapper.get(".task-card-title").attributes("title")).toBe("ubuntu.iso");
     expect(wrapper.text()).toContain("1000 B / 2.0 KB");
