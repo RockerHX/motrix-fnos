@@ -33,32 +33,6 @@ pub(crate) fn read_saved_torrent_metadata(task: &DownloadTask) -> Result<Vec<u8>
     })
 }
 
-pub(crate) fn copy_saved_torrent_metadata_to_dir(
-    task: &DownloadTask,
-    target_dir: &Path,
-) -> Result<PathBuf, String> {
-    let torrent_path = find_saved_torrent_metadata_path(task)?;
-    if !target_dir.is_dir() {
-        return Err(format!(
-            "目标 BT 任务目录不存在：{}",
-            target_dir.display()
-        ));
-    }
-    let file_name = torrent_path
-        .file_name()
-        .ok_or_else(|| format!("无效的 .torrent 文件路径：{}", torrent_path.display()))?;
-    let target_path = target_dir.join(file_name);
-    fs::copy(&torrent_path, &target_path).map_err(|error| {
-        format!(
-            "复制磁链 metadata 种子失败：{} -> {}（{}）",
-            torrent_path.display(),
-            target_path.display(),
-            error
-        )
-    })?;
-    Ok(target_path)
-}
-
 fn find_saved_torrent_metadata_path(task: &DownloadTask) -> Result<PathBuf, String> {
     if let Some(path) = task
         .metadata_torrent_path

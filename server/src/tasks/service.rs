@@ -1,9 +1,7 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
-use crate::tasks::files::{
-    cleanup_empty_torrent_task_dir, copy_saved_torrent_metadata_to_dir, read_saved_torrent_metadata,
-};
+use crate::tasks::files::{cleanup_empty_torrent_task_dir, read_saved_torrent_metadata};
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
@@ -339,12 +337,6 @@ impl<'a> TaskService<'a> {
             },
             Some(self.debug_logs),
         )?;
-        if let Err(error) =
-            copy_saved_torrent_metadata_to_dir(&task, Path::new(&prepared.save_dir))
-        {
-            cleanup_empty_torrent_task_dir(&prepared);
-            return Err(error);
-        }
         let gid = match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
             .await
         {
@@ -541,6 +533,7 @@ fn removed_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
 mod tests {
     use super::*;
     use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+    use crate::tasks::DownloadTaskFile;
     use axum::async_trait;
     use axum::routing::post;
     use axum::{Json, Router};
@@ -749,6 +742,77 @@ mod tests {
 
         assert_eq!(fixture.repository.deleted_task_ids(), vec![1]);
         assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    }
+
+    #[tokio::test]
+    async fn confirm_download_task_files_removes_metadata_dir_without_copying_torrent() {
+        let mock = MockAria2Server::spawn().await;
+        let base_save_dir = temp_dir("service-confirm-magnet-save");
+        std::fs::create_dir_all(&base_save_dir).expect("base save dir should create");
+        let fixture = ServiceFixture::new(Vec::new(), false);
+        let metadata_dir = fixture.app_data_dir.join("magnet-metadata").join("task-1");
+        std::fs::create_dir_all(&metadata_dir).expect("metadata dir should create");
+        let metadata_torrent_path = metadata_dir.join("metadata.torrent");
+        std::fs::write(&metadata_torrent_path, b"torrent").expect("metadata torrent should write");
+        let fixture = ServiceFixture {
+            repository: fixture.repository.clone(),
+            tasks: TaskMemoryState::new(
+                vec![DownloadTask {
+                    id: 1,
+                    url: "magnet:?xt=urn:btih:test".to_string(),
+                    file_name: "archlinux.iso".to_string(),
+                    save_dir: base_save_dir.display().to_string(),
+                    category: "默认".to_string(),
+                    gid: None,
+                    status: DownloadTaskStatus::Pending,
+                    total_length: 1024,
+                    completed_length: 0,
+                    download_speed: 0,
+                    error_code: None,
+                    error_message: None,
+                    file_path: None,
+                    metadata_torrent_path: Some(metadata_torrent_path.display().to_string()),
+                    confirmation_required: true,
+                    files: vec![DownloadTaskFile {
+                        index: 1,
+                        path: format!(
+                            "{}/archlinux.iso/archlinux.iso",
+                            base_save_dir.display()
+                        ),
+                        name: "archlinux.iso".to_string(),
+                        length: 1024,
+                        completed_length: 0,
+                        selected: true,
+                    }],
+                    created_at: 1,
+                    updated_at: 1,
+                }],
+            ),
+            next_task_id: AtomicU64::new(1),
+            debug_logs: DebugLogStore::default(),
+            shutdown: ShutdownState::new(),
+            app_data_dir: fixture.app_data_dir.clone(),
+        };
+        let config = test_config(mock.addr.port(), "secret");
+
+        let task = fixture
+            .service()
+            .confirm_download_task_files(&config, 1, vec![1])
+            .await
+            .expect("task files should confirm");
+
+        assert!(!metadata_dir.exists());
+        let final_task_dir = PathBuf::from(&task.save_dir);
+        assert!(final_task_dir.is_dir());
+        assert!(
+            std::fs::read_dir(&final_task_dir)
+                .expect("final task dir should read")
+                .filter_map(Result::ok)
+                .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("torrent"))
+        );
+        assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
+
+        mock.abort();
     }
 
     struct ServiceFixture {

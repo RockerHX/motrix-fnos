@@ -844,10 +844,10 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
             download_speed: "0".to_string(),
             error_code: None,
             error_message: None,
-            dir: Some("/downloads".to_string()),
+            dir: Some("/app/data/magnet-metadata/task-1".to_string()),
             files: Some(vec![Aria2FileStatus {
                 index: 1,
-                path: "/downloads/archlinux.iso".to_string(),
+                path: "/app/data/magnet-metadata/task-1/archlinux.iso".to_string(),
                 length: "1024".to_string(),
                 completed_length: "0".to_string(),
                 selected: "true".to_string(),
@@ -872,6 +872,7 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
     assert_eq!(task.files.len(), 1);
+    assert_eq!(task.files[0].path, "/downloads/archlinux.iso/archlinux.iso");
     assert!(task.file_path.is_none());
     assert_eq!(
         task.metadata_torrent_path.as_deref(),

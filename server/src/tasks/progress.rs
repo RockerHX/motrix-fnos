@@ -2,7 +2,7 @@ use crate::tasks::{
     is_pending_magnet_metadata_task, DownloadTask, DownloadTaskFile, DownloadTaskStatus,
     TaskMemoryState,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{current_timestamp_ms, Aria2TaskStatus};
 use crate::tasks::files::cleanup_aria2_control_file;
@@ -27,7 +27,16 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     status: &Aria2TaskStatus,
     metadata_torrent_path: String,
 ) {
-    let files = task_files(status);
+    let display_name = status
+        .bittorrent
+        .as_ref()
+        .and_then(|bt| bt.info.as_ref())
+        .and_then(|info| info.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| task.file_name.clone());
+    let files = magnet_confirmation_files(status, &task.save_dir, &display_name);
     let total_length = if files.is_empty() {
         parse_aria2_u64(&status.total_length)
     } else {
@@ -44,16 +53,7 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     task.confirmation_required = true;
     task.files = files;
     task.metadata_torrent_path = Some(metadata_torrent_path);
-    if let Some(name) = status
-        .bittorrent
-        .as_ref()
-        .and_then(|bt| bt.info.as_ref())
-        .and_then(|info| info.name.as_deref())
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
-        task.file_name = name.to_string();
-    }
+    task.file_name = display_name;
     task.file_path = None;
     task.updated_at = current_timestamp_ms();
 }
@@ -179,6 +179,48 @@ fn task_files(status: &Aria2TaskStatus) -> Vec<DownloadTaskFile> {
                     length: parse_aria2_u64(&file.length),
                     completed_length: parse_aria2_u64(&file.completed_length),
                     selected: file.selected != "false",
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn magnet_confirmation_files(
+    status: &Aria2TaskStatus,
+    base_save_dir: &str,
+    display_name: &str,
+) -> Vec<DownloadTaskFile> {
+    let preview_root = Path::new(base_save_dir).join(display_name);
+    let metadata_dir = status
+        .dir
+        .as_deref()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from);
+
+    status
+        .files
+        .as_ref()
+        .map(|files| {
+            files
+                .iter()
+                .map(|file| {
+                    let path = metadata_dir
+                        .as_deref()
+                        .and_then(|dir| Path::new(&file.path).strip_prefix(dir).ok())
+                        .map(|relative| preview_root.join(relative).display().to_string())
+                        .unwrap_or_else(|| file.path.clone());
+                    DownloadTaskFile {
+                        index: file.index,
+                        name: Path::new(&path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(&path)
+                            .to_string(),
+                        path,
+                        length: parse_aria2_u64(&file.length),
+                        completed_length: parse_aria2_u64(&file.completed_length),
+                        selected: file.selected != "false",
+                    }
                 })
                 .collect()
         })
