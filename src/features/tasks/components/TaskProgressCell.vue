@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import TaskProgressBar from "./TaskProgressBar.vue";
 import type { DownloadTask } from "../../../types/tasks";
 
-const props = defineProps<{
-  task: DownloadTask;
-}>();
+const props = withDefaults(
+  defineProps<{
+    task: DownloadTask;
+    showLabel?: boolean;
+    variant?: "compact" | "card";
+  }>(),
+  {
+    showLabel: true,
+    variant: "compact",
+  },
+);
 
 const TRANSITION_MS = 360;
 const displayCompletedLength = ref(clampCompletedLength(props.task.completedLength, props.task.totalLength));
@@ -15,11 +24,6 @@ const displayPercentage = computed(() => {
 
   return clampPercentage((displayCompletedLength.value / props.task.totalLength) * 100);
 });
-const progressFillStyle = computed(() => ({
-  transform: `scaleX(${displayPercentage.value / 100})`,
-  transitionDuration: `${TRANSITION_MS}ms`,
-}));
-
 watch(
   () =>
     [
@@ -68,10 +72,8 @@ function clampCompletedLength(value: number, totalLength: number) {
 
 <template>
   <div class="task-progress-cell">
-    <div class="progress-track" aria-hidden="true">
-      <div class="progress-fill" :style="progressFillStyle" />
-    </div>
-    <small>{{ displayPercentage.toFixed(2) }}%</small>
+    <TaskProgressBar :percentage="displayPercentage" :transition-ms="TRANSITION_MS" :variant="props.variant" />
+    <small v-if="props.showLabel">{{ displayPercentage.toFixed(2) }}%</small>
   </div>
 </template>
 
@@ -80,24 +82,6 @@ function clampCompletedLength(value: number, totalLength: number) {
   min-width: 0;
   display: grid;
   gap: 6px;
-}
-
-.progress-track {
-  overflow: hidden;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.progress-fill {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #78c8f0, #66d89b);
-  transform-origin: left center;
-  transition-property: transform;
-  transition-timing-function: ease-out;
-  will-change: transform;
 }
 
 small {
