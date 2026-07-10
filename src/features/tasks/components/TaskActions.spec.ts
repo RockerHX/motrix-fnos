@@ -229,10 +229,81 @@ describe("TaskActions", () => {
 
     expect(wrapper.findAll('[data-test="n-modal"]')).toHaveLength(0);
   });
+
+  it("renders only permitted icon-pill actions with accessible labels and titles", () => {
+    const { wrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: {
+        canPause: true,
+        canResume: false,
+        canConfirmFiles: true,
+        canRedownload: false,
+        canDelete: false,
+        canPermanentDelete: false,
+      },
+    });
+
+    expect(findIconButton(wrapper, "详情").exists()).toBe(true);
+    expect(findIconButton(wrapper, "暂停").exists()).toBe(true);
+    expect(findIconButton(wrapper, "确认文件").exists()).toBe(true);
+    expect(findIconButton(wrapper, "继续").exists()).toBe(false);
+    expect(findIconButton(wrapper, "重新下载").exists()).toBe(false);
+    expect(findIconButton(wrapper, "删除").exists()).toBe(false);
+    expect(findIconButton(wrapper, "永久删除").exists()).toBe(false);
+
+    for (const label of ["详情", "暂停", "确认文件"]) {
+      const button = findIconButton(wrapper, label);
+      expect(button.attributes("aria-label")).toBe(label);
+      expect(button.attributes("title")).toBe(label);
+    }
+  });
+
+  it("emits direct actions from icon-pill buttons", async () => {
+    const { wrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: {
+        canPause: true,
+        canResume: true,
+        canConfirmFiles: true,
+      },
+    });
+
+    await clickIconButton(wrapper, "暂停");
+    await clickIconButton(wrapper, "继续");
+    await clickIconButton(wrapper, "确认文件");
+
+    expect(wrapper.emitted("pause")).toHaveLength(1);
+    expect(wrapper.emitted("resume")).toHaveLength(1);
+    expect(wrapper.emitted("confirmFiles")).toHaveLength(1);
+  });
+
+  it("opens existing confirmation modals from icon-pill buttons", async () => {
+    const { wrapper: redownloadWrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: { canRedownload: true, canDelete: false },
+    });
+    await clickIconButton(redownloadWrapper, "重新下载");
+    expect(redownloadWrapper.find('[data-test="n-modal"]').text()).toContain("确认重新下载");
+
+    const { wrapper: deleteWrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: { canDelete: true },
+    });
+    await clickIconButton(deleteWrapper, "删除");
+    expect(deleteWrapper.find('[data-test="n-modal"]').text()).toContain("确认删除");
+
+    const { wrapper: permanentDeleteWrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: { canDelete: false, canPermanentDelete: true },
+    });
+    await clickIconButton(permanentDeleteWrapper, "永久删除");
+    expect(permanentDeleteWrapper.find('[data-test="n-modal"]').text()).toContain("确认永久删除");
+  });
 });
 
 interface MountTaskActionsOverrides {
   compact?: boolean;
+  variant?: "text" | "icon-pill";
   state?: Partial<TaskActionState>;
   permissions?: Partial<TaskActionPermissions>;
   labels?: Partial<TaskActionLabels>;
@@ -243,6 +314,7 @@ interface MountTaskActionsOverrides {
 function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
   const props = {
     compact: overrides.compact ?? false,
+    variant: overrides.variant ?? "text",
     state: {
       isOperating: false,
       isActionDisabled: false,
@@ -315,5 +387,16 @@ async function clickButton(wrapper: ReturnType<typeof mountTaskActions>["wrapper
 
   expect(button, `button ${text} at index ${index} should exist`).toBeTruthy();
   await button!.trigger("click");
+  await flushPromises();
+}
+
+function findIconButton(wrapper: ReturnType<typeof mountTaskActions>["wrapper"], label: string) {
+  return wrapper.find(`button[aria-label="${label}"]`);
+}
+
+async function clickIconButton(wrapper: ReturnType<typeof mountTaskActions>["wrapper"], label: string) {
+  const button = findIconButton(wrapper, label);
+  expect(button.exists(), `icon button ${label} should exist`).toBe(true);
+  await button.trigger("click");
   await flushPromises();
 }
