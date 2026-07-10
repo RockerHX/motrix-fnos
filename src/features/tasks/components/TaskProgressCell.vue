@@ -24,6 +24,7 @@ const displayPercentage = computed(() => {
 
   return clampPercentage((displayCompletedLength.value / props.task.totalLength) * 100);
 });
+const progressTone = computed(() => (props.task.status === "complete" ? "complete" : "default"));
 watch(
   () =>
     [
@@ -35,6 +36,11 @@ watch(
     ] as const,
   ([taskId, gid, status, totalLength, completedLength], previousSnapshot) => {
     const nextCompletedLength = clampCompletedLength(completedLength, totalLength);
+    if (status === "complete" && totalLength > 0) {
+      displayCompletedLength.value = totalLength;
+      return;
+    }
+
     const shouldReset =
       !previousSnapshot ||
       taskId !== previousSnapshot[0] ||
@@ -44,11 +50,6 @@ watch(
 
     if (shouldReset) {
       displayCompletedLength.value = nextCompletedLength;
-      return;
-    }
-
-    if (status === "complete" && totalLength > 0) {
-      displayCompletedLength.value = totalLength;
       return;
     }
 
@@ -72,7 +73,12 @@ function clampCompletedLength(value: number, totalLength: number) {
 
 <template>
   <div class="task-progress-cell">
-    <TaskProgressBar :percentage="displayPercentage" :transition-ms="TRANSITION_MS" :variant="props.variant" />
+    <TaskProgressBar
+      :percentage="displayPercentage"
+      :transition-ms="TRANSITION_MS"
+      :variant="props.variant"
+      :tone="progressTone"
+    />
     <small v-if="props.showLabel">{{ displayPercentage.toFixed(2) }}%</small>
   </div>
 </template>

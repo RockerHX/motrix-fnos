@@ -6,10 +6,12 @@ const props = withDefaults(
     percentage: number;
     transitionMs?: number;
     variant?: "compact" | "card";
+    tone?: "default" | "complete";
   }>(),
   {
     transitionMs: 360,
     variant: "compact",
+    tone: "default",
   },
 );
 
@@ -27,7 +29,7 @@ const progressFillStyle = computed(() => ({
 </script>
 
 <template>
-  <div class="task-progress-bar" :class="`task-progress-bar--${props.variant}`">
+  <div class="task-progress-bar" :class="[`task-progress-bar--${props.variant}`, `task-progress-bar--${props.tone}`]">
     <div class="progress-track" aria-hidden="true">
       <div class="progress-fill" :style="progressFillStyle" />
     </div>
@@ -59,5 +61,13 @@ const progressFillStyle = computed(() => ({
   transition-property: transform;
   transition-timing-function: ease-out;
   will-change: transform;
+}
+
+.task-progress-bar--complete .progress-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--app-text-accent-soft) 72%, var(--app-color-surface-elevated)),
+    var(--app-text-accent-soft)
+  );
 }
 </style>
