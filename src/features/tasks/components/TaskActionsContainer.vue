@@ -16,10 +16,17 @@ import type {
   TaskActionState,
 } from "./taskActionViewModel";
 
-const props = defineProps<{
-  task: DownloadTask;
-  compact?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    task: DownloadTask;
+    compact?: boolean;
+    variant?: "text" | "icon-pill";
+  }>(),
+  {
+    compact: false,
+    variant: "text",
+  },
+);
 
 const taskStore = useTaskStore();
 const message = useMessage();
@@ -166,6 +173,7 @@ function formatTimestamp(timestamp: number) {
 <template>
   <TaskActions
     :compact="props.compact"
+    :variant="props.variant"
     :state="actionState"
     :permissions="permissions"
     :labels="labels"
