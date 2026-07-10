@@ -11,6 +11,7 @@ import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileCon
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
+import { useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import MainWindowDialogs from "./MainWindowDialogs.vue";
@@ -56,6 +57,10 @@ const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
   taskStore,
   message,
 });
+const toolbar = useTaskToolbar({
+  activeCategory,
+  isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
+});
 
 function openCreateDialog() {
   if (taskStore.isRuntimeExiting) {
@@ -64,6 +69,31 @@ function openCreateDialog() {
   }
 
   showCreateDialog.value = true;
+}
+
+function handleToolbarCreate() {
+  if (!toolbar.canCreate.value) {
+    if (taskStore.isRuntimeExiting) {
+      message.warning(t("task.runtimeExiting"));
+    }
+    return;
+  }
+
+  openCreateDialog();
+}
+
+async function handleToolbarRefresh() {
+  if (!toolbar.canRefresh.value) {
+    return;
+  }
+
+  void refreshAria2Status();
+  if (activeCategory.value === "trash") {
+    await refreshRemovedTasks(true);
+    return;
+  }
+
+  await refreshTasks(true);
 }
 
 function selectCategory(category: MainNavCategory) {
@@ -111,6 +141,8 @@ onMounted(() => {
   <AppShell
     :app-info="appInfo"
     :active-category="activeCategory"
+    @create="handleToolbarCreate"
+    @refresh="handleToolbarRefresh"
     @open-about="showAbout = true"
     @open-diagnostics="showDiagnostics = true"
     @open-help="showHelp = true"
