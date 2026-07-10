@@ -44,6 +44,8 @@ describe("TaskDesktopCard", () => {
     expect(wrapper.text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.text()).toContain("1.0 KB/s");
     expect(wrapper.text()).toContain("1s");
+    expect(wrapper.find(".task-card-body").exists()).toBe(true);
+    expect(wrapper.find(".task-card-meta").text()).toContain("速度");
     expect(wrapper.find('[data-test="task-progress"]').text()).toContain("false-card");
     expect(wrapper.find('[data-test="task-status"]').text()).toBe("active");
     expect(wrapper.find('[data-test="task-actions"]').text()).toContain("actions-1-icon-pill");

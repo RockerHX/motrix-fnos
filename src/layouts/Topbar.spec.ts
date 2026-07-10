@@ -23,6 +23,13 @@ describe("Topbar", () => {
       "继续当前可见任务",
       "删除当前可见任务",
     ]);
+    expect(buttons.map((button) => button.get("svg").attributes("data-icon-name"))).toEqual([
+      "plus",
+      "refresh",
+      "pause",
+      "play",
+      "close",
+    ]);
 
     for (const button of buttons) {
       await button.trigger("click");

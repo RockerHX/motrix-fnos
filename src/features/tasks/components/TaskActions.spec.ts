@@ -251,10 +251,17 @@ describe("TaskActions", () => {
     expect(findIconButton(wrapper, "删除").exists()).toBe(false);
     expect(findIconButton(wrapper, "永久删除").exists()).toBe(false);
 
-    for (const label of ["详情", "暂停", "确认文件"]) {
+    const expectedIcons = new Map([
+      ["详情", "info"],
+      ["暂停", "pause"],
+      ["确认文件", "confirm"],
+    ]);
+
+    for (const [label, iconName] of expectedIcons) {
       const button = findIconButton(wrapper, label);
       expect(button.attributes("aria-label")).toBe(label);
       expect(button.attributes("title")).toBe(label);
+      expect(button.get("svg").attributes("data-icon-name")).toBe(iconName);
     }
   });
 
