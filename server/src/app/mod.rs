@@ -1,14 +1,18 @@
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
-    connect_database, tasks::list_download_tasks, tasks::max_download_task_id, DATABASE_FILE_NAME,
+    connect_database,
+    tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
+    DATABASE_FILE_NAME,
 };
 use crate::runtime::ManagedAria2Process;
+use crate::tasks::DownloadTaskStatus;
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::tasks::DownloadTask;
 use serde::Serialize;
 use std::env;
+use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -195,13 +199,89 @@ pub async fn bootstrap_http_app_state(
     runtime: &ServerRuntimeConfig,
 ) -> Result<Arc<HttpAppState>, String> {
     let database = connect_database(runtime.database_path.clone()).await?;
-    let restored_tasks = list_download_tasks(&database.pool).await?;
+    let mut restored_tasks = list_download_tasks(&database.pool).await?;
+    reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
+    persist_download_task_states(&database.pool, &restored_tasks).await?;
     let next_task_id = max_download_task_id(&database.pool)
         .await?
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
 
     Ok(Arc::new(HttpAppState::new(state, runtime.clone())))
+}
+
+fn reconcile_magnet_metadata_dirs(
+    app_data_dir: &Path,
+    tasks: &mut [DownloadTask],
+) -> Result<(), String> {
+    let metadata_root = app_data_dir.join("magnet-metadata");
+    if !metadata_root.exists() {
+        return Ok(());
+    }
+    if !metadata_root.is_dir() {
+        return Err(format!(
+            "磁链 metadata 根目录不是文件夹：{}",
+            metadata_root.display()
+        ));
+    }
+
+    let mut referenced_dirs = std::collections::BTreeSet::new();
+    for task in tasks.iter_mut() {
+        if task.confirmation_required {
+            let metadata_missing = task
+                .metadata_torrent_path
+                .as_deref()
+                .filter(|path| !path.trim().is_empty())
+                .map(PathBuf::from)
+                .filter(|path| path.is_file())
+                .is_none();
+            if metadata_missing {
+                task.status = DownloadTaskStatus::Error;
+                task.gid = None;
+                task.confirmation_required = false;
+                task.download_speed = 0;
+                task.error_code = None;
+                task.error_message = Some("磁链 metadata 文件丢失，请重新添加磁链".to_string());
+                task.metadata_torrent_path = None;
+            }
+        }
+
+        if let Some(metadata_dir) = task
+            .metadata_torrent_path
+            .as_deref()
+            .and_then(|path| Path::new(path).parent())
+        {
+            referenced_dirs.insert(metadata_dir.to_path_buf());
+        }
+    }
+
+    for entry in fs::read_dir(&metadata_root)
+        .map_err(|error| format!("读取磁链 metadata 根目录失败：{}（{}）", metadata_root.display(), error))?
+    {
+        let entry = entry.map_err(|error| {
+            format!(
+                "读取磁链 metadata 目录项失败：{}（{}）",
+                metadata_root.display(),
+                error
+            )
+        })?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if referenced_dirs.contains(&path) {
+            continue;
+        }
+        fs::remove_dir_all(&path).map_err(|error| {
+            format!(
+                "清理孤儿磁链 metadata 目录失败：{}（{}）",
+                path.display(),
+                error
+            )
+        })?;
+    }
+
+    Ok(())
 }
 
 pub async fn run_server() -> Result<(), String> {
