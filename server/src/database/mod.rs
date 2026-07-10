@@ -67,6 +67,13 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
         .map_err(|error| format!("迁移下载任务文件确认字段失败：{}", error))?;
     }
 
+    if download_tasks_column_count(pool, "metadata_torrent_path").await? == 0 {
+        sqlx::query("ALTER TABLE download_tasks ADD COLUMN metadata_torrent_path TEXT")
+            .execute(pool)
+            .await
+            .map_err(|error| format!("迁移磁链 metadata 路径字段失败：{}", error))?;
+    }
+
     Ok(())
 }
 
@@ -95,6 +102,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         error_message TEXT,
         file_path TEXT,
         confirmation_required INTEGER NOT NULL DEFAULT 0,
+        metadata_torrent_path TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )
@@ -171,13 +179,16 @@ mod tests {
                     assert_eq!(exists, 1, "{table} should exist");
                 }
 
-                let category_count: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
-                )
-                .fetch_one(&database.pool)
-                .await
-                .expect("column lookup should succeed");
-                assert_eq!(category_count, 1, "download_tasks.category should exist");
+                for column in ["category", "confirmation_required", "metadata_torrent_path"] {
+                    let column_count: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
+                    )
+                    .bind(column)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("column lookup should succeed");
+                    assert_eq!(column_count, 1, "download_tasks.{column} should exist");
+                }
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
@@ -235,13 +246,16 @@ mod tests {
                 let database = connect_database(path.clone())
                     .await
                     .expect("database should connect and migrate");
-                let category_count: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'category'",
-                )
-                .fetch_one(&database.pool)
-                .await
-                .expect("column lookup should succeed");
-                assert_eq!(category_count, 1);
+                for column in ["category", "confirmation_required", "metadata_torrent_path"] {
+                    let column_count: i64 = sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
+                    )
+                    .bind(column)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("column lookup should succeed");
+                    assert_eq!(column_count, 1, "download_tasks.{column} should be migrated");
+                }
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);

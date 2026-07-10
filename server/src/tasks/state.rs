@@ -71,6 +71,7 @@ pub fn store_created_task(
         error_code: None,
         error_message: None,
         file_path: Some(file_path),
+        metadata_torrent_path: None,
         confirmation_required: false,
         files: Vec::new(),
         created_at: now,

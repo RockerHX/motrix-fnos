@@ -6,9 +6,9 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
         r#"
         INSERT INTO download_tasks (
             id, url, file_name, save_dir, category, gid, status, total_length, completed_length,
-            download_speed, error_code, error_message, file_path, confirmation_required, created_at, updated_at
+            download_speed, error_code, error_message, file_path, metadata_torrent_path, confirmation_required, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
             file_name = excluded.file_name,
@@ -22,6 +22,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
             error_code = excluded.error_code,
             error_message = excluded.error_message,
             file_path = excluded.file_path,
+            metadata_torrent_path = excluded.metadata_torrent_path,
             confirmation_required = excluded.confirmation_required,
             updated_at = excluded.updated_at
         "#,
@@ -39,6 +40,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     .bind(&task.error_code)
     .bind(&task.error_message)
     .bind(&task.file_path)
+    .bind(&task.metadata_torrent_path)
     .bind(if task.confirmation_required { 1_i64 } else { 0_i64 })
     .bind(u64_to_i64(task.created_at, "创建时间")?)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
@@ -88,7 +90,7 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
         r#"
         SELECT id, url, file_name, save_dir, gid, status, total_length, completed_length,
                category, download_speed, error_code, error_message, file_path,
-               confirmation_required, created_at, updated_at
+               metadata_torrent_path, confirmation_required, created_at, updated_at
         FROM download_tasks
         ORDER BY created_at DESC, id DESC
         "#,
@@ -216,6 +218,7 @@ fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
         error_code: get(&row, "error_code")?,
         error_message: get(&row, "error_message")?,
         file_path: get(&row, "file_path")?,
+        metadata_torrent_path: get(&row, "metadata_torrent_path")?,
         confirmation_required: get::<i64>(&row, "confirmation_required")? != 0,
         files: Vec::new(),
         created_at: i64_to_u64(get(&row, "created_at")?, "创建时间")?,
@@ -390,6 +393,7 @@ mod tests {
             error_code: None,
             error_message: None,
             file_path: Some("/downloads/file.zip".to_string()),
+            metadata_torrent_path: None,
             confirmation_required: false,
             files: Vec::new(),
             created_at: 1,

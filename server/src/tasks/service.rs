@@ -808,6 +808,7 @@ mod tests {
                     .display()
                     .to_string(),
             ),
+            metadata_torrent_path: None,
             confirmation_required: false,
             files: Vec::new(),
             created_at: 1,
