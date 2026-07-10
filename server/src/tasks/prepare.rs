@@ -11,6 +11,20 @@ use super::{
     current_timestamp_ms, log_error, log_info, redact_url_for_log, sanitize_create_task_options,
 };
 
+
+#[derive(Debug)]
+pub(crate) struct PrepareBtDownloadTaskRequest {
+    pub source_url: String,
+    pub display_name: String,
+    pub base_save_dir: String,
+    pub source_type: DownloadTaskSourceType,
+    pub start_mode: crate::tasks::DownloadTaskStartMode,
+    pub category: Option<String>,
+    pub advanced_options: crate::tasks::CreateTaskAdvancedOptions,
+    pub aria2_options: serde_json::Map<String, serde_json::Value>,
+    pub task_kind: &'static str,
+}
+
 pub fn prepare_task(request: CreateDownloadTaskRequest) -> Result<PreparedDownloadTask, String> {
     prepare_task_inner(request, None)
 }
@@ -30,28 +44,51 @@ pub fn prepare_torrent_task_with_logs(
     if request.torrent_data.is_empty() {
         return Err("种子文件不能为空".to_string());
     }
-    let file_name = torrent_display_name(&torrent_file_name);
-    let base_save_dir = resolve_save_dir_with_logs(Some(request.save_dir), Some(debug_logs))?;
-    let save_dir = create_bt_task_dir(&base_save_dir, &file_name, "种子", Some(debug_logs))?;
-    let category =
-        normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
-    let aria2_options =
-        sanitize_create_task_options(&request.advanced_options, &serde_json::Map::new())?;
+
+    let prepared = prepare_bt_download_task_with_logs(
+        PrepareBtDownloadTaskRequest {
+            source_url: format!("torrent:{}", torrent_file_name),
+            display_name: torrent_display_name(&torrent_file_name),
+            base_save_dir: request.save_dir,
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: request.start_mode,
+            category: request.category,
+            advanced_options: request.advanced_options,
+            aria2_options: serde_json::Map::new(),
+            task_kind: "种子",
+        },
+        Some(debug_logs),
+    )?;
     log_info(
         Some(debug_logs),
         "tasks.create",
         format!(
             "种子任务参数已准备，文件 {}，任务名 {}，保存目录 {}，分类 {}",
-            torrent_file_name, file_name, save_dir, category
+            torrent_file_name, prepared.file_name, prepared.save_dir, prepared.category
         ),
     );
+
+    Ok(prepared)
+}
+
+pub(crate) fn prepare_bt_download_task_with_logs(
+    request: PrepareBtDownloadTaskRequest,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<PreparedDownloadTask, String> {
+    let file_name = normalize_required(&request.display_name, "BT 任务名不能为空")?;
+    let base_save_dir = resolve_save_dir_with_logs(Some(request.base_save_dir), debug_logs)?;
+    let save_dir = create_bt_task_dir(&base_save_dir, &file_name, request.task_kind, debug_logs)?;
+    let category =
+        normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
+    let aria2_options =
+        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
 
     Ok(PreparedDownloadTask {
         file_name,
         save_dir,
         category,
-        url: format!("torrent:{}", torrent_file_name),
-        source_type: DownloadTaskSourceType::Url,
+        url: request.source_url,
+        source_type: request.source_type,
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
         aria2_options,
