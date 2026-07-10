@@ -9,14 +9,21 @@ import type {
   TaskActionState,
 } from "./taskActionViewModel";
 
-const props = defineProps<{
-  compact?: boolean;
-  state: TaskActionState;
-  permissions: TaskActionPermissions;
-  labels: TaskActionLabels;
-  details: TaskActionDetails;
-  confirmTexts: TaskActionConfirmTexts;
-}>();
+const props = withDefaults(
+  defineProps<{
+    compact?: boolean;
+    variant?: "text" | "icon-pill";
+    state: TaskActionState;
+    permissions: TaskActionPermissions;
+    labels: TaskActionLabels;
+    details: TaskActionDetails;
+    confirmTexts: TaskActionConfirmTexts;
+  }>(),
+  {
+    compact: false,
+    variant: "text",
+  },
+);
 
 const emit = defineEmits<{
   pause: [];
@@ -59,7 +66,93 @@ function emitDeleteConfirm() {
 </script>
 
 <template>
-  <div v-if="props.compact" class="compact-actions">
+  <div v-if="props.variant === 'icon-pill'" class="icon-pill-actions" role="toolbar" :aria-label="props.labels.details">
+    <button
+      type="button"
+      class="icon-action"
+      :title="props.labels.details"
+      :aria-label="props.labels.details"
+      :disabled="props.state.isActionDisabled"
+      @click="showDetails = true"
+    >
+      <span aria-hidden="true">i</span>
+    </button>
+    <button
+      v-if="props.permissions.canPause"
+      type="button"
+      class="icon-action"
+      :class="{ loading: props.state.isOperating }"
+      :title="props.labels.pause"
+      :aria-label="props.labels.pause"
+      :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('pause')"
+    >
+      <span aria-hidden="true">Ⅱ</span>
+    </button>
+    <button
+      v-if="props.permissions.canResume"
+      type="button"
+      class="icon-action"
+      :class="{ loading: props.state.isOperating }"
+      :title="props.labels.resume"
+      :aria-label="props.labels.resume"
+      :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('resume')"
+    >
+      <span aria-hidden="true">▶</span>
+    </button>
+    <button
+      v-if="props.permissions.canConfirmFiles"
+      type="button"
+      class="icon-action icon-action--primary"
+      :class="{ loading: props.state.isOperating }"
+      :title="props.labels.confirmFiles"
+      :aria-label="props.labels.confirmFiles"
+      :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('confirmFiles')"
+    >
+      <span aria-hidden="true">✓</span>
+    </button>
+    <button
+      v-if="props.permissions.canRedownload"
+      type="button"
+      class="icon-action"
+      :title="props.labels.redownload"
+      :aria-label="props.labels.redownload"
+      :disabled="props.state.isActionDisabled"
+      @click="showRedownloadConfirm = true"
+    >
+      <span aria-hidden="true">↻</span>
+    </button>
+    <button
+      v-if="props.permissions.canDelete"
+      type="button"
+      class="icon-action icon-action--danger"
+      :title="props.labels.delete"
+      :aria-label="props.labels.delete"
+      :disabled="props.state.isActionDisabled"
+      @click="openDeleteConfirm"
+    >
+      <span aria-hidden="true">×</span>
+    </button>
+    <button
+      v-if="props.permissions.canPermanentDelete"
+      type="button"
+      class="icon-action icon-action--danger"
+      :class="{ loading: props.state.isOperating }"
+      :title="props.labels.permanentDelete"
+      :aria-label="props.labels.permanentDelete"
+      :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :disabled="props.state.isActionDisabled"
+      @click="showPermanentDeleteConfirm = true"
+    >
+      <span aria-hidden="true">⌫</span>
+    </button>
+  </div>
+  <div v-else-if="props.compact" class="compact-actions">
     <NButton
       size="small"
       secondary
@@ -289,6 +382,58 @@ function emitDeleteConfirm() {
 </template>
 
 <style scoped>
+.icon-pill-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  max-width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-pill);
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.icon-action {
+  width: var(--app-toolbar-button-size);
+  height: var(--app-toolbar-button-size);
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--app-radius-pill);
+  padding: 0;
+  color: var(--app-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-action:hover,
+.icon-action:focus-visible {
+  color: var(--app-text-strong);
+  background: var(--app-color-card-overlay);
+  outline: none;
+}
+
+.icon-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.icon-action.loading span {
+  opacity: 0.72;
+}
+
+.icon-action--primary {
+  color: var(--app-text-accent);
+}
+
+.icon-action--danger {
+  color: var(--app-text-danger);
+}
+
 .compact-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
