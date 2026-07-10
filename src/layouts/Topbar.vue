@@ -194,7 +194,7 @@ function openSettings() {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .topbar-actions > button,
@@ -208,10 +208,10 @@ function openSettings() {
   border: 0;
   border-radius: var(--app-radius-sm);
   padding: 0;
-  color: var(--app-text-secondary);
+  color: var(--app-text-muted);
   background: transparent;
   font: inherit;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
@@ -243,8 +243,8 @@ function openSettings() {
   border-radius: var(--app-radius-pill);
   color: #101710;
   background: var(--app-text-accent);
-  font-size: 26px;
-  box-shadow: var(--app-shadow-floating);
+  font-size: 24px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
 .topbar-actions > .topbar-primary-button:hover,

@@ -178,6 +178,18 @@ button {
   cursor: not-allowed;
 }
 
+@media (min-width: 768px) {
+  .empty-guide {
+    justify-items: start;
+    padding: 0 var(--app-desktop-content-gutter-x) 24px;
+    text-align: left;
+  }
+
+  .empty-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 767px) {
   .empty-guide {
     align-content: start;

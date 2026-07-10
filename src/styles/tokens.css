@@ -32,8 +32,8 @@
   --app-desktop-sidebar-width: clamp(220px, 16vw, 260px);
   --app-desktop-topbar-height: 88px;
   --app-desktop-content-gutter-x: 48px;
-  --app-toolbar-button-size: 36px;
-  --app-toolbar-primary-button-size: 48px;
+  --app-toolbar-button-size: 34px;
+  --app-toolbar-primary-button-size: 44px;
   --app-task-card-radius: 10px;
   --app-task-progress-track: rgba(255, 255, 255, 0.14);
 
