@@ -112,6 +112,78 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
     }
 }
 
+#[test]
+fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
+    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-reconcile-pending-{}", now_ms()));
+    let metadata_dir = app_data_dir.join("magnet-metadata").join("task-9");
+    std::fs::create_dir_all(&metadata_dir).expect("metadata dir should create");
+    std::fs::write(metadata_dir.join("pending.torrent"), b"torrent").expect("torrent should write");
+    let mut tasks = vec![DownloadTask {
+        id: 9,
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        file_name: "磁力链接任务".to_string(),
+        save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
+        gid: Some("gid-9".to_string()),
+        status: DownloadTaskStatus::Pending,
+        total_length: 0,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: None,
+        file_path: None,
+        metadata_torrent_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }];
+
+    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks).expect("reconcile should succeed");
+
+    assert!(metadata_dir.exists());
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Pending);
+
+    let _ = std::fs::remove_dir_all(&app_data_dir);
+}
+
+#[test]
+fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missing() {
+    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-reconcile-missing-{}", now_ms()));
+    std::fs::create_dir_all(app_data_dir.join("magnet-metadata")).expect("metadata root should create");
+    let mut tasks = vec![DownloadTask {
+        id: 10,
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        file_name: "磁力链接任务".to_string(),
+        save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
+        gid: Some("gid-10".to_string()),
+        status: DownloadTaskStatus::Pending,
+        total_length: 0,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: None,
+        file_path: None,
+        metadata_torrent_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }];
+
+    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks).expect("reconcile should succeed");
+
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Error);
+    assert!(tasks[0].gid.is_none());
+    assert_eq!(
+        tasks[0].error_message.as_deref(),
+        Some("磁链 metadata 临时目录丢失，请重新添加磁链")
+    );
+
+    let _ = std::fs::remove_dir_all(&app_data_dir);
+}
+
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,

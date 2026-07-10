@@ -38,6 +38,7 @@ pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String>
     let config = ensure_aria2_ready(state).await?;
     let tasks = refresh_tasks_from_aria2(
         &state.core.download_tasks,
+        &state.runtime.app_data_dir,
         &config,
         Some(&state.core.debug_logs),
     )

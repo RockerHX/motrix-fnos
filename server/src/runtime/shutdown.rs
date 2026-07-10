@@ -57,6 +57,7 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) {
     let config = state.aria2_config();
     match refresh_tasks_from_aria2(
         &state.core.download_tasks,
+        &state.runtime.app_data_dir,
         &config,
         Some(&state.core.debug_logs),
     )

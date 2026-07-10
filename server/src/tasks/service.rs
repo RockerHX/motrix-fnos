@@ -182,7 +182,13 @@ impl<'a> TaskService<'a> {
         }
 
         let tasks =
-            refresh_tasks_from_aria2(self.download_tasks, config, Some(self.debug_logs)).await?;
+            refresh_tasks_from_aria2(
+                self.download_tasks,
+                self.app_data_dir,
+                config,
+                Some(self.debug_logs),
+            )
+            .await?;
         self.sync_tasks_to_database(&tasks).await?;
 
         Ok(visible_tasks(tasks))

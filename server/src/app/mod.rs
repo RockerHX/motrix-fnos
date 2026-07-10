@@ -5,7 +5,7 @@ use crate::database::{
     DATABASE_FILE_NAME,
 };
 use crate::runtime::ManagedAria2Process;
-use crate::tasks::DownloadTaskStatus;
+use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::tasks::DownloadTask;
 use serde::Serialize;
@@ -227,6 +227,12 @@ fn reconcile_magnet_metadata_dirs(
 
     let mut referenced_dirs = std::collections::BTreeSet::new();
     for task in tasks.iter_mut() {
+        let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {
+            Some(magnet_metadata_task_dir(app_data_dir, task.id))
+        } else {
+            None
+        };
+
         if task.confirmation_required {
             let metadata_missing = task
                 .metadata_torrent_path
@@ -246,7 +252,18 @@ fn reconcile_magnet_metadata_dirs(
             }
         }
 
-        if let Some(metadata_dir) = task
+        if let Some(metadata_dir) = pending_metadata_dir {
+            if metadata_dir.is_dir() {
+                referenced_dirs.insert(metadata_dir);
+            } else {
+                task.status = DownloadTaskStatus::Error;
+                task.gid = None;
+                task.download_speed = 0;
+                task.error_code = None;
+                task.error_message =
+                    Some("磁链 metadata 临时目录丢失，请重新添加磁链".to_string());
+            }
+        } else if let Some(metadata_dir) = task
             .metadata_torrent_path
             .as_deref()
             .and_then(|path| Path::new(path).parent())
@@ -282,6 +299,12 @@ fn reconcile_magnet_metadata_dirs(
     }
 
     Ok(())
+}
+
+fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
+    app_data_dir
+        .join("magnet-metadata")
+        .join(format!("task-{task_id}"))
 }
 
 pub async fn run_server() -> Result<(), String> {

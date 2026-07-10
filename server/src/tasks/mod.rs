@@ -19,10 +19,10 @@ pub use aria2_rpc::{
 };
 pub use files::delete_task_files;
 pub use model::{
-    should_force_pause_task_on_startup, should_pause_task_on_exit, CreateDownloadTaskRequest,
-    CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskFile,
-    DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
-    DEFAULT_TASK_CATEGORY,
+    is_pending_magnet_metadata_task, should_force_pause_task_on_startup,
+    should_pause_task_on_exit, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskFile, DownloadTaskSourceType,
+    DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
 pub use options::{sanitize_aria2_options, sanitize_create_task_options};
 pub use prepare::{
@@ -42,6 +42,7 @@ pub use state::{
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused,
     remove_task_record, store_created_task, store_created_task_with_id, task_gid, task_snapshot, TaskMemoryState,
 };
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,6 +115,7 @@ struct Aria2BittorrentInfo {
 
 pub async fn refresh_tasks_from_aria2(
     tasks: &TaskMemoryState,
+    app_data_dir: &Path,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
@@ -142,6 +144,13 @@ pub async fn refresh_tasks_from_aria2(
         };
         match tell_status(&client, config, &gid, debug_logs).await {
             Ok(status) if is_stale_aria2_gid_status(&status) => {
+                if is_pending_magnet_metadata_task(&candidate) {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid,
+                        status: stale_magnet_metadata_status(app_data_dir, &candidate),
+                    });
+                    continue;
+                }
                 match readd_download_task(config, &candidate, debug_logs).await {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
@@ -208,6 +217,13 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Err(error) if is_stale_aria2_gid_error(&error) => {
+                if is_pending_magnet_metadata_task(&candidate) {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid,
+                        status: stale_magnet_metadata_status(app_data_dir, &candidate),
+                    });
+                    continue;
+                }
                 match readd_download_task(config, &candidate, debug_logs).await {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
@@ -415,10 +431,31 @@ pub fn is_stale_aria2_gid_error(message: &str) -> bool {
 }
 
 pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) -> bool {
+    if is_pending_magnet_metadata_task(task) {
+        return false;
+    }
     let normalized = message.to_ascii_lowercase();
     is_stale_aria2_gid_error(&normalized)
         || (normalized.contains("cannot be unpaused now")
             && task.status == DownloadTaskStatus::Error)
+}
+
+fn stale_magnet_metadata_status(app_data_dir: &Path, task: &DownloadTask) -> Aria2TaskStatus {
+    let metadata_dir = magnet_metadata_task_dir(app_data_dir, task.id);
+    let message = match find_single_torrent_file(&metadata_dir) {
+        Ok(path) => format!(
+            "磁链 metadata 解析任务已失效，请重新添加磁链：{}",
+            path.display()
+        ),
+        Err(_) => "磁链 metadata 解析任务已失效，请重新添加磁链".to_string(),
+    };
+    task_status_error(message)
+}
+
+fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
+    app_data_dir
+        .join("magnet-metadata")
+        .join(format!("task-{task_id}"))
 }
 
 fn current_timestamp_ms() -> u64 {

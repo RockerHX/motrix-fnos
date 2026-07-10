@@ -7,8 +7,11 @@ use crate::tasks::files::delete_file_candidates;
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
 use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
 use crate::tasks::session::find_matching_sqlite_task;
+use axum::{extract::Json, routing::post, Router};
+use serde_json::{json, Value};
 use std::env;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 
@@ -515,6 +518,35 @@ fn resume_error_readds_when_gid_is_not_found() {
 }
 
 #[test]
+fn resume_error_does_not_readd_pending_magnet_metadata_task() {
+    let task = DownloadTask {
+        id: 1,
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        file_name: "磁力链接任务".to_string(),
+        save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
+        gid: Some("metadata-gid".to_string()),
+        status: DownloadTaskStatus::Error,
+        total_length: 0,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: Some("磁链 metadata 解析任务已失效，请重新添加磁链".to_string()),
+        file_path: None,
+        metadata_torrent_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    };
+
+    assert!(!should_readd_task_after_resume_error(
+        &task,
+        "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
+    ));
+}
+
+#[test]
 fn resume_error_readds_only_when_task_already_has_stale_gid_error() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.status = DownloadTaskStatus::Error;
@@ -536,6 +568,49 @@ fn resume_error_readds_only_when_task_already_has_stale_gid_error() {
         &task,
         "GID#abc cannot be unpaused now"
     ));
+}
+
+#[tokio::test]
+async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error() {
+    let mock = MockStaleAria2Server::spawn().await;
+    let app_data_dir = PathBuf::from(temp_download_dir("refresh-stale-magnet"));
+    let tasks = TaskMemoryState::new(vec![DownloadTask {
+        id: 1,
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        file_name: "磁力链接任务".to_string(),
+        save_dir: "/downloads".to_string(),
+        category: "默认".to_string(),
+        gid: Some("metadata-gid".to_string()),
+        status: DownloadTaskStatus::Pending,
+        total_length: 0,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: None,
+        file_path: None,
+        metadata_torrent_path: None,
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }]);
+    let config = Aria2Config {
+        rpc_port: mock.addr.port(),
+        rpc_secret: "secret".to_string(),
+        ..test_config()
+    };
+
+    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &config, None)
+        .await
+        .expect("refresh should succeed");
+
+    assert_eq!(refreshed[0].status, DownloadTaskStatus::Error);
+    assert_eq!(
+        refreshed[0].error_message.as_deref(),
+        Some("磁链 metadata 解析任务已失效，请重新添加磁链")
+    );
+
+    mock.abort();
 }
 
 #[test]
@@ -1332,4 +1407,52 @@ fn readded_gid_updates_task_without_clearing_progress() {
     assert!(task.error_message.is_none());
     let expected_file_path = Path::new(&save_dir).join("file.zip").display().to_string();
     assert_eq!(task.file_path.as_deref(), Some(expected_file_path.as_str()));
+}
+
+struct MockStaleAria2Server {
+    addr: SocketAddr,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl MockStaleAria2Server {
+    async fn spawn() -> Self {
+        let app = Router::new().route("/jsonrpc", post(mock_stale_aria2_rpc));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock server should serve");
+        });
+
+        Self { addr, handle }
+    }
+
+    fn abort(self) {
+        self.handle.abort();
+    }
+}
+
+async fn mock_stale_aria2_rpc(Json(payload): Json<Value>) -> Json<Value> {
+    let method = payload
+        .get("method")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    Json(match method {
+        "aria2.tellStatus" => json!({
+            "result": {
+                "gid": "metadata-gid",
+                "status": "error",
+                "totalLength": "0",
+                "completedLength": "0",
+                "downloadSpeed": "0",
+                "errorMessage": "GID metadata-gid is not found",
+                "files": []
+            }
+        }),
+        other => json!({ "error": { "message": format!("unexpected method: {other}") } }),
+    })
 }
