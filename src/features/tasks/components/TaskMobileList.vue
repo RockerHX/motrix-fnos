@@ -129,6 +129,7 @@ const props = defineProps<{
   color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.4;
+  font-variant-numeric: tabular-nums;
   word-break: break-word;
 }
 
