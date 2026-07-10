@@ -7,7 +7,7 @@ use crate::aria2::{
     select_rpc_port_with_saved_runtime, summarize_args, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
-use crate::debug_logs::{emit_file_log, DebugLogLevel, DebugLogStore};
+use crate::debug_logs::DebugLogStore;
 use crate::state::Aria2RuntimeInfo;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::{Command, Stdio};
@@ -152,7 +152,7 @@ pub(crate) async fn wait_for_rpc_ready(
             if log_success_to_debug {
                 debug_logs.info("aria2.rpc", message);
             } else {
-                emit_file_log(DebugLogLevel::Info, "aria2.rpc", &message);
+                tracing::debug!(module = "aria2.rpc", "{}", message);
             }
             return Ok(());
         }
