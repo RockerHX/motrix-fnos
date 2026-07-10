@@ -559,6 +559,12 @@ fn apply_default_bt_trackers(options: &mut serde_json::Map<String, serde_json::V
         .or_insert_with(|| serde_json::json!(DEFAULT_BT_TRACKERS.join(",")));
 }
 
+fn apply_default_bt_seed_behavior(options: &mut serde_json::Map<String, serde_json::Value>) {
+    options
+        .entry("seed-time".to_string())
+        .or_insert_with(|| serde_json::json!("0"));
+}
+
 pub(crate) fn build_add_torrent_request(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
@@ -578,6 +584,7 @@ pub(crate) fn build_add_torrent_request(
     }
     apply_start_mode_option(&mut options, task.start_mode);
     apply_default_bt_trackers(&mut options);
+    apply_default_bt_seed_behavior(&mut options);
     if task.start_mode == DownloadTaskStartMode::Paused {
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
     }

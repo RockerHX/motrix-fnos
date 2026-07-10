@@ -1381,6 +1381,7 @@ fn add_torrent_request_contains_base64_payload_and_options() {
     assert_eq!(request["params"][2]["dir"], "/downloads");
     assert_eq!(request["params"][2]["pause"], "true");
     assert_eq!(request["params"][2]["pause-metadata"], "true");
+    assert_eq!(request["params"][2]["seed-time"], "0");
     assert!(request["params"][2]["bt-tracker"]
         .as_str()
         .expect("bt-tracker should be string")
