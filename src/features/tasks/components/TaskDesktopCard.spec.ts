@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./TaskActionsContainer.vue", () => ({
   default: {
     name: "TaskActionsContainerStub",
-    props: ["task", "compact"],
-    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ compact }}</div>',
+    props: ["task", "compact", "variant"],
+    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ variant }}</div>',
   },
 }));
 
@@ -43,7 +43,7 @@ describe("TaskDesktopCard", () => {
     expect(wrapper.text()).toContain("1s");
     expect(wrapper.find('[data-test="task-progress"]').text()).toContain("false-card");
     expect(wrapper.find('[data-test="task-status"]').text()).toBe("active");
-    expect(wrapper.find('[data-test="task-actions"]').text()).toContain("actions-1");
+    expect(wrapper.find('[data-test="task-actions"]').text()).toContain("actions-1-icon-pill");
   });
 
   it("renders error message for failed task", () => {

@@ -24,7 +24,7 @@ const props = defineProps<{
           <TaskStatusBadge :task="props.task" />
         </div>
         <aside class="task-card-actions" :aria-label="t('task.table.actions')">
-          <TaskActionsContainer :task="props.task" compact />
+          <TaskActionsContainer :task="props.task" variant="icon-pill" />
         </aside>
       </header>
 
@@ -82,7 +82,7 @@ const props = defineProps<{
 .task-card-header {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: start;
   gap: 24px;
 }
@@ -107,6 +107,8 @@ const props = defineProps<{
 
 .task-card-actions {
   min-width: 0;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .task-card-error {
@@ -145,7 +147,8 @@ const props = defineProps<{
   }
 
   .task-card-actions {
-    max-width: 320px;
+    max-width: 100%;
+    justify-content: flex-start;
   }
 
   .task-card-meta {
