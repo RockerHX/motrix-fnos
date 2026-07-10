@@ -24,7 +24,13 @@ const displayPercentage = computed(() => {
 
   return clampPercentage((displayCompletedLength.value / props.task.totalLength) * 100);
 });
-const progressTone = computed(() => (props.task.status === "complete" ? "complete" : "default"));
+const progressTone = computed(() => {
+  if (props.task.status === "complete") {
+    return "complete";
+  }
+
+  return props.task.totalLength <= 0 ? "empty" : "default";
+});
 watch(
   () =>
     [

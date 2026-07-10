@@ -6,7 +6,7 @@ const props = withDefaults(
     percentage: number;
     transitionMs?: number;
     variant?: "compact" | "card";
-    tone?: "default" | "complete";
+    tone?: "default" | "complete" | "empty";
   }>(),
   {
     transitionMs: 360,
@@ -43,24 +43,42 @@ const progressFillStyle = computed(() => ({
 
 .progress-track {
   overflow: hidden;
-  height: 8px;
+  height: 6px;
   border-radius: var(--app-radius-pill);
-  background: var(--app-task-progress-track);
+  background: color-mix(in srgb, var(--app-task-progress-track) 76%, transparent);
 }
 
 .task-progress-bar--card .progress-track {
-  height: 8px;
+  height: 5px;
 }
 
 .progress-fill {
   width: 100%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #78c8f0, var(--app-text-accent-soft));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, #78c8f0 72%, var(--app-color-surface-elevated)),
+    var(--app-text-accent-soft)
+  );
   transform-origin: left center;
   transition-property: transform;
   transition-timing-function: ease-out;
   will-change: transform;
+}
+
+.task-progress-bar--empty .progress-track {
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0,
+    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px,
+    transparent 8px,
+    transparent 14px
+  );
+}
+
+.task-progress-bar--empty .progress-fill {
+  opacity: 0;
 }
 
 .task-progress-bar--complete .progress-fill {

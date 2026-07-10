@@ -18,4 +18,9 @@ describe("TaskProgressBar", () => {
     const complete = mount(TaskProgressBar, { props: { percentage: 100, tone: "complete" } });
     expect(complete.classes()).toContain("task-progress-bar--complete");
   });
+
+  it("supports empty tone for unknown progress", () => {
+    const wrapper = mount(TaskProgressBar, { props: { percentage: 0, tone: "empty" } });
+    expect(wrapper.classes()).toContain("task-progress-bar--empty");
+  });
 });

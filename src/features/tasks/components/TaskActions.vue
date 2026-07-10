@@ -389,10 +389,10 @@ function emitDeleteConfirm() {
   justify-content: flex-end;
   gap: 4px;
   max-width: 100%;
-  padding: 4px 8px;
-  border: 1px solid var(--app-color-border-subtle);
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--app-color-border-subtle) 76%, transparent);
   border-radius: var(--app-radius-pill);
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(255, 255, 255, 0.018);
 }
 
 .icon-action {
@@ -403,19 +403,19 @@ function emitDeleteConfirm() {
   border: 0;
   border-radius: var(--app-radius-pill);
   padding: 0;
-  color: var(--app-text-muted);
+  color: var(--app-text-dim);
   background: transparent;
   font: inherit;
   font-size: 15px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.78;
+  opacity: 0.68;
 }
 
 .icon-action:hover,
 .icon-action:focus-visible {
   color: var(--app-text-strong);
-  background: var(--app-color-card-overlay);
+  background: var(--app-color-card-overlay-subtle);
   opacity: 1;
   outline: none;
 }
@@ -430,11 +430,11 @@ function emitDeleteConfirm() {
 }
 
 .icon-action--primary {
-  color: var(--app-text-accent);
+  color: color-mix(in srgb, var(--app-text-accent) 82%, var(--app-text-muted));
 }
 
 .icon-action--danger {
-  color: var(--app-text-danger);
+  color: color-mix(in srgb, var(--app-text-danger) 78%, var(--app-text-muted));
 }
 
 .compact-actions {

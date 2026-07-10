@@ -16,6 +16,17 @@ describe("TaskProgressCell", () => {
     expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(100);
   });
 
+  it("uses empty tone when task size is unknown", () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: {
+        task: createTask({ status: "pending", completedLength: 0, totalLength: 0 }),
+      },
+    });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("empty");
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(0);
+  });
+
   it("keeps default tone for unfinished tasks", () => {
     const wrapper = mount(TaskProgressCell, {
       props: {
