@@ -3,6 +3,7 @@ import { storeToRefs } from "pinia";
 import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useMobileLayout } from "../app/composables/useMobileLayout";
+import AppIcon from "../components/AppIcon.vue";
 import { useUpdateCheck } from "../features/about/composables/useUpdateCheck";
 import { useAria2Status } from "../features/diagnostics/composables/useAria2Status";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
@@ -303,14 +304,14 @@ onMounted(() => {
 
     <template #overlay>
       <button
-        v-if="showFloatingAdd"
+        v-if="isMobileLayout && showFloatingAdd"
         type="button"
         class="floating-add"
         :title="t('empty.create')"
         :aria-label="t('empty.create')"
         @click="openCreateDialog"
       >
-        ＋
+        <AppIcon name="plus" :size="28" />
       </button>
 
       <TaskBulkDeleteConfirmDialog
