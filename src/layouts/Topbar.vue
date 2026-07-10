@@ -2,11 +2,18 @@
 import { computed } from "vue";
 import { useI18n } from "../i18n";
 import type { MainNavCategory } from "../types/navigation";
+import type { TopbarActionKey, TopbarActionStates } from "../types/topbar";
 import { getMainNavLabelKey } from "./navigation";
 
-const props = defineProps<{
-  activeCategory: MainNavCategory;
-}>();
+const props = withDefaults(
+  defineProps<{
+    activeCategory: MainNavCategory;
+    actionStates?: TopbarActionStates;
+  }>(),
+  {
+    actionStates: () => ({}),
+  },
+);
 
 const emit = defineEmits<{
   create: [];
@@ -24,23 +31,41 @@ const { t } = useI18n();
 const activeCategoryLabel = computed(() => t(getMainNavLabelKey(props.activeCategory)));
 
 function createTask() {
-  emit("create");
+  if (!isActionDisabled("create")) {
+    emit("create");
+  }
 }
 
 function refreshTasks() {
-  emit("refresh");
+  if (!isActionDisabled("refresh")) {
+    emit("refresh");
+  }
 }
 
 function pauseVisibleTasks() {
-  emit("pauseVisible");
+  if (!isActionDisabled("pauseVisible")) {
+    emit("pauseVisible");
+  }
 }
 
 function resumeVisibleTasks() {
-  emit("resumeVisible");
+  if (!isActionDisabled("resumeVisible")) {
+    emit("resumeVisible");
+  }
 }
 
 function deleteVisibleTasks() {
-  emit("deleteVisible");
+  if (!isActionDisabled("deleteVisible")) {
+    emit("deleteVisible");
+  }
+}
+
+function isActionDisabled(action: TopbarActionKey) {
+  return Boolean(props.actionStates[action]?.disabled);
+}
+
+function actionTitle(action: TopbarActionKey, fallback: string) {
+  return props.actionStates[action]?.title || fallback;
 }
 
 function openAbout() {
@@ -70,16 +95,26 @@ function openSettings() {
       <button
         type="button"
         class="topbar-primary-button"
-        :title="t('topbar.create')"
+        :disabled="isActionDisabled('create')"
+        :title="actionTitle('create', t('topbar.create'))"
         :aria-label="t('topbar.create')"
         @click="createTask"
       >
         ＋
       </button>
-      <button type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="refreshTasks">↻</button>
       <button
         type="button"
-        :title="t('topbar.pauseVisible')"
+        :disabled="isActionDisabled('refresh')"
+        :title="actionTitle('refresh', t('common.refresh'))"
+        :aria-label="t('common.refresh')"
+        @click="refreshTasks"
+      >
+        ↻
+      </button>
+      <button
+        type="button"
+        :disabled="isActionDisabled('pauseVisible')"
+        :title="actionTitle('pauseVisible', t('topbar.pauseVisible'))"
         :aria-label="t('topbar.pauseVisible')"
         @click="pauseVisibleTasks"
       >
@@ -87,7 +122,8 @@ function openSettings() {
       </button>
       <button
         type="button"
-        :title="t('topbar.resumeVisible')"
+        :disabled="isActionDisabled('resumeVisible')"
+        :title="actionTitle('resumeVisible', t('topbar.resumeVisible'))"
         :aria-label="t('topbar.resumeVisible')"
         @click="resumeVisibleTasks"
       >
@@ -95,7 +131,8 @@ function openSettings() {
       </button>
       <button
         type="button"
-        :title="t('topbar.deleteVisible')"
+        :disabled="isActionDisabled('deleteVisible')"
+        :title="actionTitle('deleteVisible', t('topbar.deleteVisible'))"
         :aria-label="t('topbar.deleteVisible')"
         @click="deleteVisibleTasks"
       >
@@ -185,6 +222,16 @@ function openSettings() {
   outline: none;
 }
 
+.topbar-actions > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.topbar-actions > button:disabled:hover {
+  color: var(--app-text-secondary);
+  background: transparent;
+}
+
 .topbar-actions > .topbar-primary-button {
   width: var(--app-toolbar-primary-button-size);
   min-width: var(--app-toolbar-primary-button-size);
@@ -201,6 +248,13 @@ function openSettings() {
 .topbar-actions > .topbar-primary-button:focus-visible {
   color: #101710;
   background: var(--app-text-accent-soft);
+}
+
+.topbar-actions > .topbar-primary-button:disabled,
+.topbar-actions > .topbar-primary-button:disabled:hover {
+  color: #101710;
+  background: var(--app-text-accent);
+  box-shadow: none;
 }
 
 .topbar-more {

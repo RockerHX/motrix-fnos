@@ -18,6 +18,7 @@ import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useI18n } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
+import type { TopbarActionStates } from "../types/topbar";
 import type { DownloadTask } from "../types/tasks";
 const props = defineProps<{
   appInfo: AppInfo | null;
@@ -66,6 +67,64 @@ const toolbar = useTaskToolbar({
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
 });
+const topbarActions = computed<TopbarActionStates>(() => ({
+  create: {
+    disabled: !toolbar.canCreate.value,
+    title: toolbar.canCreate.value ? t("topbar.create") : createDisabledTitle(),
+  },
+  refresh: {
+    disabled: !toolbar.canRefresh.value,
+    title: toolbar.canRefresh.value ? t("common.refresh") : refreshDisabledTitle(),
+  },
+  pauseVisible: {
+    disabled: !toolbar.canPauseVisible.value,
+    title: toolbar.canPauseVisible.value ? t("topbar.pauseVisible") : batchDisabledTitle("pause"),
+  },
+  resumeVisible: {
+    disabled: !toolbar.canResumeVisible.value,
+    title: toolbar.canResumeVisible.value ? t("topbar.resumeVisible") : batchDisabledTitle("resume"),
+  },
+  deleteVisible: {
+    disabled: !toolbar.canDeleteVisible.value,
+    title: toolbar.canDeleteVisible.value ? t("topbar.deleteVisible") : batchDisabledTitle("delete"),
+  },
+}));
+
+function createDisabledTitle() {
+  if (taskStore.isRuntimeExiting) {
+    return t("topbar.disabled.runtimeExiting");
+  }
+  if (activeCategory.value === "extensions") {
+    return t("topbar.disabled.extensions");
+  }
+  return t("topbar.create");
+}
+
+function refreshDisabledTitle() {
+  if (taskStore.isRuntimeExiting) {
+    return t("topbar.disabled.runtimeExiting");
+  }
+  if (activeCategory.value === "extensions") {
+    return t("topbar.disabled.extensions");
+  }
+  return t("common.refresh");
+}
+
+function batchDisabledTitle(action: "pause" | "resume" | "delete") {
+  if (taskStore.isRuntimeExiting) {
+    return t("topbar.disabled.runtimeExiting");
+  }
+  if (activeCategory.value === "extensions") {
+    return t("topbar.disabled.extensions");
+  }
+  if (action === "pause") {
+    return t("topbar.disabled.noPauseable");
+  }
+  if (action === "resume") {
+    return t("topbar.disabled.noResumable");
+  }
+  return t("topbar.disabled.noDeletable");
+}
 
 function openCreateDialog() {
   if (taskStore.isRuntimeExiting) {
@@ -189,6 +248,7 @@ onMounted(() => {
   <AppShell
     :app-info="appInfo"
     :active-category="activeCategory"
+    :topbar-actions="topbarActions"
     @create="handleToolbarCreate"
     @refresh="handleToolbarRefresh"
     @pause-visible="handlePauseVisibleTasks"

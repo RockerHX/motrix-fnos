@@ -30,6 +30,25 @@ describe("Topbar", () => {
     expect(wrapper.emitted("deleteVisible")).toHaveLength(1);
   });
 
+
+  it("does not emit disabled desktop actions and keeps disabled title", async () => {
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "downloading",
+        actionStates: {
+          pauseVisible: { disabled: true, title: "当前没有可暂停的任务" },
+        },
+      },
+    });
+
+    const pauseButton = wrapper.get('button[aria-label="暂停当前可见任务"]');
+    expect(pauseButton.attributes("disabled")).toBeDefined();
+    expect(pauseButton.attributes("title")).toBe("当前没有可暂停的任务");
+
+    await pauseButton.trigger("click");
+    expect(wrapper.emitted("pauseVisible")).toBeUndefined();
+  });
+
   it("keeps mobile auxiliary actions", () => {
     const wrapper = mount(Topbar, {
       props: {

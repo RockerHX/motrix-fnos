@@ -3,10 +3,12 @@ import SidebarNav from "./SidebarNav.vue";
 import Topbar from "./Topbar.vue";
 import type { AppInfo } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
+import type { TopbarActionStates } from "../types/topbar";
 
 defineProps<{
   appInfo: AppInfo | null;
   activeCategory: MainNavCategory;
+  topbarActions?: TopbarActionStates;
 }>();
 
 const emit = defineEmits<{
@@ -78,6 +80,7 @@ function selectCategory(category: MainNavCategory) {
     <section class="main-area shell-main-area">
       <Topbar
         :active-category="activeCategory"
+        :action-states="topbarActions"
         @create="createTask"
         @refresh="refreshTasks"
         @pause-visible="pauseVisibleTasks"

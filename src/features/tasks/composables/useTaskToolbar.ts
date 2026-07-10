@@ -37,6 +37,11 @@ export function useTaskToolbar({
         !isTaskOperating(task.id),
     ),
   );
+  const deleteCandidates = computed(() =>
+    activeCategory.value === "trash" || activeCategory.value === "extensions"
+      ? []
+      : (visibleTasks?.value ?? []).filter((task) => task.status !== "removed" && !isTaskOperating(task.id)),
+  );
   const isBusy = computed(() => Boolean(isBulkOperating?.value));
   const canCreate = computed(
     () => !isRuntimeExiting.value && createEnabledCategories.includes(activeCategory.value),
@@ -50,14 +55,19 @@ export function useTaskToolbar({
   const canResumeVisible = computed(
     () => !isRuntimeExiting.value && !isBusy.value && resumeCandidates.value.length > 0,
   );
+  const canDeleteVisible = computed(
+    () => !isRuntimeExiting.value && !isBusy.value && deleteCandidates.value.length > 0,
+  );
 
   return {
     canCreate,
     canRefresh,
     canPauseVisible,
     canResumeVisible,
+    canDeleteVisible,
     pauseCandidates,
     resumeCandidates,
+    deleteCandidates,
   };
 }
 

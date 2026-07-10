@@ -42,6 +42,11 @@ const zhCN = {
   "topbar.pauseVisible": "暂停当前可见任务",
   "topbar.resumeVisible": "继续当前可见任务",
   "topbar.deleteVisible": "删除当前可见任务",
+  "topbar.disabled.runtimeExiting": "应用正在退出，暂不可操作",
+  "topbar.disabled.noPauseable": "当前没有可暂停的任务",
+  "topbar.disabled.noResumable": "当前没有可继续的任务",
+  "topbar.disabled.noDeletable": "当前没有可删除的任务",
+  "topbar.disabled.extensions": "扩展页暂不支持任务操作",
 
   "about.eyebrow": "About",
   "about.title": "关于 {name}",
@@ -344,6 +349,11 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "topbar.pauseVisible": "Pause visible tasks",
   "topbar.resumeVisible": "Resume visible tasks",
   "topbar.deleteVisible": "Delete visible tasks",
+  "topbar.disabled.runtimeExiting": "The app is exiting. Actions are unavailable.",
+  "topbar.disabled.noPauseable": "No visible tasks can be paused",
+  "topbar.disabled.noResumable": "No visible tasks can be resumed",
+  "topbar.disabled.noDeletable": "No visible tasks can be deleted",
+  "topbar.disabled.extensions": "Task actions are unavailable on Extensions",
 
   "about.eyebrow": "About",
   "about.title": "About {name}",

@@ -61,10 +61,13 @@ describe("useTaskToolbar", () => {
     expect(toolbar.resumeCandidates.value.map((task) => task.id)).toEqual([3, 4]);
     expect(toolbar.canPauseVisible.value).toBe(true);
     expect(toolbar.canResumeVisible.value).toBe(true);
+    expect(toolbar.deleteCandidates.value.map((task) => task.id)).toEqual([1, 3, 4, 5, 6]);
+    expect(toolbar.canDeleteVisible.value).toBe(true);
 
     isBulkOperating.value = true;
     expect(toolbar.canPauseVisible.value).toBe(false);
     expect(toolbar.canResumeVisible.value).toBe(false);
+    expect(toolbar.canDeleteVisible.value).toBe(false);
   });
 
   it("runs task batches serially and continues after failures", async () => {
