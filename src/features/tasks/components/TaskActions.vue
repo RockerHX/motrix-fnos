@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { watch, ref } from "vue";
+import AppIcon from "../../../components/AppIcon.vue";
 import { NButton, NCard, NCheckbox, NDescriptions, NDescriptionsItem, NModal, NSpace } from "naive-ui";
 import type {
   TaskActionConfirmTexts,
@@ -75,7 +76,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showDetails = true"
     >
-      <span aria-hidden="true">i</span>
+      <AppIcon name="info" :size="15" />
     </button>
     <button
       v-if="props.permissions.canPause"
@@ -88,7 +89,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
-      <span aria-hidden="true">Ⅱ</span>
+      <AppIcon name="pause" :size="15" />
     </button>
     <button
       v-if="props.permissions.canResume"
@@ -101,7 +102,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
-      <span aria-hidden="true">▶</span>
+      <AppIcon name="play" :size="15" />
     </button>
     <button
       v-if="props.permissions.canConfirmFiles"
@@ -114,7 +115,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('confirmFiles')"
     >
-      <span aria-hidden="true">✓</span>
+      <AppIcon name="confirm" :size="15" />
     </button>
     <button
       v-if="props.permissions.canRedownload"
@@ -125,7 +126,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showRedownloadConfirm = true"
     >
-      <span aria-hidden="true">↻</span>
+      <AppIcon name="redownload" :size="15" />
     </button>
     <button
       v-if="props.permissions.canDelete"
@@ -136,7 +137,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
-      <span aria-hidden="true">×</span>
+      <AppIcon name="delete" :size="15" />
     </button>
     <button
       v-if="props.permissions.canPermanentDelete"
@@ -149,7 +150,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
     >
-      <span aria-hidden="true">⌫</span>
+      <AppIcon name="permanentDelete" :size="15" />
     </button>
   </div>
   <div v-else-if="props.compact" class="compact-actions">
@@ -386,44 +387,46 @@ function emitDeleteConfirm() {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 4px;
   max-width: 100%;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-radius-pill);
-  background: var(--app-color-card-overlay-subtle);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .icon-action {
-  width: var(--app-toolbar-button-size);
-  height: var(--app-toolbar-button-size);
+  width: 30px;
+  height: 30px;
   display: inline-grid;
   place-items: center;
   border: 0;
   border-radius: var(--app-radius-pill);
   padding: 0;
-  color: var(--app-text-secondary);
+  color: var(--app-text-muted);
   background: transparent;
   font: inherit;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
+  opacity: 0.78;
 }
 
 .icon-action:hover,
 .icon-action:focus-visible {
   color: var(--app-text-strong);
   background: var(--app-color-card-overlay);
+  opacity: 1;
   outline: none;
 }
 
 .icon-action:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.38;
 }
 
-.icon-action.loading span {
-  opacity: 0.72;
+.icon-action.loading {
+  opacity: 0.62;
 }
 
 .icon-action--primary {
