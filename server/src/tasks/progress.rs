@@ -1,4 +1,7 @@
-use crate::tasks::{DownloadTask, DownloadTaskFile, DownloadTaskStatus, TaskMemoryState};
+use crate::tasks::{
+    is_pending_magnet_metadata_task, DownloadTask, DownloadTaskFile, DownloadTaskStatus,
+    TaskMemoryState,
+};
 use std::path::Path;
 
 use super::{current_timestamp_ms, Aria2TaskStatus};
@@ -89,8 +92,10 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message =
         readable_aria2_error_message(task.error_code.as_deref(), status.error_message.as_deref());
-    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
-        task.save_dir = dir;
+    if !is_pending_magnet_metadata_task(task) {
+        if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
+            task.save_dir = dir;
+        }
     }
     if let Some(name) = status
         .bittorrent

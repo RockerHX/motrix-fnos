@@ -880,6 +880,43 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
 }
 
 #[test]
+fn apply_aria2_status_does_not_override_pending_magnet_metadata_save_dir() {
+    let original_save_dir = "/authorized/downloads".to_string();
+    let mut task = sample_task(None, original_save_dir.clone());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.file_name = "磁力链接任务".to_string();
+    task.gid = Some("metadata-gid".to_string());
+    task.status = DownloadTaskStatus::Pending;
+    task.file_path = None;
+
+    apply_aria2_status(
+        &mut task,
+        &Aria2TaskStatus {
+            gid: Some("metadata-gid".to_string()),
+            status: "active".to_string(),
+            total_length: "0".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: Some("/app/data/magnet-metadata/task-1".to_string()),
+            files: Some(vec![Aria2FileStatus {
+                index: 1,
+                path: "/app/data/magnet-metadata/task-1/metadata.torrent".to_string(),
+                length: "1".to_string(),
+                completed_length: "1".to_string(),
+                selected: "true".to_string(),
+                uris: Vec::new(),
+            }]),
+            followed_by: None,
+            bittorrent: None,
+        },
+    );
+
+    assert_eq!(task.save_dir, original_save_dir);
+}
+
+#[test]
 fn apply_aria2_status_keeps_active_progress_non_decreasing() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.total_length = 100;
