@@ -17,7 +17,7 @@ const props = defineProps<{
     <article v-for="task in props.tasks" :key="task.id" class="task-card">
       <header class="task-card-header">
         <strong :title="task.fileName">{{ task.fileName }}</strong>
-        <TaskStatusBadge :status="task.status" />
+        <TaskStatusBadge :task="task" />
       </header>
 
       <p class="task-card-url" :title="task.url">{{ task.url }}</p>

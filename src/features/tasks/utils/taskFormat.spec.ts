@@ -59,6 +59,30 @@ describe("taskFormat", () => {
       expect(formatTaskStatusLabel(status as DownloadTaskStatus)).toBe(label);
     }
   });
+
+  it("derives resolving and confirming labels for magnet tasks", () => {
+    expect(
+      formatTaskStatusLabel(
+        createTask({
+          url: "magnet:?xt=urn:btih:test",
+          status: "pending",
+          gid: "gid-1",
+          files: [],
+        }),
+      ),
+    ).toBe("解析中");
+    expect(
+      formatTaskStatusLabel(
+        createTask({
+          url: "magnet:?xt=urn:btih:test",
+          status: "pending",
+          gid: null,
+          confirmationRequired: true,
+          files: [{ index: 1, path: "/downloads/file.iso", name: "file.iso", length: 1, completedLength: 0, selected: true }],
+        }),
+      ),
+    ).toBe("待确认");
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

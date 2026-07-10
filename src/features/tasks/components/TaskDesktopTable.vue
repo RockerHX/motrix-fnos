@@ -69,7 +69,7 @@ function createColumns(widths: Record<string, number>): DataTableColumns<Downloa
       width: widths.status,
       minWidth: 90,
       resizable: true,
-      render: (task) => h(TaskStatusBadge, { status: task.status }),
+      render: (task) => h(TaskStatusBadge, { task }),
     },
     {
       key: "progress",

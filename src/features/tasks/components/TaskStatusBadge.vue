@@ -1,39 +1,27 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NTag } from "naive-ui";
-import { useI18n, type TranslationKey } from "../../../i18n";
-import type { DownloadTaskStatus } from "../../../types/tasks";
+import type { DownloadTask } from "../../../types/tasks";
+import { deriveTaskDisplayStatus, formatTaskStatusLabel } from "../utils/taskFormat";
 
 const props = defineProps<{
-  status: DownloadTaskStatus;
+  task: DownloadTask;
 }>();
 
-const { t } = useI18n();
-
-const label = computed(() => {
-  const labels: Record<DownloadTaskStatus, TranslationKey> = {
-    pending: "task.status.pending",
-    active: "task.status.active",
-    paused: "task.status.paused",
-    complete: "task.status.complete",
-    error: "task.status.error",
-    removed: "task.status.removed",
-  };
-
-  return t(labels[props.status]);
-});
+const displayStatus = computed(() => deriveTaskDisplayStatus(props.task));
+const label = computed(() => formatTaskStatusLabel(props.task));
 
 const badgeType = computed(() => {
-  if (props.status === "active") {
+  if (displayStatus.value === "active") {
     return "success";
   }
-  if (props.status === "error") {
+  if (displayStatus.value === "error") {
     return "error";
   }
-  if (props.status === "complete") {
+  if (displayStatus.value === "complete") {
     return "info";
   }
-  if (props.status === "paused") {
+  if (displayStatus.value === "paused" || displayStatus.value === "confirming") {
     return "warning";
   }
   return "default";
