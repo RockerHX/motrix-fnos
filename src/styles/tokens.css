@@ -29,6 +29,14 @@
   --app-shadow-floating: 0 10px 30px rgba(0, 0, 0, 0.35);
   --app-shadow-hero: 0 18px 50px rgba(0, 0, 0, 0.3);
 
+  --app-desktop-sidebar-width: clamp(260px, 20vw, 382px);
+  --app-desktop-topbar-height: 118px;
+  --app-desktop-content-gutter-x: 72px;
+  --app-toolbar-button-size: 44px;
+  --app-toolbar-primary-button-size: 58px;
+  --app-task-card-radius: 10px;
+  --app-task-progress-track: rgba(255, 255, 255, 0.14);
+
   --app-dialog-width: 720px;
   --app-dialog-desktop-margin: 48px;
   --app-dialog-mobile-margin: 16px;
