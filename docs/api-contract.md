@@ -304,6 +304,27 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `GET` | `/api/debug-logs` | `DebugLogEntry[]` |
 | `DELETE` | `/api/debug-logs` | `204 No Content` |
 
+`DebugLogEntry` 保留原有字段，并包含用于高级筛选和重复折叠的字段：
+
+```json
+{
+  "id": 1,
+  "timestampMs": 1783670013000,
+  "lastTimestampMs": 1783670013000,
+  "level": "info",
+  "category": "task",
+  "module": "tasks.create",
+  "message": "下载任务已写入内存列表和 SQLite，ID 1，GID abc",
+  "repeatCount": 1
+}
+```
+
+约定：
+
+- `category` 可为 `app`、`task`、`aria2`、`settings`、`storage`、`api`、`runtime`。
+- 应用内调试日志面向用户排障，默认只保留关键生命周期、用户操作、警告和错误；高频健康检查等详细运行轨迹进入 `app/data/logs/server.log`。
+- 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
+
 ### 4.6 存储目录
 
 | 方法 | 路径 | 响应 |
