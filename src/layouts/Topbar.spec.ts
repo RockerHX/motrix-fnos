@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import Topbar from "./Topbar.vue";
+import { setLanguage } from "../i18n";
 
 describe("Topbar", () => {
+  afterEach(() => {
+    setLanguage("zh-CN");
+  });
+
   it("renders desktop toolbar actions in order and emits events", async () => {
     const wrapper = mount(Topbar, {
       props: {
@@ -30,6 +35,20 @@ describe("Topbar", () => {
     expect(wrapper.emitted("deleteVisible")).toHaveLength(1);
   });
 
+  it("keeps English aria labels and titles functional", async () => {
+    setLanguage("en-US");
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "downloading",
+      },
+    });
+
+    const refreshButton = wrapper.get('button[aria-label="Refresh"]');
+    expect(refreshButton.attributes("title")).toBe("Refresh");
+
+    await refreshButton.trigger("click");
+    expect(wrapper.emitted("refresh")).toHaveLength(1);
+  });
 
   it("does not emit disabled desktop actions and keeps disabled title", async () => {
     const wrapper = mount(Topbar, {

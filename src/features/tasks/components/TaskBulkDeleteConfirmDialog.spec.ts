@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("naive-ui", async () => {
   const { defineComponent, h } = await import("vue");
@@ -63,8 +63,13 @@ vi.mock("naive-ui", async () => {
 
 import TaskBulkDeleteConfirmDialog from "./TaskBulkDeleteConfirmDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
+import { setLanguage } from "../../../i18n";
 
 describe("TaskBulkDeleteConfirmDialog", () => {
+  afterEach(() => {
+    setLanguage("zh-CN");
+  });
+
   it("shows delete count when opened", () => {
     const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
       props: {
@@ -75,6 +80,19 @@ describe("TaskBulkDeleteConfirmDialog", () => {
 
     expect(wrapper.text()).toContain("3");
     expect(wrapper.text()).toContain("不会删除本地文件");
+  });
+
+  it("renders English delete count interpolation", () => {
+    setLanguage("en-US");
+    const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
+      props: {
+        show: true,
+        taskCount: 12,
+      },
+    });
+
+    expect(wrapper.text()).toContain("Delete 12 visible tasks?");
+    expect(wrapper.text()).toContain("local files will not be deleted");
   });
 
   it("closes without confirming when canceled", async () => {
