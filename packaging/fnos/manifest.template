@@ -1,5 +1,5 @@
 appname               = motrix.fnos
-version               = 1.6.0
+version               = 1.6.1
 display_name          = Motrix
 desc                  = 支持 HTTP/BT/磁力链接与远程添加任务的 fnOS 下载管理应用，内置 Aria2 引擎
 source                = thirdparty
