@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import AppIcon from "../components/AppIcon.vue";
 import { useI18n } from "../i18n";
 import type { MainNavCategory } from "../types/navigation";
 import type { TopbarActionKey, TopbarActionStates } from "../types/topbar";
@@ -100,7 +101,7 @@ function openSettings() {
         :aria-label="t('topbar.create')"
         @click="createTask"
       >
-        ＋
+        <AppIcon name="plus" :size="24" />
       </button>
       <button
         type="button"
@@ -109,7 +110,7 @@ function openSettings() {
         :aria-label="t('common.refresh')"
         @click="refreshTasks"
       >
-        ↻
+        <AppIcon name="refresh" :size="18" />
       </button>
       <button
         type="button"
@@ -118,7 +119,7 @@ function openSettings() {
         :aria-label="t('topbar.pauseVisible')"
         @click="pauseVisibleTasks"
       >
-        Ⅱ
+        <AppIcon name="pause" :size="18" />
       </button>
       <button
         type="button"
@@ -127,7 +128,7 @@ function openSettings() {
         :aria-label="t('topbar.resumeVisible')"
         @click="resumeVisibleTasks"
       >
-        ▶
+        <AppIcon name="play" :size="18" />
       </button>
       <button
         type="button"
@@ -136,10 +137,12 @@ function openSettings() {
         :aria-label="t('topbar.deleteVisible')"
         @click="deleteVisibleTasks"
       >
-        ×
+        <AppIcon name="close" :size="18" />
       </button>
       <details class="topbar-more">
-        <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">⋯</summary>
+        <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">
+          <AppIcon name="more" :size="18" />
+        </summary>
         <div class="topbar-menu" role="menu" :aria-label="t('topbar.more')">
           <button type="button" role="menuitem" @click="openSettings">{{ t("nav.settings") }}</button>
           <button type="button" role="menuitem" @click="openHelp">{{ t("nav.help") }}</button>
@@ -149,10 +152,10 @@ function openSettings() {
       </details>
     </div>
     <div class="topbar-actions mobile-actions">
-      <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings">⚙</button>
-      <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp">?</button>
-      <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout">i</button>
-      <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
+      <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings"><AppIcon name="settings" :size="18" /></button>
+      <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp"><AppIcon name="help" :size="18" /></button>
+      <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout"><AppIcon name="about" :size="18" /></button>
+      <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics"><AppIcon name="diagnostics" :size="18" /></button>
     </div>
   </header>
 </template>

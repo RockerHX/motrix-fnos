@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "../components/AppIcon.vue";
 import type { AppInfo } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
 import { useI18n } from "../i18n";
@@ -51,22 +52,22 @@ function selectCategory(category: MainNavCategory) {
         :aria-label="t(item.labelKey)"
         @click="selectCategory(item.key)"
       >
-        <span class="nav-icon">{{ item.icon }}</span>
+        <AppIcon class="nav-icon" :name="item.iconName" :size="18" />
         <span class="nav-label">{{ t(item.labelKey) }}</span>
       </button>
     </nav>
 
     <div class="sidebar-footer">
       <button type="button" :aria-label="t('nav.settings')" @click="openSettings">
-        <span class="nav-icon">⚙</span>
+        <AppIcon class="nav-icon" name="settings" :size="18" />
         <span>{{ t("nav.settings") }}</span>
       </button>
       <button type="button" :aria-label="t('nav.help')" @click="openHelp">
-        <span class="nav-icon">?</span>
+        <AppIcon class="nav-icon" name="help" :size="18" />
         <span>{{ t("nav.help") }}</span>
       </button>
       <button type="button" :aria-label="t('nav.about')" @click="openAbout">
-        <span class="nav-icon">i</span>
+        <AppIcon class="nav-icon" name="about" :size="18" />
         <span>{{ t("nav.about") }}</span>
       </button>
     </div>

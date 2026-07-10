@@ -3,17 +3,17 @@ import type { MainNavCategory } from "../types/navigation";
 
 export type MainNavItemDefinition = {
   key: MainNavCategory;
-  icon: string;
+  iconName: string;
   labelKey: TranslationKey;
   spaced?: boolean;
 };
 
 export const mainNavItems: MainNavItemDefinition[] = [
-  { key: "downloading", icon: "⇩", labelKey: "nav.downloading" },
-  { key: "completed", icon: "✓", labelKey: "nav.completed" },
-  { key: "stopped", icon: "Ⅱ", labelKey: "nav.stopped" },
-  { key: "trash", icon: "♜", labelKey: "nav.trash", spaced: true },
-  { key: "extensions", icon: "♧", labelKey: "nav.extensions" },
+  { key: "downloading", iconName: "download", labelKey: "nav.downloading" },
+  { key: "completed", iconName: "completed", labelKey: "nav.completed" },
+  { key: "stopped", iconName: "pause", labelKey: "nav.stopped" },
+  { key: "trash", iconName: "trash", labelKey: "nav.trash", spaced: true },
+  { key: "extensions", iconName: "extensions", labelKey: "nav.extensions" },
 ];
 
 export function getMainNavLabelKey(category: MainNavCategory): TranslationKey {
