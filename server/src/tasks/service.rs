@@ -498,23 +498,23 @@ fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
 }
 
 fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
-    let Some(metadata_torrent_path) = task.metadata_torrent_path.as_deref() else {
-        return;
-    };
     let expected_dir = magnet_metadata_task_dir(app_data_dir, task.id);
-    let Some(dir) = Path::new(metadata_torrent_path).parent() else {
+    if !expected_dir.exists() {
         return;
-    };
-    let Ok(dir) = dir.canonicalize() else {
-        let _ = fs::remove_dir_all(&expected_dir);
-        return;
-    };
+    }
     let Ok(expected_dir) = expected_dir.canonicalize() else {
         return;
     };
-    if dir == expected_dir {
-        let _ = fs::remove_dir_all(dir);
+    if let Some(metadata_torrent_path) = task.metadata_torrent_path.as_deref() {
+        if let Some(dir) = Path::new(metadata_torrent_path).parent() {
+            if let Ok(dir) = dir.canonicalize() {
+                if dir != expected_dir {
+                    return;
+                }
+            }
+        }
     }
+    let _ = fs::remove_dir_all(expected_dir);
 }
 
 fn visible_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
@@ -674,6 +674,51 @@ mod tests {
         let tasks = fixture.tasks.list().expect("tasks should list");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].status, DownloadTaskStatus::Removed);
+
+        mock.abort();
+    }
+
+    #[tokio::test]
+    async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
+        let mock = MockAria2Server::spawn().await;
+        let save_dir = temp_dir("service-delete-magnet-save");
+        std::fs::create_dir_all(&save_dir).expect("save dir should create");
+        let fixture = ServiceFixture::new(
+            vec![DownloadTask {
+                id: 1,
+                url: "magnet:?xt=urn:btih:test".to_string(),
+                file_name: "磁力链接任务".to_string(),
+                save_dir: save_dir.display().to_string(),
+                category: "默认".to_string(),
+                gid: Some("gid-1".to_string()),
+                status: DownloadTaskStatus::Pending,
+                total_length: 0,
+                completed_length: 0,
+                download_speed: 0,
+                error_code: None,
+                error_message: None,
+                file_path: None,
+                metadata_torrent_path: None,
+                confirmation_required: false,
+                files: Vec::new(),
+                created_at: 1,
+                updated_at: 1,
+            }],
+            false,
+        );
+        let metadata_dir = fixture.app_data_dir.join("magnet-metadata").join("task-1");
+        std::fs::create_dir_all(&metadata_dir).expect("metadata dir should create");
+        std::fs::write(metadata_dir.join("metadata.torrent"), b"torrent")
+            .expect("metadata file should write");
+        let config = test_config(mock.addr.port(), "secret");
+
+        fixture
+            .service()
+            .delete_download_task(&config, 1, false)
+            .await
+            .expect("task should delete");
+
+        assert!(!metadata_dir.exists());
 
         mock.abort();
     }
