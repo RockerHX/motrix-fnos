@@ -17,11 +17,11 @@ vi.mock("./TaskMobileList.vue", () => ({
   },
 }));
 
-vi.mock("./TaskDesktopTable.vue", () => ({
+vi.mock("./TaskDesktopList.vue", () => ({
   default: {
-    name: "TaskDesktopTableStub",
+    name: "TaskDesktopListStub",
     props: ["tasks"],
-    template: '<div data-test="task-desktop-table">{{ tasks.length }}</div>',
+    template: '<div data-test="task-desktop-list">{{ tasks.length }}</div>',
   },
 }));
 
@@ -29,7 +29,7 @@ import TaskTable from "./TaskTable.vue";
 import { mountWithPinia } from "../../../test/mount";
 
 describe("TaskTable", () => {
-  it("renders desktop table when not in mobile layout", () => {
+  it("renders desktop list when not in mobile layout", () => {
     isMobileLayout.value = false;
     const { wrapper } = mountWithPinia(TaskTable, {
       props: {
@@ -37,7 +37,7 @@ describe("TaskTable", () => {
       },
     });
 
-    expect(wrapper.find('[data-test="task-desktop-table"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="task-desktop-list"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="task-mobile-list"]').exists()).toBe(false);
   });
 
@@ -50,6 +50,6 @@ describe("TaskTable", () => {
     });
 
     expect(wrapper.find('[data-test="task-mobile-list"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="task-desktop-table"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="task-desktop-list"]').exists()).toBe(false);
   });
 });
