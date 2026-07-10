@@ -37,6 +37,7 @@ const zhCN = {
   "topbar.filter": "筛选",
   "topbar.sort": "排序",
   "topbar.diagnostics": "诊断",
+  "topbar.more": "更多",
 
   "about.eyebrow": "About",
   "about.title": "关于 {name}",
@@ -329,6 +330,7 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "topbar.filter": "Filter",
   "topbar.sort": "Sort",
   "topbar.diagnostics": "Diagnostics",
+  "topbar.more": "More",
 
   "about.eyebrow": "About",
   "about.title": "About {name}",

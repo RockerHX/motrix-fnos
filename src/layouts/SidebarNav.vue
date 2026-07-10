@@ -142,6 +142,7 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .sidebar-footer {
+  display: none;
   margin: 0;
   padding: 26px 8px 0;
   border-top: 1px solid var(--app-color-border-subtle);

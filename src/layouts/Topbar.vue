@@ -42,9 +42,15 @@ function openSettings() {
       <strong>{{ activeCategoryLabel }}</strong>
     </div>
     <div class="topbar-actions desktop-actions">
-      <button type="button" :title="t('topbar.filter')" :aria-label="t('topbar.filter')">≡</button>
-      <button type="button" :title="t('topbar.sort')" :aria-label="t('topbar.sort')">≡</button>
-      <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">⋮</button>
+      <details class="topbar-more">
+        <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">⋯</summary>
+        <div class="topbar-menu" role="menu" :aria-label="t('topbar.more')">
+          <button type="button" role="menuitem" @click="openSettings">{{ t("nav.settings") }}</button>
+          <button type="button" role="menuitem" @click="openHelp">{{ t("nav.help") }}</button>
+          <button type="button" role="menuitem" @click="openAbout">{{ t("nav.about") }}</button>
+          <button type="button" role="menuitem" @click="openDiagnostics">{{ t("topbar.diagnostics") }}</button>
+        </div>
+      </details>
     </div>
     <div class="topbar-actions mobile-actions">
       <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings">⚙</button>
@@ -60,7 +66,8 @@ function openSettings() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #324036;
+  border-bottom: 1px solid var(--app-color-border-subtle);
+  padding: 0 var(--app-desktop-content-gutter-x);
   background: var(--app-color-surface);
 }
 
@@ -69,7 +76,6 @@ function openSettings() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: 26px;
 }
 
 .topbar-title span {
@@ -79,8 +85,9 @@ function openSettings() {
 }
 
 .topbar-title strong {
-  color: #f1f6f1;
-  font-size: 18px;
+  color: var(--app-text-strong);
+  font-size: 30px;
+  font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -89,24 +96,86 @@ function openSettings() {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding-right: 26px;
 }
 
-.topbar-actions button {
-  min-width: var(--app-touch-target-min);
-  min-height: var(--app-touch-target-min);
+.topbar-actions > button,
+.topbar-icon-button {
+  width: var(--app-toolbar-button-size);
+  min-width: var(--app-toolbar-button-size);
+  height: var(--app-toolbar-button-size);
+  min-height: var(--app-toolbar-button-size);
+  display: grid;
+  place-items: center;
   border: 0;
-  padding: 4px;
-  color: #cfd8ce;
+  border-radius: var(--app-radius-sm);
+  padding: 0;
+  color: var(--app-text-secondary);
   background: transparent;
-  font-size: 23px;
+  font: inherit;
+  font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
 
+.topbar-actions > button:hover,
+.topbar-actions > button:focus-visible,
+.topbar-icon-button:hover,
+.topbar-icon-button:focus-visible {
+  color: var(--app-text-strong);
+  background: var(--app-color-card-overlay);
+  outline: none;
+}
+
+.topbar-more {
+  position: relative;
+}
+
+.topbar-more summary {
+  list-style: none;
+}
+
+.topbar-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.topbar-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 168px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-surface-elevated);
+  box-shadow: var(--app-shadow-floating);
+}
+
+.topbar-menu button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topbar-menu button:hover,
+.topbar-menu button:focus-visible {
+  color: var(--app-text-strong);
+  background: var(--app-color-card-overlay);
+  outline: none;
+}
+
 @media (min-width: 768px) {
-  .topbar-title {
-    visibility: hidden;
+  .topbar-title span {
+    display: none;
   }
 
   .mobile-actions {
@@ -121,12 +190,11 @@ function openSettings() {
 
   .topbar {
     min-height: calc(56px + var(--app-safe-area-top));
-    padding-top: var(--app-safe-area-top);
+    padding: var(--app-safe-area-top) var(--app-mobile-page-gutter) 0;
   }
 
   .topbar-title {
     gap: 3px;
-    padding-left: var(--app-mobile-page-gutter);
   }
 
   .topbar-title span {
@@ -140,10 +208,9 @@ function openSettings() {
 
   .topbar-actions {
     gap: 10px;
-    padding-right: var(--app-mobile-page-gutter);
   }
 
-  .topbar-actions button {
+  .topbar-actions > button {
     min-width: var(--app-touch-target-min);
     min-height: var(--app-touch-target-min);
     border-radius: var(--app-radius-sm);
