@@ -49,7 +49,7 @@ const progressFillStyle = computed(() => ({
 }
 
 .task-progress-bar--card .progress-track {
-  height: 12px;
+  height: 8px;
 }
 
 .progress-fill {

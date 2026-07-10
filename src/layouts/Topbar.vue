@@ -182,7 +182,7 @@ function openSettings() {
 
 .topbar-title strong {
   color: var(--app-text-strong);
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -191,7 +191,7 @@ function openSettings() {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
 .topbar-actions > button,
@@ -208,7 +208,7 @@ function openSettings() {
   color: var(--app-text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 24px;
+  font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
@@ -240,7 +240,7 @@ function openSettings() {
   border-radius: var(--app-radius-pill);
   color: #101710;
   background: var(--app-text-accent);
-  font-size: 30px;
+  font-size: 26px;
   box-shadow: var(--app-shadow-floating);
 }
 

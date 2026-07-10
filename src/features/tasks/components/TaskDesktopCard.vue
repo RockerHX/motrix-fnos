@@ -48,9 +48,9 @@ const props = defineProps<{
 <style scoped>
 .task-desktop-card {
   min-width: 0;
-  min-height: 214px;
+  min-height: 152px;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-task-card-radius);
@@ -68,7 +68,7 @@ const props = defineProps<{
 
 .task-card-grip {
   transform: rotate(90deg);
-  font-size: 20px;
+  font-size: 16px;
   letter-spacing: 2px;
   line-height: 1;
 }
@@ -77,8 +77,8 @@ const props = defineProps<{
   min-width: 0;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 18px;
-  padding: 34px 26px 26px;
+  gap: 10px;
+  padding: 20px 22px 18px;
 }
 
 .task-card-header {
@@ -86,21 +86,21 @@ const props = defineProps<{
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: start;
-  gap: 24px;
+  gap: 16px;
 }
 
 .task-card-title-group {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .task-card-title {
   min-width: 0;
   overflow: hidden;
   color: var(--app-text-strong);
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 500;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -114,16 +114,16 @@ const props = defineProps<{
 }
 
 .task-card-error-slot {
-  min-height: 20px;
   min-width: 0;
+  min-height: 18px;
 }
 
 .task-card-error {
   overflow: hidden;
   margin: 0;
   color: var(--app-text-danger);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -137,9 +137,9 @@ const props = defineProps<{
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 20px;
+  gap: 16px;
   color: var(--app-text-secondary);
-  font-size: 18px;
+  font-size: 14px;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
 }

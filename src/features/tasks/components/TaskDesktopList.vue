@@ -28,10 +28,10 @@ const props = defineProps<{
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 20px;
+  gap: 14px;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 34px var(--app-desktop-content-gutter-x) 48px;
+  padding: 24px var(--app-desktop-content-gutter-x) 32px;
   scrollbar-gutter: stable;
 }
 

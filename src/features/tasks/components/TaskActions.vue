@@ -386,9 +386,9 @@ function emitDeleteConfirm() {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   max-width: 100%;
-  padding: 8px 14px;
+  padding: 5px 10px;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-radius-pill);
   background: var(--app-color-card-overlay-subtle);
@@ -405,7 +405,7 @@ function emitDeleteConfirm() {
   color: var(--app-text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 24px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
 }
