@@ -27,6 +27,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: server -> target
+          shared-key: rust-registry
           cache-targets: false
           cache-bin: false
           save-if: ${{ github.ref == 'refs/heads/main' }}

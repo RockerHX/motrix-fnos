@@ -6,13 +6,13 @@ on:
       scope:
         description: "Cache cleanup scope"
         required: true
-        default: all
+        default: non-main
         type: choice
         options:
           - all
           - non-main
   schedule:
-    - cron: "23 19 * * 0"
+    - cron: "23 19 1 * *"
 
 permissions:
   actions: write
@@ -26,7 +26,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          CACHE_SCOPE: ${{ inputs.scope || 'all' }}
+          CACHE_SCOPE: ${{ inputs.scope || 'non-main' }}
         run: |
           set -euo pipefail
           page=1
