@@ -6,6 +6,7 @@ import { useMobileLayout } from "../app/composables/useMobileLayout";
 import { useUpdateCheck } from "../features/about/composables/useUpdateCheck";
 import { useAria2Status } from "../features/diagnostics/composables/useAria2Status";
 import ExtensionsPlaceholder from "../features/extensions/components/ExtensionsPlaceholder.vue";
+import TaskBulkDeleteConfirmDialog from "../features/tasks/components/TaskBulkDeleteConfirmDialog.vue";
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileConfirmCoordinator.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
@@ -36,6 +37,7 @@ const showAbout = ref(false);
 const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
+const showBulkDeleteConfirm = ref(false);
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
@@ -67,6 +69,7 @@ const toolbar = useTaskToolbar({
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
 });
+const bulkDeleteTaskCount = computed(() => toolbar.deleteCandidates.value.length);
 const topbarActions = computed<TopbarActionStates>(() => ({
   create: {
     disabled: !toolbar.canCreate.value,
@@ -178,11 +181,33 @@ async function handleResumeVisibleTasks() {
   );
 }
 
+function handleDeleteVisibleTasks() {
+  if (!toolbar.canDeleteVisible.value) {
+    message.warning(t("task.bulk.noDeletable"));
+    return;
+  }
+
+  showBulkDeleteConfirm.value = true;
+}
+
+async function confirmDeleteVisibleTasks() {
+  try {
+    await runVisibleTaskBatch(
+      toolbar.deleteCandidates.value,
+      (task) => taskStore.deleteTask(task.id, false),
+      "task.bulk.deleteSuccess",
+      "task.bulk.noDeletable",
+    );
+  } finally {
+    showBulkDeleteConfirm.value = false;
+  }
+}
+
 async function runVisibleTaskBatch(
   candidates: DownloadTask[],
   operation: (task: DownloadTask) => Promise<unknown>,
-  successKey: "task.bulk.pauseSuccess" | "task.bulk.resumeSuccess",
-  emptyKey: "task.bulk.noPauseable" | "task.bulk.noResumable",
+  successKey: "task.bulk.pauseSuccess" | "task.bulk.resumeSuccess" | "task.bulk.deleteSuccess",
+  emptyKey: "task.bulk.noPauseable" | "task.bulk.noResumable" | "task.bulk.noDeletable",
 ) {
   if (candidates.length === 0) {
     message.warning(t(emptyKey));
@@ -253,6 +278,7 @@ onMounted(() => {
     @refresh="handleToolbarRefresh"
     @pause-visible="handlePauseVisibleTasks"
     @resume-visible="handleResumeVisibleTasks"
+    @delete-visible="handleDeleteVisibleTasks"
     @open-about="showAbout = true"
     @open-diagnostics="showDiagnostics = true"
     @open-help="showHelp = true"
@@ -286,6 +312,14 @@ onMounted(() => {
       >
         ＋
       </button>
+
+      <TaskBulkDeleteConfirmDialog
+        :show="showBulkDeleteConfirm"
+        :task-count="bulkDeleteTaskCount"
+        :is-loading="isToolbarBulkOperating"
+        @update:show="showBulkDeleteConfirm = $event"
+        @confirm="confirmDeleteVisibleTasks"
+      />
 
       <MainWindowDialogs
         :app-info="props.appInfo"
