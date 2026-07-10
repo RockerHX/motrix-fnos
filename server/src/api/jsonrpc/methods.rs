@@ -4,6 +4,7 @@ use super::types::{
     RpcFault,
 };
 use crate::app::HttpAppState;
+use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::ensure_aria2_ready;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -87,7 +88,8 @@ async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
     let config = ensure_aria2_ready(state)
         .await
         .map_err(RpcFault::server_error)?;
-    let status = crate::aria2::ping_rpc(&config, Some(&state.core.debug_logs)).await;
+    let status = crate::aria2::ping_rpc(&config, None).await;
+    emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
     if !status.connected {
         return Err(RpcFault::server_error(status.message));
     }

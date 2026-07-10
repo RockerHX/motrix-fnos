@@ -201,6 +201,14 @@ pub async fn refresh_tasks_from_aria2(
                                 };
                             remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
                             remove_temporary_magnet_gid(config, &gid, debug_logs).await;
+                            log_info(
+                                debug_logs,
+                                "tasks.magnet",
+                                format!(
+                                    "磁链 metadata 已解析完成，临时 GID {}，真实 GID {}，等待用户确认文件",
+                                    gid, followed_gid
+                                ),
+                            );
                             updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
                                 old_gid: gid,
                                 status: followed_status,

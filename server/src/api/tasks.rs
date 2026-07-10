@@ -168,6 +168,10 @@ async fn create_batch_tasks(
     let mut created = Vec::new();
     let mut failed = Vec::new();
     if urls.is_empty() {
+        state.core.debug_logs.warn(
+            "api.tasks",
+            "批量创建任务失败：请输入至少一个 HTTP / HTTPS 下载链接",
+        );
         failed.push(CreateBatchDownloadTaskFailure {
             input: String::new(),
             message: "请输入至少一个 HTTP / HTTPS 下载链接".to_string(),
@@ -214,7 +218,7 @@ async fn create_torrent_task(
     State(state): State<Arc<HttpAppState>>,
     multipart: Multipart,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let upload = parse_torrent_multipart(multipart).await?;
+    let upload = parse_torrent_multipart(multipart, &state).await?;
     let service = task_service(&state);
     service.ensure_not_exiting().map_err(classify_task_error)?;
     ensure_authorized_save_dir(&state, Some(&upload.request.save_dir))?;
@@ -248,13 +252,18 @@ struct ParsedTorrentUpload {
 
 async fn parse_torrent_multipart(
     mut multipart: Multipart,
+    state: &HttpAppState,
 ) -> Result<ParsedTorrentUpload, ApiError> {
     let mut file_name = None;
     let mut data = None;
     let mut request = None;
 
     while let Some(field) = multipart.next_field().await.map_err(|error| {
-        ApiError::bad_request("invalid_multipart", format!("上传表单无效：{}", error))
+        bad_request_with_log(
+            state,
+            "invalid_multipart",
+            format!("上传表单无效：{}", error),
+        )
     })? {
         let name = field.name().unwrap_or_default().to_string();
         match name.as_str() {
@@ -266,16 +275,22 @@ async fn parse_torrent_multipart(
                     .unwrap_or("download.torrent")
                     .to_string();
                 let bytes = field.bytes().await.map_err(|error| {
-                    ApiError::bad_request(
+                    bad_request_with_log(
+                        state,
                         "invalid_torrent_file",
                         format!("读取种子文件失败：{}", error),
                     )
                 })?;
                 if bytes.is_empty() {
-                    return Err(ApiError::bad_request("torrent_empty", "种子文件不能为空"));
+                    return Err(bad_request_with_log(
+                        state,
+                        "torrent_empty",
+                        "种子文件不能为空",
+                    ));
                 }
                 if bytes.len() > MAX_TORRENT_FILE_SIZE {
-                    return Err(ApiError::bad_request(
+                    return Err(bad_request_with_log(
+                        state,
                         "torrent_too_large",
                         "种子文件不能超过 10 MiB",
                     ));
@@ -285,14 +300,16 @@ async fn parse_torrent_multipart(
             }
             "request" => {
                 let text = field.text().await.map_err(|error| {
-                    ApiError::bad_request(
+                    bad_request_with_log(
+                        state,
                         "invalid_torrent_request",
                         format!("读取种子请求失败：{}", error),
                     )
                 })?;
                 request = Some(
                     serde_json::from_str::<CreateTorrentUploadRequest>(&text).map_err(|error| {
-                        ApiError::bad_request(
+                        bad_request_with_log(
+                            state,
                             "invalid_torrent_request",
                             format!("种子请求 JSON 无效：{}", error),
                         )
@@ -305,10 +322,11 @@ async fn parse_torrent_multipart(
 
     Ok(ParsedTorrentUpload {
         file_name: file_name
-            .ok_or_else(|| ApiError::bad_request("torrent_required", "请选择种子文件"))?,
-        data: data.ok_or_else(|| ApiError::bad_request("torrent_required", "请选择种子文件"))?,
+            .ok_or_else(|| bad_request_with_log(state, "torrent_required", "请选择种子文件"))?,
+        data: data
+            .ok_or_else(|| bad_request_with_log(state, "torrent_required", "请选择种子文件"))?,
         request: request.ok_or_else(|| {
-            ApiError::bad_request("torrent_request_required", "缺少种子任务请求参数")
+            bad_request_with_log(state, "torrent_request_required", "缺少种子任务请求参数")
         })?,
     })
 }
@@ -439,12 +457,20 @@ fn ensure_authorized_save_dir(
     let accessible_paths = super::storage::load_accessible_paths(state)?;
 
     if accessible_paths.is_empty() {
+        state
+            .core
+            .debug_logs
+            .warn("storage.auth", "保存目录校验失败：未检测到已授权目录");
         return Err(ApiError::bad_request(
             "no_accessible_paths",
             "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
         ));
     }
     if !accessible_paths.iter().any(|path| path == save_dir) {
+        state.core.debug_logs.warn(
+            "storage.auth",
+            format!("保存目录校验失败：未授权目录 {}", save_dir),
+        );
         return Err(ApiError::bad_request(
             "save_dir_not_authorized",
             "保存目录不在飞牛已授权目录列表中",
@@ -452,6 +478,19 @@ fn ensure_authorized_save_dir(
     }
 
     Ok(())
+}
+
+fn bad_request_with_log(
+    state: &HttpAppState,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> ApiError {
+    let message = message.into();
+    state
+        .core
+        .debug_logs
+        .warn("api.tasks", format!("任务接口请求校验失败：{}", message));
+    ApiError::bad_request(code, message)
 }
 
 fn classify_aria2_ready_error(error: String) -> ApiError {

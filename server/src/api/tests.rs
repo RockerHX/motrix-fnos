@@ -351,6 +351,37 @@ async fn storage_route_returns_accessible_paths_from_runtime_file() {
 }
 
 #[tokio::test]
+async fn task_route_logs_unauthorized_save_dir_failure() {
+    let state = test_state(None).await;
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        r#"{"paths":["/vol1/downloads"]}"#,
+    )
+    .expect("accessible paths file should write");
+    let app = router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &serde_json::json!({
+                "url": "https://example.com/file.iso",
+                "saveDir": "/vol1/not-authorized"
+            }),
+        ))
+        .await
+        .expect("response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert!(state.core.debug_logs.list().iter().any(|entry| {
+        entry.module == "storage.auth" && entry.message.contains("未授权目录")
+    }));
+}
+
+#[tokio::test]
 async fn debug_log_routes_list_and_clear_entries() {
     let state = test_state(None).await;
     state.core.debug_logs.info("test", "first");

@@ -1,8 +1,12 @@
 use super::resolve::{platform_binary_name, repo_debug_binary_path, resolve_aria2_binary_with};
+use super::start::wait_for_rpc_ready;
 use super::*;
 use crate::app::{ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
+use axum::routing::post;
+use axum::{Json, Router};
+use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
@@ -124,6 +128,48 @@ fn stop_process_succeeds_when_no_process_running() {
     assert_eq!(status.pid, None);
     assert_eq!(status.binary_source, None);
     assert_eq!(status.message, "Aria2 进程已停止");
+}
+
+#[tokio::test]
+async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock addr should exist")
+        .port();
+    let app = Router::new().route("/jsonrpc", post(mock_version_rpc));
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("mock should serve");
+    });
+    let mut config = sample_config();
+    config.rpc_port = port;
+    let store = DebugLogStore::default();
+
+    wait_for_rpc_ready(&config, &store, false)
+        .await
+        .expect("rpc should be ready");
+    assert!(!store
+        .list()
+        .iter()
+        .any(|entry| entry.message.contains("Aria2 RPC ready")));
+
+    wait_for_rpc_ready(&config, &store, true)
+        .await
+        .expect("rpc should be ready");
+    assert!(store
+        .list()
+        .iter()
+        .any(|entry| entry.module == "aria2.rpc" && entry.message.contains("Aria2 RPC ready")));
+}
+
+async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {
+    Json(json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-version-check",
+        "result": { "version": "2.4.9" }
+    }))
 }
 
 fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {

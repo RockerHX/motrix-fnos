@@ -3,12 +3,15 @@ use crate::database::tasks::persist_download_task_states;
 use crate::runtime::ensure_aria2_ready;
 use crate::tasks::{refresh_tasks_from_aria2, DownloadTask, DownloadTaskStatus};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const TASK_MONITOR_INTERVAL: Duration = Duration::from_millis(500);
+const TASK_MONITOR_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
 pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
     tokio::spawn(async move {
+        let mut last_error: Option<String> = None;
+        let mut last_error_logged_at: Option<Instant> = None;
         loop {
             tokio::time::sleep(TASK_MONITOR_INTERVAL).await;
             if state.core.shutdown.is_exiting() {
@@ -19,11 +22,30 @@ pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
                 break;
             }
 
-            if let Err(error) = monitor_tasks_once(&state).await {
-                state.core.debug_logs.warn(
-                    "runtime.monitor",
-                    format!("后台任务状态同步失败：{}", error),
-                );
+            match monitor_tasks_once(&state).await {
+                Ok(()) => {
+                    if last_error.take().is_some() {
+                        last_error_logged_at = None;
+                        state
+                            .core
+                            .debug_logs
+                            .info("runtime.monitor", "后台任务状态同步已恢复正常");
+                    }
+                }
+                Err(error) => {
+                    let should_log = last_error.as_deref() != Some(error.as_str())
+                        || last_error_logged_at
+                            .map(|logged_at| logged_at.elapsed() >= TASK_MONITOR_ERROR_LOG_INTERVAL)
+                            .unwrap_or(true);
+                    if should_log {
+                        last_error_logged_at = Some(Instant::now());
+                        state.core.debug_logs.warn(
+                            "runtime.monitor",
+                            format!("后台任务状态同步失败：{}", error),
+                        );
+                    }
+                    last_error = Some(error);
+                }
             }
         }
     });

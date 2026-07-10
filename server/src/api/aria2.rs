@@ -4,6 +4,7 @@ use crate::aria2::{
     generate_rpc_secret, ping_rpc, rpc_ports_exhausted_message, runtime_config,
     select_rpc_port_with_saved_runtime, Aria2ConfigStatus, SavedAria2Runtime,
 };
+use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::{
     process_status, resolve_aria2_binary, start_process, stop_process, Aria2ProcessStatus,
 };
@@ -30,7 +31,7 @@ async fn get_aria2_config_status(
         config.aria2_path = Some(resolved.path.display().to_string());
         config.binary_source = resolved.source;
     }
-    state.core.debug_logs.info("aria2", "读取 Aria2 配置状态");
+    emit_file_log(DebugLogLevel::Info, "aria2", "读取 Aria2 配置状态");
     Ok(Json(Aria2ConfigStatus::from_config(&config)))
 }
 
@@ -42,19 +43,20 @@ async fn get_aria2_process_status(
     if !status.running && status.pid.is_some() {
         state.clear_aria2_runtime();
     }
-    state
-        .core
-        .debug_logs
-        .info("aria2", format!("读取 Aria2 进程状态：{}", status.message));
+    emit_file_log(
+        DebugLogLevel::Info,
+        "aria2",
+        &format!("读取 Aria2 进程状态：{}", status.message),
+    );
     Ok(Json(status))
 }
 
 async fn get_aria2_rpc_status(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<crate::aria2::Aria2RpcStatus>, ApiError> {
-    Ok(Json(
-        ping_rpc(&state.aria2_config(), Some(&state.core.debug_logs)).await,
-    ))
+    let status = ping_rpc(&state.aria2_config(), None).await;
+    emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
+    Ok(Json(status))
 }
 
 async fn start_aria2_process(

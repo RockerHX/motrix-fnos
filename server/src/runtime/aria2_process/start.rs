@@ -7,7 +7,7 @@ use crate::aria2::{
     select_rpc_port_with_saved_runtime, summarize_args, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
-use crate::debug_logs::DebugLogStore;
+use crate::debug_logs::{emit_file_log, DebugLogLevel, DebugLogStore};
 use crate::state::Aria2RuntimeInfo;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::{Command, Stdio};
@@ -82,11 +82,13 @@ pub fn start_process(
 
 pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, String> {
     let process = process_status(&state.aria2_process)?;
+    let mut started_process = false;
     if !process.running {
         state
             .core
             .debug_logs
             .info("aria2", "Aria2 进程未运行，准备自动启动");
+        started_process = true;
         let base = state.base_aria2_config.clone();
         let saved_runtime = state.load_saved_aria2_runtime();
         let saved_runtime = saved_runtime.as_ref().map(saved_runtime_info);
@@ -116,7 +118,7 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
     }
 
     let config = state.aria2_config();
-    if let Err(error) = wait_for_rpc_ready(&config, &state.core.debug_logs).await {
+    if let Err(error) = wait_for_rpc_ready(&config, &state.core.debug_logs, started_process).await {
         let status = process_status(&state.aria2_process)?;
         if !status.running {
             state.clear_aria2_runtime();
@@ -134,9 +136,10 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
     Ok(config)
 }
 
-async fn wait_for_rpc_ready(
+pub(crate) async fn wait_for_rpc_ready(
     config: &Aria2Config,
     debug_logs: &DebugLogStore,
+    log_success_to_debug: bool,
 ) -> Result<(), String> {
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
@@ -145,10 +148,12 @@ async fn wait_for_rpc_ready(
     for attempt in 0..MAX_ATTEMPTS {
         let status = ping_rpc(config, None).await;
         if status.connected {
-            debug_logs.info(
-                "aria2.rpc",
-                format!("Aria2 RPC ready，第 {} 次检查成功", attempt + 1),
-            );
+            let message = format!("Aria2 RPC ready，第 {} 次检查成功", attempt + 1);
+            if log_success_to_debug {
+                debug_logs.info("aria2.rpc", message);
+            } else {
+                emit_file_log(DebugLogLevel::Info, "aria2.rpc", &message);
+            }
             return Ok(());
         }
 

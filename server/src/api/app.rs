@@ -1,5 +1,6 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
+use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -89,8 +90,8 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/app/update-check", get(check_update))
 }
 
-async fn get_app_info(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
-    state.core.debug_logs.info("app", "读取应用信息");
+async fn get_app_info(State(_state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
+    emit_file_log(DebugLogLevel::Info, "app", "读取应用信息");
     Ok(Json(AppInfo {
         name: APP_NAME.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -104,9 +105,9 @@ async fn get_app_info(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
 }
 
 async fn ping_backend(
-    State(state): State<Arc<HttpAppState>>,
+    State(_state): State<Arc<HttpAppState>>,
 ) -> Result<Json<BackendPing>, ApiError> {
-    state.core.debug_logs.info("app", "Rust 后端通信检查成功");
+    emit_file_log(DebugLogLevel::Info, "app", "Rust 后端通信检查成功");
     Ok(Json(BackendPing {
         ok: true,
         message: "Rust 后端通信正常".to_string(),

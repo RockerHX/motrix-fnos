@@ -3,8 +3,11 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing_subscriber::EnvFilter;
 
 pub const DEFAULT_DEBUG_LOG_CAPACITY: usize = 500;
+pub const LOG_FILTER_ENV: &str = "MOTRIX_FNOS_LOG";
+const DEFAULT_LOG_FILTER: &str = "info";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -14,14 +17,29 @@ pub enum DebugLogLevel {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DebugLogCategory {
+    App,
+    Task,
+    Aria2,
+    Settings,
+    Storage,
+    Api,
+    Runtime,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DebugLogEntry {
     pub id: u64,
     pub timestamp_ms: u64,
+    pub last_timestamp_ms: u64,
     pub level: DebugLogLevel,
+    pub category: DebugLogCategory,
     pub module: String,
     pub message: String,
+    pub repeat_count: u32,
 }
 
 #[derive(Debug)]
@@ -29,6 +47,15 @@ pub struct DebugLogStore {
     capacity: usize,
     next_id: AtomicU64,
     entries: Mutex<VecDeque<DebugLogEntry>>,
+}
+
+pub fn init_tracing() {
+    let filter = std::env::var(LOG_FILTER_ENV).unwrap_or_else(|_| DEFAULT_LOG_FILTER.to_string());
+    let filter = EnvFilter::try_new(filter).unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .try_init();
 }
 
 impl Default for DebugLogStore {
@@ -72,15 +99,28 @@ impl DebugLogStore {
             return;
         }
 
-        let entry = DebugLogEntry {
-            id: self.next_id.fetch_add(1, Ordering::Relaxed),
-            timestamp_ms: current_timestamp_ms(),
-            level,
-            module,
-            message,
-        };
+        let timestamp_ms = current_timestamp_ms();
 
         if let Ok(mut entries) = self.entries.lock() {
+            if let Some(last) = entries.back_mut() {
+                if last.level == level && last.module == module && last.message == message {
+                    last.last_timestamp_ms = timestamp_ms;
+                    last.repeat_count = last.repeat_count.saturating_add(1);
+                    return;
+                }
+            }
+
+            let entry = DebugLogEntry {
+                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                timestamp_ms,
+                last_timestamp_ms: timestamp_ms,
+                level,
+                category: infer_category(&module),
+                module,
+                message,
+                repeat_count: 1,
+            };
+
             while entries.len() >= self.capacity {
                 entries.pop_front();
             }
@@ -102,11 +142,27 @@ impl DebugLogStore {
     }
 
     fn emit_tracing_event(&self, level: DebugLogLevel, module: &str, message: &str) {
-        match level {
-            DebugLogLevel::Info => tracing::info!(module = module, "{}", message),
-            DebugLogLevel::Warn => tracing::warn!(module = module, "{}", message),
-            DebugLogLevel::Error => tracing::error!(module = module, "{}", message),
-        }
+        emit_file_log(level, module, message);
+    }
+}
+
+pub fn emit_file_log(level: DebugLogLevel, module: &str, message: &str) {
+    match level {
+        DebugLogLevel::Info => tracing::info!(module = module, "{}", message),
+        DebugLogLevel::Warn => tracing::warn!(module = module, "{}", message),
+        DebugLogLevel::Error => tracing::error!(module = module, "{}", message),
+    }
+}
+
+fn infer_category(module: &str) -> DebugLogCategory {
+    match module.split('.').next().unwrap_or(module) {
+        "tasks" => DebugLogCategory::Task,
+        "aria2" => DebugLogCategory::Aria2,
+        "settings" => DebugLogCategory::Settings,
+        "storage" => DebugLogCategory::Storage,
+        "api" => DebugLogCategory::Api,
+        "runtime" => DebugLogCategory::Runtime,
+        _ => DebugLogCategory::App,
     }
 }
 
@@ -160,5 +216,32 @@ mod tests {
         assert!(entries
             .windows(2)
             .all(|window| window[0].timestamp_ms <= window[1].timestamp_ms));
+    }
+
+    #[test]
+    fn store_collapses_consecutive_duplicate_entries() {
+        let store = DebugLogStore::new(3);
+
+        store.warn("aria2.rpc", "same");
+        store.warn("aria2.rpc", "same");
+        store.warn("aria2.rpc", "same");
+
+        let entries = store.list();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].repeat_count, 3);
+        assert_eq!(entries[0].category, DebugLogCategory::Aria2);
+        assert!(entries[0].last_timestamp_ms >= entries[0].timestamp_ms);
+    }
+
+    #[test]
+    fn store_serializes_category_and_repeat_fields() {
+        let store = DebugLogStore::new(2);
+        store.error("tasks.create", "failed");
+
+        let value = serde_json::to_value(store.list().remove(0)).expect("log should serialize");
+
+        assert_eq!(value["category"], "task");
+        assert_eq!(value["repeatCount"], 1);
+        assert!(value["lastTimestampMs"].as_u64().is_some());
     }
 }
