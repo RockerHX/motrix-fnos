@@ -9,6 +9,11 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  create: [];
+  refresh: [];
+  pauseVisible: [];
+  resumeVisible: [];
+  deleteVisible: [];
   openAbout: [];
   openDiagnostics: [];
   openHelp: [];
@@ -17,6 +22,26 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const activeCategoryLabel = computed(() => t(getMainNavLabelKey(props.activeCategory)));
+
+function createTask() {
+  emit("create");
+}
+
+function refreshTasks() {
+  emit("refresh");
+}
+
+function pauseVisibleTasks() {
+  emit("pauseVisible");
+}
+
+function resumeVisibleTasks() {
+  emit("resumeVisible");
+}
+
+function deleteVisibleTasks() {
+  emit("deleteVisible");
+}
 
 function openAbout() {
   emit("openAbout");
@@ -42,6 +67,40 @@ function openSettings() {
       <strong>{{ activeCategoryLabel }}</strong>
     </div>
     <div class="topbar-actions desktop-actions">
+      <button
+        type="button"
+        class="topbar-primary-button"
+        :title="t('topbar.create')"
+        :aria-label="t('topbar.create')"
+        @click="createTask"
+      >
+        ＋
+      </button>
+      <button type="button" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="refreshTasks">↻</button>
+      <button
+        type="button"
+        :title="t('topbar.pauseVisible')"
+        :aria-label="t('topbar.pauseVisible')"
+        @click="pauseVisibleTasks"
+      >
+        Ⅱ
+      </button>
+      <button
+        type="button"
+        :title="t('topbar.resumeVisible')"
+        :aria-label="t('topbar.resumeVisible')"
+        @click="resumeVisibleTasks"
+      >
+        ▶
+      </button>
+      <button
+        type="button"
+        :title="t('topbar.deleteVisible')"
+        :aria-label="t('topbar.deleteVisible')"
+        @click="deleteVisibleTasks"
+      >
+        ×
+      </button>
       <details class="topbar-more">
         <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">⋯</summary>
         <div class="topbar-menu" role="menu" :aria-label="t('topbar.more')">
@@ -124,6 +183,24 @@ function openSettings() {
   color: var(--app-text-strong);
   background: var(--app-color-card-overlay);
   outline: none;
+}
+
+.topbar-actions > .topbar-primary-button {
+  width: var(--app-toolbar-primary-button-size);
+  min-width: var(--app-toolbar-primary-button-size);
+  height: var(--app-toolbar-primary-button-size);
+  min-height: var(--app-toolbar-primary-button-size);
+  border-radius: var(--app-radius-pill);
+  color: #101710;
+  background: var(--app-text-accent);
+  font-size: 30px;
+  box-shadow: var(--app-shadow-floating);
+}
+
+.topbar-actions > .topbar-primary-button:hover,
+.topbar-actions > .topbar-primary-button:focus-visible {
+  color: #101710;
+  background: var(--app-text-accent-soft);
 }
 
 .topbar-more {

@@ -38,6 +38,10 @@ const zhCN = {
   "topbar.sort": "排序",
   "topbar.diagnostics": "诊断",
   "topbar.more": "更多",
+  "topbar.create": "新建任务",
+  "topbar.pauseVisible": "暂停当前可见任务",
+  "topbar.resumeVisible": "继续当前可见任务",
+  "topbar.deleteVisible": "删除当前可见任务",
 
   "about.eyebrow": "About",
   "about.title": "关于 {name}",
@@ -331,6 +335,10 @@ const enUS: Record<keyof typeof zhCN, string> = {
   "topbar.sort": "Sort",
   "topbar.diagnostics": "Diagnostics",
   "topbar.more": "More",
+  "topbar.create": "Create task",
+  "topbar.pauseVisible": "Pause visible tasks",
+  "topbar.resumeVisible": "Resume visible tasks",
+  "topbar.deleteVisible": "Delete visible tasks",
 
   "about.eyebrow": "About",
   "about.title": "About {name}",

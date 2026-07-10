@@ -10,12 +10,37 @@ defineProps<{
 }>();
 
 const emit = defineEmits<{
+  create: [];
+  refresh: [];
+  pauseVisible: [];
+  resumeVisible: [];
+  deleteVisible: [];
   openAbout: [];
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
 }>();
+
+function createTask() {
+  emit("create");
+}
+
+function refreshTasks() {
+  emit("refresh");
+}
+
+function pauseVisibleTasks() {
+  emit("pauseVisible");
+}
+
+function resumeVisibleTasks() {
+  emit("resumeVisible");
+}
+
+function deleteVisibleTasks() {
+  emit("deleteVisible");
+}
 
 function openAbout() {
   emit("openAbout");
@@ -53,6 +78,11 @@ function selectCategory(category: MainNavCategory) {
     <section class="main-area shell-main-area">
       <Topbar
         :active-category="activeCategory"
+        @create="createTask"
+        @refresh="refreshTasks"
+        @pause-visible="pauseVisibleTasks"
+        @resume-visible="resumeVisibleTasks"
+        @delete-visible="deleteVisibleTasks"
         @open-about="openAbout"
         @open-diagnostics="openDiagnostics"
         @open-help="openHelp"
