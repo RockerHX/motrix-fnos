@@ -43,13 +43,13 @@ const progressFillStyle = computed(() => ({
 
 .progress-track {
   overflow: hidden;
-  height: 6px;
+  height: 5px;
   border-radius: var(--app-radius-pill);
-  background: color-mix(in srgb, var(--app-task-progress-track) 76%, transparent);
+  background: color-mix(in srgb, var(--app-task-progress-track) 58%, transparent);
 }
 
 .task-progress-bar--card .progress-track {
-  height: 5px;
+  height: 4px;
 }
 
 .progress-fill {
@@ -58,8 +58,8 @@ const progressFillStyle = computed(() => ({
   border-radius: inherit;
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, #78c8f0 72%, var(--app-color-surface-elevated)),
-    var(--app-text-accent-soft)
+    color-mix(in srgb, var(--app-text-accent-soft) 56%, var(--app-color-surface-elevated)),
+    color-mix(in srgb, var(--app-text-accent-soft) 76%, var(--app-color-surface-elevated))
   );
   transform-origin: left center;
   transition-property: transform;

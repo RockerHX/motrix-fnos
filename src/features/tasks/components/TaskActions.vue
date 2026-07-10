@@ -76,7 +76,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showDetails = true"
     >
-      <AppIcon name="info" :size="15" />
+      <AppIcon name="info" :size="14" />
     </button>
     <button
       v-if="props.permissions.canPause"
@@ -89,7 +89,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
-      <AppIcon name="pause" :size="15" />
+      <AppIcon name="pause" :size="14" />
     </button>
     <button
       v-if="props.permissions.canResume"
@@ -102,7 +102,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
-      <AppIcon name="play" :size="15" />
+      <AppIcon name="play" :size="14" />
     </button>
     <button
       v-if="props.permissions.canConfirmFiles"
@@ -115,7 +115,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('confirmFiles')"
     >
-      <AppIcon name="confirm" :size="15" />
+      <AppIcon name="confirm" :size="14" />
     </button>
     <button
       v-if="props.permissions.canRedownload"
@@ -126,7 +126,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showRedownloadConfirm = true"
     >
-      <AppIcon name="redownload" :size="15" />
+      <AppIcon name="redownload" :size="14" />
     </button>
     <button
       v-if="props.permissions.canDelete"
@@ -137,7 +137,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
-      <AppIcon name="delete" :size="15" />
+      <AppIcon name="delete" :size="14" />
     </button>
     <button
       v-if="props.permissions.canPermanentDelete"
@@ -150,7 +150,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
     >
-      <AppIcon name="permanentDelete" :size="15" />
+      <AppIcon name="permanentDelete" :size="14" />
     </button>
   </div>
   <div v-else-if="props.compact" class="compact-actions">
@@ -387,17 +387,17 @@ function emitDeleteConfirm() {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 3px;
   max-width: 100%;
-  padding: 2px 6px;
+  padding: 1px 4px;
   border: 1px solid color-mix(in srgb, var(--app-color-border-subtle) 76%, transparent);
   border-radius: var(--app-radius-pill);
-  background: rgba(255, 255, 255, 0.018);
+  background: rgba(255, 255, 255, 0.012);
 }
 
 .icon-action {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: inline-grid;
   place-items: center;
   border: 0;
@@ -406,10 +406,10 @@ function emitDeleteConfirm() {
   color: var(--app-text-dim);
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.68;
+  opacity: 0.62;
 }
 
 .icon-action:hover,

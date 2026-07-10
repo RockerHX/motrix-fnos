@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AppIcon from "../../../components/AppIcon.vue";
 import { useI18n } from "../../../i18n";
 
 const { t } = useI18n();
@@ -39,7 +40,7 @@ function openSettings() {
     <div class="empty-box" aria-hidden="true">
       <div class="box-lid" />
       <div class="box-body">
-        <span>+</span>
+        <span><AppIcon name="plus" :size="16" /></span>
       </div>
     </div>
     <h1>{{ props.title || t("empty.default.title") }}</h1>
@@ -54,7 +55,7 @@ function openSettings() {
         :disabled="props.disableCreateAction"
         @click="createTask"
       >
-        <span>＋</span>
+        <AppIcon name="plus" :size="14" />
         {{ t("empty.create") }}
       </button>
       <button
@@ -65,7 +66,7 @@ function openSettings() {
         :aria-label="t('empty.openSettings')"
         @click="openSettings"
       >
-        <span>⚙</span>
+        <AppIcon name="settings" :size="14" />
         {{ t("empty.openSettings") }}
       </button>
     </div>
@@ -78,64 +79,62 @@ function openSettings() {
   display: grid;
   justify-items: center;
   align-content: center;
-  padding-bottom: 24px;
+  padding-bottom: 18px;
   text-align: center;
 }
 
 .empty-box {
   position: relative;
-  width: 120px;
-  height: 120px;
-  margin-bottom: 44px;
-  color: #565e55;
+  width: 88px;
+  height: 88px;
+  margin-bottom: 28px;
+  color: color-mix(in srgb, var(--app-text-muted) 38%, transparent);
 }
 
 .box-lid {
   position: absolute;
-  left: 20px;
-  top: 6px;
-  width: 78px;
-  height: 32px;
-  border: 4px solid #3d423d;
+  left: 15px;
+  top: 5px;
+  width: 58px;
+  height: 24px;
+  border: 3px solid color-mix(in srgb, var(--app-text-muted) 28%, transparent);
   border-bottom: 0;
   transform: skewX(-38deg);
 }
 
 .box-body {
   position: absolute;
-  left: 10px;
-  top: 34px;
-  width: 100px;
-  height: 88px;
+  left: 8px;
+  top: 27px;
+  width: 72px;
+  height: 62px;
   display: grid;
   place-items: center;
-  border: 4px solid #3d423d;
-  border-radius: 0 0 18px 18px;
+  border: 3px solid color-mix(in srgb, var(--app-text-muted) 28%, transparent);
+  border-radius: 0 0 14px 14px;
 }
 
 .box-body span {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   color: #101710;
-  background: #68ae5a;
-  font-size: 26px;
-  font-weight: 700;
+  background: var(--app-text-accent);
   line-height: 1;
 }
 
 .empty-guide h1 {
-  margin: 0 0 14px;
-  color: #f1f2ed;
-  font-size: 24px;
+  margin: 0 0 10px;
+  color: var(--app-text-strong);
+  font-size: 20px;
   font-weight: 400;
 }
 
 .empty-guide p {
-  max-width: 360px;
-  margin: 0 0 30px;
+  max-width: 340px;
+  margin: 0 0 22px;
   color: var(--app-text-muted);
   font-size: 14px;
   line-height: 1.5;
@@ -144,7 +143,7 @@ function openSettings() {
 .empty-actions {
   display: flex;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 button {
@@ -153,10 +152,14 @@ button {
 
 .primary,
 .secondary {
-  min-width: 118px;
+  min-width: 104px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border-radius: 7px;
-  padding: 10px 18px;
-  font-size: 16px;
+  padding: 8px 14px;
+  font-size: 14px;
   cursor: pointer;
 }
 
@@ -180,13 +183,14 @@ button {
 
 @media (min-width: 768px) {
   .empty-guide {
+    align-content: start;
     justify-items: start;
-    padding: 0 var(--app-desktop-content-gutter-x) 24px;
+    padding: min(22vh, 180px) var(--app-desktop-content-gutter-x) 24px;
     text-align: left;
   }
 
   .empty-actions {
-    justify-content: flex-start;
+    display: none;
   }
 }
 

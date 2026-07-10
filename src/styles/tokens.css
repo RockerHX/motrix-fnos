@@ -25,17 +25,17 @@
   --app-radius-xl: 18px;
   --app-radius-pill: 999px;
 
-  --app-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.18);
+  --app-shadow-card: 0 4px 14px rgba(0, 0, 0, 0.14);
   --app-shadow-floating: 0 10px 30px rgba(0, 0, 0, 0.35);
   --app-shadow-hero: 0 18px 50px rgba(0, 0, 0, 0.3);
 
-  --app-desktop-sidebar-width: clamp(220px, 16vw, 260px);
-  --app-desktop-topbar-height: 88px;
-  --app-desktop-content-gutter-x: 48px;
-  --app-toolbar-button-size: 34px;
-  --app-toolbar-primary-button-size: 44px;
+  --app-desktop-sidebar-width: clamp(184px, 14vw, 220px);
+  --app-desktop-topbar-height: 68px;
+  --app-desktop-content-gutter-x: 36px;
+  --app-toolbar-button-size: 30px;
+  --app-toolbar-primary-button-size: 38px;
   --app-task-card-radius: 10px;
-  --app-task-progress-track: rgba(255, 255, 255, 0.14);
+  --app-task-progress-track: rgba(255, 255, 255, 0.1);
 
   --app-dialog-width: 720px;
   --app-dialog-desktop-margin: 48px;

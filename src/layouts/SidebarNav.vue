@@ -52,7 +52,7 @@ function selectCategory(category: MainNavCategory) {
         :aria-label="t(item.labelKey)"
         @click="selectCategory(item.key)"
       >
-        <AppIcon class="nav-icon" :name="item.iconName" :size="18" />
+        <AppIcon class="nav-icon" :name="item.iconName" size="1em" />
         <span class="nav-label">{{ t(item.labelKey) }}</span>
       </button>
     </nav>
@@ -79,19 +79,19 @@ function selectCategory(category: MainNavCategory) {
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 26px 10px 18px;
+  padding: 18px 8px 14px;
   border-right: 1px solid var(--app-color-border-subtle);
   background: var(--app-color-shell);
 }
 
 .sidebar-heading {
-  padding: 0 6px 18px;
+  padding: 0 8px 14px;
 }
 
 .sidebar-heading strong {
   display: block;
   color: var(--app-text-strong);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1.2;
 }
@@ -100,7 +100,7 @@ function selectCategory(category: MainNavCategory) {
 .sidebar-footer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .category-list button,
@@ -108,37 +108,37 @@ function selectCategory(category: MainNavCategory) {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 9px;
   width: 100%;
-  min-height: 46px;
+  min-height: 40px;
   border: 0;
-  border-radius: 8px;
-  padding: 7px 14px;
+  border-radius: 7px;
+  padding: 6px 12px;
   color: var(--app-text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   text-align: left;
   cursor: pointer;
 }
 
 .category-list button.active {
   color: var(--app-text-strong);
-  background: rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.026);
 }
 
 .category-list button:hover,
 .category-list button:focus-visible {
   color: var(--app-text-strong);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.028);
   outline: none;
 }
 
 .category-list button.active::before {
   position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 6px;
+  top: 10px;
+  bottom: 10px;
+  left: 5px;
   width: 2px;
   border-radius: var(--app-radius-pill);
   background: var(--app-text-accent-soft);
@@ -146,14 +146,14 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .nav-spaced {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .nav-icon {
-  width: 20px;
+  width: 18px;
   color: currentColor;
   text-align: center;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 

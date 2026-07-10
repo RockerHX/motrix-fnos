@@ -101,7 +101,7 @@ function openSettings() {
         :aria-label="t('topbar.create')"
         @click="createTask"
       >
-        <AppIcon name="plus" :size="24" />
+        <AppIcon name="plus" :size="20" />
       </button>
       <button
         type="button"
@@ -110,7 +110,7 @@ function openSettings() {
         :aria-label="t('common.refresh')"
         @click="refreshTasks"
       >
-        <AppIcon name="refresh" :size="18" />
+        <AppIcon name="refresh" :size="16" />
       </button>
       <button
         type="button"
@@ -119,7 +119,7 @@ function openSettings() {
         :aria-label="t('topbar.pauseVisible')"
         @click="pauseVisibleTasks"
       >
-        <AppIcon name="pause" :size="18" />
+        <AppIcon name="pause" :size="16" />
       </button>
       <button
         type="button"
@@ -128,7 +128,7 @@ function openSettings() {
         :aria-label="t('topbar.resumeVisible')"
         @click="resumeVisibleTasks"
       >
-        <AppIcon name="play" :size="18" />
+        <AppIcon name="play" :size="16" />
       </button>
       <button
         type="button"
@@ -137,11 +137,11 @@ function openSettings() {
         :aria-label="t('topbar.deleteVisible')"
         @click="deleteVisibleTasks"
       >
-        <AppIcon name="close" :size="18" />
+        <AppIcon name="close" :size="16" />
       </button>
       <details class="topbar-more">
         <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">
-          <AppIcon name="more" :size="18" />
+          <AppIcon name="more" :size="16" />
         </summary>
         <div class="topbar-menu" role="menu" :aria-label="t('topbar.more')">
           <button type="button" role="menuitem" @click="openSettings">{{ t("nav.settings") }}</button>
@@ -185,7 +185,7 @@ function openSettings() {
 
 .topbar-title strong {
   color: var(--app-text-strong);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
@@ -194,7 +194,7 @@ function openSettings() {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .topbar-actions > button,
@@ -206,12 +206,12 @@ function openSettings() {
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: var(--app-radius-sm);
+  border-radius: 9px;
   padding: 0;
   color: var(--app-text-muted);
   background: transparent;
   font: inherit;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
@@ -243,8 +243,8 @@ function openSettings() {
   border-radius: var(--app-radius-pill);
   color: #101710;
   background: var(--app-text-accent);
-  font-size: 24px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  font-size: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
 }
 
 .topbar-actions > .topbar-primary-button:hover,
@@ -275,9 +275,9 @@ function openSettings() {
 .topbar-menu {
   position: absolute;
   z-index: 10;
-  top: calc(100% + 10px);
+  top: calc(100% + 8px);
   right: 0;
-  min-width: 168px;
+  min-width: 152px;
   display: grid;
   gap: 4px;
   padding: 8px;
@@ -288,14 +288,14 @@ function openSettings() {
 }
 
 .topbar-menu button {
-  min-height: 38px;
+  min-height: 34px;
   border: 0;
   border-radius: 8px;
   padding: 8px 10px;
   color: var(--app-text-secondary);
   background: transparent;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
 }

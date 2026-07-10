@@ -47,9 +47,9 @@ const props = defineProps<{
 <style scoped>
 .task-desktop-card {
   min-width: 0;
-  min-height: 108px;
+  min-height: 86px;
   display: grid;
-  grid-template-columns: 5px minmax(0, 1fr);
+  grid-template-columns: 4px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-task-card-radius);
@@ -86,8 +86,8 @@ const props = defineProps<{
   min-width: 0;
   display: grid;
   grid-template-rows: auto auto auto;
-  gap: 7px;
-  padding: 13px 16px 11px;
+  gap: 5px;
+  padding: 10px 14px;
 }
 
 .task-card-header {
@@ -95,28 +95,28 @@ const props = defineProps<{
   display: grid;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-card-title-group {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 
 .task-card-title-group :deep(.n-tag) {
-  --n-height: 20px;
-  --n-font-size: 11px;
+  --n-height: 18px;
+  --n-font-size: 10px;
   --n-border-radius: var(--app-radius-pill);
-  opacity: 0.72;
+  opacity: 0.62;
 }
 
 .task-card-title {
   min-width: 0;
   overflow: hidden;
   color: var(--app-text-strong);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.25;
   text-overflow: ellipsis;
@@ -127,7 +127,7 @@ const props = defineProps<{
   min-width: 0;
   display: flex;
   justify-content: flex-end;
-  opacity: 0.58;
+  opacity: 0.42;
   transition: opacity var(--app-transition-fast);
 }
 
@@ -139,13 +139,14 @@ const props = defineProps<{
 .task-card-body {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) max-content;
+  grid-template-columns: minmax(180px, min(58vw, 680px)) max-content;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .task-card-progress {
   min-width: 0;
+  max-width: 680px;
 }
 
 .task-card-meta {
@@ -153,7 +154,7 @@ const props = defineProps<{
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 14px;
+  gap: 12px;
   color: var(--app-text-muted);
   font-size: 11px;
   line-height: 1.35;
@@ -167,7 +168,7 @@ const props = defineProps<{
 
 .task-card-error-slot {
   min-width: 0;
-  min-height: 15px;
+  min-height: 0;
 }
 
 .task-card-error {
@@ -180,15 +181,9 @@ const props = defineProps<{
   white-space: nowrap;
 }
 
-@media (max-width: 1180px) {
-  .task-card-header,
+@media (max-width: 900px) {
   .task-card-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .task-card-actions {
-    max-width: 100%;
-    justify-content: flex-start;
   }
 
   .task-card-meta {
