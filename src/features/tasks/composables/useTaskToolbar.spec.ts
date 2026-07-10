@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { ref } from "vue";
-import { useTaskToolbar } from "./useTaskToolbar";
+import { runTaskToolbarBatch, useTaskToolbar } from "./useTaskToolbar";
 import type { MainNavCategory } from "../../../types/navigation";
+import type { DownloadTask } from "../../../types/tasks";
 
 describe("useTaskToolbar", () => {
   it("enables create only for task categories while runtime is active", () => {
@@ -35,4 +36,74 @@ describe("useTaskToolbar", () => {
     isRuntimeExiting.value = true;
     expect(toolbar.canRefresh.value).toBe(false);
   });
+
+  it("filters visible pause and resume candidates", () => {
+    const activeCategory = ref<MainNavCategory>("downloading");
+    const isRuntimeExiting = ref(false);
+    const isBulkOperating = ref(false);
+    const visibleTasks = ref<DownloadTask[]>([
+      createTask({ id: 1, status: "active" }),
+      createTask({ id: 2, status: "pending" }),
+      createTask({ id: 3, status: "paused" }),
+      createTask({ id: 4, status: "error" }),
+      createTask({ id: 5, status: "paused", confirmationRequired: true }),
+      createTask({ id: 6, status: "complete" }),
+    ]);
+    const toolbar = useTaskToolbar({
+      activeCategory,
+      isRuntimeExiting,
+      visibleTasks,
+      isBulkOperating,
+      isTaskOperating: (taskId) => taskId === 2,
+    });
+
+    expect(toolbar.pauseCandidates.value.map((task) => task.id)).toEqual([1]);
+    expect(toolbar.resumeCandidates.value.map((task) => task.id)).toEqual([3, 4]);
+    expect(toolbar.canPauseVisible.value).toBe(true);
+    expect(toolbar.canResumeVisible.value).toBe(true);
+
+    isBulkOperating.value = true;
+    expect(toolbar.canPauseVisible.value).toBe(false);
+    expect(toolbar.canResumeVisible.value).toBe(false);
+  });
+
+  it("runs task batches serially and continues after failures", async () => {
+    const visited: number[] = [];
+    const result = await runTaskToolbarBatch(
+      [createTask({ id: 1 }), createTask({ id: 2 }), createTask({ id: 3 })],
+      async (task) => {
+        visited.push(task.id);
+        if (task.id === 2) {
+          throw new Error("failed");
+        }
+      },
+    );
+
+    expect(visited).toEqual([1, 2, 3]);
+    expect(result).toEqual({ successCount: 2, failureCount: 1 });
+  });
 });
+
+function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
+  return {
+    id: 1,
+    url: "https://example.com/file.iso",
+    fileName: "file.iso",
+    saveDir: "/downloads",
+    category: "默认",
+    gid: "gid-1",
+    status: "active",
+    totalLength: 100,
+    completedLength: 0,
+    downloadSpeed: 0,
+    errorCode: null,
+    errorMessage: null,
+    filePath: null,
+    metadataTorrentPath: null,
+    confirmationRequired: false,
+    files: [],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
+  };
+}

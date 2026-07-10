@@ -11,13 +11,14 @@ import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileCon
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
-import { useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
+import { runTaskToolbarBatch, useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useI18n } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
+import type { DownloadTask } from "../types/tasks";
 const props = defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
@@ -34,6 +35,7 @@ const showAbout = ref(false);
 const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
+const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
   message,
@@ -59,7 +61,10 @@ const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
 });
 const toolbar = useTaskToolbar({
   activeCategory,
+  visibleTasks,
   isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
+  isBulkOperating: isToolbarBulkOperating,
+  isTaskOperating: taskStore.isTaskOperating,
 });
 
 function openCreateDialog() {
@@ -94,6 +99,49 @@ async function handleToolbarRefresh() {
   }
 
   await refreshTasks(true);
+}
+
+async function handlePauseVisibleTasks() {
+  await runVisibleTaskBatch(
+    toolbar.pauseCandidates.value,
+    (task) => taskStore.pauseTask(task.id),
+    "task.bulk.pauseSuccess",
+    "task.bulk.noPauseable",
+  );
+}
+
+async function handleResumeVisibleTasks() {
+  await runVisibleTaskBatch(
+    toolbar.resumeCandidates.value,
+    (task) => taskStore.resumeTask(task.id),
+    "task.bulk.resumeSuccess",
+    "task.bulk.noResumable",
+  );
+}
+
+async function runVisibleTaskBatch(
+  candidates: DownloadTask[],
+  operation: (task: DownloadTask) => Promise<unknown>,
+  successKey: "task.bulk.pauseSuccess" | "task.bulk.resumeSuccess",
+  emptyKey: "task.bulk.noPauseable" | "task.bulk.noResumable",
+) {
+  if (candidates.length === 0) {
+    message.warning(t(emptyKey));
+    return;
+  }
+
+  isToolbarBulkOperating.value = true;
+  try {
+    const result = await runTaskToolbarBatch(candidates, operation);
+    if (result.successCount > 0) {
+      message.success(t(successKey, { count: result.successCount }));
+    }
+    if (result.failureCount > 0) {
+      message.error(t("task.bulk.partialFailed", { count: result.failureCount }));
+    }
+  } finally {
+    isToolbarBulkOperating.value = false;
+  }
 }
 
 function selectCategory(category: MainNavCategory) {
@@ -143,6 +191,8 @@ onMounted(() => {
     :active-category="activeCategory"
     @create="handleToolbarCreate"
     @refresh="handleToolbarRefresh"
+    @pause-visible="handlePauseVisibleTasks"
+    @resume-visible="handleResumeVisibleTasks"
     @open-about="showAbout = true"
     @open-diagnostics="showDiagnostics = true"
     @open-help="showHelp = true"

@@ -1,23 +1,81 @@
 import { computed, type Ref } from "vue";
 import type { MainNavCategory } from "../../../types/navigation";
+import type { DownloadTask } from "../../../types/tasks";
 
 interface UseTaskToolbarOptions {
   activeCategory: Ref<MainNavCategory>;
   isRuntimeExiting: Ref<boolean>;
+  visibleTasks?: Ref<DownloadTask[]>;
+  isTaskOperating?: (taskId: number) => boolean;
+  isBulkOperating?: Ref<boolean>;
+}
+
+export interface TaskToolbarBatchResult {
+  successCount: number;
+  failureCount: number;
 }
 
 const createEnabledCategories: MainNavCategory[] = ["downloading", "completed", "stopped"];
 
-export function useTaskToolbar({ activeCategory, isRuntimeExiting }: UseTaskToolbarOptions) {
+export function useTaskToolbar({
+  activeCategory,
+  isRuntimeExiting,
+  visibleTasks,
+  isTaskOperating = () => false,
+  isBulkOperating,
+}: UseTaskToolbarOptions) {
+  const pauseCandidates = computed(() =>
+    (visibleTasks?.value ?? []).filter(
+      (task) => (task.status === "active" || task.status === "pending") && !isTaskOperating(task.id),
+    ),
+  );
+  const resumeCandidates = computed(() =>
+    (visibleTasks?.value ?? []).filter(
+      (task) =>
+        !task.confirmationRequired &&
+        (task.status === "paused" || task.status === "error") &&
+        !isTaskOperating(task.id),
+    ),
+  );
+  const isBusy = computed(() => Boolean(isBulkOperating?.value));
   const canCreate = computed(
     () => !isRuntimeExiting.value && createEnabledCategories.includes(activeCategory.value),
   );
   const canRefresh = computed(
     () => !isRuntimeExiting.value && activeCategory.value !== "extensions",
   );
+  const canPauseVisible = computed(
+    () => !isRuntimeExiting.value && !isBusy.value && pauseCandidates.value.length > 0,
+  );
+  const canResumeVisible = computed(
+    () => !isRuntimeExiting.value && !isBusy.value && resumeCandidates.value.length > 0,
+  );
 
   return {
     canCreate,
     canRefresh,
+    canPauseVisible,
+    canResumeVisible,
+    pauseCandidates,
+    resumeCandidates,
   };
+}
+
+export async function runTaskToolbarBatch(
+  tasks: DownloadTask[],
+  operation: (task: DownloadTask) => Promise<unknown>,
+): Promise<TaskToolbarBatchResult> {
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const task of tasks) {
+    try {
+      await operation(task);
+      successCount += 1;
+    } catch {
+      failureCount += 1;
+    }
+  }
+
+  return { successCount, failureCount };
 }
