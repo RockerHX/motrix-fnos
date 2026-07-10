@@ -22,6 +22,7 @@ if (!hasCargoSubcommand('zigbuild', env)) {
   fail('未检测到 cargo-zigbuild。请先安装交叉构建依赖，例如：python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang');
 }
 env = ensureZig(env);
+env = appendRustFlags(env, ['-A', 'linker_messages']);
 
 ensureRustTarget(rustTarget, env);
 run('cargo', args, env);
@@ -121,6 +122,14 @@ function stripGlibcSuffix(target) {
 function which(command, env) {
   const result = spawnSync('sh', ['-lc', `command -v ${command}`], { cwd: repoRoot, env, encoding: 'utf8' });
   return result.status === 0 ? result.stdout.trim() : null;
+}
+
+function appendRustFlags(env, flags) {
+  const existing = env.RUSTFLAGS?.trim();
+  return {
+    ...env,
+    RUSTFLAGS: [...(existing ? [existing] : []), ...flags].join(' '),
+  };
 }
 
 function run(command, args, env) {
