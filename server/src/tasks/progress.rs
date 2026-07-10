@@ -22,6 +22,7 @@ pub(crate) fn apply_aria2_status_by_gid(
 pub(crate) fn apply_magnet_metadata_confirmation(
     task: &mut DownloadTask,
     status: &Aria2TaskStatus,
+    metadata_torrent_path: String,
 ) {
     let files = task_files(status);
     let total_length = if files.is_empty() {
@@ -39,9 +40,7 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     task.error_message = None;
     task.confirmation_required = true;
     task.files = files;
-    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
-        task.save_dir = dir;
-    }
+    task.metadata_torrent_path = Some(metadata_torrent_path);
     if let Some(name) = status
         .bittorrent
         .as_ref()
@@ -139,16 +138,13 @@ fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus
     };
 
     task.gid = Some(next_gid.to_string());
-    task.status = DownloadTaskStatus::Paused;
+    task.status = DownloadTaskStatus::Pending;
     task.total_length = 0;
     task.completed_length = 0;
     task.download_speed = 0;
     task.error_code = None;
     task.error_message = None;
-    task.confirmation_required = true;
-    if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
-        task.save_dir = dir;
-    }
+    task.confirmation_required = false;
     task.file_path = None;
     task.updated_at = current_timestamp_ms();
     true

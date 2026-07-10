@@ -232,6 +232,7 @@ pub(crate) async fn readd_download_task(
         url: task.url.clone(),
         file_name: task.file_name.clone(),
         save_dir: task.save_dir.clone(),
+        aria2_save_dir: None,
         category: task.category.clone(),
         source_type: if task.url.to_ascii_lowercase().starts_with("magnet:?") {
             DownloadTaskSourceType::Magnet

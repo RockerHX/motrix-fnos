@@ -51,14 +51,30 @@ pub fn store_created_task(
     prepared: PreparedDownloadTask,
     gid: String,
 ) -> Result<DownloadTask, String> {
-    let file_path = Path::new(&prepared.save_dir)
-        .join(&prepared.file_name)
-        .display()
-        .to_string();
+    let task_id = next_id.fetch_add(1, Ordering::Relaxed);
+    store_created_task_with_id(tasks, task_id, prepared, gid)
+}
+
+pub fn store_created_task_with_id(
+    tasks: &TaskMemoryState,
+    task_id: u64,
+    prepared: PreparedDownloadTask,
+    gid: String,
+) -> Result<DownloadTask, String> {
+    let file_path = if prepared.source_type == DownloadTaskSourceType::Magnet {
+        None
+    } else {
+        Some(
+            Path::new(&prepared.save_dir)
+                .join(&prepared.file_name)
+                .display()
+                .to_string(),
+        )
+    };
     let status = initial_task_status(&prepared);
     let now = current_timestamp_ms();
     let task = DownloadTask {
-        id: next_id.fetch_add(1, Ordering::Relaxed),
+        id: task_id,
         file_name: prepared.file_name,
         save_dir: prepared.save_dir,
         category: prepared.category,
@@ -70,7 +86,7 @@ pub fn store_created_task(
         download_speed: 0,
         error_code: None,
         error_message: None,
-        file_path: Some(file_path),
+        file_path,
         metadata_torrent_path: None,
         confirmation_required: false,
         files: Vec::new(),
@@ -213,15 +229,24 @@ pub fn mark_task_files_confirmed(
     tasks: &TaskMemoryState,
     task_id: u64,
     gid: String,
+    save_dir: String,
     selected_indexes: &[u32],
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         task.gid = Some(gid);
+        task.save_dir = save_dir;
         task.confirmation_required = false;
         task.status = DownloadTaskStatus::Active;
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;
+        task.metadata_torrent_path = None;
+        task.file_path = Some(
+            Path::new(&task.save_dir)
+                .join(&task.file_name)
+                .display()
+                .to_string(),
+        );
         for file in &mut task.files {
             file.selected = selected_indexes.contains(&file.index);
         }

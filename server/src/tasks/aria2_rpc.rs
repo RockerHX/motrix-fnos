@@ -59,7 +59,7 @@ pub async fn add_uri_to_aria2(
         format!(
             "开始创建 Aria2 下载任务，URL {}，保存目录 {}",
             redact_url_for_log(&task.url),
-            task.save_dir
+            task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)
         ),
     );
     let request_body = build_add_uri_request(config, task);
@@ -525,7 +525,10 @@ pub(crate) fn build_add_uri_request(
     } else {
         apply_start_mode_option(&mut options, task.start_mode);
     }
-    options.insert("dir".to_string(), serde_json::json!(task.save_dir));
+    options.insert(
+        "dir".to_string(),
+        serde_json::json!(task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)),
+    );
     if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {
         options.insert("out".to_string(), serde_json::json!(task.file_name));
     }
@@ -578,7 +581,10 @@ pub(crate) fn build_add_torrent_request(
     if task.start_mode == DownloadTaskStartMode::Paused {
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
     }
-    options.insert("dir".to_string(), serde_json::json!(task.save_dir));
+    options.insert(
+        "dir".to_string(),
+        serde_json::json!(task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)),
+    );
     params.push(serde_json::Value::Object(options));
 
     serde_json::json!({

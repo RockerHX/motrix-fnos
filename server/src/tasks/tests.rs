@@ -112,12 +112,9 @@ fn prepare_task_accepts_magnet_url_when_source_type_is_magnet() {
     assert_eq!(task.url, "magnet:?xt=urn:btih:test");
     assert_eq!(task.file_name, "磁力链接任务");
     assert_eq!(task.source_type, DownloadTaskSourceType::Magnet);
-    assert_eq!(
-        Path::new(&task.save_dir).file_name().unwrap(),
-        "磁力链接任务"
-    );
+    assert_eq!(task.save_dir, base_dir);
+    assert_eq!(task.aria2_save_dir, None);
     assert!(Path::new(&task.save_dir).is_dir());
-    assert!(Path::new(&task.save_dir).starts_with(base_dir));
 }
 
 #[test]
@@ -246,6 +243,7 @@ fn store_created_task_persists_gid() {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: None,
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Url,
             start_mode: DownloadTaskStartMode::Now,
@@ -275,6 +273,7 @@ fn store_created_task_preserves_paused_start_mode() {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: None,
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Url,
             start_mode: DownloadTaskStartMode::Paused,
@@ -786,17 +785,23 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
                 }),
             }),
         },
+        "/app/data/magnet-metadata/task-1/123.torrent".to_string(),
     );
 
     assert!(task.gid.is_none());
     assert_eq!(task.status, DownloadTaskStatus::Pending);
     assert!(task.confirmation_required);
     assert_eq!(task.file_name, "archlinux.iso");
+    assert_eq!(task.save_dir, "/downloads");
     assert_eq!(task.total_length, 1024);
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
     assert_eq!(task.files.len(), 1);
     assert!(task.file_path.is_none());
+    assert_eq!(
+        task.metadata_torrent_path.as_deref(),
+        Some("/app/data/magnet-metadata/task-1/123.torrent")
+    );
 }
 
 #[test]
@@ -1144,6 +1149,7 @@ fn add_uri_request_contains_url_and_options() {
             url: "https://example.com/file.zip".to_string(),
             file_name: "custom.zip".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: None,
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Url,
             start_mode: DownloadTaskStartMode::Now,
@@ -1188,6 +1194,7 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
             url: "magnet:?xt=urn:btih:test".to_string(),
             file_name: "磁力链接任务".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: Some("/app-data/magnet-metadata/task-1".to_string()),
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             start_mode: DownloadTaskStartMode::Paused,
@@ -1198,6 +1205,7 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
 
     assert_eq!(request["method"], "aria2.addUri");
     assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
+    assert_eq!(request["params"][1]["dir"], "/app-data/magnet-metadata/task-1");
     assert_eq!(request["params"][1]["pause"], "false");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");
@@ -1216,6 +1224,7 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
             url: "magnet:?xt=urn:btih:test".to_string(),
             file_name: "磁力链接任务".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: None,
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             start_mode: DownloadTaskStartMode::Now,
@@ -1241,6 +1250,7 @@ fn add_torrent_request_contains_base64_payload_and_options() {
             url: "torrent:example.torrent".to_string(),
             file_name: "example".to_string(),
             save_dir: "/downloads".to_string(),
+            aria2_save_dir: None,
             category: "默认".to_string(),
             source_type: DownloadTaskSourceType::Url,
             start_mode: DownloadTaskStartMode::Paused,

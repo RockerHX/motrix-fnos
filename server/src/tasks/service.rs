@@ -1,19 +1,24 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
-use crate::tasks::files::{cleanup_empty_torrent_task_dir, read_saved_torrent_metadata};
+use crate::tasks::files::{
+    cleanup_empty_torrent_task_dir, copy_saved_torrent_metadata_to_dir, read_saved_torrent_metadata,
+};
+use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
     mark_task_files_confirmed, mark_task_paused, mark_task_redownloaded, mark_task_removed,
     mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
     readd_task_to_aria2, refresh_tasks_from_aria2, remove_task, remove_task_record,
-    should_readd_task_after_resume_error, store_created_task,
+    should_readd_task_after_resume_error, store_created_task, store_created_task_with_id,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
     task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
     DownloadTaskStatus, TaskMemoryState,
 };
-use std::sync::atomic::AtomicU64;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::repository::TaskRepository;
 
@@ -44,6 +49,7 @@ pub struct TaskService<'a> {
     repository: Box<dyn TaskRepository + 'a>,
     download_tasks: &'a TaskMemoryState,
     next_task_id: &'a AtomicU64,
+    app_data_dir: &'a Path,
     debug_logs: &'a DebugLogStore,
     runtime_guard: RuntimeGuard<'a>,
 }
@@ -53,6 +59,7 @@ impl<'a> TaskService<'a> {
         repository: Box<dyn TaskRepository + 'a>,
         download_tasks: &'a TaskMemoryState,
         next_task_id: &'a AtomicU64,
+        app_data_dir: &'a Path,
         debug_logs: &'a DebugLogStore,
         runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
@@ -60,6 +67,7 @@ impl<'a> TaskService<'a> {
             repository,
             download_tasks,
             next_task_id,
+            app_data_dir,
             debug_logs,
             runtime_guard,
         }
@@ -83,17 +91,36 @@ impl<'a> TaskService<'a> {
         {
             return Err("请选择已授权的保存目录".to_string());
         }
-        let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
-        let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
-            Ok(gid) => gid,
-            Err(error) => {
-                if prepared.source_type == DownloadTaskSourceType::Magnet {
-                    cleanup_empty_torrent_task_dir(&prepared);
+        let mut prepared = prepare_task_with_logs(payload, self.debug_logs)?;
+        let task = if prepared.source_type == DownloadTaskSourceType::Magnet {
+            let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+            let metadata_dir = magnet_metadata_task_dir(self.app_data_dir, task_id);
+            fs::create_dir_all(&metadata_dir).map_err(|error| {
+                format!(
+                    "创建磁链 metadata 临时目录失败：{}（{}）",
+                    metadata_dir.display(),
+                    error
+                )
+            })?;
+            prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
+            let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
+                Ok(gid) => gid,
+                Err(error) => {
+                    let _ = fs::remove_dir_all(&metadata_dir);
+                    return Err(error);
                 }
-                return Err(error);
-            }
+            };
+            store_created_task_with_id(self.download_tasks, task_id, prepared, gid)?
+        } else {
+            let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
+                Ok(gid) => gid,
+                Err(error) => {
+                    cleanup_empty_torrent_task_dir(&prepared);
+                    return Err(error);
+                }
+            };
+            store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?
         };
-        let task = store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?;
         self.repository.upsert_task(&task).await?;
         self.debug_logs.info(
             "tasks.create",
@@ -279,23 +306,56 @@ impl<'a> TaskService<'a> {
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(",");
+        let selected_set = selected.iter().copied().collect::<std::collections::BTreeSet<_>>();
+        let task_file_indexes = task
+            .files
+            .iter()
+            .map(|file| file.index)
+            .collect::<std::collections::BTreeSet<_>>();
+        if !selected_set.is_subset(&task_file_indexes) {
+            return Err("选择的文件索引不在任务文件列表中".to_string());
+        }
+
         let torrent_data = read_saved_torrent_metadata(&task)?;
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
-        let prepared = crate::tasks::PreparedDownloadTask {
-            url: task.url.clone(),
-            file_name: task.file_name.clone(),
-            save_dir: task.save_dir.clone(),
-            category: task.category.clone(),
-            source_type: DownloadTaskSourceType::Magnet,
-            start_mode: DownloadTaskStartMode::Now,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: options,
+        let prepared = prepare_bt_download_task_with_logs(
+            PrepareBtDownloadTaskRequest {
+                source_url: task.url.clone(),
+                display_name: task.file_name.clone(),
+                base_save_dir: task.save_dir.clone(),
+                source_type: DownloadTaskSourceType::Magnet,
+                start_mode: DownloadTaskStartMode::Now,
+                category: Some(task.category.clone()),
+                advanced_options: CreateTaskAdvancedOptions::default(),
+                aria2_options: options,
+                task_kind: "磁链",
+            },
+            Some(self.debug_logs),
+        )?;
+        if let Err(error) =
+            copy_saved_torrent_metadata_to_dir(&task, Path::new(&prepared.save_dir))
+        {
+            cleanup_empty_torrent_task_dir(&prepared);
+            return Err(error);
+        }
+        let gid = match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
+            .await
+        {
+            Ok(gid) => gid,
+            Err(error) => {
+                cleanup_empty_torrent_task_dir(&prepared);
+                return Err(error);
+            }
         };
-        let gid =
-            add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs)).await?;
-        let mut task =
-            mark_task_files_confirmed(self.download_tasks, task_id, gid.clone(), &selected)?;
+        remove_magnet_metadata_dir(self.app_data_dir, &task);
+        let mut task = mark_task_files_confirmed(
+            self.download_tasks,
+            task_id,
+            gid.clone(),
+            prepared.save_dir.clone(),
+            &selected,
+        )?;
 
         match sync_task_progress_from_aria2_by_gid(
             self.download_tasks,
@@ -338,6 +398,7 @@ impl<'a> TaskService<'a> {
             url: task.url.clone(),
             file_name: task.file_name.clone(),
             save_dir: task.save_dir.clone(),
+            aria2_save_dir: None,
             category: task.category.clone(),
             source_type: if task.url.to_ascii_lowercase().starts_with("magnet:?") {
                 DownloadTaskSourceType::Magnet
@@ -368,8 +429,10 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let gid = task_snapshot(self.download_tasks, task_id)?
+        let task_before_delete = task_snapshot(self.download_tasks, task_id)?;
+        let gid = task_before_delete
             .gid
+            .clone()
             .filter(|gid| !gid.trim().is_empty());
         if let Some(gid) = gid.as_deref() {
             if let Err(error) = remove_task(config, gid, Some(self.debug_logs)).await {
@@ -386,6 +449,7 @@ impl<'a> TaskService<'a> {
                 }
             }
         }
+        remove_magnet_metadata_dir(self.app_data_dir, &task_before_delete);
         let task = mark_task_removed(self.download_tasks, task_id, delete_files)?;
         self.sync_task_to_database(&task).await?;
         self.debug_logs.info(
@@ -424,6 +488,32 @@ impl<'a> TaskService<'a> {
 
     async fn sync_task_to_database(&self, task: &DownloadTask) -> Result<(), String> {
         self.repository.persist_task_state(task).await
+    }
+}
+
+fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
+    app_data_dir
+        .join("magnet-metadata")
+        .join(format!("task-{task_id}"))
+}
+
+fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
+    let Some(metadata_torrent_path) = task.metadata_torrent_path.as_deref() else {
+        return;
+    };
+    let expected_dir = magnet_metadata_task_dir(app_data_dir, task.id);
+    let Some(dir) = Path::new(metadata_torrent_path).parent() else {
+        return;
+    };
+    let Ok(dir) = dir.canonicalize() else {
+        let _ = fs::remove_dir_all(&expected_dir);
+        return;
+    };
+    let Ok(expected_dir) = expected_dir.canonicalize() else {
+        return;
+    };
+    if dir == expected_dir {
+        let _ = fs::remove_dir_all(dir);
     }
 }
 
@@ -616,6 +706,7 @@ mod tests {
         next_task_id: AtomicU64,
         debug_logs: DebugLogStore,
         shutdown: ShutdownState,
+        app_data_dir: PathBuf,
     }
 
     impl ServiceFixture {
@@ -631,6 +722,7 @@ mod tests {
                 next_task_id: AtomicU64::new(1),
                 debug_logs: DebugLogStore::default(),
                 shutdown,
+                app_data_dir: temp_dir("service-app-data"),
             }
         }
 
@@ -639,6 +731,7 @@ mod tests {
                 Box::new(self.repository.clone()),
                 &self.tasks,
                 &self.next_task_id,
+                &self.app_data_dir,
                 &self.debug_logs,
                 RuntimeGuard::new(&self.shutdown),
             )

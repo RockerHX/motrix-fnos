@@ -11,6 +11,7 @@ pub mod state;
 
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::tasks::files::find_single_torrent_file;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
     add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task, remove_task,
@@ -39,7 +40,7 @@ use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
     list_tasks, mark_task_files_confirmed, mark_task_paused, mark_task_paused_by_gid,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused,
-    remove_task_record, store_created_task, task_gid, task_snapshot, TaskMemoryState,
+    remove_task_record, store_created_task, store_created_task_with_id, task_gid, task_snapshot, TaskMemoryState,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -167,11 +168,34 @@ pub async fn refresh_tasks_from_aria2(
                     }
                     match tell_status(&client, config, &followed_gid, debug_logs).await {
                         Ok(followed_status) => {
+                            let Some(metadata_dir) =
+                                status.dir.as_deref().filter(|dir| !dir.trim().is_empty())
+                            else {
+                                updates.push(TaskRefreshUpdate::Status {
+                                    gid,
+                                    status: task_status_error(
+                                        "磁链 metadata 解析完成但缺少 metadata 目录".to_string(),
+                                    ),
+                                });
+                                continue;
+                            };
+                            let metadata_torrent_path =
+                                match find_single_torrent_file(std::path::Path::new(metadata_dir)) {
+                                    Ok(path) => path.display().to_string(),
+                                    Err(error) => {
+                                        updates.push(TaskRefreshUpdate::Status {
+                                            gid,
+                                            status: task_status_error(error),
+                                        });
+                                        continue;
+                                    }
+                                };
                             remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
                             remove_temporary_magnet_gid(config, &gid, debug_logs).await;
                             updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
                                 old_gid: gid,
                                 status: followed_status,
+                                metadata_torrent_path,
                             });
                         }
                         Err(error) => updates.push(TaskRefreshUpdate::Status {
@@ -226,12 +250,20 @@ pub async fn refresh_tasks_from_aria2(
                         apply_readded_gid(task, new_gid);
                     }
                 }
-                TaskRefreshUpdate::MagnetMetadataResolved { old_gid, status } => {
+                TaskRefreshUpdate::MagnetMetadataResolved {
+                    old_gid,
+                    status,
+                    metadata_torrent_path,
+                } => {
                     if let Some(task) = tasks
                         .iter_mut()
                         .find(|task| task.gid.as_ref() == Some(old_gid))
                     {
-                        apply_magnet_metadata_confirmation(task, status);
+                        apply_magnet_metadata_confirmation(
+                            task,
+                            status,
+                            metadata_torrent_path.clone(),
+                        );
                     }
                 }
             }
@@ -316,6 +348,7 @@ enum TaskRefreshUpdate {
     MagnetMetadataResolved {
         old_gid: String,
         status: Aria2TaskStatus,
+        metadata_torrent_path: String,
     },
 }
 

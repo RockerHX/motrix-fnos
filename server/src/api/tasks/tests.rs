@@ -84,7 +84,7 @@ async fn create_route_starts_paused_magnet_metadata_resolution() {
             "/api/tasks",
             &json!({
                 "url": "magnet:?xt=urn:btih:test",
-                "saveDir": save_dir,
+                "saveDir": save_dir.clone(),
                 "sourceType": "magnet",
                 "startMode": "paused"
             }),
@@ -97,6 +97,17 @@ async fn create_route_starts_paused_magnet_metadata_resolution() {
 
     assert_eq!(created.status, DownloadTaskStatus::Pending);
     assert_eq!(created.file_name, "磁力链接任务");
+    assert_eq!(created.save_dir, save_dir);
+    assert!(created.file_path.is_none());
+    assert!(!PathBuf::from(&created.save_dir).join("磁力链接任务").exists());
+    assert!(
+        state
+            .core
+            .app_data_dir
+            .join("magnet-metadata")
+            .join("task-1")
+            .is_dir()
+    );
 
     cleanup_state(&state, child_pid);
     mock.abort();

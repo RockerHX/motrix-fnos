@@ -86,6 +86,7 @@ pub(crate) fn prepare_bt_download_task_with_logs(
     Ok(PreparedDownloadTask {
         file_name,
         save_dir,
+        aria2_save_dir: None,
         category,
         url: request.source_url,
         source_type: request.source_type,
@@ -115,11 +116,7 @@ fn prepare_task_inner(
         .unwrap_or_else(|| infer_file_name(request.source_type, &url));
     let base_save_dir =
         resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
-    let save_dir = if request.source_type == DownloadTaskSourceType::Magnet {
-        create_bt_task_dir(&base_save_dir, &file_name, "磁链", debug_logs)?
-    } else {
-        base_save_dir
-    };
+    let save_dir = base_save_dir;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
     let aria2_options =
@@ -139,6 +136,7 @@ fn prepare_task_inner(
     Ok(PreparedDownloadTask {
         file_name,
         save_dir,
+        aria2_save_dir: None,
         category,
         url,
         source_type: request.source_type,

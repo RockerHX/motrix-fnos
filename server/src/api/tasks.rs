@@ -422,6 +422,7 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
         Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
         &state.core.download_tasks,
         &state.core.next_task_id,
+        &state.core.app_data_dir,
         &state.core.debug_logs,
         RuntimeGuard::new(&state.core.shutdown),
     )

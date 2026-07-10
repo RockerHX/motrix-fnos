@@ -33,6 +33,7 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
         Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
         &state.core.download_tasks,
         &state.core.next_task_id,
+        &state.core.app_data_dir,
         &state.core.debug_logs,
         RuntimeGuard::new(&state.core.shutdown),
     );

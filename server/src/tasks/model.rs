@@ -153,6 +153,7 @@ pub struct PreparedDownloadTask {
     pub url: String,
     pub file_name: String,
     pub save_dir: String,
+    pub aria2_save_dir: Option<String>,
     pub category: String,
     pub source_type: DownloadTaskSourceType,
     pub start_mode: DownloadTaskStartMode,
