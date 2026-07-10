@@ -105,6 +105,16 @@ function selectCategory(category: MainNavCategory) {
   position: relative;
 }
 
+@media (min-width: 1024px) {
+  .window-shell {
+    grid-template-columns: var(--app-desktop-sidebar-width) minmax(0, 1fr);
+  }
+
+  .main-area {
+    grid-template-rows: var(--app-desktop-topbar-height) minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 767px) {
   .window-shell {
     grid-template-columns: minmax(0, 1fr);
