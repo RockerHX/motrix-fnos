@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { NButton } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
-import { ref, watch } from "vue";
+import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
+import { computed, ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
 import { useI18n } from "../../../i18n";
@@ -29,6 +30,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const showDebugLogs = ref(false);
+const diagnosticMetrics = computed(() => [
+  { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
+  { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
+  { label: t("diagnostics.communication"), value: props.backendPing?.message ?? t("common.loading") },
+  { label: t("diagnostics.aria2Process"), value: props.aria2Process?.running ? t("diagnostics.running") : t("diagnostics.stopped") },
+  { label: t("diagnostics.aria2Rpc"), value: props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") },
+]);
 
 watch(
   () => props.show,
@@ -60,13 +68,7 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
       <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
     </template>
 
-    <div class="diagnostics-grid">
-        <div><span>{{ t("diagnostics.appVersion") }}</span><strong>{{ props.appInfo?.version ?? "-" }}</strong></div>
-        <div><span>{{ t("diagnostics.backendStatus") }}</span><strong>{{ props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") }}</strong></div>
-        <div><span>{{ t("diagnostics.communication") }}</span><strong>{{ props.backendPing?.message ?? t("common.loading") }}</strong></div>
-        <div><span>{{ t("diagnostics.aria2Process") }}</span><strong>{{ props.aria2Process?.running ? t("diagnostics.running") : t("diagnostics.stopped") }}</strong></div>
-        <div><span>{{ t("diagnostics.aria2Rpc") }}</span><strong>{{ props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") }}</strong></div>
-      </div>
+    <AppMetricGrid class="diagnostics-metrics" :items="diagnosticMetrics" :desktop-columns="2" :mobile-columns="1" />
 
     <EngineStatusPanel @status-updated="updateEngineStatus" />
   </AppDialog>
@@ -79,29 +81,7 @@ h2 {
   margin: 0;
 }
 
-.diagnostics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.diagnostics-metrics {
   margin-bottom: 16px;
-}
-
-.diagnostics-grid div {
-  padding: 14px;
-  border-radius: var(--app-radius-sm);
-  background: var(--app-color-card-overlay);
-}
-
-.diagnostics-grid span {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--app-text-dim);
-}
-
-@media (max-width: 767px) {
-  .diagnostics-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
 }
 </style>

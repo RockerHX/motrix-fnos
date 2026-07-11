@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { NButton } from "naive-ui";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import AppMetricGrid from "./ui/AppMetricGrid.vue";
+import type { AppMetricItem } from "./ui/AppMetricGrid.vue";
 import {
   getAria2ConfigStatus,
   getAria2ProcessStatus,
@@ -26,6 +28,32 @@ const processStatus = ref<Aria2ProcessStatus | null>(null);
 const rpcStatus = ref<Aria2RpcStatus | null>(null);
 const errorMessage = ref("");
 const loading = ref(false);
+const engineMetrics = computed<AppMetricItem[]>(() => [
+  {
+    label: t("engine.pathConfig"),
+    value: configStatus.value?.binarySource === "sidecar" ? t("engine.sidecar") : t("engine.externalPath"),
+    detail: configStatus.value?.path ?? configStatus.value?.sidecarName ?? "aria2-next",
+    note: configStatus.value?.binarySource === "sidecar"
+      ? configStatus.value?.targetTriple
+      : configStatus.value?.pathExists
+        ? t("engine.pathAvailable")
+        : t("engine.pathInvalid"),
+  },
+  {
+    label: t("engine.processStatus"),
+    value: processStatus.value?.running ? t("diagnostics.running") : t("diagnostics.stopped"),
+    detail: processStatus.value?.message ?? t("engine.waiting"),
+    note: `${t("engine.pid")}：${processStatus.value?.pid ?? "-"} / ${processStatus.value?.binarySource ?? "-"}`,
+    tone: processStatus.value?.running ? "success" : "default",
+  },
+  {
+    label: t("engine.rpcStatus"),
+    value: rpcStatus.value?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected"),
+    detail: rpcStatus.value?.message ?? t("engine.rpcUnchecked"),
+    note: `${t("engine.version")}：${rpcStatus.value?.version ?? "-"}`,
+    tone: rpcStatus.value?.connected ? "success" : "default",
+  },
+]);
 
 defineExpose({
   refreshEngineStatus,
@@ -80,28 +108,7 @@ onMounted(() => {
       </NButton>
     </div>
 
-    <div class="engine-grid">
-      <div class="engine-card">
-        <span class="label">{{ t("engine.pathConfig") }}</span>
-        <strong>{{ configStatus?.binarySource === "sidecar" ? t("engine.sidecar") : t("engine.externalPath") }}</strong>
-        <p>{{ configStatus?.path ?? configStatus?.sidecarName ?? "aria2-next" }}</p>
-        <small>{{ configStatus?.binarySource === "sidecar" ? configStatus?.targetTriple : configStatus?.pathExists ? t("engine.pathAvailable") : t("engine.pathInvalid") }}</small>
-      </div>
-
-      <div class="engine-card">
-        <span class="label">{{ t("engine.processStatus") }}</span>
-        <strong>{{ processStatus?.running ? t("diagnostics.running") : t("diagnostics.stopped") }}</strong>
-        <p>{{ processStatus?.message ?? t("engine.waiting") }}</p>
-        <small>{{ t("engine.pid") }}：{{ processStatus?.pid ?? "-" }} / {{ processStatus?.binarySource ?? "-" }}</small>
-      </div>
-
-      <div class="engine-card">
-        <span class="label">{{ t("engine.rpcStatus") }}</span>
-        <strong>{{ rpcStatus?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") }}</strong>
-        <p>{{ rpcStatus?.message ?? t("engine.rpcUnchecked") }}</p>
-        <small>{{ t("engine.version") }}：{{ rpcStatus?.version ?? "-" }}</small>
-      </div>
-    </div>
+    <AppMetricGrid class="engine-grid" :items="engineMetrics" :desktop-columns="3" :mobile-columns="1" />
 
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
@@ -150,38 +157,7 @@ h2 {
 }
 
 .engine-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
   margin: 20px 0;
-}
-
-.engine-card {
-  min-width: 0;
-  padding: 16px;
-  border: 1px solid var(--app-color-border-subtle);
-  border-radius: var(--app-radius-md);
-  background: var(--app-color-card-overlay-subtle);
-}
-
-.label,
-small {
-  color: var(--app-text-dim);
-  font-size: 12px;
-}
-
-strong {
-  display: block;
-  margin: 8px 0;
-  color: #ffffff;
-}
-
-p {
-  overflow: hidden;
-  margin: 0 0 8px;
-  color: #a8bab3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .engine-action-button {
@@ -220,8 +196,6 @@ p {
   }
 
   .engine-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
     margin: 16px 0;
   }
 
@@ -233,8 +207,5 @@ p {
     width: 100%;
   }
 
-  p {
-    white-space: normal;
-  }
 }
 </style>

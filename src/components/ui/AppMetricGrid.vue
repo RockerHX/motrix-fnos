@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import AppMetricCard from "./AppMetricCard.vue";
 
-type AppMetricItem = {
+export type AppMetricItem = {
   label: string;
   value: string | number;
   detail?: string;

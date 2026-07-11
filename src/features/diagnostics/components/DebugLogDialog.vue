@@ -2,6 +2,8 @@
 import { storeToRefs } from "pinia";
 import { NButton, NCard, NEmpty, NInput, NModal, NSelect, NSwitch, NTag, useMessage } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
+import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
+import type { AppMetricItem } from "../../../components/ui/AppMetricGrid.vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
 import { useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -93,6 +95,13 @@ const logStats = computed(() => {
     topModule,
   };
 });
+const logSummaryItems = computed<AppMetricItem[]>(() => [
+  { label: t("logs.stats.total"), value: logStats.value.total },
+  { label: t("logs.stats.filtered"), value: logStats.value.filtered },
+  { label: t("logs.stats.warnings"), value: logStats.value.warnings, tone: logStats.value.warnings > 0 ? "warning" : "default" },
+  { label: t("logs.stats.errors"), value: logStats.value.errors, tone: logStats.value.errors > 0 ? "error" : "default" },
+  { label: t("logs.stats.topModule"), value: logStats.value.topModule },
+]);
 
 watch(
   propsShow,
@@ -302,13 +311,7 @@ function levelType(level: DebugLogLevel) {
         </div>
       </template>
 
-      <div class="log-summary">
-        <div><span>{{ t("logs.stats.total") }}</span><strong>{{ logStats.total }}</strong></div>
-        <div><span>{{ t("logs.stats.filtered") }}</span><strong>{{ logStats.filtered }}</strong></div>
-        <div><span>{{ t("logs.stats.warnings") }}</span><strong>{{ logStats.warnings }}</strong></div>
-        <div><span>{{ t("logs.stats.errors") }}</span><strong>{{ logStats.errors }}</strong></div>
-        <div><span>{{ t("logs.stats.topModule") }}</span><strong>{{ logStats.topModule }}</strong></div>
-      </div>
+      <AppMetricGrid class="log-summary" :items="logSummaryItems" :desktop-columns="5" :mobile-columns="1" />
 
       <div class="log-filters">
         <NInput v-model:value="searchText" clearable :placeholder="t('logs.searchPlaceholder')" />
@@ -387,32 +390,7 @@ h2 {
 }
 
 .log-summary {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
   margin-bottom: 12px;
-}
-
-.log-summary div {
-  min-width: 0;
-  padding: 10px;
-  border-radius: var(--app-radius-sm);
-  background: var(--app-color-card-overlay);
-}
-
-.log-summary span {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--app-text-dim);
-  font-size: 12px;
-}
-
-.log-summary strong {
-  display: block;
-  overflow: hidden;
-  color: var(--app-text-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .log-filters {
@@ -500,7 +478,6 @@ h2 {
 }
 
 @media (max-width: 900px) {
-  .log-summary,
   .log-filters {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -515,7 +492,6 @@ h2 {
     min-width: 0;
   }
 
-  .log-summary,
   .log-filters {
     grid-template-columns: minmax(0, 1fr);
   }
