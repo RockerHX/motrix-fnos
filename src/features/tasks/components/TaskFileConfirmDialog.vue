@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { NButton, NCard, NCheckbox, NModal, NSpace } from "naive-ui";
+import { computed, h, ref, watch } from "vue";
+import { NButton, NDataTable } from "naive-ui";
+import type { DataTableColumns, DataTableRowKey } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
+import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { useI18n } from "../../../i18n";
 import { formatTaskSize } from "../utils/taskFormat";
-import type { DownloadTask } from "../../../types/tasks";
+import type { DownloadTask, DownloadTaskFile } from "../../../types/tasks";
 
 const props = defineProps<{
   show: boolean;
@@ -22,6 +25,26 @@ const selectedIndexes = ref<number[]>([]);
 const files = computed(() => props.task?.files ?? []);
 const selectedCount = computed(() => selectedIndexes.value.length);
 const canConfirm = computed(() => selectedCount.value > 0 && !props.isLoading);
+const fileColumns = computed<DataTableColumns<DownloadTaskFile>>(() => [
+  {
+    type: "selection",
+    disabled: () => Boolean(props.isLoading),
+  },
+  {
+    title: t("task.fileConfirm.name"),
+    key: "name",
+  },
+  {
+    title: t("task.fileConfirm.path"),
+    key: "path",
+    render: (file) => h("span", { class: "file-confirm-path" }, file.path),
+  },
+  {
+    title: t("task.fileConfirm.size"),
+    key: "size",
+    render: (file) => formatTaskSize(file.length),
+  },
+]);
 
 watch(
   () => [props.show, props.task?.id, files.value.map((file) => file.index).join(",")],
@@ -35,15 +58,24 @@ watch(
 );
 
 function close() {
-  emit("update:show", false);
+  if (!props.isLoading) {
+    emit("update:show", false);
+  }
 }
 
-function toggleFile(index: number, checked: boolean) {
-  if (checked) {
-    selectedIndexes.value = [...new Set([...selectedIndexes.value, index])].sort((a, b) => a - b);
+function getRowKey(file: DownloadTaskFile) {
+  return file.index;
+}
+
+function updateSelectedIndexes(keys: DataTableRowKey[]) {
+  if (props.isLoading) {
     return;
   }
-  selectedIndexes.value = selectedIndexes.value.filter((item) => item !== index);
+
+  selectedIndexes.value = keys
+    .map((key) => Number(key))
+    .filter((key) => Number.isFinite(key))
+    .sort((a, b) => a - b);
 }
 
 function confirm() {
@@ -55,55 +87,41 @@ function confirm() {
 </script>
 
 <template>
-  <NModal :show="props.show" :mask-closable="!props.isLoading" @update:show="emit('update:show', $event)">
-    <NCard class="file-confirm-card app-dialog" role="dialog" aria-modal="true" :title="t('task.fileConfirm.title')">
-      <p class="file-confirm-description">{{ t("task.fileConfirm.description") }}</p>
-      <div class="file-confirm-table-wrap">
-        <table class="file-confirm-table">
-          <thead>
-            <tr>
-              <th class="file-confirm-check">{{ t("task.fileConfirm.select") }}</th>
-              <th>{{ t("task.fileConfirm.name") }}</th>
-              <th>{{ t("task.fileConfirm.path") }}</th>
-              <th>{{ t("task.fileConfirm.size") }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="file in files" :key="file.index">
-              <td class="file-confirm-check">
-                <NCheckbox
-                  :checked="selectedIndexes.includes(file.index)"
-                  :disabled="props.isLoading"
-                  @update:checked="toggleFile(file.index, Boolean($event))"
-                />
-              </td>
-              <td>{{ file.name }}</td>
-              <td class="file-confirm-path">{{ file.path }}</td>
-              <td>{{ formatTaskSize(file.length) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p v-if="selectedCount === 0" class="file-confirm-error">{{ t("task.fileConfirm.selectAtLeastOne") }}</p>
+  <AppDialog
+    :show="props.show"
+    :mask-closable="!props.isLoading"
+    :close-disabled="props.isLoading"
+    :title="t('task.fileConfirm.title')"
+    width="760px"
+    card-class="file-confirm-card"
+    @update:show="emit('update:show', $event)"
+  >
+    <p class="file-confirm-description">{{ t("task.fileConfirm.description") }}</p>
+    <div class="file-confirm-table-wrap">
+      <NDataTable
+        :columns="fileColumns"
+        :data="files"
+        :row-key="getRowKey"
+        :checked-row-keys="selectedIndexes"
+        :max-height="420"
+        size="small"
+        @update:checked-row-keys="updateSelectedIndexes"
+      />
+    </div>
+    <p v-if="selectedCount === 0" class="file-confirm-error">{{ t("task.fileConfirm.selectAtLeastOne") }}</p>
 
-      <template #footer>
-        <NSpace justify="end">
-          <NButton :disabled="props.isLoading" @click="close">{{ t("common.cancel") }}</NButton>
-          <NButton type="primary" :loading="props.isLoading" :disabled="!canConfirm" @click="confirm">
-            {{ t("task.fileConfirm.start") }}
-          </NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
+    <template #footer>
+      <AppDialogActions>
+        <NButton :disabled="props.isLoading" @click="close">{{ t("common.cancel") }}</NButton>
+        <NButton type="primary" :loading="props.isLoading" :disabled="!canConfirm" @click="confirm">
+          {{ t("task.fileConfirm.start") }}
+        </NButton>
+      </AppDialogActions>
+    </template>
+  </AppDialog>
 </template>
 
 <style scoped>
-.file-confirm-card {
-  --app-dialog-width: 760px;
-  --app-dialog-mobile-margin: 16px;
-}
-
 .file-confirm-description {
   margin: 0 0 14px;
   color: var(--app-text-secondary);
@@ -112,31 +130,6 @@ function confirm() {
 .file-confirm-table-wrap {
   max-height: min(52vh, 420px);
   overflow: auto;
-  border: 1px solid var(--app-border-color);
-  border-radius: var(--app-radius-sm);
-}
-
-.file-confirm-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.file-confirm-table th,
-.file-confirm-table td {
-  padding: 10px;
-  border-bottom: 1px solid var(--app-border-color);
-  text-align: left;
-  vertical-align: top;
-}
-
-.file-confirm-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.file-confirm-check {
-  width: 64px;
-  text-align: center;
 }
 
 .file-confirm-path {

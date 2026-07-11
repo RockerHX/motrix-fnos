@@ -3,6 +3,15 @@ import { nextTick } from "vue";
 
 vi.mock("naive-ui", async () => {
   const { defineComponent, h } = await import("vue");
+  type DataTableRow = Record<string, unknown>;
+  type DataTableColumn = {
+    key?: string;
+    title?: string;
+    type?: string;
+    disabled?: (row: DataTableRow) => boolean;
+    render?: (row: DataTableRow) => unknown;
+  };
+  type DataTableRowKey = string | number;
   const slotStub = (name: string) =>
     defineComponent({
       name,
@@ -45,27 +54,71 @@ vi.mock("naive-ui", async () => {
           h("div", { "data-test": "n-card" }, [
             ...(slots.default?.() ?? []),
             ...(slots.footer?.() ?? []),
-          ]);
+        ]);
       },
     }),
-    NCheckbox: defineComponent({
-      name: "NCheckboxStub",
+    NDataTable: defineComponent({
+      name: "NDataTableStub",
       props: {
-        checked: {
-          type: Boolean,
-          default: false,
+        columns: {
+          type: Array,
+          default: () => [],
+        },
+        data: {
+          type: Array,
+          default: () => [],
+        },
+        checkedRowKeys: {
+          type: Array,
+          default: () => [],
+        },
+        rowKey: {
+          type: Function,
+          default: (row: DataTableRow) => row.key,
         },
       },
-      emits: ["update:checked"],
+      emits: ["update:checked-row-keys"],
       setup(props, { emit }) {
+        const getColumns = () => props.columns as DataTableColumn[];
+        const getRows = () => props.data as DataTableRow[];
+        const getCheckedRowKeys = () => props.checkedRowKeys as DataTableRowKey[];
+        const getRowKey = (row: DataTableRow, index: number) => (props.rowKey as (row: DataTableRow) => DataTableRowKey)(row) ?? index;
+
         return () =>
-          h("input", {
-            type: "checkbox",
-            checked: props.checked,
-            onChange: (event: Event) => {
-              emit("update:checked", (event.target as HTMLInputElement).checked);
-            },
-          });
+          h("div", { "data-test": "n-data-table" }, [
+            ...getRows().map((row, index) => {
+              const key = getRowKey(row, index);
+              const selectionColumn = getColumns().find((column) => column.type === "selection");
+              const checked = getCheckedRowKeys().includes(key);
+              const disabled = Boolean(selectionColumn?.disabled?.(row));
+              return h("div", { "data-test": "n-data-table-row", "data-row-key": String(key) }, [
+                h("input", {
+                  type: "checkbox",
+                  checked,
+                  disabled,
+                  onChange: (event: Event) => {
+                    if (disabled) {
+                      return;
+                    }
+                    const nextChecked = (event.target as HTMLInputElement).checked;
+                    const nextKeys = nextChecked
+                      ? [...new Set([...getCheckedRowKeys(), key])]
+                      : getCheckedRowKeys().filter((item) => item !== key);
+                    emit("update:checked-row-keys", nextKeys);
+                  },
+                }),
+                ...getColumns()
+                  .filter((column) => column.type !== "selection")
+                  .map((column) =>
+                    h(
+                      "span",
+                      { "data-column-key": column.key },
+                      column.render ? String(column.render(row) ?? "") : String(row[column.key ?? ""] ?? ""),
+                    ),
+                  ),
+              ]);
+            }),
+          ]);
       },
     }),
     NModal: defineComponent({
@@ -93,6 +146,7 @@ describe("TaskFileConfirmDialog", () => {
     const { wrapper } = mountDialog();
     await nextTick();
 
+    expect(wrapper.find('[data-test="n-data-table"]').exists()).toBe(true);
     const checkboxes = wrapper.findAll('input[type="checkbox"]');
     expect(checkboxes).toHaveLength(2);
     expect(checkboxes.every((checkbox) => (checkbox.element as HTMLInputElement).checked)).toBe(true);
@@ -101,6 +155,17 @@ describe("TaskFileConfirmDialog", () => {
     await clickButton(wrapper, "开始下载");
 
     expect(wrapper.emitted("confirm")).toEqual([[[2]]]);
+  });
+
+  it("keeps selected indexes when one file is unchecked", async () => {
+    const { wrapper } = mountDialog();
+    await nextTick();
+
+    const checkboxes = wrapper.findAll('input[type="checkbox"]');
+    await checkboxes[1].setValue(false);
+    await clickButton(wrapper, "开始下载");
+
+    expect(wrapper.emitted("confirm")).toEqual([[[1]]]);
   });
 
   it("does not confirm when no file is selected", async () => {

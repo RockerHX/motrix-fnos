@@ -15,6 +15,15 @@ type MountWithPiniaOptions = MountingOptions<any> & {
 };
 
 type Listener = (event: Event) => void;
+type DataTableRow = Record<string, unknown>;
+type DataTableColumn = {
+  key?: string;
+  title?: string;
+  type?: string;
+  disabled?: (row: DataTableRow) => boolean;
+  render?: (row: DataTableRow) => VNode | string | number | null | undefined;
+};
+type DataTableRowKey = string | number;
 
 export const naiveUiStubs = {
   NAlert: slotStub("n-alert"),
@@ -54,6 +63,75 @@ export const naiveUiStubs = {
     emits: ["update:show"],
     setup(props, { slots }) {
       return () => (props.show ? h("div", { "data-test": "n-modal" }, slots.default?.()) : null);
+    },
+  }),
+  NDataTable: defineComponent({
+    name: "NDataTableStub",
+    props: {
+      columns: {
+        type: Array as PropType<DataTableColumn[]>,
+        default: () => [],
+      },
+      data: {
+        type: Array as PropType<DataTableRow[]>,
+        default: () => [],
+      },
+      checkedRowKeys: {
+        type: Array as PropType<DataTableRowKey[]>,
+        default: () => [],
+      },
+      rowKey: {
+        type: Function as PropType<(row: DataTableRow) => DataTableRowKey>,
+        default: (row: DataTableRow) => row.key as DataTableRowKey,
+      },
+    },
+    emits: ["update:checked-row-keys"],
+    setup(props, { emit }) {
+      const getRowKey = (row: DataTableRow, index: number) => props.rowKey(row) ?? index;
+      const getSelectionColumn = () => props.columns.find((column) => column.type === "selection");
+      const getContentColumns = () => props.columns.filter((column) => column.type !== "selection");
+
+      return () =>
+        h("div", { "data-test": "n-data-table" }, [
+          h(
+            "div",
+            { "data-test": "n-data-table-header" },
+            getContentColumns().map((column) => h("span", { key: column.key }, column.title ?? column.key)),
+          ),
+          ...props.data.map((row, index) => {
+            const key = getRowKey(row, index);
+            const selectionColumn = getSelectionColumn();
+            const checked = props.checkedRowKeys.includes(key);
+            const disabled = Boolean(selectionColumn?.disabled?.(row));
+
+            return h("div", { key, "data-test": "n-data-table-row", "data-row-key": String(key) }, [
+              selectionColumn
+                ? h("input", {
+                    type: "checkbox",
+                    checked,
+                    disabled,
+                    onChange: (event: Event) => {
+                      if (disabled) {
+                        return;
+                      }
+                      const nextChecked = (event.target as HTMLInputElement).checked;
+                      const nextKeys = nextChecked
+                        ? [...new Set([...props.checkedRowKeys, key])]
+                        : props.checkedRowKeys.filter((item) => item !== key);
+                      emit("update:checked-row-keys", nextKeys);
+                    },
+                  })
+                : null,
+              ...getContentColumns().map((column) =>
+                h(
+                  "span",
+                  { key: column.key, "data-column-key": column.key },
+                  column.render ? (column.render(row) ?? "") : String(row[column.key ?? ""] ?? ""),
+                ),
+              ),
+            ]);
+          }),
+        ]);
     },
   }),
   NSpace: slotStub("n-space"),
