@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NButton } from "naive-ui";
 import { onMounted, ref } from "vue";
 import {
   getAria2ConfigStatus,
@@ -74,7 +75,9 @@ onMounted(() => {
         <p class="eyebrow">Aria2 Next</p>
         <h2>{{ t("engine.title") }}</h2>
       </div>
-      <button type="button" class="ghost-button" :disabled="loading" @click="refreshEngineStatus">{{ t("common.refresh") }}</button>
+      <NButton class="engine-action-button ghost-button" secondary :loading="loading" :disabled="loading" @click="refreshEngineStatus">
+        {{ t("common.refresh") }}
+      </NButton>
     </div>
 
     <div class="engine-grid">
@@ -103,9 +106,15 @@ onMounted(() => {
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
     <div class="actions">
-      <button type="button" :disabled="loading" @click="runAction(startAria2)">{{ t("engine.start") }}</button>
-      <button type="button" :disabled="loading" @click="runAction(stopAria2)">{{ t("engine.stop") }}</button>
-      <button type="button" :disabled="loading" @click="runAction(pingAria2Rpc)">{{ t("engine.checkRpc") }}</button>
+      <NButton class="engine-action-button" type="primary" :loading="loading" :disabled="loading" @click="runAction(startAria2)">
+        {{ t("engine.start") }}
+      </NButton>
+      <NButton class="engine-action-button" secondary :loading="loading" :disabled="loading" @click="runAction(stopAria2)">
+        {{ t("engine.stop") }}
+      </NButton>
+      <NButton class="engine-action-button" secondary :loading="loading" :disabled="loading" @click="runAction(pingAria2Rpc)">
+        {{ t("engine.checkRpc") }}
+      </NButton>
     </div>
   </section>
 </template>
@@ -175,24 +184,13 @@ p {
   white-space: nowrap;
 }
 
-button {
-  border: 0;
-  border-radius: 999px;
-  padding: 10px 14px;
-  color: #082014;
-  background: var(--app-text-accent-soft);
+.engine-action-button {
+  --n-border-radius: var(--app-radius-pill);
   font-weight: 700;
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 .ghost-button {
-  color: #d7eee4;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--app-text-secondary);
 }
 
 .actions {
@@ -231,7 +229,7 @@ button:disabled {
     justify-content: stretch;
   }
 
-  .actions button {
+  .actions :deep(.n-button) {
     width: 100%;
   }
 
