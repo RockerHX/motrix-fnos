@@ -68,8 +68,10 @@ function emitDeleteConfirm() {
 
 <template>
   <div v-if="props.variant === 'icon-pill'" class="icon-pill-actions" role="toolbar" :aria-label="props.labels.details">
-    <button
-      type="button"
+    <NButton
+      quaternary
+      circle
+      size="tiny"
       class="icon-action"
       :title="props.labels.details"
       :aria-label="props.labels.details"
@@ -77,49 +79,58 @@ function emitDeleteConfirm() {
       @click="showDetails = true"
     >
       <AppIcon name="info" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canPause"
-      type="button"
+      quaternary
+      circle
+      size="tiny"
       class="icon-action"
-      :class="{ loading: props.state.isOperating }"
       :title="props.labels.pause"
       :aria-label="props.labels.pause"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
       <AppIcon name="pause" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canResume"
-      type="button"
+      quaternary
+      circle
+      size="tiny"
       class="icon-action"
-      :class="{ loading: props.state.isOperating }"
       :title="props.labels.resume"
       :aria-label="props.labels.resume"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
       <AppIcon name="play" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canConfirmFiles"
-      type="button"
-      class="icon-action icon-action--primary"
-      :class="{ loading: props.state.isOperating }"
+      quaternary
+      circle
+      size="tiny"
+      type="primary"
+      class="icon-action"
       :title="props.labels.confirmFiles"
       :aria-label="props.labels.confirmFiles"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('confirmFiles')"
     >
       <AppIcon name="confirm" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canRedownload"
-      type="button"
+      quaternary
+      circle
+      size="tiny"
       class="icon-action"
       :title="props.labels.redownload"
       :aria-label="props.labels.redownload"
@@ -127,31 +138,37 @@ function emitDeleteConfirm() {
       @click="showRedownloadConfirm = true"
     >
       <AppIcon name="redownload" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canDelete"
-      type="button"
-      class="icon-action icon-action--danger"
+      quaternary
+      circle
+      size="tiny"
+      type="error"
+      class="icon-action"
       :title="props.labels.delete"
       :aria-label="props.labels.delete"
       :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
       <AppIcon name="delete" :size="14" />
-    </button>
-    <button
+    </NButton>
+    <NButton
       v-if="props.permissions.canPermanentDelete"
-      type="button"
-      class="icon-action icon-action--danger"
-      :class="{ loading: props.state.isOperating }"
+      quaternary
+      circle
+      size="tiny"
+      type="error"
+      class="icon-action"
       :title="props.labels.permanentDelete"
       :aria-label="props.labels.permanentDelete"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
     >
       <AppIcon name="permanentDelete" :size="14" />
-    </button>
+    </NButton>
   </div>
   <div v-else-if="props.compact" class="compact-actions">
     <NButton
@@ -396,46 +413,23 @@ function emitDeleteConfirm() {
 }
 
 .icon-action {
-  width: 26px;
-  height: 26px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--app-radius-pill);
-  padding: 0;
+  --n-width: 26px;
+  --n-height: 26px;
+  --n-icon-size: 14px;
   color: var(--app-text-dim);
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
   opacity: 0.62;
 }
 
 .icon-action:hover,
 .icon-action:focus-visible {
   color: var(--app-text-strong);
-  background: var(--app-color-card-overlay-subtle);
   opacity: 1;
-  outline: none;
 }
 
 .icon-action:disabled {
-  cursor: not-allowed;
   opacity: 0.38;
 }
 
-.icon-action.loading {
-  opacity: 0.62;
-}
-
-.icon-action--primary {
-  color: color-mix(in srgb, var(--app-text-accent) 82%, var(--app-text-muted));
-}
-
-.icon-action--danger {
-  color: color-mix(in srgb, var(--app-text-danger) 78%, var(--app-text-muted));
-}
 
 .compact-actions {
   display: grid;
