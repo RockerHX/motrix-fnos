@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NButton } from "naive-ui";
 import AppIcon from "../../../components/AppIcon.vue";
 import { useI18n } from "../../../i18n";
 
@@ -46,10 +47,10 @@ function openSettings() {
     <h1>{{ props.title || t("empty.default.title") }}</h1>
     <p>{{ props.description || t("empty.default.description") }}</p>
     <div v-if="props.showCreateAction || props.showSettingsAction" class="empty-actions">
-      <button
+      <NButton
         v-if="props.showCreateAction"
-        type="button"
-        class="primary"
+        class="empty-action-button"
+        type="primary"
         :title="t('empty.create')"
         :aria-label="t('empty.create')"
         :disabled="props.disableCreateAction"
@@ -57,18 +58,18 @@ function openSettings() {
       >
         <AppIcon name="plus" :size="14" />
         {{ t("empty.create") }}
-      </button>
-      <button
+      </NButton>
+      <NButton
         v-if="props.showSettingsAction"
-        type="button"
-        class="secondary"
+        class="empty-action-button"
+        secondary
         :title="t('empty.openSettings')"
         :aria-label="t('empty.openSettings')"
         @click="openSettings"
       >
         <AppIcon name="settings" :size="14" />
         {{ t("empty.openSettings") }}
-      </button>
+      </NButton>
     </div>
   </section>
 </template>
@@ -146,39 +147,9 @@ function openSettings() {
   gap: 10px;
 }
 
-button {
-  font: inherit;
-}
-
-.primary,
-.secondary {
+.empty-action-button {
   min-width: 104px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border-radius: 7px;
-  padding: 8px 14px;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.primary {
-  border: 1px solid #68ae5a;
-  color: #101710;
-  background: #68ae5a;
-}
-
-.secondary {
-  border: 1px solid #3d423d;
-  color: #dbe3d8;
-  background: transparent;
-}
-
-.primary:disabled,
-.secondary:disabled {
-  opacity: 0.56;
-  cursor: not-allowed;
+  --n-border-radius: 7px;
 }
 
 @media (min-width: 768px) {
@@ -249,17 +220,13 @@ button {
     gap: 12px;
   }
 
-  .primary,
-  .secondary {
+  .empty-action-button {
     width: 100%;
     min-width: 0;
     min-height: var(--app-touch-target-min);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     gap: 8px;
-    border-radius: var(--app-radius-sm);
-    padding: 12px 16px;
+    --n-border-radius: var(--app-radius-sm);
+    --n-padding: 0 16px;
     font-size: 15px;
   }
 }
