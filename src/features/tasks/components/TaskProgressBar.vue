@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { NProgress } from "naive-ui";
+import type { CSSProperties } from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -22,17 +24,53 @@ const normalizedPercentage = computed(() => {
 
   return Math.max(0, Math.min(100, props.percentage));
 });
-const progressFillStyle = computed(() => ({
-  transform: `scaleX(${normalizedPercentage.value / 100})`,
-  transitionDuration: `${props.transitionMs}ms`,
+const progressPercentage = computed(() => (props.tone === "empty" ? 0 : normalizedPercentage.value));
+const progressHeight = computed(() => (props.variant === "card" ? 4 : 5));
+const progressColor = computed(() =>
+  props.tone === "complete"
+    ? {
+        stops: [
+          "color-mix(in srgb, var(--app-text-accent-soft) 72%, var(--app-color-surface-elevated))",
+          "var(--app-text-accent-soft)",
+        ],
+      }
+    : {
+        stops: [
+          "color-mix(in srgb, var(--app-text-accent-soft) 56%, var(--app-color-surface-elevated))",
+          "color-mix(in srgb, var(--app-text-accent-soft) 76%, var(--app-color-surface-elevated))",
+        ],
+      },
+);
+const railStyle = computed<CSSProperties>(() =>
+  props.tone === "empty"
+    ? {
+        background:
+          "repeating-linear-gradient(90deg, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px, transparent 8px, transparent 14px)",
+      }
+    : {},
+);
+const progressStyle = computed(() => ({
+  "--task-progress-transition-ms": `${props.transitionMs}ms`,
 }));
 </script>
 
 <template>
-  <div class="task-progress-bar" :class="[`task-progress-bar--${props.variant}`, `task-progress-bar--${props.tone}`]">
-    <div class="progress-track" aria-hidden="true">
-      <div class="progress-fill" :style="progressFillStyle" />
-    </div>
+  <div
+    class="task-progress-bar"
+    :class="[`task-progress-bar--${props.variant}`, `task-progress-bar--${props.tone}`]"
+    :style="progressStyle"
+  >
+    <NProgress
+      type="line"
+      :percentage="progressPercentage"
+      :height="progressHeight"
+      :border-radius="progressHeight"
+      :fill-border-radius="progressHeight"
+      :color="progressColor"
+      rail-color="color-mix(in srgb, var(--app-task-progress-track) 58%, transparent)"
+      :rail-style="railStyle"
+      :show-indicator="false"
+    />
   </div>
 </template>
 
@@ -41,51 +79,9 @@ const progressFillStyle = computed(() => ({
   min-width: 0;
 }
 
-.progress-track {
-  overflow: hidden;
-  height: 5px;
-  border-radius: var(--app-radius-pill);
-  background: color-mix(in srgb, var(--app-task-progress-track) 58%, transparent);
-}
-
-.task-progress-bar--card .progress-track {
-  height: 4px;
-}
-
-.progress-fill {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--app-text-accent-soft) 56%, var(--app-color-surface-elevated)),
-    color-mix(in srgb, var(--app-text-accent-soft) 76%, var(--app-color-surface-elevated))
-  );
-  transform-origin: left center;
-  transition-property: transform;
+.task-progress-bar :deep(.n-progress-graph-line-fill) {
+  transition-duration: var(--task-progress-transition-ms);
   transition-timing-function: ease-out;
-  will-change: transform;
-}
-
-.task-progress-bar--empty .progress-track {
-  background: repeating-linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0,
-    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px,
-    transparent 8px,
-    transparent 14px
-  );
-}
-
-.task-progress-bar--empty .progress-fill {
-  opacity: 0;
-}
-
-.task-progress-bar--complete .progress-fill {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--app-text-accent-soft) 72%, var(--app-color-surface-elevated)),
-    var(--app-text-accent-soft)
-  );
+  will-change: max-width;
 }
 </style>
