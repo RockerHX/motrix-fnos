@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
+import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
 import { useI18n } from "../../../i18n";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
@@ -103,12 +104,12 @@ function targetArchLabel(arch: string | undefined) {
           </NDescriptionsItem>
         </NDescriptions>
 
-        <section class="about-section">
-          <div class="section-heading">
-            <div>
-              <h3>{{ t("about.update.title") }}</h3>
-              <p>{{ t("about.update.description") }}</p>
-            </div>
+        <AppSectionCard
+          class="about-update-card"
+          :title="t('about.update.title')"
+          :description="t('about.update.description')"
+        >
+          <template #actions>
             <NButton
               type="primary"
               :loading="props.isCheckingUpdate"
@@ -118,7 +119,7 @@ function targetArchLabel(arch: string | undefined) {
             >
               {{ t("about.update.check") }}
             </NButton>
-          </div>
+          </template>
 
           <div class="update-result">
             <NTag :type="updateStatusType" round>{{ statusLabel(props.updateCheck?.status) }}</NTag>
@@ -136,15 +137,12 @@ function targetArchLabel(arch: string | undefined) {
               <span>{{ asset.name }}</span>
             </a>
           </div>
-        </section>
-        <section class="about-section">
-          <div class="section-heading">
-            <div>
-              <h3>{{ t("about.changelog.title") }}</h3>
-              <p>{{ t("about.changelog.description") }}</p>
-            </div>
-          </div>
+        </AppSectionCard>
 
+        <AppSectionCard
+          :title="t('about.changelog.title')"
+          :description="t('about.changelog.description')"
+        >
           <div class="changelog-list">
             <article v-for="entry in recentChangelogEntries" :key="`${entry.version}-${entry.date}`" class="changelog-entry">
               <header>
@@ -159,7 +157,7 @@ function targetArchLabel(arch: string | undefined) {
               </section>
             </article>
           </div>
-        </section>
+        </AppSectionCard>
     </div>
   </AppDialog>
 </template>
@@ -195,16 +193,21 @@ p {
   font-weight: 900;
 }
 
-.about-hero h3,
-.about-section h3 {
+.about-hero h3 {
   color: var(--app-text-strong);
   font-size: 18px;
   overflow-wrap: anywhere;
 }
 
 .about-hero p,
-.about-section p,
 .version-line {
+  color: #aeb9ad;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.update-result p {
   color: #aeb9ad;
   font-size: 13px;
   line-height: 1.6;
@@ -216,20 +219,6 @@ p {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
-}
-
-.about-section {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--app-radius-md);
-  background: var(--app-color-card-overlay);
-}
-
-.section-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
 }
 
 .update-result {
@@ -319,17 +308,12 @@ a {
   }
 
   .about-hero,
-  .section-heading,
   .update-result {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .about-section {
-    padding: 14px;
-  }
-
-  .section-heading :deep(.n-button) {
+  .about-update-card :deep(.n-button) {
     width: 100%;
   }
 
