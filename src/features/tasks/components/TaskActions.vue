@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
+import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { NButton, NCard, NCheckbox, NDescriptions, NDescriptionsItem, NModal, NSpace } from "naive-ui";
 import type {
   TaskActionConfirmTexts,
@@ -338,65 +339,47 @@ function emitDeleteConfirm() {
     </NCard>
   </NModal>
 
-  <NModal v-model:show="showRedownloadConfirm" :mask-closable="!props.state.isOperating">
-    <NCard class="redownload-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.redownloadTitle">
-      <p class="delete-confirm-text">
-        {{ props.confirmTexts.redownloadConfirmText }}
-      </p>
+  <AppConfirmDialog
+    v-model:show="showRedownloadConfirm"
+    :title="props.confirmTexts.redownloadTitle"
+    :mask-closable="!props.state.isOperating"
+    :loading="props.state.isOperating"
+    :disabled="props.state.isActionDisabled"
+    :confirm-text="props.confirmTexts.redownloadConfirmText"
+    confirm-type="primary"
+    @confirm="emit('confirmRedownload')"
+  >
+    <template #confirm-label>{{ props.labels.redownload }}</template>
+  </AppConfirmDialog>
 
-      <template #footer>
-        <NSpace justify="end">
-          <NButton :disabled="props.state.isActionDisabled" @click="showRedownloadConfirm = false">{{ props.labels.cancel }}</NButton>
-          <NButton
-            type="primary"
-            :loading="props.state.isOperating"
-            :disabled="props.state.isActionDisabled"
-            @click="emit('confirmRedownload')"
-          >
-            {{ props.labels.redownload }}
-          </NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
-
-  <NModal v-model:show="showDeleteConfirm" :mask-closable="!props.state.isOperating">
-    <NCard class="delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.deleteTitle">
-      <p class="delete-confirm-text">{{ props.confirmTexts.deleteConfirmText }}</p>
+  <AppConfirmDialog
+    v-model:show="showDeleteConfirm"
+    :title="props.confirmTexts.deleteTitle"
+    :mask-closable="!props.state.isOperating"
+    :loading="props.state.isOperating"
+    :disabled="props.state.isActionDisabled"
+    :confirm-text="props.confirmTexts.deleteConfirmText"
+    confirm-type="error"
+    @confirm="emitDeleteConfirm"
+  >
+    <template #extra>
       <NCheckbox v-model:checked="deleteFiles">{{ props.confirmTexts.deleteFilesLabel }}</NCheckbox>
+    </template>
+    <template #confirm-label>{{ props.labels.delete }}</template>
+  </AppConfirmDialog>
 
-      <template #footer>
-        <NSpace justify="end">
-          <NButton :disabled="props.state.isActionDisabled" @click="showDeleteConfirm = false">{{ props.labels.cancel }}</NButton>
-          <NButton type="error" :loading="props.state.isOperating" :disabled="props.state.isActionDisabled" @click="emitDeleteConfirm">
-            {{ props.labels.delete }}
-          </NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
-
-  <NModal v-model:show="showPermanentDeleteConfirm" :mask-closable="!props.state.isOperating">
-    <NCard class="permanent-delete-confirm-card app-dialog" role="dialog" aria-modal="true" :title="props.confirmTexts.permanentDeleteTitle">
-      <p class="delete-confirm-text">
-        {{ props.confirmTexts.permanentDeleteConfirmText }}
-      </p>
-
-      <template #footer>
-        <NSpace justify="end">
-          <NButton :disabled="props.state.isActionDisabled" @click="showPermanentDeleteConfirm = false">{{ props.labels.cancel }}</NButton>
-          <NButton
-            type="error"
-            :loading="props.state.isOperating"
-            :disabled="props.state.isActionDisabled"
-            @click="emit('confirmPermanentDelete')"
-          >
-            {{ props.labels.permanentDelete }}
-          </NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
+  <AppConfirmDialog
+    v-model:show="showPermanentDeleteConfirm"
+    :title="props.confirmTexts.permanentDeleteTitle"
+    :mask-closable="!props.state.isOperating"
+    :loading="props.state.isOperating"
+    :disabled="props.state.isActionDisabled"
+    :confirm-text="props.confirmTexts.permanentDeleteConfirmText"
+    confirm-type="error"
+    @confirm="emit('confirmPermanentDelete')"
+  >
+    <template #confirm-label>{{ props.labels.permanentDelete }}</template>
+  </AppConfirmDialog>
 </template>
 
 <style scoped>
@@ -441,22 +424,9 @@ function emitDeleteConfirm() {
   width: 100%;
 }
 
-.delete-confirm-card,
-.permanent-delete-confirm-card,
-.redownload-confirm-card {
-  --app-dialog-width: 420px;
-  --app-dialog-mobile-margin: 24px;
-}
-
 .task-detail-card {
   --app-dialog-width: 720px;
   --app-dialog-mobile-margin: 24px;
-}
-
-.delete-confirm-text {
-  margin: 0 0 14px;
-  color: var(--app-text-secondary);
-  word-break: break-word;
 }
 
 :deep(.n-descriptions-table-content__content) {
@@ -477,9 +447,6 @@ function emitDeleteConfirm() {
     border-radius: var(--app-radius-sm);
   }
 
-  .delete-confirm-card,
-  .permanent-delete-confirm-card,
-  .redownload-confirm-card,
   .task-detail-card,
   .compact-actions {
     min-width: 0;
