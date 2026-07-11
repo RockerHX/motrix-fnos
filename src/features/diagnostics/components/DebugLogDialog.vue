@@ -20,13 +20,21 @@ type SelectOption = {
   value: string;
 };
 
+type ManualCopyInputRef = {
+  focus?: () => void;
+  select?: () => void;
+  textareaElRef?: HTMLTextAreaElement | null;
+  inputElRef?: HTMLInputElement | null;
+  $el?: HTMLElement;
+};
+
 const propsShow = computed(() => props.show);
 const message = useMessage();
 const { t } = useI18n();
 const debugLogStore = useDebugLogStore();
 const { logs, isLoading, isClearing } = storeToRefs(debugLogStore);
 const logListRef = ref<HTMLElement | null>(null);
-const manualCopyRef = ref<HTMLTextAreaElement | null>(null);
+const manualCopyRef = ref<ManualCopyInputRef | null>(null);
 const showManualCopy = ref(false);
 const manualCopyText = ref("");
 const levelFilter = ref<DebugLogLevel | null>(null);
@@ -168,13 +176,25 @@ function showManualCopyDialog(text: string) {
   manualCopyText.value = text;
   showManualCopy.value = true;
   void nextTick(() => {
-    manualCopyRef.value?.focus();
-    manualCopyRef.value?.select();
+    focusManualCopyInput();
   });
 }
 
 function closeManualCopyDialog() {
   showManualCopy.value = false;
+}
+
+function focusManualCopyInput() {
+  const input = manualCopyRef.value;
+  input?.focus?.();
+  input?.select?.();
+
+  const nativeInput =
+    input?.textareaElRef ??
+    input?.inputElRef ??
+    (input?.$el?.querySelector?.("textarea, input") as HTMLTextAreaElement | HTMLInputElement | null | undefined);
+  nativeInput?.focus();
+  nativeInput?.select();
 }
 
 function downloadAllLogs() {
@@ -332,7 +352,15 @@ function levelType(level: DebugLogLevel) {
       </template>
 
       <p class="manual-copy-hint">{{ t("logs.manualCopy.hint") }}</p>
-      <textarea ref="manualCopyRef" class="manual-copy-textarea" readonly :value="manualCopyText" />
+      <NInput
+        ref="manualCopyRef"
+        class="manual-copy-input"
+        type="textarea"
+        readonly
+        :value="manualCopyText"
+        :input-props="{ readonly: true }"
+        :autosize="{ minRows: 12, maxRows: 24 }"
+      />
       <div class="manual-copy-actions">
         <NButton secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
         <NButton type="primary" @click="closeManualCopyDialog">{{ t("common.done") }}</NButton>
@@ -454,15 +482,13 @@ h2 {
   line-height: 1.6;
 }
 
-.manual-copy-textarea {
+.manual-copy-input {
   width: 100%;
+}
+
+.manual-copy-input :deep(textarea),
+.manual-copy-input :deep(.n-input__textarea-el) {
   min-height: min(460px, calc(100vh - 260px));
-  resize: vertical;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--app-radius-sm);
-  padding: 12px;
-  color: #edf5ef;
-  background: rgba(0, 0, 0, 0.28);
   font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
@@ -503,7 +529,8 @@ h2 {
     gap: 6px;
   }
 
-  .manual-copy-textarea {
+  .manual-copy-input :deep(textarea),
+  .manual-copy-input :deep(.n-input__textarea-el) {
     min-height: calc(var(--app-viewport-height) - 360px);
     font-size: 16px;
   }
