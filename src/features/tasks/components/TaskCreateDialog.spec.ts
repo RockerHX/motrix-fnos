@@ -137,6 +137,13 @@ vi.mock("naive-ui", async () => {
     NSpace: slotStub("n-space"),
     NTabPane: slotStub("n-tab-pane"),
     NTabs: slotStub("n-tabs"),
+    NUpload: defineComponent({
+      name: "NUploadStub",
+      emits: ["change", "remove"],
+      setup(_, { slots }) {
+        return () => h("div", { "data-test": "n-upload" }, slots.default?.());
+      },
+    }),
     NButton: defineComponent({
       name: "NButtonStub",
       props: {
@@ -221,6 +228,48 @@ describe("TaskCreateDialog", () => {
 
     expect(mockCloseDialog).toHaveBeenCalledTimes(2);
     expect(mockSubmitCreateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("selects and removes torrent files through Naive UI upload", async () => {
+    const composableState = createComposableState();
+    composableState.activeInputType.value = "torrent";
+    mockUseTaskCreateForm.mockReturnValue(composableState);
+
+    const { wrapper } = mountWithPinia(TaskCreateDialog, {
+      props: {
+        show: true,
+      },
+    });
+    const torrentFile = new File(["torrent"], "demo.torrent", { type: "application/x-bittorrent" });
+    const upload = wrapper.getComponent({ name: "NUploadStub" });
+
+    upload.vm.$emit("change", {
+      file: {
+        id: "demo.torrent-1",
+        name: torrentFile.name,
+        status: "pending",
+        file: torrentFile,
+      },
+      fileList: [],
+      event: undefined,
+    });
+    await flushPromises();
+
+    expect(composableState.selectTorrentFile).toHaveBeenCalledWith(torrentFile);
+
+    upload.vm.$emit("remove", {
+      file: {
+        id: "demo.torrent-1",
+        name: torrentFile.name,
+        status: "removed",
+        file: torrentFile,
+      },
+      fileList: [],
+      index: 0,
+    });
+    await flushPromises();
+
+    expect(composableState.selectTorrentFile).toHaveBeenCalledWith(null);
   });
 });
 

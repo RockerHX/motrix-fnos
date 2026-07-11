@@ -16,8 +16,10 @@ import {
   NSelect,
   NSpace,
   NTabPane,
+  NUpload,
   NTabs,
 } from "naive-ui";
+import type { UploadFileInfo, UploadOnChange, UploadOnRemove } from "naive-ui";
 import { useI18n } from "../../../i18n";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useTaskCreateForm } from "../composables/useTaskCreateForm";
@@ -60,11 +62,30 @@ const {
 });
 
 const selectedTorrentFileName = computed(() => form.torrentFile?.name || t("create.torrent.notSelected"));
+const torrentUploadFileList = computed<UploadFileInfo[]>(() => {
+  if (!form.torrentFile) {
+    return [];
+  }
 
-function handleTorrentFileChange(event: Event) {
-  const input = event.target as HTMLInputElement;
-  selectTorrentFile(input.files?.[0] ?? null);
-}
+  return [
+    {
+      id: `${form.torrentFile.name}-${form.torrentFile.lastModified}`,
+      name: form.torrentFile.name,
+      status: "pending",
+      file: form.torrentFile,
+      type: form.torrentFile.type,
+    },
+  ];
+});
+
+const handleTorrentUploadChange: UploadOnChange = ({ file }) => {
+  selectTorrentFile(file.file ?? null);
+};
+
+const handleTorrentUploadRemove: UploadOnRemove = () => {
+  selectTorrentFile(null);
+  return true;
+};
 </script>
 
 <template>
@@ -118,7 +139,16 @@ function handleTorrentFileChange(event: Event) {
 
         <NFormItem v-else-if="activeInputType === 'torrent'" :label="t('create.torrent.label')">
           <NSpace vertical class="full-width">
-            <input class="torrent-file-input" type="file" accept=".torrent,application/x-bittorrent" @change="handleTorrentFileChange" />
+            <NUpload
+              :file-list="torrentUploadFileList"
+              :default-upload="false"
+              :max="1"
+              accept=".torrent,application/x-bittorrent"
+              @change="handleTorrentUploadChange"
+              @remove="handleTorrentUploadRemove"
+            >
+              <NButton secondary>{{ t("create.torrent.label") }}</NButton>
+            </NUpload>
             <span class="field-hint">{{ selectedTorrentFileName }}</span>
           </NSpace>
         </NFormItem>
@@ -227,11 +257,6 @@ h2 {
   color: var(--app-text-dim);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.torrent-file-input {
-  max-width: 100%;
-  color: var(--app-text);
 }
 
 .advanced-hint {

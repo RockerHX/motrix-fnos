@@ -87,6 +87,23 @@ export const naiveUiStubs = {
         h("div", { "data-test": "n-tab-pane", "data-name": props.name, "data-tab": props.tab }, slots.default?.());
     },
   }),
+  NUpload: defineComponent({
+    name: "NUploadStub",
+    props: {
+      fileList: {
+        type: Array as PropType<Array<{ id: string; name: string }>>,
+        default: () => [],
+      },
+      disabled: {
+        type: Boolean,
+        default: false,
+      },
+    },
+    emits: ["change", "remove", "update:fileList"],
+    setup(_, { slots }) {
+      return () => h("div", { "data-test": "n-upload" }, slots.default?.());
+    },
+  }),
   NButton: defineComponent({
     name: "NButtonStub",
     props: {
