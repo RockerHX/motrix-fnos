@@ -6,6 +6,7 @@ describe("TaskEmptyState", () => {
   it("renders default title and description", () => {
     const { wrapper } = mountWithPinia(TaskEmptyState);
 
+    expect(wrapper.find(".n-empty__icon svg").exists()).toBe(true);
     expect(wrapper.text()).toContain("暂无任务");
     expect(wrapper.text()).toContain("点击下方按钮或粘贴 HTTP / HTTPS 链接开始您的第一次下载。");
   });
