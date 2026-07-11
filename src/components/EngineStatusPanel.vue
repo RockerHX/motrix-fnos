@@ -108,7 +108,7 @@ onMounted(() => {
       </NButton>
     </div>
 
-    <AppMetricGrid class="engine-grid" :items="engineMetrics" :desktop-columns="3" :mobile-columns="1" />
+    <AppMetricGrid class="engine-metrics" :items="engineMetrics" :desktop-columns="3" :mobile-columns="1" />
 
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
@@ -156,7 +156,7 @@ h2 {
   font-size: 20px;
 }
 
-.engine-grid {
+.engine-metrics {
   margin: 20px 0;
 }
 
@@ -195,7 +195,7 @@ h2 {
     width: 100%;
   }
 
-  .engine-grid {
+  .engine-metrics {
     margin: 16px 0;
   }
 

@@ -67,7 +67,7 @@ const progressStyle = computed(() => ({
       :border-radius="progressHeight"
       :fill-border-radius="progressHeight"
       :color="progressColor"
-      rail-color="color-mix(in srgb, var(--app-task-progress-track) 58%, transparent)"
+      rail-color="color-mix(in srgb, var(--app-task-progress-rail) 58%, transparent)"
       :rail-style="railStyle"
       :show-indicator="false"
     />

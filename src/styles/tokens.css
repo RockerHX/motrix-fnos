@@ -35,7 +35,7 @@
   --app-toolbar-button-size: 30px;
   --app-toolbar-primary-button-size: 38px;
   --app-task-card-radius: 10px;
-  --app-task-progress-track: rgba(255, 255, 255, 0.1);
+  --app-task-progress-rail: rgba(255, 255, 255, 0.1);
 
   --app-dialog-width: 720px;
   --app-dialog-desktop-margin: 48px;

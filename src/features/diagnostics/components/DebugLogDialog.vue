@@ -311,7 +311,7 @@ function levelType(level: DebugLogLevel) {
         </div>
       </template>
 
-      <AppMetricGrid class="log-summary" :items="logSummaryItems" :desktop-columns="5" :mobile-columns="1" />
+      <AppMetricGrid class="log-metrics" :items="logSummaryItems" :desktop-columns="5" :mobile-columns="1" />
 
       <div class="log-filters">
         <NInput v-model:value="searchText" clearable :placeholder="t('logs.searchPlaceholder')" />
@@ -389,7 +389,7 @@ h2 {
   white-space: normal;
 }
 
-.log-summary {
+.log-metrics {
   margin-bottom: 12px;
 }
 
