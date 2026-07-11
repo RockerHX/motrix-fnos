@@ -139,17 +139,6 @@ function openSettings() {
       >
         <AppIcon name="close" :size="16" />
       </button>
-      <details class="topbar-more">
-        <summary class="topbar-icon-button" :title="t('topbar.more')" :aria-label="t('topbar.more')">
-          <AppIcon name="more" :size="16" />
-        </summary>
-        <div class="topbar-menu" role="menu" :aria-label="t('topbar.more')">
-          <button type="button" role="menuitem" @click="openSettings">{{ t("nav.settings") }}</button>
-          <button type="button" role="menuitem" @click="openHelp">{{ t("nav.help") }}</button>
-          <button type="button" role="menuitem" @click="openAbout">{{ t("nav.about") }}</button>
-          <button type="button" role="menuitem" @click="openDiagnostics">{{ t("topbar.diagnostics") }}</button>
-        </div>
-      </details>
     </div>
     <div class="topbar-actions mobile-actions">
       <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings"><AppIcon name="settings" :size="18" /></button>
@@ -197,8 +186,7 @@ function openSettings() {
   gap: 6px;
 }
 
-.topbar-actions > button,
-.topbar-icon-button {
+.topbar-actions > button {
   width: var(--app-toolbar-button-size);
   min-width: var(--app-toolbar-button-size);
   height: var(--app-toolbar-button-size);
@@ -217,9 +205,7 @@ function openSettings() {
 }
 
 .topbar-actions > button:hover,
-.topbar-actions > button:focus-visible,
-.topbar-icon-button:hover,
-.topbar-icon-button:focus-visible {
+.topbar-actions > button:focus-visible {
   color: var(--app-text-strong);
   background: var(--app-color-card-overlay);
   outline: none;
@@ -258,53 +244,6 @@ function openSettings() {
   color: #101710;
   background: var(--app-text-accent);
   box-shadow: none;
-}
-
-.topbar-more {
-  position: relative;
-}
-
-.topbar-more summary {
-  list-style: none;
-}
-
-.topbar-more summary::-webkit-details-marker {
-  display: none;
-}
-
-.topbar-menu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 152px;
-  display: grid;
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--app-color-border-subtle);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-color-surface-elevated);
-  box-shadow: var(--app-shadow-floating);
-}
-
-.topbar-menu button {
-  min-height: 34px;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 10px;
-  color: var(--app-text-secondary);
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.topbar-menu button:hover,
-.topbar-menu button:focus-visible {
-  color: var(--app-text-strong);
-  background: var(--app-color-card-overlay);
-  outline: none;
 }
 
 @media (min-width: 768px) {

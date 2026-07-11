@@ -72,6 +72,7 @@ function selectCategory(category: MainNavCategory) {
       :app-info="appInfo"
       :active-category="activeCategory"
       @open-about="openAbout"
+      @open-diagnostics="openDiagnostics"
       @open-help="openHelp"
       @open-settings="openSettings"
       @select-category="selectCategory"

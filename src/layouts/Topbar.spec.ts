@@ -88,5 +88,6 @@ describe("Topbar", () => {
       "关于",
       "诊断",
     ]);
+    expect(wrapper.find(".topbar-more").exists()).toBe(false);
   });
 });

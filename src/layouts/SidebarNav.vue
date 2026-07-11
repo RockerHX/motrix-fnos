@@ -12,6 +12,7 @@ defineProps<{
 
 const emit = defineEmits<{
   openAbout: [];
+  openDiagnostics: [];
   openHelp: [];
   openSettings: [];
   selectCategory: [category: MainNavCategory];
@@ -25,6 +26,10 @@ function openAbout() {
 
 function openHelp() {
   emit("openHelp");
+}
+
+function openDiagnostics() {
+  emit("openDiagnostics");
 }
 
 function openSettings() {
@@ -69,6 +74,10 @@ function selectCategory(category: MainNavCategory) {
       <button type="button" :aria-label="t('nav.about')" @click="openAbout">
         <AppIcon class="nav-icon" name="about" :size="18" />
         <span>{{ t("nav.about") }}</span>
+      </button>
+      <button type="button" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">
+        <AppIcon class="nav-icon" name="diagnostics" :size="18" />
+        <span>{{ t("topbar.diagnostics") }}</span>
       </button>
     </div>
   </aside>
@@ -162,7 +171,7 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .sidebar-footer {
-  display: none;
+  display: flex;
   margin: 0;
   padding: 26px 8px 0;
   border-top: 1px solid var(--app-color-border-subtle);
