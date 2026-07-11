@@ -1,0 +1,68 @@
+import { describe, expect, it, vi } from "vitest";
+import { mount } from "@vue/test-utils";
+
+vi.mock("./TaskStatusBadge.vue", () => ({
+  default: {
+    name: "TaskStatusBadgeStub",
+    props: ["task"],
+    template: '<span data-test="task-status">{{ task.status }}</span>',
+  },
+}));
+
+import TaskCardHeader from "./TaskCardHeader.vue";
+import type { DownloadTask } from "../../../types/tasks";
+
+describe("TaskCardHeader", () => {
+  it("renders file title and status badge", () => {
+    const wrapper = mount(TaskCardHeader, {
+      props: {
+        task: createTask(),
+      },
+    });
+
+    expect(wrapper.classes()).toContain("task-card-header--desktop");
+    expect(wrapper.get(".task-card-title").text()).toBe("ubuntu.iso");
+    expect(wrapper.get(".task-card-title").attributes("title")).toBe("ubuntu.iso");
+    expect(wrapper.get('[data-test="task-status"]').text()).toBe("active");
+  });
+
+  it("renders actions slot when provided", () => {
+    const wrapper = mount(TaskCardHeader, {
+      props: {
+        task: createTask(),
+        variant: "mobile",
+      },
+      slots: {
+        actions: '<button data-test="action">操作</button>',
+      },
+    });
+
+    expect(wrapper.classes()).toContain("task-card-header--mobile");
+    expect(wrapper.find(".task-card-actions").exists()).toBe(true);
+    expect(wrapper.get('[data-test="action"]').text()).toBe("操作");
+  });
+});
+
+function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
+  return {
+    id: 1,
+    url: "https://example.com/ubuntu.iso",
+    fileName: "ubuntu.iso",
+    saveDir: "/downloads",
+    category: "默认",
+    gid: "gid-1",
+    status: "active",
+    totalLength: 2000,
+    completedLength: 1000,
+    downloadSpeed: 1024,
+    errorCode: null,
+    errorMessage: null,
+    filePath: "/downloads/ubuntu.iso",
+    metadataTorrentPath: null,
+    confirmationRequired: false,
+    files: [],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
+  };
+}

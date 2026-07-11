@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import TaskActionsContainer from "./TaskActionsContainer.vue";
+import TaskCardHeader from "./TaskCardHeader.vue";
+import TaskErrorMessage from "./TaskErrorMessage.vue";
+import TaskMetaItems from "./TaskMetaItems.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
-import TaskStatusBadge from "./TaskStatusBadge.vue";
 import { t } from "../../../i18n";
-import { formatTaskError, formatTaskEta, formatTaskSize, formatTaskSizePair } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
@@ -16,30 +17,20 @@ const props = defineProps<{
     <div class="task-card-status-rail" aria-hidden="true" data-test="task-card-status-rail" />
 
     <div class="task-card-main">
-      <header class="task-card-header">
-        <div class="task-card-title-group">
-          <strong class="task-card-title" :title="props.task.fileName">{{ props.task.fileName }}</strong>
-          <TaskStatusBadge :task="props.task" />
-        </div>
-        <aside class="task-card-actions" :aria-label="t('task.table.actions')">
-          <TaskActionsContainer :task="props.task" variant="icon-pill" />
-        </aside>
-      </header>
+      <TaskCardHeader :task="props.task" variant="desktop">
+        <template #actions>
+          <div :aria-label="t('task.table.actions')">
+            <TaskActionsContainer :task="props.task" variant="icon-pill" />
+          </div>
+        </template>
+      </TaskCardHeader>
 
       <section class="task-card-body">
         <TaskProgressCell class="task-card-progress" :task="props.task" :show-label="false" variant="card" />
-        <footer class="task-card-meta">
-          <span class="task-card-size">{{ formatTaskSizePair(props.task) }}</span>
-          <span>{{ t("task.table.speed") }} {{ formatTaskSize(props.task.downloadSpeed) }}/s</span>
-          <span>{{ t("task.table.eta") }} {{ formatTaskEta(props.task) }}</span>
-        </footer>
+        <TaskMetaItems :task="props.task" variant="inline" />
       </section>
 
-      <div class="task-card-error-slot" data-test="task-card-error-slot">
-        <p v-if="props.task.status === 'error'" class="task-card-error" :title="formatTaskError(props.task)">
-          {{ formatTaskError(props.task) }}
-        </p>
-      </div>
+      <TaskErrorMessage :task="props.task" variant="single-line" />
     </div>
   </article>
 </template>
@@ -90,49 +81,13 @@ const props = defineProps<{
   padding: 10px 14px;
 }
 
-.task-card-header {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: center;
-  gap: 10px;
-}
-
-.task-card-title-group {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.task-card-title-group :deep(.n-tag) {
-  --n-height: 18px;
-  --n-font-size: 10px;
-  --n-border-radius: var(--app-radius-pill);
-  opacity: 0.62;
-}
-
-.task-card-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--app-text-strong);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-card-actions {
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
+.task-desktop-card :deep(.task-card-actions) {
   opacity: 0.42;
   transition: opacity var(--app-transition-fast);
 }
 
-.task-desktop-card:hover .task-card-actions,
-.task-desktop-card:focus-within .task-card-actions {
+.task-desktop-card:hover :deep(.task-card-actions),
+.task-desktop-card:focus-within :deep(.task-card-actions) {
   opacity: 1;
 }
 
@@ -149,47 +104,9 @@ const props = defineProps<{
   max-width: 680px;
 }
 
-.task-card-meta {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  color: var(--app-text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.task-card-size {
-  color: var(--app-text-secondary);
-}
-
-.task-card-error-slot {
-  min-width: 0;
-  min-height: 0;
-}
-
-.task-card-error {
-  overflow: hidden;
-  margin: 0;
-  color: var(--app-text-danger);
-  font-size: 11px;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @media (max-width: 900px) {
   .task-card-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .task-card-meta {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 8px 12px;
   }
 }
 </style>
