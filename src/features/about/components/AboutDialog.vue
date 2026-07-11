@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { NButton, NCard, NDescriptions, NDescriptionsItem, NModal, NTag } from "naive-ui";
+import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
 import { useI18n } from "../../../i18n";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
@@ -25,10 +26,6 @@ const releaseAssets = computed(() => props.updateCheck?.assets ?? []);
 
 function updateShow(show: boolean) {
   emit("update:show", show);
-}
-
-function closeDialog() {
-  updateShow(false);
 }
 
 function checkUpdate() {
@@ -74,19 +71,14 @@ function targetArchLabel(arch: string | undefined) {
 </script>
 
 <template>
-  <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="about-dialog app-dialog" role="dialog" aria-modal="true">
-      <template #header>
-        <div>
-          <p class="app-dialog-eyebrow">{{ t("about.eyebrow") }}</p>
-          <h2>{{ t("about.title", { name: appName }) }}</h2>
-        </div>
-      </template>
-      <template #header-extra>
-        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeDialog">×</NButton>
-      </template>
-
-      <div class="about-content">
+  <AppDialog
+    :show="props.show"
+    :eyebrow="t('about.eyebrow')"
+    :title="t('about.title', { name: appName })"
+    width="760px"
+    @update:show="updateShow"
+  >
+    <div class="about-content">
         <section class="about-hero">
           <div class="app-mark" aria-hidden="true">M</div>
           <div>
@@ -168,16 +160,11 @@ function targetArchLabel(arch: string | undefined) {
             </article>
           </div>
         </section>
-      </div>
-    </NCard>
-  </NModal>
+    </div>
+  </AppDialog>
 </template>
 
 <style scoped>
-.about-dialog {
-  --app-dialog-width: 760px;
-}
-
 h2,
 h3,
 p {

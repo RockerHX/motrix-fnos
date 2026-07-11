@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NButton, NCard, NModal } from "naive-ui";
+import { NButton } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
 import { ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
@@ -42,32 +43,24 @@ function updateShow(show: boolean) {
   emit("update:show", show);
 }
 
-function closeDialog() {
-  updateShow(false);
-}
-
 function updateEngineStatus(status: EngineStatusSnapshot) {
   emit("engineStatusUpdated", status);
 }
 </script>
 
 <template>
-  <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="diagnostics-dialog app-dialog" role="dialog" aria-modal="true">
-      <template #header>
-        <div>
-          <p class="app-dialog-eyebrow">{{ t("diagnostics.eyebrow") }}</p>
-          <h2>{{ t("diagnostics.title") }}</h2>
-        </div>
-      </template>
-      <template #header-extra>
-        <div class="app-dialog-header-actions">
-          <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
-          <NButton quaternary circle @click="closeDialog">×</NButton>
-        </div>
-      </template>
+  <AppDialog
+    :show="props.show"
+    :eyebrow="t('diagnostics.eyebrow')"
+    :title="t('diagnostics.title')"
+    width="900px"
+    @update:show="updateShow"
+  >
+    <template #header-extra>
+      <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
+    </template>
 
-      <div class="diagnostics-grid">
+    <div class="diagnostics-grid">
         <div><span>{{ t("diagnostics.appVersion") }}</span><strong>{{ props.appInfo?.version ?? "-" }}</strong></div>
         <div><span>{{ t("diagnostics.backendStatus") }}</span><strong>{{ props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") }}</strong></div>
         <div><span>{{ t("diagnostics.communication") }}</span><strong>{{ props.backendPing?.message ?? t("common.loading") }}</strong></div>
@@ -75,18 +68,13 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
         <div><span>{{ t("diagnostics.aria2Rpc") }}</span><strong>{{ props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") }}</strong></div>
       </div>
 
-      <EngineStatusPanel @status-updated="updateEngineStatus" />
-    </NCard>
-  </NModal>
+    <EngineStatusPanel @status-updated="updateEngineStatus" />
+  </AppDialog>
 
   <DebugLogDialog v-model:show="showDebugLogs" />
 </template>
 
 <style scoped>
-.diagnostics-dialog {
-  --app-dialog-width: 900px;
-}
-
 h2 {
   margin: 0;
 }

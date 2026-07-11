@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { NButton, NCard, NModal, NTag } from "naive-ui";
+import { NTag } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
 import { useI18n } from "../../../i18n";
 
 const props = defineProps<{
@@ -16,25 +17,17 @@ function updateShow(show: boolean) {
   emit("update:show", show);
 }
 
-function closeDialog() {
-  updateShow(false);
-}
 </script>
 
 <template>
-  <NModal :show="props.show" @update:show="updateShow">
-    <NCard class="help-dialog app-dialog" role="dialog" aria-modal="true">
-      <template #header>
-        <div>
-          <p class="app-dialog-eyebrow">{{ t("help.eyebrow") }}</p>
-          <h2>{{ t("help.title") }}</h2>
-        </div>
-      </template>
-      <template #header-extra>
-        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeDialog">×</NButton>
-      </template>
-
-      <div class="help-sections">
+  <AppDialog
+    :show="props.show"
+    :eyebrow="t('help.eyebrow')"
+    :title="t('help.title')"
+    width="760px"
+    @update:show="updateShow"
+  >
+    <div class="help-sections">
         <section>
           <div class="section-title">
             <h3>{{ t("help.authorizedDirs.title") }}</h3>
@@ -82,16 +75,11 @@ function closeDialog() {
           </div>
           <p>{{ t("help.diagnostics.body") }}</p>
         </section>
-      </div>
-    </NCard>
-  </NModal>
+    </div>
+  </AppDialog>
 </template>
 
 <style scoped>
-.help-dialog {
-  --app-dialog-width: 760px;
-}
-
 h2,
 h3,
 p {

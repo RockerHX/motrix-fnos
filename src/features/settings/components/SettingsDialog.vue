@@ -2,17 +2,17 @@
 import { computed, reactive, ref, watch } from "vue";
 import {
   NButton,
-  NCard,
   NForm,
   NFormItem,
   NInput,
   NInputNumber,
-  NModal,
   NSelect,
   NSpace,
   NText,
   useMessage,
 } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
+import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
@@ -154,9 +154,15 @@ function kbToBytes(value: number) {
 </script>
 
 <template>
-  <NModal :show="show" :mask-closable="!settingsStore.isSaving" @update:show="emit('update:show', $event)">
-    <NCard class="settings-card app-dialog" role="dialog" aria-modal="true" :title="t('settings.title')">
-      <NForm
+  <AppDialog
+    :show="show"
+    :title="t('settings.title')"
+    width="620px"
+    :mask-closable="!settingsStore.isSaving"
+    :close-disabled="settingsStore.isSaving"
+    @update:show="emit('update:show', $event)"
+  >
+    <NForm
         class="settings-form"
         :label-placement="isMobileLayout ? 'top' : 'left'"
         :label-width="isMobileLayout ? undefined : 150"
@@ -218,25 +224,20 @@ function kbToBytes(value: number) {
             <template #suffix>KB/s</template>
           </NInputNumber>
         </NFormItem>
-      </NForm>
+    </NForm>
 
-      <template #footer>
-        <NSpace justify="end">
-          <NButton :disabled="settingsStore.isSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
-          <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
-            {{ t("common.save") }}
-          </NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
+    <template #footer>
+      <AppDialogActions>
+        <NButton :disabled="settingsStore.isSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
+        <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
+          {{ t("common.save") }}
+        </NButton>
+      </AppDialogActions>
+    </template>
+  </AppDialog>
 </template>
 
 <style scoped>
-.settings-card {
-  --app-dialog-width: 620px;
-}
-
 .setting-stack {
   width: 100%;
 }
