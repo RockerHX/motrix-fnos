@@ -1,7 +1,42 @@
 # Motrix fnOS UI 重设计启动与协作流程
 
+## 0. Stitch 调查结论（2026-07-12）
+
+### 0.1 结论
+
+Stitch 当前页面仍标注 **Beta**。本项目确实踩到了流程坑，但不能把此前的不一致全部归因于 Beta：主要问题是把每个页面当成独立的长提示词生成，未先建立并验证项目级设计系统，也没有从现有 Vue 实现反向提取约束。
+
+推荐采用“一个设计系统 + 一个桌面母版 + 派生页面”的流程。先做一个桌面任务列表 PoC，验证颜色、字体、圆角、外壳和二次编辑的一致性，再扩展状态、弹窗、移动端和浅色主题。
+
+### 0.2 来源与证据等级
+
+| 来源 | 已确认内容 | 证据等级 |
+| --- | --- | --- |
+| [Stitch Docs](https://stitch.withgoogle.com/docs) 与当前产品页面 | Stitch 生成 Web/移动 UI；产品页标注 Beta；网页能力和版本化 UI 需以当前界面复核 | 官方产品/当前页面 |
+| [google-labs-code/stitch-skills](https://github.com/google-labs-code/stitch-skills) | 提供 `code-to-design`、`extract-design-md`、`manage-design-system`；要求 `.stitch/DESIGN.md` 的 YAML front matter；通过 MCP 上传、创建、应用设计系统 | Google Labs 公开参考实现；仓库声明非正式支持产品 |
+| 本仓库 `docs/architecture.md` 与现有 Vue 源码 | 桌面、移动浏览器、fnOS WebView 共用一套响应式 Web UI；可从现有代码提取约束 | 本项目实证 |
+| 社区 Stitch loop / 第三方 MCP | 可作为风险提示或实验材料，不作为主流程依赖 | 未验证 |
+
+`stitch-skills` 不是 Stitch 官方支持产品，因此其脚本、CLI 和 MCP 参数必须在本地环境中逐项验证；不能把它们写成 Stitch 网页 UI 的保证能力。
+
+### 0.3 已解决与未解决的问题
+
+- 已解决：设计系统应是项目级输入；现有 `DESIGN.md` 已补充结构化 YAML token，正文仍是唯一语义规范。
+- 已解决：现有代码适合先走 `code-to-design` / `extract-design-md` 思路，再做定向重设计，而不是从零批量生成。
+- 已解决：Stitch MCP 已使用 OAuth Bearer token 和 quota project `stitch-502207` 完成只读连接验证；`stitch.googleapis.com` 已启用，可以由 Codex 创建项目、上传 `DESIGN.md`、创建设计系统并读取生成结果。
+- 未解决：Beta 的具体配额、模型、导出和回滚行为需以用户账号当前页面为准。
+- 未解决：`DESIGN.md` token 是否被 Stitch 正确解析、应用并在二次编辑中保持一致，必须由单页 PoC 验证。
+
+### 0.4 当前门禁
+
+1. 不继续执行旧的 P1-P10 独立自由生成流程。
+2. 先用 Web 类型、暗色主题和现有桌面任务页做单页 PoC；最多两个候选。
+3. PoC 必须验证：品牌绿、字体层级、侧栏/任务边界/按钮/圆角、二次编辑保持一致、设计系统可派生。
+4. PoC 未通过前不生成移动端、浅色主题、设置页或弹窗；通过后才冻结桌面母版。
+5. 任何批量自动化前先验证 MCP 权限、项目 ID、设计系统创建结果和一张截图。
+
 > 用途：在新 Codex 对话中启动“需求文档 + 设计系统 + Stitch/Figma 关键页面 + 分阶段实现”工作流。  
-> 当前阶段：仅定义流程和提示词，不代表视觉方案已经确认。  
+> 当前阶段：设计输入已确认，Stitch MCP 已就绪，下一步执行桌面暗色单页 PoC。  
 > 技术边界：继续使用 Vue 3、TypeScript、Naive UI、Pinia，不改变 `docs/architecture.md` 规定的业务边界。
 
 ## 1. 已确认的重设计决策
@@ -76,14 +111,19 @@ Codex 自动执行：
 3. 每个页面提示词同时描述桌面/移动行为以及空、加载、错误、禁用、选中等必要状态。
 4. 检查提示词不包含当前产品没有的功能；候选新功能必须放到独立的“未来评估”章节。
 
-### 阶段 C：设计稿评审
+### 阶段 C：Stitch PoC 与设计稿评审
 
-用户提供 Stitch 截图或 Figma 设计后，Codex 自动执行：
+Codex 通过 Stitch MCP 自动执行：
 
-1. 对照需求文档检查页面完整性、信息层级、交互状态、响应式和可访问性。
-2. 检查是否可由现有 Naive UI、Vue 组件和 CSS token 稳定实现。
-3. 输出逐页面评审结论：接受、需要调整、拒绝，并给出可直接回填 Stitch 的修订提示词。
-4. 用户最终确认后，生成分阶段代码实施计划、测试计划和提交拆分。
+1. 创建或复用唯一的私有项目 `Motrix fnOS UI Redesign`，不得改动其他 Stitch 项目。
+2. 上传 `docs/design/DESIGN.md`，创建项目级 Design System，并确认项目能列出对应 asset。
+3. 使用 `docs/design/stitch-prompts.md` 第 0.3 节生成一张 `DESKTOP` 暗色 Downloading 页面；首轮只生成一个候选。
+4. 通过 MCP 读取截图与 HTML，对照需求文档检查页面完整性、信息层级、视觉 token、可访问性和 Naive UI 可实现性。
+5. 若只需局部修正，编辑同一 screen；若整体视觉方向失败，最多再生成一个候选。不得进入 P2-P10。
+6. 输出 PoC 结论：接受、需要调整或拒绝，并将 project ID、design system asset ID、screen ID、生成参数和结论写入第 9 节。
+7. 用户明确批准母版后，才能派生后续页面；Figma frame 最终批准后再生成代码实施计划。
+
+首轮 48 组产物已审计并拒绝进入 Figma：主要问题是跨页面颜色、字体、圆角、外壳和移动导航不一致，且出现 Search、System 主题、Purge、Export Logs 等未批准功能。后续采用“先批准一个桌面基准，再从已批准页面派生”，不再按状态自由生成完整页面。
 
 ### 阶段 D：代码实现
 
@@ -94,20 +134,34 @@ Codex 自动执行：
 3. 保留 Pinia、service、HTTP/SSE 和后端接口，不让设计稿生成第二套业务状态。
 4. 每阶段运行窄测试、全量单测、类型检查和响应式视觉验证，并独立提交。
 
-## 4. 用户需要手动完成的流程
+## 4. 自动化边界与用户操作
 
-当前工作区没有 Stitch MCP 或 Figma MCP，以下步骤由用户完成。
+当前工作区已配置 Stitch MCP，但没有 Figma MCP。Stitch 项目创建、设计系统上传、页面生成和产物读取由 Codex 完成；用户只处理账号凭据和设计批准。
 
-### 4.1 Google Stitch
+### 4.1 Stitch MCP 凭据
 
-1. 打开 <https://labs.google/stitch> 并创建项目 `Motrix fnOS UI Redesign`。
-2. 先提交 `docs/design/stitch-prompts.md` 中的“全局上下文”，建立统一视觉方向。
-3. 按页面逐个提交提示词；每次只生成一个页面或一个状态，不一次生成整个应用。
-4. 每个页面生成 2–3 个候选版本，保留相同功能数据，避免候选稿因为内容不同而无法比较。
-5. 将候选稿截图发给 Codex 评审；截图应包含完整画布和明确的 viewport 尺寸。
-6. 根据 Codex 返回的修订提示词继续迭代，直到页面被标记为“可进入 Figma”。
+Codex 配置使用 `STITCH_ACCESS_TOKEN` 作为 Bearer token，并发送 `X-Goog-User-Project: stitch-502207`。仓库和本文档不得记录 access token。
 
-### 4.2 Figma
+当 MCP 返回 `Auth required` 或 `Unauthenticated` 时，用户在终端刷新短期 token：
+
+```zsh
+NEW_TOKEN="$(gcloud auth application-default print-access-token)"
+launchctl setenv STITCH_ACCESS_TOKEN "$NEW_TOKEN"
+unset NEW_TOKEN
+```
+
+随后完全退出并重新打开 Codex。不要把 token 写入仓库、`.env`、文档、截图或对话。
+
+### 4.2 证据与确定性规则
+
+- Stitch 产品能力优先以 <https://stitch.withgoogle.com/docs> 的对应正文为依据。
+- 当前界面行为可以使用用户提供的完整截图作为版本实证。
+- 选择 Web 的产品依据来自 `docs/architecture.md` 的单一 Vue Web UI 架构。
+- 页面字段和操作边界来自 `docs/design/ui-product-requirements.md`。
+- 视觉 token 来自 `docs/design/DESIGN.md`。
+- 没有官方正文或当前界面实证的操作，不得写成确定步骤；必须设置截图检查点。
+
+### 4.3 Figma
 
 1. 将选中的 Stitch 页面导入或重建到同一个 Figma 文件。
 2. 建立 Desktop、Mobile、Components、Tokens 四个页面，避免所有 frame 混在一个画布。
@@ -153,10 +207,10 @@ Codex 自动执行：
 
 ## 6. 后续对话启动提示词
 
-三份设计文档已经确认，后续新对话应直接从 Stitch/Figma 评审阶段继续，不得重复创建或重新确认设计来源。将下面整段复制到新对话中：
+三份设计文档已经确认。后续新对话直接执行 Stitch MCP 单页 PoC，不得重复调查、重新生成设计来源或依赖本对话记忆。将下面整段复制到新对话中：
 
 ```text
-请继续 Motrix fnOS UI 重设计的 Stitch/Figma 协作流程。
+请开始 Motrix fnOS UI 重设计的 Stitch MCP 单页 PoC。
 
 开始前必须阅读：
 - AGENTS.md
@@ -166,11 +220,13 @@ Codex 自动执行：
 - docs/design/DESIGN.md
 - docs/design/stitch-prompts.md
 
-上述三份 docs/design 文档已经用户确认，是当前唯一设计来源，无需重新确认或重新生成。旧 Stitch 归档已删除。
+上述三份 docs/design 文档已经用户确认，是当前唯一设计来源，无需重新确认或重新生成。旧 Stitch 归档已删除。Stitch MCP 已完成只读连接验证，Google Cloud quota project 为 stitch-502207，stitch.googleapis.com 已启用。
 
-我会提供 Stitch 截图或 Figma 链接/导出图。请对照需求和设计系统逐页面检查完整性、信息层级、关键状态、响应式、可访问性和 Naive UI 可实现性，并给出接受、需要调整或拒绝结论。需要调整时提供可直接回填 Stitch 的修订提示词。
+我明确授权本次任务在 Stitch 中创建一个私有项目 `Motrix fnOS UI Redesign`，上传 docs/design/DESIGN.md，创建项目级 Design System，并生成一张 DESKTOP 暗色 Downloading PoC。先检查是否已有同名项目，禁止改动或删除其他项目；若同名项目存在则先读取并判断是否属于本流程，禁止盲目重复创建。
 
-在我明确批准具体 Figma frame 前，不得修改 UI 代码、安装运行时依赖或开始视觉重构。批准后先生成分阶段代码实施与测试计划，再等待我要求实施。
+严格执行 docs/ui-redesign-stitch-figma-workflow.md 阶段 C：首轮只生成一个候选，通过 MCP 读取截图和 HTML并评审。仅在整体方向失败时才生成第二个候选；不得继续 P2-P10、移动端、浅色主题、弹窗或 Figma。把 project ID、design system asset ID、screen ID、生成参数和评审结论更新到 workflow 第 9 节。
+
+在我明确批准母版和后续 Figma frame 前，不得修改 UI 代码、安装运行时依赖或开始视觉重构。遇到 Auth required 时停止并提示我刷新 token；不得索取、输出或记录 token。
 ```
 
 ## 7. Stitch 全局提示词模板
@@ -202,3 +258,11 @@ Follow the supplied DESIGN.md for exact colors, spacing, typography, radius, den
 - 旧归档中的虚构/过时功能已被识别并记录到产品需求的未来候选章节。
 - 三份新文档已经用户确认；旧归档及相关引用已一次性清理。
 - 在 Figma frame 获得明确批准前，不开始代码重构。
+
+## 9. Stitch 执行记录
+
+本节是 Stitch 自动化运行状态的唯一记录，不另建计划文档。每次只在实际 MCP 调用成功后填写 ID；不得预填或猜测。
+
+| 日期 | Project | Design System | Screen | Device / Theme / Model | 结论 | 下一步 |
+| --- | --- | --- | --- | --- | --- | --- |
+| - | 待创建 | 待创建 | 待生成 | `DESKTOP` / dark / 待调用时记录 | 待评审 | 执行阶段 C 单页 PoC |

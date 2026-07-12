@@ -1,6 +1,66 @@
+---
+name: Motrix fnOS
+colors:
+  background: '#151917'
+  on-background: '#EEF3EF'
+  primary: '#68AE5A'
+  on-primary: '#111513'
+  primary-container: '#253626'
+  on-primary-container: '#EEF3EF'
+  surface-container: '#1B201D'
+  surface-container-high: '#222824'
+  on-surface: '#EEF3EF'
+  on-surface-variant: '#B6C0B9'
+  outline: '#343C37'
+  outline-variant: '#29302C'
+  shell: '#111513'
+  canvas: '#151917'
+  surface: '#1B201D'
+  surface-raised: '#222824'
+  border: '#343C37'
+  border-subtle: '#29302C'
+  text-primary: '#EEF3EF'
+  text-secondary: '#B6C0B9'
+  text-muted: '#7F8B83'
+  accent: '#68AE5A'
+  accent-hover: '#7ABE6C'
+  accent-pressed: '#57964B'
+  accent-soft: '#253626'
+  error: '#D56A6A'
+  warning: '#D5A64A'
+  info: '#6F9FC7'
+typography:
+  ui:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+    fontSize: 14px
+    fontWeight: '400'
+    lineHeight: 21px
+  title:
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
+    fontSize: 20px
+    fontWeight: '600'
+    lineHeight: 28px
+  numeric:
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
+    fontSize: 14px
+    fontWeight: '400'
+    lineHeight: 21px
+rounded:
+  sm: 6px
+  DEFAULT: 8px
+  md: 10px
+spacing:
+  unit: 4px
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 24px
+  xl: 32px
+---
+
 # Design System: Motrix fnOS
 
-> 状态：待用户确认的 UI 视觉系统  
+> 状态：已确认，待 Stitch 单页 PoC 验证  
 > 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）  
 > 实现边界：Vue 3 + Naive UI；不得以视觉稿改变业务架构。
 

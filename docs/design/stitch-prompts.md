@@ -1,8 +1,44 @@
 # Motrix fnOS Google Stitch 提示词
 
-> 状态：待用户确认的 Stitch 输入与迭代记录  
+> 状态：已确认，待通过 Stitch MCP 执行单页 PoC  
 > 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）  
-> 使用方式：先提交全局上下文，再逐个页面、逐个状态生成；不要一次生成整个应用。
+> 使用方式：先完成第 0 节的设计系统 PoC。不要把每个页面当成独立风格探索；设计系统创建并验证后，后续提示词只描述页面结构、内容和状态。第 2 节仅作为后续需求规格，不直接整段提交。
+
+## 0. 在 Stitch 当前界面中的使用方法
+
+### 0.1 创建项目与设计系统（MCP 优先）
+
+以下是有来源支撑的流程；其中 MCP 工具名和请求形状来自 Google Labs `stitch-skills` 参考实现，不代表 Stitch 网页 UI 一定提供同名控件：
+
+1. 若已配置 Stitch MCP，先查找或创建项目，再检查项目是否已有 Design System。
+2. 将仓库的 `docs/design/DESIGN.md` 作为输入上传，并创建项目级 Design System；创建前必须获得用户确认。应用到屏幕时只传递真实 screen instance 的 `id` 和 `sourceScreen`。
+3. 只选择 **Web**。依据 `docs/architecture.md`，Motrix 的桌面浏览器、手机浏览器和 fnOS App WebView 共用同一套 Vue Web UI。
+4. 如果只能使用网页 UI，先用当前界面完成同等的设计系统导入，并截图记录控件；在导入方式未实证前，不把“以您的设计为基础”后的下一层控件写成确定步骤。
+
+`docs/design/DESIGN.md` 是仓库唯一视觉规范。它现在同时满足 Labs skill 要求的 YAML front matter 和 Markdown 规则正文；仍需通过一个桌面页面验证 Stitch 是否实际应用 token。不要选择 Alexandria、Bauhaus、Glacier、Carbon 等预设，因为它们不是仓库已确认的设计系统。
+
+### 0.2 生成纪律
+
+- 每次只生成 **一个 Web 页面、一个主题、一个运行状态**。
+- 第一张桌面任务页最多生成 2 个候选；选定基准后不再生成新的风格候选。
+- 生成后续状态时，在已批准页面上使用 Stitch 的编辑/迭代入口，并明确要求保持布局、组件、颜色、字体和圆角不变。
+- 不要求用户重命名项目或页面；用“截图文件夹名 + 生成顺序”记录即可。
+- 默认产品页面不混入 hover、focus、pressed、disabled 状态板；交互状态后续单独生成。
+- 出现错误的字体、颜色、断点、页面外壳或未实现功能时停止并交给 Codex 判断；用户不负责修提示词。
+
+### 0.3 现在只提交的首个页面提示词
+
+本提示词只在项目级 Design System 创建成功后由 Codex 通过 Stitch MCP 提交。不得在没有 Design System 的项目中直接生成，也不得与第 1 节全局上下文重复提交视觉 token。
+
+```text
+Create one responsive Web UI screen for Motrix fnOS: the desktop Downloading screen in the default dark theme. Target layout: 1440x900 desktop viewport. Generate only the normal runtime state, not a state sheet.
+
+Use a compact fixed left navigation, a compact top toolbar, and a dense vertical list of horizontal task items. Show the shared active, paused, error, magnet-resolving, and file-confirmation samples from the global context. Preserve every real status and only the valid actions. Prioritize task name and textual status, followed by progress, downloaded/total size, speed, ETA, category, error and contextual actions.
+
+Follow the currently selected custom DESIGN.md exactly. Do not create another design system or substitute a Stitch preset. Do not show hover, focus, pressed, loading or disabled demonstrations in this screen. Do not add Search, System theme, count badges, a bottom speed bar, a right detail drawer, seeding categories, Purge, Export Logs, or any other unapproved feature. Return one desktop screen only.
+```
+
+生成后立即停止。不要继续移动端、浅色主题、弹窗或其他状态；Codex 先通过 MCP 读取完整截图和 HTML，并记录评审结论。
 
 ## 1. 全局上下文
 
@@ -30,6 +66,8 @@ Use realistic shared sample data across every screen:
 ```
 
 ## 2. 页面提示词
+
+> 本节从首轮审计后降级为“页面需求规格”。只有第 0 节锚点通过后，才能将单个规格拆成 `1 viewport × 1 theme × 1 state` 的派生指令；不得直接整段提交并让 Stitch 重新设计页面。
 
 ### P1 桌面任务列表 — `1440×900`
 
@@ -137,6 +175,6 @@ For the previously approved screen, generate a state sheet without changing its 
 
 ## 6. 迭代记录
 
-| 日期 | 页面 | 版本/截图 | 结论 | 修订说明 |
-| --- | --- | --- | --- | --- |
-| - | - | - | 待生成 | - |
+| 日期 | Frame | Parent | Viewport / DPR | Theme / State | Prompt | 结论 | 修订说明 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-07-12 | 首轮 48 组产物 | 无稳定父 frame | 元数据不完整 | 多主题/多状态 | v1 | 拒绝进入 Figma | 见 `stitch-output-audit.md`；改用锚点冻结流程 |
