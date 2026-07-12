@@ -94,7 +94,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
     >
-      <AppIcon name="pause" :size="14" />
+      <AppIcon v-if="!props.state.isOperating" name="pause" :size="14" />
     </NButton>
     <NButton
       v-if="props.permissions.canResume"
@@ -109,7 +109,7 @@ function emitDeleteConfirm() {
       :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
     >
-      <AppIcon name="play" :size="14" />
+      <AppIcon v-if="!props.state.isOperating" name="play" :size="14" />
     </NButton>
     <NButton
       v-if="props.permissions.canConfirmFiles"

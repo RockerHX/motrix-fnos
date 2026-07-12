@@ -284,6 +284,29 @@ describe("TaskActions", () => {
     expect(wrapper.emitted("confirmFiles")).toHaveLength(1);
   });
 
+  it("keeps the icon action slot but hides pause and resume icons while operating", () => {
+    const { wrapper } = mountTaskActions({
+      variant: "icon-pill",
+      state: {
+        isOperating: true,
+        isActionDisabled: true,
+      },
+      permissions: {
+        canPause: true,
+        canResume: true,
+      },
+    });
+
+    const pauseButton = findIconButton(wrapper, "暂停");
+    const resumeButton = findIconButton(wrapper, "继续");
+    expect(pauseButton.exists()).toBe(true);
+    expect(resumeButton.exists()).toBe(true);
+    expect(pauseButton.attributes("aria-busy")).toBe("true");
+    expect(resumeButton.attributes("aria-busy")).toBe("true");
+    expect(pauseButton.find('svg[data-icon-name="pause"]').exists()).toBe(false);
+    expect(resumeButton.find('svg[data-icon-name="play"]').exists()).toBe(false);
+  });
+
   it("opens existing confirmation modals from icon-pill buttons", async () => {
     const { wrapper: redownloadWrapper } = mountTaskActions({
       variant: "icon-pill",
