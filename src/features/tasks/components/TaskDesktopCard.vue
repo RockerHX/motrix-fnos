@@ -94,19 +94,10 @@ const props = defineProps<{
 .task-card-body {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(180px, min(58vw, 680px)) max-content;
-  align-items: center;
-  gap: 14px;
+  gap: 7px;
 }
 
 .task-card-progress {
   min-width: 0;
-  max-width: 680px;
-}
-
-@media (max-width: 900px) {
-  .task-card-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

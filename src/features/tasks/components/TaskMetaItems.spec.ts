@@ -13,8 +13,9 @@ describe("TaskMetaItems", () => {
 
     expect(wrapper.classes()).toContain("task-card-meta--inline");
     expect(wrapper.text()).toContain("1000 B / 2.0 KB");
-    expect(wrapper.text()).toContain("速度 1.0 KB/s");
-    expect(wrapper.text()).toContain("剩余时间 1s");
+    expect(wrapper.get('[data-test="task-size-metric"]').text()).toBe("1000 B / 2.0 KB");
+    expect(wrapper.get('[data-test="task-eta-metric"]').attributes("aria-label")).toBe("剩余时间 1s");
+    expect(wrapper.get('[data-test="task-speed-metric"]').attributes("aria-label")).toBe("速度 1.0 KB/s");
   });
 
   it("renders grid task metrics", () => {

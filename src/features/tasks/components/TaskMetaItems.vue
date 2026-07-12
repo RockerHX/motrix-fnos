@@ -16,9 +16,25 @@ const props = withDefaults(
 
 <template>
   <footer v-if="props.variant === 'inline'" class="task-card-meta task-card-meta--inline">
-    <span class="task-card-size">{{ formatTaskSizePair(props.task) }}</span>
-    <span>{{ t("task.table.speed") }} {{ formatTaskSize(props.task.downloadSpeed) }}/s</span>
-    <span>{{ t("task.table.eta") }} {{ formatTaskEta(props.task) }}</span>
+    <span class="task-card-size task-card-metric" data-test="task-size-metric">
+      <span class="task-card-metric-value">{{ formatTaskSizePair(props.task) }}</span>
+    </span>
+    <span
+      class="task-card-metric task-card-metric--eta"
+      data-test="task-eta-metric"
+      :aria-label="`${t('task.table.eta')} ${formatTaskEta(props.task)}`"
+    >
+      <span class="task-card-metric-label">{{ t("task.table.eta") }}</span>
+      <span class="task-card-metric-value">{{ formatTaskEta(props.task) }}</span>
+    </span>
+    <span
+      class="task-card-metric task-card-metric--speed"
+      data-test="task-speed-metric"
+      :aria-label="`${t('task.table.speed')} ${formatTaskSize(props.task.downloadSpeed)}/s`"
+    >
+      <span class="task-card-metric-label">{{ t("task.table.speed") }}</span>
+      <span class="task-card-metric-value">{{ formatTaskSize(props.task.downloadSpeed) }}/s</span>
+    </span>
   </footer>
 
   <dl v-else class="task-card-meta task-card-meta--grid">
@@ -45,18 +61,50 @@ const props = withDefaults(
 }
 
 .task-card-meta--inline {
-  display: flex;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 168px 144px;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   color: var(--app-text-muted);
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
 }
 
+.task-card-metric {
+  min-width: 0;
+}
+
+.task-card-metric--eta,
+.task-card-metric--speed {
+  display: grid;
+  justify-content: end;
+  gap: 6px;
+  text-align: right;
+}
+
+.task-card-metric--eta {
+  grid-template-columns: max-content 70px;
+}
+
+.task-card-metric--speed {
+  grid-template-columns: max-content 76px;
+}
+
+.task-card-metric-label {
+  color: var(--app-text-muted);
+}
+
+.task-card-metric-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
 .task-card-size {
   color: var(--app-text-secondary);
+  text-align: left;
 }
 
 .task-card-meta--grid {
@@ -87,9 +135,16 @@ const props = withDefaults(
 
 @media (max-width: 900px) {
   .task-card-meta--inline {
-    justify-content: flex-start;
-    flex-wrap: wrap;
-    gap: 8px 12px;
+    grid-template-columns: minmax(130px, 1fr) 158px 134px;
+    gap: 8px;
+  }
+
+  .task-card-metric--eta {
+    grid-template-columns: max-content 64px;
+  }
+
+  .task-card-metric--speed {
+    grid-template-columns: max-content 70px;
   }
 }
 
