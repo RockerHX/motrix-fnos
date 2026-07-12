@@ -21,8 +21,8 @@ vi.mock("naive-ui", async () => {
           default: () => ({}),
         },
         railStyle: {
-          type: Object,
-          default: () => ({}),
+          type: String,
+          default: undefined,
         },
       },
       setup(props) {
@@ -32,7 +32,7 @@ vi.mock("naive-ui", async () => {
             "data-percentage": String(props.percentage),
             "data-height": String(props.height),
             "data-color": JSON.stringify(props.color),
-            "data-rail-style": JSON.stringify(props.railStyle),
+            "data-rail-style": props.railStyle,
           });
       },
     }),

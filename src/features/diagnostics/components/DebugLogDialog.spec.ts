@@ -103,6 +103,10 @@ vi.mock("naive-ui", async () => {
           type: Boolean,
           default: false,
         },
+        size: {
+          type: String,
+          default: undefined,
+        },
       },
       emits: ["update:value"],
       setup(props, { emit }) {

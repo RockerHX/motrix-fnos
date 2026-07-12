@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { NProgress } from "naive-ui";
-import type { CSSProperties } from "vue";
 
 const props = withDefaults(
   defineProps<{
@@ -41,13 +40,10 @@ const progressColor = computed(() =>
         ],
       },
 );
-const railStyle = computed<CSSProperties>(() =>
+const railStyle = computed(() =>
   props.tone === "empty"
-    ? {
-        background:
-          "repeating-linear-gradient(90deg, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px, transparent 8px, transparent 14px)",
-      }
-    : {},
+    ? "background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0, color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px, transparent 8px, transparent 14px);"
+    : undefined,
 );
 const progressStyle = computed(() => ({
   "--task-progress-transition-ms": `${props.transitionMs}ms`,
