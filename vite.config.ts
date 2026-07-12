@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
   build: {
-    chunkSizeWarningLimit: 700,
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks: {
