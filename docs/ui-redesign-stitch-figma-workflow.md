@@ -117,7 +117,9 @@ Codex 自动执行：
 6. 开启可查看或 Dev Mode 权限，将 Figma 链接、目标页面/节点名称发给 Codex；若无法授权，则导出 2x PNG 并附颜色、字体、间距和尺寸标注。
 7. 最终由用户明确回复哪些 frame 已批准，未批准稿不得进入代码实现。
 
-## 5. 文档迁移与清理规则
+## 5. 文档迁移与清理状态
+
+迁移已于 2026-07-12 经用户确认并完成；以下三份文档现为唯一设计来源。
 
 ### 5.1 新增文档
 
@@ -125,17 +127,17 @@ Codex 自动执行：
 - `docs/design/DESIGN.md`：当前视觉系统和设计 token 的唯一来源。
 - `docs/design/stitch-prompts.md`：当前 Stitch 输入和迭代记录。
 
-### 5.2 需要删除的旧文档
+### 5.2 已删除的旧文档
 
-当上述三份新文档经用户确认后，删除：
+以下旧文档已删除：
 
 - `docs/design/archive/ui-stitch-prompts.md`
 
 删除原因：该归档包含“全部任务、做种、搜索、右键菜单、底部状态栏、任务详情抽屉”等与当前实现不一致或尚未确认的内容；保留它会产生两个设计来源。
 
-### 5.3 删除旧文档时必须同步更新
+### 5.3 已同步更新的引用
 
-以下文件当前直接引用旧归档，删除时必须在同一提交更新：
+以下文件已在删除旧归档的同一提交中更新：
 
 - `README.md`：将“历史 UI 设计归档”替换为新的产品需求、设计系统和 Stitch 提示词入口。
 - `docs/architecture.md`：将顶部历史归档引用替换为当前设计系统引用，但不改变长期架构约束。
@@ -149,37 +151,26 @@ Codex 自动执行：
 - `docs/development-plan.md`：继续记录实施阶段和完成状态。
 - `docs/fpk-packaging.md`、`docs/jsonrpc-remote-access.md`：不属于 UI 设计迁移范围。
 
-## 6. 新对话启动提示词
+## 6. 后续对话启动提示词
 
-将下面整段复制到一个已经重新加载 Skill 的 Codex 新对话中：
+三份设计文档已经确认，后续新对话应直接从 Stitch/Figma 评审阶段继续，不得重复创建或重新确认设计来源。将下面整段复制到新对话中：
 
 ```text
-请使用已安装的 redesign-existing-projects skill 启动 Motrix fnOS UI 重设计前期工作。
+请继续 Motrix fnOS UI 重设计的 Stitch/Figma 协作流程。
 
 开始前必须阅读：
 - AGENTS.md
 - docs/architecture.md
 - docs/ui-redesign-stitch-figma-workflow.md
-- docs/api-contract.md
-- docs/development-plan.md
-- 当前 src/ 前端源码
+- docs/design/ui-product-requirements.md
+- docs/design/DESIGN.md
+- docs/design/stitch-prompts.md
 
-本项目是 fnOS 上的下载管理工具，技术栈保持 Vue 3、TypeScript、Naive UI、Pinia。它不是营销网站，不允许为了设计稿改变业务架构、复制业务状态或加入无法落地的静态假功能。
+上述三份 docs/design 文档已经用户确认，是当前唯一设计来源，无需重新确认或重新生成。旧 Stitch 归档已删除。
 
-第一步只做只读审计，并让我确认 docs/ui-redesign-stitch-figma-workflow.md 第 1 节的五项决策。能够从源码确认的事实不要询问我。
+我会提供 Stitch 截图或 Figma 链接/导出图。请对照需求和设计系统逐页面检查完整性、信息层级、关键状态、响应式、可访问性和 Naive UI 可实现性，并给出接受、需要调整或拒绝结论。需要调整时提供可直接回填 Stitch 的修订提示词。
 
-确认后自动完成：
-1. 创建 docs/design/ui-product-requirements.md；
-2. 使用 stitch-design-taste 的输出结构创建 docs/design/DESIGN.md；
-3. 创建 docs/design/stitch-prompts.md，提供全局提示词和第一批关键页面提示词；
-4. 标明每项需求来自当前实现、用户确认或未来候选，不得混淆；
-5. 审核旧 docs/design/archive/ui-stitch-prompts.md 中失真的需求。
-
-新文档完成并通过测试/一致性检查后，先向我汇报差异并等待确认。只有我确认新文档可作为唯一设计来源后，才允许：
-- 删除 docs/design/archive/ui-stitch-prompts.md；
-- 同步更新 README.md、docs/architecture.md、docs/api-contract.md、docs/development-plan.md 中的引用。
-
-前期不得修改 UI 代码，不得安装新的运行时依赖，不得直接开始视觉重构。每次文档修改都要保持与真实源码和架构一致。
+在我明确批准具体 Figma frame 前，不得修改 UI 代码、安装运行时依赖或开始视觉重构。批准后先生成分阶段代码实施与测试计划，再等待我要求实施。
 ```
 
 ## 7. Stitch 全局提示词模板
@@ -208,6 +199,6 @@ Follow the supplied DESIGN.md for exact colors, spacing, typography, radius, den
 - 新需求文档与当前源码功能一致。
 - `DESIGN.md` 不包含营销站或高动效规则。
 - Stitch 提示词覆盖核心页面及关键状态，并有明确负面约束。
-- 旧归档中的虚构/过时功能已被识别。
-- 用户确认新文档后，旧归档及四处引用被一次性清理。
+- 旧归档中的虚构/过时功能已被识别并记录到产品需求的未来候选章节。
+- 三份新文档已经用户确认；旧归档及相关引用已一次性清理。
 - 在 Figma frame 获得明确批准前，不开始代码重构。

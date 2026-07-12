@@ -57,7 +57,9 @@ rtk pnpm run clean
 - 接口契约：[`docs/api-contract.md`](docs/api-contract.md)
 - JSON-RPC 远程访问：[`docs/jsonrpc-remote-access.md`](docs/jsonrpc-remote-access.md)
 - 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
-- 历史 UI 设计归档：[`docs/design/archive/ui-stitch-prompts.md`](docs/design/archive/ui-stitch-prompts.md)
+- UI 产品需求：[`docs/design/ui-product-requirements.md`](docs/design/ui-product-requirements.md)
+- UI 设计系统：[`docs/design/DESIGN.md`](docs/design/DESIGN.md)
+- Stitch 提示词：[`docs/design/stitch-prompts.md`](docs/design/stitch-prompts.md)
 
 ## 本地开发说明
 

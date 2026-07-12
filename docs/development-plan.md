@@ -1,13 +1,13 @@
 # 飞牛版 Motrix 开发计划
 
-> 更新时间：2026-07-08
+> 更新时间：2026-07-12
 > 本文档记录当前阶段状态、已完成里程碑、优先级和验收口径。长期架构边界见 `docs/architecture.md`；HTTP / SSE 与 JSON-RPC 接口见 `docs/api-contract.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 当前状态
 
 版本来源：以 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 为准，Release tag 使用 `v<version>`。
 
-当前阶段：**阶段 12 已完成，发布前验收与缺陷修复中；下一阶段待定（✅ 2026-07-07）**
+当前阶段：**阶段 13 UI 重设计处于设计稿准备阶段；尚未开始 UI 代码重构（进行中，2026-07-12）**
 
 阶段摘要：
 
@@ -16,6 +16,7 @@
 - 新建任务链路已补齐单 URL、批量 URL、种子文件、磁力链接、开始方式和高级下载选项；发布前仍需按手工验收清单在目标 fnOS 环境复核。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物；具体构建命令与产物路径见 `docs/fpk-packaging.md`。
 - 桌面 Web、手机浏览器和飞牛 App WebView 继续共用同一套 Vue 源码、Pinia store、service、HTTP API 和 SSE 数据流。
+- UI 重设计的产品需求、双主题设计系统和 Stitch 提示词已确认为唯一设计来源；下一步由用户在 Stitch/Figma 完成设计稿并批准具体 frame。
 
 ## 2. 阶段里程碑
 
@@ -34,10 +35,19 @@
 | 阶段 10：手机端 UI 适配 | ✅ 2026-07-05 | 移动端切换为单列外壳、底部导航、任务卡片和移动端弹窗；桌面布局保持不回退。 |
 | 阶段 11：关于页、版本检测与更新历史 | ✅ 2026-07-05 | 新增关于页入口，展示应用信息、版本检测结果、手动更新说明和 `CHANGELOG.md` 更新历史。 |
 | 阶段 12：新建下载任务能力完善 | ✅ 2026-07-07 | 已补齐 URL / 批量 URL / Multipart 种子文件 / 磁力链接、立即开始 / 添加后暂停、分类、连接数、下载限速和代理的前后端能力。 |
+| 阶段 13：UI 重设计 | 设计稿准备中 2026-07-12 | 已建立产品需求、深浅主题设计系统和 Stitch 提示词；等待 Stitch/Figma 设计与 frame 批准，尚未修改 UI 代码。 |
 
 ## 3. 当前优先级
 
-阶段 12 已完成；当前进入发布前验收、缺陷修复和发版准备。下一阶段尚未启动，除紧急修复外，新功能应先更新本计划再实施。
+阶段 12 已完成；发布前验收与缺陷修复继续进行。阶段 13 已进入设计稿准备，但在 Figma frame 获得用户明确批准前不得开始 UI 代码重构。
+
+阶段 13 当前输入：
+
+- `docs/design/ui-product-requirements.md`：当前功能与体验需求。
+- `docs/design/DESIGN.md`：深色/浅色主题和视觉 token。
+- `docs/design/stitch-prompts.md`：Stitch 页面输入与迭代记录。
+- 首批范围包含桌面/移动任务列表、空状态、新建任务、设置、任务详情/文件确认、About、Help 和 Diagnostics。
+- 搜索、右键菜单、底部状态栏、做种分类和任务详情抽屉等未实现功能仅为未来候选，不进入首轮实现。
 
 阶段 12 完成摘要：
 
@@ -91,5 +101,7 @@ rtk pnpm run verify:pre-commit
 - `docs/development/archive/`：阶段实施细节的历史归档，不作为当前优先级来源。
 - `docs/api-contract.md`：HTTP / SSE / JSON-RPC 接口契约的唯一来源。
 - `docs/fpk-packaging.md`：FPK 构建命令、产物位置和打包排障入口的唯一来源。
-- `docs/design/archive/ui-stitch-prompts.md`：历史设计归档参考，不作为当前实现契约。
+- `docs/design/ui-product-requirements.md`：当前 UI 功能与体验需求的唯一来源。
+- `docs/design/DESIGN.md`：当前 UI 视觉系统和设计 token 的唯一来源。
+- `docs/design/stitch-prompts.md`：当前 Stitch 输入和设计迭代记录。
 - `CHANGELOG.md`：发布历史。
