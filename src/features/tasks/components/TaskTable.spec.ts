@@ -34,6 +34,7 @@ describe("TaskTable", () => {
     const { wrapper } = mountWithPinia(TaskTable, {
       props: {
         tasks: [{ id: 1 }],
+        ...paginationProps(),
       },
     });
 
@@ -46,10 +47,38 @@ describe("TaskTable", () => {
     const { wrapper } = mountWithPinia(TaskTable, {
       props: {
         tasks: [{ id: 1 }],
+        ...paginationProps(),
       },
     });
 
     expect(wrapper.find('[data-test="task-mobile-list"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="task-desktop-list"]').exists()).toBe(false);
   });
+
+  it("emits desktop pagination and page-size changes", async () => {
+    isMobileLayout.value = false;
+    const { wrapper } = mountWithPinia(TaskTable, {
+      props: {
+        tasks: [{ id: 1 }],
+        ...paginationProps({ showPagination: true, itemCount: 101 }),
+      },
+    });
+
+    const pagination = wrapper.getComponent({ name: "Pagination" });
+    pagination.vm.$emit("update:page", 2);
+    pagination.vm.$emit("update:page-size", 50);
+
+    expect(wrapper.emitted("update:page")).toEqual([[2]]);
+    expect(wrapper.emitted("update:pageSize")).toEqual([[50]]);
+  });
 });
+
+function paginationProps(overrides: Record<string, unknown> = {}) {
+  return {
+    page: 1,
+    pageSize: 20,
+    itemCount: 1,
+    showPagination: false,
+    ...overrides,
+  };
+}

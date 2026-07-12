@@ -34,8 +34,11 @@ const props = defineProps<{
 
 <style scoped>
 .task-mobile-list {
+  height: 100%;
   display: grid;
+  align-content: start;
   gap: 14px;
+  overflow-y: auto;
   padding: 16px;
   padding-bottom: calc(116px + var(--app-safe-area-bottom));
 }

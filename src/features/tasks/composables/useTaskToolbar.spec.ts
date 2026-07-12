@@ -92,7 +92,8 @@ describe("useTaskToolbar", () => {
   it("exposes removable records as clear-trash candidates only in Trash", () => {
     const activeCategory = ref<MainNavCategory>("trash");
     const isRuntimeExiting = ref(false);
-    const visibleTasks = ref<DownloadTask[]>([
+    const visibleTasks = ref<DownloadTask[]>([createTask({ id: 1, status: "removed" })]);
+    const clearTrashTasks = ref<DownloadTask[]>([
       createTask({ id: 1, status: "removed" }),
       createTask({ id: 2, status: "removed" }),
     ]);
@@ -100,10 +101,10 @@ describe("useTaskToolbar", () => {
       activeCategory,
       isRuntimeExiting,
       visibleTasks,
-      isTaskOperating: (taskId) => taskId === 2,
+      clearTrashTasks,
     });
 
-    expect(toolbar.clearTrashCandidates.value.map((task) => task.id)).toEqual([1]);
+    expect(toolbar.clearTrashCandidates.value.map((task) => task.id)).toEqual([1, 2]);
     expect(toolbar.canClearTrash.value).toBe(true);
 
     activeCategory.value = "downloading";

@@ -12,6 +12,7 @@ import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileConfirmCoordinator.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
+import { useTaskPagination } from "../features/tasks/composables/useTaskPagination";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
 import { runTaskToolbarBatch, useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
@@ -64,9 +65,11 @@ const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
   taskStore,
   message,
 });
+const pagination = useTaskPagination({ tasks: visibleTasks, activeCategory });
 const toolbar = useTaskToolbar({
   activeCategory,
-  visibleTasks,
+  visibleTasks: pagination.pagedTasks,
+  clearTrashTasks: removedTasks,
   isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
@@ -285,6 +288,7 @@ function selectCategory(category: MainNavCategory) {
 }
 
 async function handleTaskCreated() {
+  pagination.resetPage();
   message.success(t("task.created"));
   void refreshAria2Status();
 }
@@ -343,7 +347,17 @@ onMounted(() => {
         @create="openCreateDialog"
         @open-settings="showSettings = true"
       />
-      <TaskTable v-else :key="contentViewKey" :tasks="visibleTasks" />
+      <TaskTable
+        v-else
+        :key="contentViewKey"
+        :tasks="pagination.pagedTasks.value"
+        :page="pagination.page.value"
+        :page-size="pagination.pageSize.value"
+        :item-count="pagination.itemCount.value"
+        :show-pagination="pagination.showPagination.value"
+        @update:page="pagination.page.value = $event"
+        @update:page-size="pagination.pageSize.value = $event"
+      />
     </template>
 
     <template #overlay>

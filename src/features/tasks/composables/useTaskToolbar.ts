@@ -6,6 +6,7 @@ interface UseTaskToolbarOptions {
   activeCategory: Ref<MainNavCategory>;
   isRuntimeExiting: Ref<boolean>;
   visibleTasks?: Ref<DownloadTask[]>;
+  clearTrashTasks?: Ref<DownloadTask[]>;
   isTaskOperating?: (taskId: number) => boolean;
   isBulkOperating?: Ref<boolean>;
 }
@@ -21,6 +22,7 @@ export function useTaskToolbar({
   activeCategory,
   isRuntimeExiting,
   visibleTasks,
+  clearTrashTasks,
   isTaskOperating = () => false,
   isBulkOperating,
 }: UseTaskToolbarOptions) {
@@ -44,7 +46,9 @@ export function useTaskToolbar({
   );
   const clearTrashCandidates = computed(() =>
     activeCategory.value === "trash"
-      ? (visibleTasks?.value ?? []).filter((task) => task.status === "removed" && !isTaskOperating(task.id))
+      ? (clearTrashTasks?.value ?? visibleTasks?.value ?? []).filter(
+          (task) => task.status === "removed" && !isTaskOperating(task.id),
+        )
       : [],
   );
   const isBusy = computed(() => Boolean(isBulkOperating?.value));
