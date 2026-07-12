@@ -17,6 +17,7 @@ const emit = defineEmits<{
   pauseVisible: [];
   resumeVisible: [];
   deleteVisible: [];
+  clearTrash: [];
   openAbout: [];
   openDiagnostics: [];
   openHelp: [];
@@ -42,6 +43,10 @@ function resumeVisibleTasks() {
 
 function deleteVisibleTasks() {
   emit("deleteVisible");
+}
+
+function clearTrash() {
+  emit("clearTrash");
 }
 
 function openAbout() {
@@ -87,6 +92,7 @@ function selectCategory(category: MainNavCategory) {
         @pause-visible="pauseVisibleTasks"
         @resume-visible="resumeVisibleTasks"
         @delete-visible="deleteVisibleTasks"
+        @clear-trash="clearTrash"
         @open-about="openAbout"
         @open-diagnostics="openDiagnostics"
         @open-help="openHelp"

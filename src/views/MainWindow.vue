@@ -39,6 +39,7 @@ const showDiagnostics = ref(false);
 const showHelp = ref(false);
 const showSettings = ref(false);
 const showBulkDeleteConfirm = ref(false);
+const bulkDeleteMode = ref<"delete" | "clearTrash">("delete");
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
@@ -70,7 +71,11 @@ const toolbar = useTaskToolbar({
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
 });
-const bulkDeleteTaskCount = computed(() => toolbar.deleteCandidates.value.length);
+const bulkDeleteTaskCount = computed(() =>
+  bulkDeleteMode.value === "clearTrash"
+    ? toolbar.clearTrashCandidates.value.length
+    : toolbar.deleteCandidates.value.length,
+);
 const topbarActions = computed<TopbarActionStates>(() => ({
   create: {
     disabled: !toolbar.canCreate.value,
@@ -92,7 +97,17 @@ const topbarActions = computed<TopbarActionStates>(() => ({
     disabled: !toolbar.canDeleteVisible.value,
     title: toolbar.canDeleteVisible.value ? t("topbar.deleteVisible") : batchDisabledTitle("delete"),
   },
+  clearTrash: {
+    disabled: !toolbar.canClearTrash.value,
+    title: toolbar.canClearTrash.value ? t("topbar.clearTrash") : clearTrashDisabledTitle(),
+  },
 }));
+
+function clearTrashDisabledTitle() {
+  return taskStore.isRuntimeExiting
+    ? t("topbar.disabled.runtimeExiting")
+    : t("topbar.disabled.trashEmpty");
+}
 
 function createDisabledTitle() {
   if (taskStore.isRuntimeExiting) {
@@ -188,11 +203,31 @@ function handleDeleteVisibleTasks() {
     return;
   }
 
+  bulkDeleteMode.value = "delete";
+  showBulkDeleteConfirm.value = true;
+}
+
+function handleClearTrash() {
+  if (!toolbar.canClearTrash.value) {
+    message.warning(t("task.bulk.trashEmpty"));
+    return;
+  }
+
+  bulkDeleteMode.value = "clearTrash";
   showBulkDeleteConfirm.value = true;
 }
 
 async function confirmDeleteVisibleTasks() {
   try {
+    if (bulkDeleteMode.value === "clearTrash") {
+      await runVisibleTaskBatch(
+        toolbar.clearTrashCandidates.value,
+        (task) => taskStore.permanentlyDeleteTask(task.id),
+        "task.bulk.clearTrashSuccess",
+        "task.bulk.trashEmpty",
+      );
+      return;
+    }
     await runVisibleTaskBatch(
       toolbar.deleteCandidates.value,
       (task) => taskStore.deleteTask(task.id, false),
@@ -207,8 +242,16 @@ async function confirmDeleteVisibleTasks() {
 async function runVisibleTaskBatch(
   candidates: DownloadTask[],
   operation: (task: DownloadTask) => Promise<unknown>,
-  successKey: "task.bulk.pauseSuccess" | "task.bulk.resumeSuccess" | "task.bulk.deleteSuccess",
-  emptyKey: "task.bulk.noPauseable" | "task.bulk.noResumable" | "task.bulk.noDeletable",
+  successKey:
+    | "task.bulk.pauseSuccess"
+    | "task.bulk.resumeSuccess"
+    | "task.bulk.deleteSuccess"
+    | "task.bulk.clearTrashSuccess",
+  emptyKey:
+    | "task.bulk.noPauseable"
+    | "task.bulk.noResumable"
+    | "task.bulk.noDeletable"
+    | "task.bulk.trashEmpty",
 ) {
   if (candidates.length === 0) {
     message.warning(t(emptyKey));
@@ -280,6 +323,7 @@ onMounted(() => {
     @pause-visible="handlePauseVisibleTasks"
     @resume-visible="handleResumeVisibleTasks"
     @delete-visible="handleDeleteVisibleTasks"
+    @clear-trash="handleClearTrash"
     @open-about="showAbout = true"
     @open-diagnostics="showDiagnostics = true"
     @open-help="showHelp = true"
@@ -318,6 +362,7 @@ onMounted(() => {
         :show="showBulkDeleteConfirm"
         :task-count="bulkDeleteTaskCount"
         :is-loading="isToolbarBulkOperating"
+        :mode="bulkDeleteMode"
         @update:show="showBulkDeleteConfirm = $event"
         @confirm="confirmDeleteVisibleTasks"
       />

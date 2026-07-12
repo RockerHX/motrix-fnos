@@ -1,4 +1,4 @@
-export type TopbarActionKey = "create" | "refresh" | "pauseVisible" | "resumeVisible" | "deleteVisible";
+export type TopbarActionKey = "create" | "refresh" | "pauseVisible" | "resumeVisible" | "deleteVisible" | "clearTrash";
 
 export interface TopbarActionState {
   disabled?: boolean;

@@ -22,6 +22,7 @@ const emit = defineEmits<{
   pauseVisible: [];
   resumeVisible: [];
   deleteVisible: [];
+  clearTrash: [];
   openAbout: [];
   openDiagnostics: [];
   openHelp: [];
@@ -58,6 +59,12 @@ function resumeVisibleTasks() {
 function deleteVisibleTasks() {
   if (!isActionDisabled("deleteVisible")) {
     emit("deleteVisible");
+  }
+}
+
+function clearTrash() {
+  if (!isActionDisabled("clearTrash")) {
+    emit("clearTrash");
   }
 }
 
@@ -131,6 +138,7 @@ function openSettings() {
         <AppIcon name="play" :size="16" />
       </button>
       <button
+        v-if="props.activeCategory !== 'trash'"
         type="button"
         :disabled="isActionDisabled('deleteVisible')"
         :title="actionTitle('deleteVisible', t('topbar.deleteVisible'))"
@@ -139,8 +147,28 @@ function openSettings() {
       >
         <AppIcon name="close" :size="16" />
       </button>
+      <button
+        v-else
+        type="button"
+        :disabled="isActionDisabled('clearTrash')"
+        :title="actionTitle('clearTrash', t('topbar.clearTrash'))"
+        :aria-label="t('topbar.clearTrash')"
+        @click="clearTrash"
+      >
+        <AppIcon name="trash" :size="16" />
+      </button>
     </div>
     <div class="topbar-actions mobile-actions">
+      <button
+        v-if="props.activeCategory === 'trash'"
+        type="button"
+        :disabled="isActionDisabled('clearTrash')"
+        :title="actionTitle('clearTrash', t('topbar.clearTrash'))"
+        :aria-label="t('topbar.clearTrash')"
+        @click="clearTrash"
+      >
+        <AppIcon name="trash" :size="18" />
+      </button>
       <button type="button" :title="t('nav.settings')" :aria-label="t('nav.settings')" @click="openSettings"><AppIcon name="settings" :size="18" /></button>
       <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp"><AppIcon name="help" :size="18" /></button>
       <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout"><AppIcon name="about" :size="18" /></button>

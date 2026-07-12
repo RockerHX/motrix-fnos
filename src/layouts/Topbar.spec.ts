@@ -57,6 +57,22 @@ describe("Topbar", () => {
     expect(wrapper.emitted("refresh")).toHaveLength(1);
   });
 
+  it("replaces visible-delete with empty-trash in the Trash category", async () => {
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "trash",
+      },
+    });
+
+    expect(wrapper.find('button[aria-label="删除当前可见任务"]').exists()).toBe(false);
+    const clearButton = wrapper.get('.desktop-actions > button[aria-label="清空回收站"]');
+    expect(clearButton.get("svg").attributes("data-icon-name")).toBe("trash");
+    expect(wrapper.find('.mobile-actions > button[aria-label="清空回收站"]').exists()).toBe(true);
+
+    await clearButton.trigger("click");
+    expect(wrapper.emitted("clearTrash")).toHaveLength(1);
+  });
+
   it("does not emit disabled desktop actions and keeps disabled title", async () => {
     const wrapper = mount(Topbar, {
       props: {

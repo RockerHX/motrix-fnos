@@ -7,9 +7,11 @@ const props = withDefaults(
     show: boolean;
     taskCount: number;
     isLoading?: boolean;
+    mode?: "delete" | "clearTrash";
   }>(),
   {
     isLoading: false,
+    mode: "delete",
   },
 );
 
@@ -36,7 +38,7 @@ function confirm() {
 <template>
   <AppConfirmDialog
     :show="props.show"
-    :title="t('task.bulk.deleteTitle')"
+    :title="t(props.mode === 'clearTrash' ? 'task.bulk.clearTrashTitle' : 'task.bulk.deleteTitle')"
     :mask-closable="!props.isLoading"
     :loading="props.isLoading"
     confirm-type="error"
@@ -45,10 +47,10 @@ function confirm() {
     @confirm="confirm"
   >
     <p class="bulk-delete-description">
-      {{ t("task.bulk.deleteConfirm", { count: props.taskCount }) }}
+      {{ t(props.mode === "clearTrash" ? "task.bulk.clearTrashConfirm" : "task.bulk.deleteConfirm", { count: props.taskCount }) }}
     </p>
 
-    <template #confirm-label>{{ t("task.actions.delete") }}</template>
+    <template #confirm-label>{{ t(props.mode === "clearTrash" ? "task.bulk.clearTrash" : "task.actions.delete") }}</template>
   </AppConfirmDialog>
 </template>
 

@@ -95,6 +95,20 @@ describe("TaskBulkDeleteConfirmDialog", () => {
     expect(wrapper.text()).toContain("local files will not be deleted");
   });
 
+  it("warns that clearing Trash permanently deletes all records", () => {
+    const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
+      props: {
+        show: true,
+        taskCount: 4,
+        mode: "clearTrash",
+      },
+    });
+
+    expect(wrapper.text()).toContain("永久删除回收站中的 4 条任务记录");
+    expect(wrapper.text()).toContain("无法撤销");
+    expect(wrapper.text()).toContain("全部永久删除");
+  });
+
   it("closes without confirming when canceled", async () => {
     const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
       props: {

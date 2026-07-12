@@ -85,6 +85,28 @@ describe("useTaskToolbar", () => {
     expect(visited).toEqual([1, 2, 3]);
     expect(result).toEqual({ successCount: 2, failureCount: 1 });
   });
+
+  it("exposes removable records as clear-trash candidates only in Trash", () => {
+    const activeCategory = ref<MainNavCategory>("trash");
+    const isRuntimeExiting = ref(false);
+    const visibleTasks = ref<DownloadTask[]>([
+      createTask({ id: 1, status: "removed" }),
+      createTask({ id: 2, status: "removed" }),
+    ]);
+    const toolbar = useTaskToolbar({
+      activeCategory,
+      isRuntimeExiting,
+      visibleTasks,
+      isTaskOperating: (taskId) => taskId === 2,
+    });
+
+    expect(toolbar.clearTrashCandidates.value.map((task) => task.id)).toEqual([1]);
+    expect(toolbar.canClearTrash.value).toBe(true);
+
+    activeCategory.value = "downloading";
+    expect(toolbar.clearTrashCandidates.value).toEqual([]);
+    expect(toolbar.canClearTrash.value).toBe(false);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
