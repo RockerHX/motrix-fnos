@@ -1,6 +1,6 @@
 # Motrix fnOS UI 重设计与 Stitch/Figma 流程
 
-> 当前阶段：设计输入已确认，Stitch MCP 已验证，下一步执行桌面暗色单页 PoC。
+> 当前阶段：桌面暗色单页 PoC 已生成并完成首轮修订，等待用户确认后继续调整。
 > 技术边界：继续使用 Vue 3、TypeScript、Naive UI 和 Pinia；不得以视觉稿改变 `docs/architecture.md` 规定的业务边界。
 
 ## 1. 文档职责
@@ -21,6 +21,8 @@ Stitch 仍为 Beta。当前采用“一个 Design System、一个桌面母版、
 3. PoC 必须验证品牌绿、字体层级、侧栏、任务边界、按钮、圆角，以及二次编辑的一致性。
 4. PoC 通过前不得生成移动端、浅色主题、弹窗或其他页面。
 5. Figma frame 获得用户明确批准前，不得修改 UI 代码或安装运行时依赖。
+6. Stitch 产出是视觉与信息架构参考，不是可直接进入项目的 UI 代码；生成 HTML、CSS、Tailwind class、Material Symbols 或其他图标实现不构成技术选型。
+7. 设计必须能映射到现有 Vue 3 + Naive UI 组件和交互语义；无法用现有组件与少量主题 CSS 实现的表现应在评审中标为需要调整。
 
 ## 3. Stitch MCP 单页 PoC
 
@@ -30,11 +32,20 @@ Codex 按顺序执行：
 2. 上传 `docs/design/DESIGN.md`，创建项目级 Design System，并确认项目能列出对应 asset。
 3. 使用 `docs/design/stitch-prompts.md` 第 1 节生成一张 `DESKTOP` 页面；生成调用必须显式传入 Design System asset。
 4. 通过 MCP 读取截图与 HTML，检查产品需求、视觉 token、可访问性和 Naive UI 可实现性。
-5. 局部问题编辑同一 screen；整体方向失败时才生成第二个候选。不得继续其他页面。
+5. 局部问题只从当前母版调用 `edit_screens`。MCP 可能返回新的派生 screen ID；该 screen 是同一候选的 revision，不是新的方向候选。整体方向失败时才生成第二个候选。不得继续其他页面。
 6. 将 project ID、Design System asset ID、screen ID、模型和结论写入第 7 节。
 7. 用户批准母版后，才按 `stitch-prompts.md` 第 2 节派生后续页面。
 
 评审结论只能是：接受、需要调整、拒绝。需要调整时必须说明违反了哪一份事实源。
+
+### 3.1 候选、revision 与当前母版
+
+- **候选**表示不同的整体视觉方向；首轮一个候选的门禁不因局部修订而增加。
+- **Revision**表示从当前母版进行的局部修订。`edit_screens` 实际可能创建新 screen，也可能返回针对原 screen 的 DOM 操作事件，不能假设原 screen 会被原位覆盖。
+- 每次修订后必须通过 `get_screen` 重新读取截图和 HTML；只有可读取产物已反映修订时，才能把返回 screen 设为当前母版。
+- 新 revision 通过评审后成为唯一当前母版；旧 screen 只作为历史记录，不再继续编辑或派生。
+- 不为清理画布而删除旧 screen，不修改或删除其他 Stitch 项目。确需清理当前项目时必须再次取得用户明确授权。
+- 第 7 节记录 `parent screen -> revision screen`、模型、修订结论和当前母版；不得把 revision 误记为第二候选。
 
 ## 4. 来源与确定性
 
@@ -69,7 +80,7 @@ unset NEW_TOKEN
 
 | 日期 | Project | Design System | Screen | Device / Theme / Model | 结论 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- |
-| - | 待创建 | 待创建 | 待生成 | `DESKTOP` / dark / 待记录 | 待评审 | 执行第 3 节 |
+| 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115`（当前母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：结构修订后方向一致，但 MCP 资源仍为 `3072x2048`，且最后一次 DOM 修订事件尚未反映到可读取 HTML | 等待用户确认后继续当前母版，不生成其他页面 |
 
 ## 8. 新对话启动提示词
 

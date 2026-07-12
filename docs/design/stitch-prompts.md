@@ -6,7 +6,7 @@
 
 ## 1. 当前单页 PoC 提示词
 
-本提示词只在项目级 Design System 创建成功后由 Codex 通过 Stitch MCP 提交。不得在没有 Design System 的项目中直接生成，也不得在提示词中重复视觉 token。
+本提示词只在项目级 Design System 创建成功后由 Codex 通过 Stitch MCP 提交。不得在没有 Design System 的项目中直接生成，也不得在提示词中重复视觉 token。Stitch 产出只用于视觉和信息架构评审；生成 HTML、CSS、Tailwind class、Material Symbols 或其他图标实现不是项目技术选型。
 
 ```text
 Create one responsive Web UI screen for Motrix fnOS: the desktop Downloading screen in the default dark theme. Target layout: 1440x900 desktop viewport. Generate only the normal runtime state, not a state sheet.
@@ -16,13 +16,17 @@ Use a compact fixed left navigation, a compact top toolbar, and a dense vertical
 Use these samples: active `ubuntu-24.04.2-desktop-amd64.iso`, 3.1 GB / 5.8 GB, 53.4%, 12.7 MB/s, ETA 3m 39s; paused `fnos-backup-2026-07-11.tar.zst`, 847 MB / 2.4 GB, 34.5%; error `documentary-episode-07.mkv`, 1.8 GB / 4.6 GB with `网络连接中断`; magnet resolving `开源纪录片合集`; file confirmation `Linux 教程合集`; category `默认`.
 
 Follow the currently selected custom DESIGN.md exactly. Do not create another design system or substitute a Stitch preset. Do not show hover, focus, pressed, loading or disabled demonstrations in this screen. Do not add Search, System theme, count badges, a bottom speed bar, a right detail drawer, seeding categories, Purge, Export Logs, or any other unapproved feature. Return one desktop screen only.
+
+Express controls with standard component semantics that can be implemented with Vue 3 and Naive UI components such as buttons, tooltips, progress indicators, tags, menus and layouts. Do not treat generated Tailwind classes, Material Symbols, custom fonts, third-party component libraries or static HTML as implementation requirements. Avoid visual controls that would require replacing Naive UI when the same behavior can be represented with its existing primitives and theme overrides.
 ```
 
 生成后立即停止。不要继续移动端、浅色主题、弹窗或其他状态；Codex 先通过 MCP 读取完整截图和 HTML，并记录评审结论。
 
+局部问题只从当前母版调用 `edit_screens`。MCP 返回的新 screen 属于同一候选的 revision；读取确认后将其设为当前母版，旧 screen 只保留为历史且不再继续编辑。若 MCP 只返回 DOM 操作事件，必须等待 `get_screen` 的截图和 HTML 实际更新后才能认为修订完成。
+
 ## 2. 派生页面规格
 
-> 只有第 1 节母版通过后，才能逐项使用本节。每次拆成 `1 viewport × 1 theme × 1 state` 的派生指令，并编辑或派生已批准 screen；不得整段提交。
+> 只有第 1 节当前母版通过后，才能逐项使用本节。每次拆成 `1 viewport × 1 theme × 1 state` 的派生指令，并只从已批准的当前母版派生；不得整段提交，也不得从旧 revision 建立分支。
 
 ### P2 窄桌面任务列表 — `1024×768`
 
