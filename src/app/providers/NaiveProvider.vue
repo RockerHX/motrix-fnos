@@ -37,9 +37,9 @@ const naiveDateLocale = computed(() => (language.value === "en-US" ? dateEnUS : 
 
 <template>
   <NConfigProvider :theme="darkTheme" :theme-overrides="themeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
-    <NMessageProvider placement="top-right">
+    <NMessageProvider placement="top">
       <NDialogProvider>
-        <NNotificationProvider placement="top-right">
+        <NNotificationProvider placement="bottom-right">
           <slot />
         </NNotificationProvider>
       </NDialogProvider>
