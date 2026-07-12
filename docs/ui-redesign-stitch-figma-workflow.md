@@ -1,6 +1,6 @@
 # Motrix fnOS UI 重设计与 Stitch/Figma 流程
 
-> 当前阶段：桌面暗色单页 PoC 已生成并完成首轮修订，等待用户确认后继续调整。
+> 当前阶段：桌面暗色单页 PoC 已完成可渲染 revision 和 Naive UI 可实现性评审，等待用户确认母版。
 > 技术边界：继续使用 Vue 3、TypeScript、Naive UI 和 Pinia；不得以视觉稿改变 `docs/architecture.md` 规定的业务边界。
 
 ## 1. 文档职责
@@ -80,7 +80,7 @@ unset NEW_TOKEN
 
 | 日期 | Project | Design System | Screen | Device / Theme / Model | 结论 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115`（当前母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：结构修订后方向一致，但 MCP 资源仍为 `3072x2048`，且最后一次 DOM 修订事件尚未反映到可读取 HTML | 等待用户确认后继续当前母版，不生成其他页面 |
+| 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115` -> `5e3caaf9fd4243bf9fe8ae85556cd35f`（当前母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：新 revision 已持久化为独立截图与 HTML，Naive UI 组件映射可行；MCP 导出元数据仍为 `3072x2048`，需用户在 Stitch 画布确认视觉结果 | 等待用户批准当前母版，不生成其他页面 |
 
 ## 8. 新对话启动提示词
 
