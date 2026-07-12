@@ -529,8 +529,10 @@ pub(crate) fn build_add_uri_request(
         "dir".to_string(),
         serde_json::json!(task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)),
     );
-    if task.source_type == DownloadTaskSourceType::Url && !task.file_name.trim().is_empty() {
-        options.insert("out".to_string(), serde_json::json!(task.file_name));
+    if task.source_type == DownloadTaskSourceType::Url {
+        if let Some(output_file_name) = task.output_file_name.as_deref() {
+            options.insert("out".to_string(), serde_json::json!(output_file_name));
+        }
     }
     params.push(serde_json::Value::Object(options));
 

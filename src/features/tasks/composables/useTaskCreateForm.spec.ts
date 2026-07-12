@@ -76,26 +76,40 @@ describe("useTaskCreateForm", () => {
     const { wrapper } = mountHarness();
     await flushPromises();
 
-    wrapper.vm.form.url = "ftp://example.com/file.iso";
+    wrapper.vm.form.urls = "ftp://example.com/file.iso";
     wrapper.vm.form.saveDir = "/downloads";
 
     await wrapper.vm.submitCreateTask();
 
-    expect(wrapper.vm.formErrorMessage).toBe("请输入有效的 HTTP / HTTPS 下载链接");
-    expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
+    expect(wrapper.vm.formErrorMessage).toBe("请输入有效的 HTTP / HTTPS 下载链接，并修正无效行");
+    expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid URL line numbers and detects valid task count", async () => {
+    const { wrapper } = mountHarness();
+    await flushPromises();
+
+    wrapper.vm.form.urls = "https://example.com/a.iso\nftp://example.com/b.iso\nhttps://example.com/c.iso";
+    await flushPromises();
+    expect(wrapper.vm.urlFeedback).toBe("第 2 行不是有效的 HTTP / HTTPS 链接。");
+    expect(wrapper.vm.urlValidationStatus).toBe("error");
+
+    wrapper.vm.form.urls = "https://example.com/a.iso\nhttps://example.com/c.iso";
+    await flushPromises();
+    expect(wrapper.vm.urlFeedback).toBe("检测到 2 个链接，将分别创建 2 个下载任务。");
   });
 
   it("requires saveDir before submitting", async () => {
     const { wrapper } = mountHarness();
     await flushPromises();
 
-    wrapper.vm.form.url = "https://example.com/file.iso";
+    wrapper.vm.form.urls = "https://example.com/file.iso";
     wrapper.vm.form.saveDir = "";
 
     await wrapper.vm.submitCreateTask();
 
     expect(wrapper.vm.formErrorMessage).toBe("请选择已授权的保存目录");
-    expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
+    expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
   });
 
   it("prefers default dir, then remembered dir, then first accessible path", async () => {
@@ -149,24 +163,12 @@ describe("useTaskCreateForm", () => {
   it("submits successfully, remembers saveDir and resets the form", async () => {
     const { wrapper, onClose, onCreated } = mountHarness();
     await flushPromises();
-    mockedCreateDownloadTask.mockResolvedValueOnce({
-      id: 100,
-      url: "https://example.com/file.iso",
-      fileName: "custom.iso",
-      saveDir: "/backup",
-      category: "默认",
-      status: "pending",
-      totalLength: 1024,
-      completedLength: 0,
-      downloadSpeed: 0,
-      confirmationRequired: false,
-      files: [],
-      createdAt: 1,
-      updatedAt: 1,
+    mockedCreateBatchDownloadTasks.mockResolvedValueOnce({
+      created: [],
+      failed: [],
     });
 
-    wrapper.vm.form.url = "https://example.com/file.iso";
-    wrapper.vm.form.fileName = "custom.iso";
+    wrapper.vm.form.urls = "https://example.com/file.iso";
     wrapper.vm.form.saveDir = "/backup";
     wrapper.vm.form.startMode = "paused";
     wrapper.vm.form.category = "电影";
@@ -176,11 +178,9 @@ describe("useTaskCreateForm", () => {
 
     await wrapper.vm.submitCreateTask();
 
-    expect(mockedCreateDownloadTask).toHaveBeenCalledWith({
-      url: "https://example.com/file.iso",
-      fileName: "custom.iso",
+    expect(mockedCreateBatchDownloadTasks).toHaveBeenCalledWith({
+      urls: ["https://example.com/file.iso"],
       saveDir: "/backup",
-      sourceType: "url",
       startMode: "paused",
       category: "电影",
       advancedOptions: {
@@ -190,8 +190,7 @@ describe("useTaskCreateForm", () => {
       },
     });
     expect(localStorage.getItem("motrix-fnos:last-save-dir")).toBe("/backup");
-    expect(wrapper.vm.form.url).toBe("");
-    expect(wrapper.vm.form.fileName).toBe("");
+    expect(wrapper.vm.form.urls).toBe("");
     expect(wrapper.vm.form.saveDir).toBe("");
     expect(wrapper.vm.form.category).toBe("默认");
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -219,17 +218,16 @@ describe("useTaskCreateForm", () => {
           updatedAt: 1,
         },
       ],
-      failed: [{ input: "ftp://example.com/b.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" }],
+      failed: [{ input: "https://example.com/b.iso", message: "创建 Aria2 下载任务失败" }],
     });
 
-    wrapper.vm.activeInputType = "batch";
-    wrapper.vm.form.batchUrls = " https://example.com/a.iso \n\n ftp://example.com/b.iso ";
+    wrapper.vm.form.urls = " https://example.com/a.iso \n\n https://example.com/b.iso ";
     wrapper.vm.form.saveDir = "/downloads";
 
     await wrapper.vm.submitCreateTask();
 
     expect(mockedCreateBatchDownloadTasks).toHaveBeenCalledWith({
-      urls: ["https://example.com/a.iso", "ftp://example.com/b.iso"],
+      urls: ["https://example.com/a.iso", "https://example.com/b.iso"],
       saveDir: "/downloads",
       startMode: "now",
       category: "默认",
@@ -240,7 +238,7 @@ describe("useTaskCreateForm", () => {
       },
     });
     expect(wrapper.vm.batchFailedItems).toEqual([
-      { input: "ftp://example.com/b.iso", message: "当前仅支持 HTTP / HTTPS 下载链接" },
+      { input: "https://example.com/b.iso", message: "创建 Aria2 下载任务失败" },
     ]);
     expect(wrapper.vm.formErrorMessage).toBe("已创建部分任务，1 条链接创建失败");
     expect(onClose).not.toHaveBeenCalled();
@@ -332,13 +330,13 @@ describe("useTaskCreateForm", () => {
     const taskStore = useTaskStore();
 
     taskStore.isRuntimeExiting = true;
-    wrapper.vm.form.url = "https://example.com/file.iso";
+    wrapper.vm.form.urls = "https://example.com/file.iso";
     wrapper.vm.form.saveDir = "/downloads";
 
     await wrapper.vm.submitCreateTask();
 
     expect(mockMessage.warning).toHaveBeenCalledWith("应用正在退出，请稍候");
-    expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
+    expect(mockedCreateBatchDownloadTasks).not.toHaveBeenCalled();
   });
 });
 

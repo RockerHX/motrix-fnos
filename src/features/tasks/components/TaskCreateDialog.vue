@@ -113,29 +113,20 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
       <NForm class="task-create-form" label-placement="top" @submit.prevent="submitCreateTask">
         <NTabs v-model:value="activeInputType" class="task-create-tabs" type="segment" animated>
           <NTabPane name="url" :tab="t('create.tab.url')" />
-          <NTabPane name="batch" :tab="t('create.tab.batch')" />
           <NTabPane name="torrent" :tab="t('create.tab.torrent')" />
           <NTabPane name="magnet" :tab="t('create.tab.magnet')" />
         </NTabs>
 
         <template v-if="activeInputType === 'url'">
           <NFormItem :label="t('create.url.label')" :feedback="urlFeedback" :validation-status="urlValidationStatus">
-            <NInput v-model:value="form.url" type="text" placeholder="https://example.com/file.zip" />
-          </NFormItem>
-
-          <NFormItem :label="t('create.fileName.label')">
-            <NInput v-model:value="form.fileName" :placeholder="t('create.fileName.placeholder')" />
+            <NInput
+              v-model:value="form.urls"
+              type="textarea"
+              :autosize="{ minRows: 5, maxRows: 10 }"
+              :placeholder="t('create.url.placeholder')"
+            />
           </NFormItem>
         </template>
-
-        <NFormItem v-else-if="activeInputType === 'batch'" :label="t('create.batch.label')">
-          <NInput
-            v-model:value="form.batchUrls"
-            type="textarea"
-            :autosize="{ minRows: 5, maxRows: 10 }"
-            :placeholder="t('create.batch.placeholder')"
-          />
-        </NFormItem>
 
         <NFormItem v-else-if="activeInputType === 'torrent'" :label="t('create.torrent.label')">
           <NSpace vertical class="full-width">

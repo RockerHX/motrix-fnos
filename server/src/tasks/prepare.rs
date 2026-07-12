@@ -85,6 +85,7 @@ pub(crate) fn prepare_bt_download_task_with_logs(
 
     Ok(PreparedDownloadTask {
         file_name,
+        output_file_name: None,
         save_dir,
         aria2_save_dir: None,
         category,
@@ -112,7 +113,9 @@ fn prepare_task_inner(
         return Err(error);
     }
 
-    let file_name = normalize_optional(request.file_name)
+    let output_file_name = normalize_optional(request.file_name);
+    let file_name = output_file_name
+        .clone()
         .unwrap_or_else(|| infer_file_name(request.source_type, &url));
     let base_save_dir =
         resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
@@ -135,6 +138,7 @@ fn prepare_task_inner(
 
     Ok(PreparedDownloadTask {
         file_name,
+        output_file_name,
         save_dir,
         aria2_save_dir: None,
         category,

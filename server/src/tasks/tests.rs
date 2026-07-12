@@ -77,6 +77,7 @@ fn prepare_task_accepts_https_url() {
 
     assert_eq!(task.url, "https://example.com/file.zip?token=1");
     assert_eq!(task.file_name, "file.zip");
+    assert_eq!(task.output_file_name, None);
     assert!(Path::new(&task.save_dir).is_dir());
 }
 
@@ -245,6 +246,7 @@ fn store_created_task_persists_gid() {
         PreparedDownloadTask {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
+            output_file_name: None,
             save_dir: "/downloads".to_string(),
             aria2_save_dir: None,
             category: "默认".to_string(),
@@ -275,6 +277,7 @@ fn store_created_task_preserves_paused_start_mode() {
         PreparedDownloadTask {
             url: "https://example.com/file.zip".to_string(),
             file_name: "file.zip".to_string(),
+            output_file_name: None,
             save_dir: "/downloads".to_string(),
             aria2_save_dir: None,
             category: "默认".to_string(),
@@ -747,7 +750,7 @@ fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
-        file_name: "file.zip".to_string(),
+        file_name: "download".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
@@ -793,6 +796,7 @@ fn apply_aria2_status_updates_progress_fields() {
     assert_eq!(task.total_length, 100);
     assert_eq!(task.completed_length, 40);
     assert_eq!(task.download_speed, 20);
+    assert_eq!(task.file_name, "file.zip");
     assert_eq!(task.file_path.as_deref(), Some("/downloads/file.zip"));
 }
 
@@ -1263,6 +1267,7 @@ fn add_uri_request_contains_url_and_options() {
         &PreparedDownloadTask {
             url: "https://example.com/file.zip".to_string(),
             file_name: "custom.zip".to_string(),
+            output_file_name: Some("custom.zip".to_string()),
             save_dir: "/downloads".to_string(),
             aria2_save_dir: None,
             category: "默认".to_string(),
@@ -1302,12 +1307,33 @@ fn add_uri_request_contains_url_and_options() {
 }
 
 #[test]
+fn add_uri_request_does_not_force_inferred_display_name_as_output() {
+    let task = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/download?id=123".to_string(),
+        file_name: None,
+        save_dir: Some(temp_download_dir("inferred-output")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect("URL task should be prepared");
+
+    assert_eq!(task.file_name, "download");
+    assert_eq!(task.output_file_name, None);
+    let request = build_add_uri_request(&test_config(), &task);
+    assert!(request["params"][1].get("out").is_none());
+}
+
+#[test]
 fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
     let request = build_add_uri_request(
         &test_config(),
         &PreparedDownloadTask {
             url: "magnet:?xt=urn:btih:test".to_string(),
             file_name: "磁力链接任务".to_string(),
+            output_file_name: None,
             save_dir: "/downloads".to_string(),
             aria2_save_dir: Some("/app-data/magnet-metadata/task-1".to_string()),
             category: "默认".to_string(),
@@ -1338,6 +1364,7 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
         &PreparedDownloadTask {
             url: "magnet:?xt=urn:btih:test".to_string(),
             file_name: "磁力链接任务".to_string(),
+            output_file_name: None,
             save_dir: "/downloads".to_string(),
             aria2_save_dir: None,
             category: "默认".to_string(),
@@ -1364,6 +1391,7 @@ fn add_torrent_request_contains_base64_payload_and_options() {
         &PreparedDownloadTask {
             url: "torrent:example.torrent".to_string(),
             file_name: "example".to_string(),
+            output_file_name: None,
             save_dir: "/downloads".to_string(),
             aria2_save_dir: None,
             category: "默认".to_string(),

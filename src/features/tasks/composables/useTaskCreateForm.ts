@@ -14,7 +14,7 @@ import type {
 const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
 const DEFAULT_CATEGORY = "默认";
 
-type TaskCreateInputType = "url" | "batch" | "torrent" | "magnet";
+type TaskCreateInputType = "url" | "torrent" | "magnet";
 
 interface UseTaskCreateFormOptions {
   show: Ref<boolean>;
@@ -29,11 +29,9 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   const { t } = useI18n();
 
   const form = reactive({
-    url: "",
-    batchUrls: "",
+    urls: "",
     magnet: "",
     torrentFile: null as File | null,
-    fileName: "",
     saveDir: "",
     startMode: "now" as DownloadTaskStartMode,
     category: DEFAULT_CATEGORY,
@@ -48,16 +46,27 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   const isLoadingAccessiblePaths = ref(false);
   const accessiblePathsError = ref("");
 
-  const isUrlValid = computed(() => /^https?:\/\/.+/i.test(form.url.trim()));
   const isMagnetValid = computed(() => /^magnet:\?/i.test(form.magnet.trim()));
-  const batchUrlList = computed(() =>
-    form.batchUrls
-      .split(/\r?\n/)
-      .map((url) => url.trim())
-      .filter(Boolean),
+  const urlList = computed(() =>
+    form.urls.split(/\r?\n/).map((url) => url.trim()).filter(Boolean),
   );
-  const urlFeedback = computed(() => (form.url && !isUrlValid.value ? t("create.url.invalid") : undefined));
-  const urlValidationStatus = computed(() => (form.url && !isUrlValid.value ? "error" : undefined));
+  const invalidUrlLines = computed(() =>
+    form.urls
+      .split(/\r?\n/)
+      .map((url, index) => ({ url: url.trim(), line: index + 1 }))
+      .filter(({ url }) => url && !/^https?:\/\/.+/i.test(url))
+      .map(({ line }) => line),
+  );
+  const urlFeedback = computed(() => {
+    if (invalidUrlLines.value.length > 0) {
+      return t("create.url.invalidLines", { lines: invalidUrlLines.value.join(", ") });
+    }
+    if (urlList.value.length > 0) {
+      return t("create.url.detected", { count: urlList.value.length });
+    }
+    return t("create.url.hint");
+  });
+  const urlValidationStatus = computed(() => (invalidUrlLines.value.length > 0 ? "error" : undefined));
   const magnetFeedback = computed(() =>
     form.magnet && !isMagnetValid.value ? t("create.magnet.invalid") : undefined,
   );
@@ -110,8 +119,8 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     batchFailedItems.value = [];
 
     try {
-      if (activeInputType.value === "batch") {
-        await submitBatchTasks();
+      if (activeInputType.value === "url") {
+        await submitUrlTasks();
         return;
       }
 
@@ -121,10 +130,10 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
       }
 
       await taskStore.createTask({
-        url: activeInputType.value === "magnet" ? form.magnet.trim() : form.url.trim(),
-        fileName: activeInputType.value === "url" ? optionalText(form.fileName) : null,
+        url: form.magnet.trim(),
+        fileName: null,
         saveDir: form.saveDir,
-        sourceType: activeInputType.value === "magnet" ? "magnet" : "url",
+        sourceType: "magnet",
         startMode: form.startMode,
         category: normalizedCategory(),
         advancedOptions: buildAdvancedOptions(),
@@ -135,10 +144,10 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     }
   }
 
-  async function submitBatchTasks() {
+  async function submitUrlTasks() {
     try {
       const result = await taskStore.createBatchTasks({
-        urls: batchUrlList.value,
+        urls: urlList.value,
         saveDir: form.saveDir,
         startMode: form.startMode,
         category: normalizedCategory(),
@@ -188,11 +197,9 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   }
 
   function resetForm() {
-    form.url = "";
-    form.batchUrls = "";
+    form.urls = "";
     form.magnet = "";
     form.torrentFile = null;
-    form.fileName = "";
     form.saveDir = "";
     form.startMode = "now";
     form.category = DEFAULT_CATEGORY;
@@ -222,12 +229,8 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   }
 
   function validateForm() {
-    if (activeInputType.value === "url" && !isUrlValid.value) {
+    if (activeInputType.value === "url" && (urlList.value.length === 0 || invalidUrlLines.value.length > 0)) {
       formErrorMessage.value = t("create.url.required");
-      return false;
-    }
-    if (activeInputType.value === "batch" && batchUrlList.value.length === 0) {
-      formErrorMessage.value = t("create.batch.required");
       return false;
     }
     if (activeInputType.value === "torrent" && !form.torrentFile) {
@@ -251,10 +254,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
 
   function hasValidSourceInput() {
     if (activeInputType.value === "url") {
-      return isUrlValid.value;
-    }
-    if (activeInputType.value === "batch") {
-      return batchUrlList.value.length > 0;
+      return urlList.value.length > 0 && invalidUrlLines.value.length === 0;
     }
     if (activeInputType.value === "torrent") {
       return !!form.torrentFile;

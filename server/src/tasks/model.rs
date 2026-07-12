@@ -167,6 +167,7 @@ pub struct CreateTorrentDownloadTaskRequest {
 pub struct PreparedDownloadTask {
     pub url: String,
     pub file_name: String,
+    pub output_file_name: Option<String>,
     pub save_dir: String,
     pub aria2_save_dir: Option<String>,
     pub category: String,

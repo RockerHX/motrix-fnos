@@ -112,6 +112,20 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
         task.files.clear();
         task.file_path = None;
     } else {
+        let lower_url = task.url.to_ascii_lowercase();
+        if lower_url.starts_with("http://") || lower_url.starts_with("https://") {
+            if let Some(name) = status
+                .files
+                .as_ref()
+                .and_then(|files| files.first())
+                .and_then(|file| Path::new(&file.path).file_name())
+                .and_then(|name| name.to_str())
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                task.file_name = name.to_string();
+            }
+        }
         task.files = task_files(status);
         task.file_path = status
             .files
