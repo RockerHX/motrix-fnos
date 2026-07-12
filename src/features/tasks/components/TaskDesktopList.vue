@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NList, NListItem } from "naive-ui";
 import TaskDesktopCard from "./TaskDesktopCard.vue";
 import type { DownloadTask } from "../../../types/tasks";
 
@@ -9,9 +10,11 @@ const props = defineProps<{
 
 <template>
   <section class="task-desktop-list" data-test="task-desktop-list">
-    <div class="task-desktop-list-scroll">
-      <TaskDesktopCard v-for="task in props.tasks" :key="task.id" :task="task" />
-    </div>
+    <NList class="task-desktop-list-scroll" hoverable show-divider>
+      <NListItem v-for="task in props.tasks" :key="task.id">
+        <TaskDesktopCard :task="task" />
+      </NListItem>
+    </NList>
   </section>
 </template>
 
@@ -20,25 +23,34 @@ const props = defineProps<{
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
-}
-
-.task-desktop-list-scroll {
-  height: 100%;
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 10px;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 18px var(--app-desktop-content-gutter-x) 24px;
+  padding: 16px;
   scrollbar-gutter: stable;
 }
 
+.task-desktop-list-scroll {
+  border: 1px solid var(--app-color-border-subtle);
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.task-desktop-list-scroll :deep(.n-list-item) {
+  padding: 0;
+  border-bottom: 1px solid var(--app-color-border-subtle) !important;
+  border-radius: 0 !important;
+}
+
+.task-desktop-list-scroll :deep(.n-list-item:hover),
+.task-desktop-list-scroll :deep(.n-list-item:focus),
+.task-desktop-list-scroll :deep(.n-list-item:focus-within) {
+  border-radius: 0 !important;
+}
+
 @media (max-width: 1023px) {
-  .task-desktop-list-scroll {
-    gap: 16px;
-    padding: 22px;
+  .task-desktop-list {
+    padding: 16px;
   }
 }
 </style>

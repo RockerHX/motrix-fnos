@@ -35,6 +35,7 @@ describe("TaskDesktopList", () => {
     expect(cards).toHaveLength(2);
     expect(cards[0].text()).toBe("one.iso");
     expect(cards[1].text()).toBe("two.iso");
+    expect(wrapper.findAll(".n-list-item")).toHaveLength(2);
   });
 });
 
