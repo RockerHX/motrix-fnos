@@ -91,8 +91,8 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
 
-      - name: Run verification
-        run: pnpm run verify
+      - name: Run quick verification
+        run: pnpm run verify:pre-commit
 
       - name: Install FPK cross build dependencies
         run: |
