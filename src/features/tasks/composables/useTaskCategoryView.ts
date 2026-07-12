@@ -21,6 +21,14 @@ interface UseTaskCategoryViewOptions {
 }
 
 const emptyStateByCategory: Record<MainNavCategory, TaskCategoryEmptyState> = {
+  all: {
+    title: "",
+    description: "",
+    titleKey: "empty.all.title",
+    descriptionKey: "empty.all.description",
+    showCreateAction: true,
+    showSettingsAction: true,
+  },
   downloading: {
     title: "",
     description: "",
@@ -34,14 +42,6 @@ const emptyStateByCategory: Record<MainNavCategory, TaskCategoryEmptyState> = {
     description: "",
     titleKey: "empty.completed.title",
     descriptionKey: "empty.completed.description",
-    showCreateAction: false,
-    showSettingsAction: false,
-  },
-  stopped: {
-    title: "",
-    description: "",
-    titleKey: "empty.stopped.title",
-    descriptionKey: "empty.stopped.description",
     showCreateAction: false,
     showSettingsAction: false,
   },
@@ -68,7 +68,7 @@ export function useTaskCategoryView({
   removedTasks,
   isRuntimeExiting,
   isMobileLayout,
-  initialCategory = "downloading",
+  initialCategory = "all",
 }: UseTaskCategoryViewOptions) {
   const activeCategory = ref<MainNavCategory>(initialCategory);
   const visibleTasks = computed(() => filterTasksByCategory(tasks.value, removedTasks.value, activeCategory.value));
@@ -83,7 +83,7 @@ export function useTaskCategoryView({
       return false;
     }
 
-    if (!["downloading", "completed", "stopped"].includes(activeCategory.value)) {
+    if (!["all", "downloading", "completed"].includes(activeCategory.value)) {
       return false;
     }
 
@@ -111,16 +111,14 @@ function filterTasksByCategory(
   category: MainNavCategory,
 ) {
   switch (category) {
+    case "all":
+      return tasks;
     case "downloading":
       return tasks.filter(
         (task) => task.confirmationRequired || task.status === "pending" || task.status === "active",
       );
     case "completed":
       return tasks.filter((task) => task.status === "complete");
-    case "stopped":
-      return tasks.filter(
-        (task) => !task.confirmationRequired && (task.status === "paused" || task.status === "error"),
-      );
     case "extensions":
       return [];
     case "trash":

@@ -12,6 +12,9 @@ describe("useTaskToolbar", () => {
 
     expect(toolbar.canCreate.value).toBe(true);
 
+    activeCategory.value = "all";
+    expect(toolbar.canCreate.value).toBe(true);
+
     activeCategory.value = "trash";
     expect(toolbar.canCreate.value).toBe(false);
 

@@ -1,1 +1,1 @@
-export type MainNavCategory = "downloading" | "completed" | "stopped" | "trash" | "extensions";
+export type MainNavCategory = "all" | "downloading" | "completed" | "trash" | "extensions";

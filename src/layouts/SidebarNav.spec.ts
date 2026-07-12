@@ -3,6 +3,18 @@ import { mount } from "@vue/test-utils";
 import SidebarNav from "./SidebarNav.vue";
 
 describe("SidebarNav", () => {
+  it("renders All first and omits the stopped category", () => {
+    const wrapper = mount(SidebarNav, {
+      props: {
+        appInfo: null,
+        activeCategory: "all",
+      },
+    });
+
+    const labels = wrapper.findAll(".category-list button").map((item) => item.attributes("aria-label"));
+    expect(labels).toEqual(["全部", "下载中", "已完成", "回收站", "扩展"]);
+  });
+
   it("renders desktop auxiliary actions and emits their events", async () => {
     const wrapper = mount(SidebarNav, {
       props: {

@@ -21,13 +21,14 @@ describe("useTaskCategoryView", () => {
       isMobileLayout: ref(false),
     });
 
+    expect(view.activeCategory.value).toBe("all");
+    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2, 3, 4, 5, 7]);
+
+    view.activeCategory.value = "downloading";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2, 7]);
 
     view.activeCategory.value = "completed";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([3]);
-
-    view.activeCategory.value = "stopped";
-    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([4, 5]);
 
     view.activeCategory.value = "trash";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([6]);
@@ -46,11 +47,11 @@ describe("useTaskCategoryView", () => {
       isMobileLayout: ref(false),
     });
 
-    expect(view.emptyState.value.titleKey).toBe("empty.downloading.title");
-    expect(view.contentViewKey.value).toBe("downloading-empty");
+    expect(view.emptyState.value.titleKey).toBe("empty.all.title");
+    expect(view.contentViewKey.value).toBe("all-empty");
 
     tasks.value = [createTask({ id: 10, status: "active" })];
-    expect(view.contentViewKey.value).toBe("downloading-list");
+    expect(view.contentViewKey.value).toBe("all-list");
 
     view.activeCategory.value = "extensions";
     expect(view.emptyState.value.titleKey).toBe("empty.extensions.title");
@@ -82,7 +83,7 @@ describe("useTaskCategoryView", () => {
     expect(view.showFloatingAdd.value).toBe(false);
 
     isRuntimeExiting.value = true;
-    view.activeCategory.value = "downloading";
+    view.activeCategory.value = "all";
     tasks.value = [createTask({ id: 21, status: "active" })];
     expect(view.showFloatingAdd.value).toBe(false);
   });

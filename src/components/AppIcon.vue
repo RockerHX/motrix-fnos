@@ -23,9 +23,9 @@ const props = withDefaults(
 );
 
 const icons: Record<string, IconDefinition> = {
+  all: icon(`<path d="M5 6h14"/><path d="M5 12h14"/><path d="M5 18h14"/>`),
   download: icon(`<path d="M12 3v11"/><path d="m7 10 5 5 5-5"/><path d="M5 19h14"/>`),
   completed: icon(`<path d="m5 12 4 4L19 6"/>`),
-  stopped: icon(`<path d="M8 5v14"/><path d="M16 5v14"/>`),
   trash: icon(`<path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/>`),
   extensions: icon(`<path d="M9 4a3 3 0 0 1 6 0v2h3a2 2 0 0 1 2 2v4h-3a3 3 0 1 0 0 6h3v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3h2a3 3 0 1 0 0-6H4V8a2 2 0 0 1 2-2h3V4Z"/>`),
   plus: icon(`<path d="M12 5v14"/><path d="M5 12h14"/>`),

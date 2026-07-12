@@ -15,7 +15,7 @@ export interface TaskToolbarBatchResult {
   failureCount: number;
 }
 
-const createEnabledCategories: MainNavCategory[] = ["downloading", "completed", "stopped"];
+const createEnabledCategories: MainNavCategory[] = ["all", "downloading", "completed"];
 
 export function useTaskToolbar({
   activeCategory,
