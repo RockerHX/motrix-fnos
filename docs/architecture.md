@@ -96,6 +96,7 @@ src/
   views/
   features/
     tasks/
+      composables/  # 任务分类、分页、批量操作和顶部操作状态
     diagnostics/
     settings/
   services/
@@ -109,6 +110,7 @@ src/
 - `features/` 按业务领域拆分组件、store、service、composable 和类型。
 - `services/` 放 HTTP client 和运行时事件订阅封装。
 - `MainWindow.vue` 只承担页面编排，不直接实现任务表、复杂弹窗、Toast 队列、任务轮询或后端接口调用。
+- 主窗口弹窗状态与启动/退出刷新编排放在 `src/views/composables/`；跨页面复用的任务操作仍放在 `features/tasks/composables/`。
 - 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue Web UI 源码、Pinia store、service、HTTP API 和 SSE 数据流；不得为手机端另建独立前端工程、独立业务状态或独立后端接口。
 - 响应式适配优先在 `layouts/` 和 `features/*` 展示组件内完成：布局外壳可按桌面/移动拆分组件，信息结构差异明显的功能组件可拆桌面/移动展示组件，但业务操作必须复用同一 store/service。
 - UI 优先使用 Naive UI；自定义 CSS 仅用于整体主题、侧栏、shell、颜色、间距和圆角。
@@ -126,6 +128,13 @@ server/
     runtime/
     services/
     tasks/
+      service.rs
+      service/
+        create.rs
+        query.rs
+        control.rs
+        delete.rs
+        magnet.rs
     aria2/
     config/
     database/
@@ -137,6 +146,7 @@ server/
 - `api/` 只负责 HTTP handler 和请求/响应转换。
 - `services/` 负责编排业务流程。
 - `tasks/`、`aria2/`、`config/`、`database/`、`debug_logs/` 保持领域边界。
+- `tasks/service.rs` 只保留 `TaskService` 依赖注入、运行态守卫和查询委托；创建、查询、控制、删除与磁链确认流程分别由 `tasks/service/` 子模块承载。
 - 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
 ## 7. 数据流与事件流

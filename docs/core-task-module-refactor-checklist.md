@@ -14,7 +14,7 @@
 | 8 | 抽离前端批量任务操作 | 已完成 | `refactor(tasks): 抽离批量任务操作` |
 | 9 | 抽离前端顶部操作状态 | 已完成 | `refactor(tasks): 抽离顶部任务操作状态` |
 | 10 | 抽离页面弹窗与启动刷新编排 | 已完成 | `refactor(ui): 收口主窗口页面编排` |
-| 11 | 最终回归与文档收口 | 待处理 | `docs(architecture): 完成核心任务模块拆分收口` |
+| 11 | 最终回归与文档收口 | 已完成 | `docs(architecture): 完成核心任务模块拆分收口` |
 
 ## 验证规则
 
@@ -22,3 +22,11 @@
 - 前端任务先运行对应 Vitest 文件。
 - 每个提交前运行 `rtk pnpm run verify:pre-commit`。
 - 第 11 项运行 `rtk pnpm run verify` 并复核核心任务路径。
+
+## 最终结果
+
+- `server/src/tasks/service.rs`：97 行。
+- `src/views/MainWindow.vue`：233 行。
+- Rust：154 项测试通过，warnings 视为错误的编译通过。
+- 前端：45 个测试文件、152 项测试通过，类型检查和生产构建通过。
+- HTTP、SSE、JSON-RPC 与数据库契约未变更。
