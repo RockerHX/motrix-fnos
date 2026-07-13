@@ -115,6 +115,7 @@ pub(crate) fn safe_task_path_component(name: &str) -> String {
 }
 
 fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> Result<(), String> {
+    // BT 删除只能作用于任务创建时分配的专属目录；符号链接、根目录和名称不匹配的目录一律拒绝递归删除。
     let task_dir = Path::new(&task.save_dir);
     let metadata = match fs::symlink_metadata(task_dir) {
         Ok(metadata) => metadata,
@@ -183,6 +184,7 @@ fn delete_non_torrent_task_files(task: &DownloadTask) -> Result<(), String> {
         return Ok(());
     };
 
+    // 单文件删除同样要在 canonicalize 后确认仍位于任务保存目录内，不能信任数据库中的原始路径文本。
     let save_dir = Path::new(&task.save_dir)
         .canonicalize()
         .map_err(|error| format!("校验保存目录失败：{}（{}）", task.save_dir, error))?;

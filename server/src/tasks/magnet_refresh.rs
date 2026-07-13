@@ -7,6 +7,7 @@ pub(super) async fn resolve_followed_metadata(
     metadata_status: &Aria2TaskStatus,
     debug_logs: Option<&DebugLogStore>,
 ) -> Option<Result<(Aria2TaskStatus, String), String>> {
+    // followedBy 指向 metadata 完成后生成的真实任务；先暂停并读取其状态，保存种子路径后再清理两个临时 GID。
     let followed_gid = followed_gid(metadata_status)?;
     if let Err(error) = pause_task(config, &followed_gid, debug_logs).await {
         log_info(

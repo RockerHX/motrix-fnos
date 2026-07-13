@@ -63,6 +63,7 @@ impl<'a> TaskService<'a> {
 }
 
 pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
+    // 磁链清理只允许删除按任务 ID 分配的应用私有 metadata 目录，记录中的种子路径不匹配时立即放弃。
     let expected_dir = magnet::magnet_metadata_task_dir(app_data_dir, task.id);
     if !expected_dir.exists() {
         return;
