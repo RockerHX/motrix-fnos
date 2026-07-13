@@ -196,4 +196,7 @@ Rust Runtime Event
 - 新增前端交互进入 `features/*`，不得重新向入口页面堆叠。
 - 新增通信能力默认走 HTTP API / SSE。
 - 新增长期状态必须考虑 SQLite 持久化路径和迁移策略。
+- 测试实现必须与业务代码物理分离，不得在 `.rs`、`.ts` 或 `.vue` 业务文件内编写测试函数、测试夹具或内联 `mod tests { ... }`。
+- Rust 单元测试使用独立测试文件：模块文件只允许保留 `#[cfg(test)] mod tests;` 声明，测试实现放在对应的 `tests.rs` 或 `<module>/tests.rs`；跨模块集成测试放在 `server/tests/`。
+- 前端测试使用独立的 `*.spec.ts` 文件；构建与发布脚本测试统一放在 `scripts/tests/`。
 - 若本文档与实际演进不匹配，先更新本文档，再继续实现。
