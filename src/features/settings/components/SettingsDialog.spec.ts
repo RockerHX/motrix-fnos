@@ -98,8 +98,6 @@ vi.mock("../../../services/settings", () => ({
     maxConcurrentDownloads: 5,
     downloadLimit: 0,
     uploadLimit: 0,
-    autoStartEnabled: false,
-    notificationsEnabled: false,
     language: "zh-CN",
     jsonRpcToken: "",
   })),

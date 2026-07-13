@@ -122,8 +122,6 @@ function buildPayload(): AppConfig {
     maxConcurrentDownloads: Math.trunc(form.maxConcurrentDownloads || 1),
     downloadLimit: kbToBytes(form.downloadLimitKb),
     uploadLimit: kbToBytes(form.uploadLimitKb),
-    autoStartEnabled: false,
-    notificationsEnabled: false,
     language: form.language,
     jsonRpcToken: form.jsonRpcToken,
   };

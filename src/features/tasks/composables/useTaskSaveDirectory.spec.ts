@@ -61,8 +61,6 @@ function config(defaultDownloadDir: string) {
     maxConcurrentDownloads: 3,
     downloadLimit: 0,
     uploadLimit: 0,
-    autoStartEnabled: false,
-    notificationsEnabled: false,
     language: "zh-CN" as const,
     jsonRpcToken: "",
   };
