@@ -81,6 +81,7 @@ is_running_pid() {
   esac
   kill -0 "${pid}" 2>/dev/null || return 1
 
+  # PID 可能被系统复用；停止或报告运行中前，必须同时确认可执行文件，并在有记录时核对进程启动时间。
   expected_executable=$(canonical_file_path "${SERVER_BIN}") || return 1
   actual_executable=$(process_executable_path "${pid}") || return 1
   [ "${actual_executable}" = "${expected_executable}" ] || return 1

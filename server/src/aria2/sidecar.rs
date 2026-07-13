@@ -52,6 +52,7 @@ pub(super) fn classify_saved_sidecar_from_command_line(
     let Some(command_line) = command_line else {
         return SidecarOwnership::ExternalOrUnknown;
     };
+    // PID 本身不能证明进程归属；只有 sidecar 名称、RPC 端口和 secret 等运行态证据同时匹配时才允许清理。
     let evidence = analyze_sidecar_command_line(command_line, runtime, candidate_port);
 
     if evidence.contains_sidecar_name

@@ -50,6 +50,7 @@ pub(crate) fn read_process_command_line(pid: u32) -> Result<String, String> {
 
 #[cfg(unix)]
 pub(crate) fn terminate_process(pid: u32) -> bool {
+    // 本函数只执行终止动作；调用方必须先完成进程归属校验，不能仅凭历史 PID 终止未知进程。
     let _ = std::process::Command::new("kill")
         .arg("-TERM")
         .arg(pid.to_string())
@@ -89,6 +90,7 @@ fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
 
 #[cfg(windows)]
 pub(crate) fn terminate_process(pid: u32) -> bool {
+    // 本函数只执行终止动作；调用方必须先完成进程归属校验，不能仅凭历史 PID 终止未知进程。
     let _ = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .status();
