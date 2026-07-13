@@ -8,6 +8,7 @@ pub mod repository;
 pub mod service;
 pub mod session;
 pub mod state;
+mod status;
 
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
@@ -19,10 +20,10 @@ pub use aria2_rpc::{
 };
 pub use files::delete_task_files;
 pub use model::{
-    is_pending_magnet_metadata_task, should_force_pause_task_on_startup,
-    should_pause_task_on_exit, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
-    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskFile, DownloadTaskSourceType,
-    DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
+    is_pending_magnet_metadata_task, should_force_pause_task_on_startup, should_pause_task_on_exit,
+    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
+    DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
 pub use options::{sanitize_aria2_options, sanitize_create_task_options};
 pub use prepare::{
@@ -33,85 +34,20 @@ use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, apply_magnet_metadata_confirmation,
     is_aria2_status_error, parse_aria2_u64,
 };
-use serde::Deserialize;
 use session::readd_download_task;
 pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
     list_tasks, mark_task_files_confirmed, mark_task_paused, mark_task_paused_by_gid,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused,
-    remove_task_record, store_created_task, store_created_task_with_id, task_gid, task_snapshot, TaskMemoryState,
+    remove_task_record, store_created_task, store_created_task_with_id, task_gid, task_snapshot,
+    TaskMemoryState,
 };
+use status::Aria2TaskStatus;
+#[cfg(test)]
+use status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Aria2TaskStatus {
-    gid: Option<String>,
-    status: String,
-    total_length: String,
-    completed_length: String,
-    download_speed: String,
-    error_code: Option<String>,
-    error_message: Option<String>,
-    dir: Option<String>,
-    files: Option<Vec<Aria2FileStatus>>,
-    followed_by: Option<Vec<String>>,
-    bittorrent: Option<Aria2BittorrentStatus>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Aria2FileStatus {
-    #[serde(default, deserialize_with = "deserialize_aria2_u32")]
-    index: u32,
-    path: String,
-    #[serde(default)]
-    length: String,
-    #[serde(default)]
-    completed_length: String,
-    #[serde(default)]
-    selected: String,
-    #[serde(default)]
-    uris: Vec<Aria2UriStatus>,
-}
-
-fn deserialize_aria2_u32<'de, D>(deserializer: D) -> Result<u32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    match value {
-        serde_json::Value::Number(number) => number
-            .as_u64()
-            .and_then(|value| u32::try_from(value).ok())
-            .ok_or_else(|| serde::de::Error::custom("invalid aria2 u32 number")),
-        serde_json::Value::String(text) => text
-            .parse::<u32>()
-            .map_err(|_| serde::de::Error::custom("invalid aria2 u32 string")),
-        serde_json::Value::Null => Ok(0),
-        _ => Err(serde::de::Error::custom("invalid aria2 u32 value")),
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Aria2UriStatus {
-    uri: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Aria2BittorrentStatus {
-    info: Option<Aria2BittorrentInfo>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Aria2BittorrentInfo {
-    name: Option<String>,
-}
 
 pub async fn refresh_tasks_from_aria2(
     tasks: &TaskMemoryState,
@@ -188,17 +124,18 @@ pub async fn refresh_tasks_from_aria2(
                                 });
                                 continue;
                             };
-                            let metadata_torrent_path =
-                                match find_single_torrent_file(std::path::Path::new(metadata_dir)) {
-                                    Ok(path) => path.display().to_string(),
-                                    Err(error) => {
-                                        updates.push(TaskRefreshUpdate::Status {
-                                            gid,
-                                            status: task_status_error(error),
-                                        });
-                                        continue;
-                                    }
-                                };
+                            let metadata_torrent_path = match find_single_torrent_file(
+                                std::path::Path::new(metadata_dir),
+                            ) {
+                                Ok(path) => path.display().to_string(),
+                                Err(error) => {
+                                    updates.push(TaskRefreshUpdate::Status {
+                                        gid,
+                                        status: task_status_error(error),
+                                    });
+                                    continue;
+                                }
+                            };
                             remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
                             remove_temporary_magnet_gid(config, &gid, debug_logs).await;
                             log_info(
