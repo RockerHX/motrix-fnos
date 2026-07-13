@@ -116,6 +116,12 @@ impl RuntimeEventHub {
     }
 }
 
+impl Default for RuntimeEventHub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct HttpAppState {
     pub core: Arc<ServerState>,
     pub runtime: ServerRuntimeConfig,

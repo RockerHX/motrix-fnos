@@ -102,30 +102,20 @@ pub struct DownloadTask {
     pub updated_at: u64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum DownloadTaskSourceType {
+    #[default]
     Url,
     Magnet,
 }
 
-impl Default for DownloadTaskSourceType {
-    fn default() -> Self {
-        Self::Url
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum DownloadTaskStartMode {
+    #[default]
     Now,
     Paused,
-}
-
-impl Default for DownloadTaskStartMode {
-    fn default() -> Self {
-        Self::Now
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
