@@ -2,7 +2,8 @@
 import { watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
-import { NButton, NCard, NCheckbox, NDescriptions, NDescriptionsItem, NModal, NSpace } from "naive-ui";
+import { NButton, NCheckbox, NSpace } from "naive-ui";
+import TaskDetailsDialog from "./TaskDetailsDialog.vue";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
@@ -323,21 +324,7 @@ function emitDeleteConfirm() {
     </NButton>
   </NSpace>
 
-  <NModal v-model:show="showDetails">
-    <NCard class="task-detail-card app-dialog" role="dialog" aria-modal="true" :title="props.details.title">
-      <NDescriptions :column="1" label-placement="left" bordered>
-        <NDescriptionsItem v-for="item in props.details.items" :key="item.label" :label="item.label">
-          {{ item.value }}
-        </NDescriptionsItem>
-      </NDescriptions>
-
-      <template #footer>
-        <NSpace justify="end">
-          <NButton @click="showDetails = false">{{ props.labels.close }}</NButton>
-        </NSpace>
-      </template>
-    </NCard>
-  </NModal>
+  <TaskDetailsDialog v-model:show="showDetails" :details="props.details" :close-label="props.labels.close" />
 
   <AppConfirmDialog
     v-model:show="showRedownloadConfirm"
@@ -424,19 +411,6 @@ function emitDeleteConfirm() {
   width: 100%;
 }
 
-.task-detail-card {
-  --app-dialog-width: 720px;
-  --app-dialog-mobile-margin: 24px;
-}
-
-:deep(.n-descriptions-table-content__content) {
-  word-break: break-all;
-}
-
-:deep(.n-descriptions-table-header) {
-  word-break: break-word;
-}
-
 @media (max-width: 767px) {
   .compact-actions {
     gap: 10px;
@@ -447,7 +421,6 @@ function emitDeleteConfirm() {
     border-radius: var(--app-radius-sm);
   }
 
-  .task-detail-card,
   .compact-actions {
     min-width: 0;
   }
