@@ -6,11 +6,10 @@ use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADD
 use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
-use crate::settings::service::{AppConfig, UiPreferences};
+use crate::settings::service::AppConfig;
 use axum::body::to_bytes;
 use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
-use std::collections::BTreeMap;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -322,53 +321,29 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
 }
 
 #[tokio::test]
-async fn ui_preferences_routes_round_trip_payloads() {
+async fn ui_preferences_routes_are_not_exposed() {
     let state = test_state(None).await;
     let app = router(state);
 
-    let default_preferences = response_json::<UiPreferences>(
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/ui-preferences")
-                    .body(Body::empty())
-                    .expect("request should build"),
-            )
+    for request in [
+        Request::builder()
+            .uri("/api/ui-preferences")
+            .body(Body::empty())
+            .expect("request should build"),
+        Request::builder()
+            .method("PUT")
+            .uri("/api/ui-preferences")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request should build"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request)
             .await
-            .expect("response should succeed"),
-        StatusCode::OK,
-    )
-    .await;
-    assert!(default_preferences.task_table_column_widths.is_empty());
-
-    let mut widths = BTreeMap::new();
-    widths.insert("name".to_string(), 280);
-    let payload = UiPreferences {
-        task_table_column_widths: widths.clone(),
-    };
-    let updated_preferences = response_json::<UiPreferences>(
-        app.clone()
-            .oneshot(json_request("PUT", "/api/ui-preferences", &payload))
-            .await
-            .expect("response should succeed"),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(updated_preferences.task_table_column_widths, widths);
-
-    let stored_preferences = response_json::<UiPreferences>(
-        app.oneshot(
-            Request::builder()
-                .uri("/api/ui-preferences")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed"),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(stored_preferences, updated_preferences);
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
 
 #[tokio::test]
@@ -515,7 +490,12 @@ async fn response_json<T: DeserializeOwned>(
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("body should read");
-    assert_eq!(status, expected_status, "response body: {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        expected_status,
+        "response body: {}",
+        String::from_utf8_lossy(&body)
+    );
     serde_json::from_slice(&body).expect("response json should deserialize")
 }
 

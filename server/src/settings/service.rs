@@ -1,14 +1,10 @@
-use crate::database::settings::{
-    get_app_config_value, get_ui_preference_value, set_app_config_value, set_ui_preference_value,
-};
+use crate::database::settings::{get_app_config_value, set_app_config_value};
 use crate::storage::validate_default_download_dir;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use std::collections::BTreeMap;
 use std::path::Path;
 
 const APP_CONFIG_KEY: &str = "download";
-const UI_PREFERENCES_KEY: &str = "main";
 const DEFAULT_LANGUAGE: &str = "zh-CN";
 const ENGLISH_LANGUAGE: &str = "en-US";
 
@@ -23,12 +19,6 @@ pub struct AppConfig {
     pub language: String,
     #[serde(default)]
     pub json_rpc_token: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct UiPreferences {
-    pub task_table_column_widths: BTreeMap<String, u32>,
 }
 
 pub async fn load_app_config_from_pool(
@@ -52,20 +42,6 @@ pub async fn save_app_config(
     validate_default_download_dir(&config.default_download_dir, accessible_paths, app_data_dir)?;
     set_app_config_value(pool, APP_CONFIG_KEY, &config).await?;
     Ok(config)
-}
-
-pub async fn load_ui_preferences_from_pool(pool: &SqlitePool) -> Result<UiPreferences, String> {
-    Ok(get_ui_preference_value(pool, UI_PREFERENCES_KEY)
-        .await?
-        .unwrap_or_default())
-}
-
-pub async fn save_ui_preferences(
-    pool: &SqlitePool,
-    payload: UiPreferences,
-) -> Result<UiPreferences, String> {
-    set_ui_preference_value(pool, UI_PREFERENCES_KEY, &payload).await?;
-    Ok(payload)
 }
 
 pub fn normalize_app_config(

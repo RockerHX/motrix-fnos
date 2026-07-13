@@ -3,22 +3,14 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
-use crate::settings::service::{
-    load_app_config_from_pool, load_ui_preferences_from_pool, save_app_config, save_ui_preferences,
-    AppConfig, UiPreferences,
-};
+use crate::settings::service::{load_app_config_from_pool, save_app_config, AppConfig};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
-    Router::new()
-        .route("/settings", get(get_settings).put(update_settings))
-        .route(
-            "/ui-preferences",
-            get(get_ui_preferences).put(update_ui_preferences),
-        )
+    Router::new().route("/settings", get(get_settings).put(update_settings))
 }
 
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
@@ -51,27 +43,6 @@ async fn update_settings(
     state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))
-}
-
-async fn get_ui_preferences(
-    State(state): State<Arc<HttpAppState>>,
-) -> Result<Json<UiPreferences>, ApiError> {
-    let preferences = load_ui_preferences_from_pool(&state.core.database.pool)
-        .await
-        .map_err(|error| ApiError::internal("ui_preferences_load_failed", error))?;
-    emit_file_log(DebugLogLevel::Info, "settings", "读取 UI 偏好");
-    Ok(Json(preferences))
-}
-
-async fn update_ui_preferences(
-    State(state): State<Arc<HttpAppState>>,
-    ApiJson(payload): ApiJson<UiPreferences>,
-) -> Result<Json<UiPreferences>, ApiError> {
-    let preferences = save_ui_preferences(&state.core.database.pool, payload)
-        .await
-        .map_err(|error| ApiError::internal("ui_preferences_save_failed", error))?;
-    state.core.debug_logs.info("settings", "UI 偏好已保存");
-    Ok(Json(preferences))
 }
 
 fn default_download_dir(state: &HttpAppState) -> Result<String, ApiError> {

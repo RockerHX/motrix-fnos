@@ -23,19 +23,26 @@ use tower_http::services::{ServeDir, ServeFile};
 pub fn router(state: Arc<HttpAppState>) -> Router {
     let static_dir = static_assets_dir();
     let index_file = static_dir.join("index.html");
+    let api_routes = Router::new()
+        .merge(app::routes())
+        .merge(aria2::routes())
+        .merge(settings::routes())
+        .merge(storage::routes())
+        .merge(debug_logs::routes())
+        .merge(tasks::routes())
+        .merge(events::routes())
+        .fallback(api_not_found);
 
     Router::new()
-        .nest("/api", app::routes())
-        .nest("/api", aria2::routes())
-        .nest("/api", settings::routes())
-        .nest("/api", storage::routes())
-        .nest("/api", debug_logs::routes())
-        .nest("/api", tasks::routes())
-        .nest("/api", events::routes())
+        .nest("/api", api_routes)
         .merge(jsonrpc::routes())
         .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
+}
+
+async fn api_not_found() -> StatusCode {
+    StatusCode::NOT_FOUND
 }
 
 pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
