@@ -8,6 +8,7 @@ import { useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import type { DebugLogCategory, DebugLogEntry, DebugLogLevel } from "../types";
 import { useDebugLogFilters } from "../composables/useDebugLogFilters";
+import { useDebugLogExport } from "../composables/useDebugLogExport";
 
 const props = defineProps<{
   show: boolean;
@@ -48,6 +49,13 @@ const {
   logSummaryItems,
   clearFilters,
 } = useDebugLogFilters(logs);
+const { copyAllLogs, downloadAllLogs } = useDebugLogExport({
+  logs,
+  filteredLogs,
+  warningCount: computed(() => logStats.value.warnings),
+  errorCount: computed(() => logStats.value.errors),
+  onManualCopy: showManualCopyDialog,
+});
 
 watch(
   propsShow,
@@ -94,31 +102,6 @@ async function clearLogs() {
   }
 }
 
-async function copyAllLogs() {
-  if (filteredLogs.value.length === 0) {
-    message.warning(t("logs.noCopy"));
-    return;
-  }
-
-  const text = formatAllLogs();
-  try {
-    await copyText(text);
-    message.success(t("logs.copied"));
-  } catch (error) {
-    showManualCopyDialog(text);
-    message.warning(t("logs.autoCopyLimited", { message: getErrorMessage(error, t("common.unknown")) }));
-  }
-}
-
-async function copyText(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  throw new Error(t("logs.clipboardUnavailable"));
-}
-
 function showManualCopyDialog(text: string) {
   manualCopyText.value = text;
   showManualCopy.value = true;
@@ -144,45 +127,12 @@ function focusManualCopyInput() {
   nativeInput?.select();
 }
 
-function downloadAllLogs() {
-  if (filteredLogs.value.length === 0) {
-    message.warning(t("logs.noDownload"));
-    return;
-  }
-
-  const blob = new Blob([formatAllLogs()], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `motrix-fnos-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.log`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  message.success(t("logs.exported"));
-}
-
-function formatAllLogs() {
-  const header = [
-    `Motrix fnOS debug logs`,
-    `Exported: ${new Date().toLocaleString()}`,
-    `Total: ${logs.value.length}; Filtered: ${filteredLogs.value.length}; Warnings: ${logStats.value.warnings}; Errors: ${logStats.value.errors}`,
-    "",
-  ].join("\n");
-  return `${header}${filteredLogs.value.map(formatLogLine).join("\n")}`;
-}
-
 async function scrollToBottom() {
   await nextTick();
   const logList = logListRef.value;
   if (logList) {
     logList.scrollTop = logList.scrollHeight;
   }
-}
-
-function formatLogLine(log: DebugLogEntry) {
-  const repeats = repeatCount(log) > 1 ? ` x${repeatCount(log)} last=${formatTime(lastTimestampMs(log))}` : "";
-  return `[${formatTime(log.timestampMs)}] [${log.level.toUpperCase()}] [${categoryLabel(log.category)}] [${log.module}]${repeats} ${log.message}`;
 }
 
 function formatTime(timestampMs: number) {
