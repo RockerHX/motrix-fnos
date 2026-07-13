@@ -1,5 +1,3 @@
-import { backendPath } from "./backendPath";
-
 export interface ApiErrorResponse {
   code: string;
   message: string;
@@ -25,7 +23,7 @@ interface RequestOptions {
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const hasJsonBody = options.body !== undefined;
-  const response = await fetch(backendPath(path), {
+  const response = await fetch(path, {
     method,
     headers: {
       ...(hasJsonBody ? { "content-type": "application/json" } : {}),

@@ -20,7 +20,6 @@ use tokio::sync::broadcast;
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
 pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
-pub const GATEWAY_SOCKET_ENV: &str = "MOTRIX_FNOS_GATEWAY_SOCKET";
 pub const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:17080";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 const RUNTIME_EVENT_BUFFER: usize = 32;
@@ -32,7 +31,6 @@ pub struct ServerRuntimeConfig {
     pub http_addr: SocketAddr,
     pub aria2_path: Option<PathBuf>,
     pub accessible_paths_path: PathBuf,
-    pub gateway_socket_path: Option<PathBuf>,
 }
 
 impl ServerRuntimeConfig {
@@ -58,18 +56,12 @@ impl ServerRuntimeConfig {
             .filter(|value| !value.trim().is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME));
-        let gateway_socket_path = env::var(GATEWAY_SOCKET_ENV)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(PathBuf::from);
-
         Ok(Self {
             app_data_dir,
             database_path,
             http_addr,
             aria2_path,
             accessible_paths_path,
-            gateway_socket_path,
         })
     }
 }
@@ -331,10 +323,6 @@ pub async fn run_server() -> Result<(), String> {
     let state = bootstrap_http_app_state(&runtime).await?;
     crate::runtime::spawn_task_monitor(state.clone());
 
-    if let Some(socket_path) = state.runtime.gateway_socket_path.clone() {
-        return run_gateway_server(state, socket_path).await;
-    }
-
     let router = crate::api::router(state.clone());
     let listener = TcpListener::bind(state.runtime.http_addr)
         .await
@@ -356,98 +344,6 @@ pub async fn run_server() -> Result<(), String> {
         .with_graceful_shutdown(wait_for_shutdown_signal(state.clone()))
         .await
         .map_err(|error| format!("HTTP 服务运行失败：{}", error))
-}
-
-#[cfg(unix)]
-async fn run_gateway_server(state: Arc<HttpAppState>, socket_path: PathBuf) -> Result<(), String> {
-    use hyper_util::rt::{TokioExecutor, TokioIo};
-    use hyper_util::server::conn::auto::Builder;
-    use hyper_util::service::TowerToHyperService;
-    use tokio::net::UnixListener;
-
-    if let Some(parent) = socket_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            format!(
-                "创建统一网关 Socket 目录失败：{}（{}）",
-                parent.display(),
-                error
-            )
-        })?;
-    }
-    if socket_path.exists() {
-        fs::remove_file(&socket_path).map_err(|error| {
-            format!(
-                "清理旧统一网关 Socket 失败：{}（{}）",
-                socket_path.display(),
-                error
-            )
-        })?;
-    }
-
-    let gateway_listener = UnixListener::bind(&socket_path).map_err(|error| {
-        format!(
-            "绑定统一网关 Socket 失败：{}（{}）",
-            socket_path.display(),
-            error
-        )
-    })?;
-    // 管理 UI、HTTP API 与 SSE 只挂载到可信 Unix Socket；独立 TCP 监听必须始终使用仅含带 token JSON-RPC 的路由。
-    let jsonrpc_listener = TcpListener::bind(state.runtime.http_addr)
-        .await
-        .map_err(|error| {
-            format!(
-                "绑定 JSON-RPC 监听地址失败：{}（{}）",
-                state.runtime.http_addr, error
-            )
-        })?;
-    let gateway_router = crate::api::gateway_router(state.clone());
-    let jsonrpc_router = crate::api::jsonrpc_router(state.clone());
-
-    state.core.debug_logs.info(
-        "app",
-        format!(
-            "统一网关已启用，Socket {}；独立端口 {} 仅提供 JSON-RPC",
-            socket_path.display(),
-            state.runtime.http_addr
-        ),
-    );
-
-    let gateway_server = async move {
-        loop {
-            let (stream, _) = gateway_listener
-                .accept()
-                .await
-                .map_err(|error| format!("统一网关连接接收失败：{}", error))?;
-            let service = TowerToHyperService::new(gateway_router.clone());
-            tokio::spawn(async move {
-                let builder = Builder::new(TokioExecutor::new());
-                let _ = builder
-                    .serve_connection_with_upgrades(TokioIo::new(stream), service)
-                    .await;
-            });
-        }
-        #[allow(unreachable_code)]
-        Ok::<(), String>(())
-    };
-    let jsonrpc_server = async move {
-        axum::serve(jsonrpc_listener, jsonrpc_router)
-            .await
-            .map_err(|error| format!("JSON-RPC 服务运行失败：{}", error))
-    };
-
-    tokio::select! {
-        result = gateway_server => result,
-        result = jsonrpc_server => result,
-        _ = wait_for_shutdown_signal(state) => Ok(()),
-    }
-}
-
-#[cfg(not(unix))]
-async fn run_gateway_server(_state: Arc<HttpAppState>, socket_path: PathBuf) -> Result<(), String> {
-    Err(format!(
-        "当前系统不支持统一网关 Unix Socket：{}",
-        socket_path.display()
-    ))
 }
 
 async fn wait_for_shutdown_signal(state: Arc<HttpAppState>) {

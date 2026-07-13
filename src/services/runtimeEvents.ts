@@ -1,6 +1,5 @@
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import type { DownloadTask } from "../types/tasks";
-import { backendPath } from "./backendPath";
 
 export interface RuntimeExitingPayload {
   reason: string;
@@ -18,7 +17,7 @@ export function initializeRuntimeEvents() {
     return eventSource;
   }
 
-  const source = new EventSource(backendPath("/api/events"));
+  const source = new EventSource("/api/events");
   const taskStore = useTaskStore();
 
   source.addEventListener("tasks.snapshot", (event) => {

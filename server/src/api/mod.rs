@@ -14,7 +14,7 @@ use axum::body::Body;
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,44 +46,6 @@ fn router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Rout
 
 async fn api_not_found() -> StatusCode {
     StatusCode::NOT_FOUND
-}
-
-pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
-    gateway_router_with_static_dir(state, static_assets_dir())
-}
-
-fn gateway_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
-    let app = router_with_static_dir(state, static_dir);
-    Router::new()
-        .nest_service("/app/motrix", app.clone())
-        .fallback_service(app)
-        .layer(middleware::from_fn(require_gateway_user))
-}
-
-pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
-    jsonrpc::routes().with_state(state)
-}
-
-async fn require_gateway_user(request: Request<Body>, next: Next) -> Response {
-    // x-trim-* 身份头只在 fnOS 统一网关监听入口可信；独立 TCP 路由不会挂载此中间件，也不暴露管理 API。
-    let headers = request.headers();
-    let user_id = headers
-        .get("x-trim-userid")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if user_id.is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "code": "gateway_auth_required",
-                "message": "请通过飞牛 fnOS 登录后访问 Motrix",
-            })),
-        )
-            .into_response();
-    }
-
-    next.run(request).await
 }
 
 async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {

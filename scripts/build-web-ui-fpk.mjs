@@ -22,10 +22,7 @@ function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: {
-      ...process.env,
-      MOTRIX_FNOS_WEB_BASE: '/app/motrix/',
-    },
+    env: process.env,
   });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);

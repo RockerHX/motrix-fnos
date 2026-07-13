@@ -75,31 +75,31 @@ export function parseManifest(content) {
   );
 }
 
-export function validateGatewayEntry(config, expected) {
+export function validatePortEntry(config, expected) {
   const entry = config?.['.url']?.[expected.entryId];
   if (!entry || typeof entry !== 'object') {
-    throw new Error(`缺少统一网关入口 ${expected.entryId}`);
+    throw new Error(`缺少端口入口 ${expected.entryId}`);
   }
   if (entry.type !== 'iframe') {
-    throw new Error(`统一网关入口 type 必须为 iframe，实际为 ${entry.type ?? '(missing)'}`);
+    throw new Error(`端口入口 type 必须为 iframe，实际为 ${entry.type ?? '(missing)'}`);
   }
-  if (entry.protocol !== '') {
-    throw new Error(`统一网关入口 protocol 必须为空字符串，实际为 ${entry.protocol ?? '(missing)'}`);
+  if (entry.protocol !== 'http') {
+    throw new Error(`端口入口 protocol 必须为 http，实际为 ${entry.protocol ?? '(missing)'}`);
   }
-  if (Object.prototype.hasOwnProperty.call(entry, 'port')) {
-    throw new Error('统一网关入口不得声明 port，否则 fnOS 可能退回直连服务端口');
+  if (entry.port !== expected.port) {
+    throw new Error(`端口入口 port 必须为 ${expected.port}，实际为 ${entry.port ?? '(missing)'}`);
   }
-  if (entry.gatewayPrefix !== expected.gatewayPrefix) {
-    throw new Error(`统一网关入口 gatewayPrefix 必须为 ${expected.gatewayPrefix}，实际为 ${entry.gatewayPrefix ?? '(missing)'}`);
-  }
-  if (entry.gatewaySocket !== expected.gatewaySocket) {
-    throw new Error(`统一网关入口 gatewaySocket 必须为 ${expected.gatewaySocket}，实际为 ${entry.gatewaySocket ?? '(missing)'}`);
+  if (Object.prototype.hasOwnProperty.call(entry, 'gatewayPrefix') || Object.prototype.hasOwnProperty.call(entry, 'gatewaySocket')) {
+    throw new Error('端口入口不得声明 gatewayPrefix 或 gatewaySocket');
   }
   if (entry.url !== expected.url) {
-    throw new Error(`统一网关入口 url 必须为稳定路径 ${expected.url}，实际为 ${entry.url ?? '(missing)'}`);
+    throw new Error(`端口入口 url 必须为 ${expected.url}，实际为 ${entry.url ?? '(missing)'}`);
   }
   if (entry.control?.accessPerm !== expected.accessPerm) {
-    throw new Error(`统一网关入口 control.accessPerm 必须为 ${expected.accessPerm}，实际为 ${entry.control?.accessPerm ?? '(missing)'}`);
+    throw new Error(`端口入口 control.accessPerm 必须为 ${expected.accessPerm}，实际为 ${entry.control?.accessPerm ?? '(missing)'}`);
+  }
+  if (entry.control?.portPerm !== 'readonly') {
+    throw new Error(`端口入口 control.portPerm 必须为 readonly，实际为 ${entry.control?.portPerm ?? '(missing)'}`);
   }
 }
 

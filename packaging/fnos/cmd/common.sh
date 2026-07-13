@@ -17,8 +17,6 @@ PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
 PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
 SERVER_LOG="${LOG_DIR}/server.log"
 ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
-GATEWAY_SOCKET="${APP_DEST}/motrix-fnos.sock"
-# 启用网关 Socket 后，对外 TCP 地址只承载带 token 的 JSON-RPC；管理 UI、HTTP API 与 SSE 仍只允许通过统一网关访问。
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
 
@@ -31,7 +29,6 @@ export_runtime_env() {
   export MOTRIX_FNOS_HTTP_ADDR="${HTTP_ADDR}"
   export MOTRIX_FNOS_ARIA2_PATH="${ARIA2_BIN}"
   export MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE="${ACCESSIBLE_PATHS_FILE}"
-  export MOTRIX_FNOS_GATEWAY_SOCKET="${GATEWAY_SOCKET}"
 }
 
 read_pid() {

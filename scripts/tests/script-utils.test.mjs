@@ -11,7 +11,7 @@ import {
   removeManifestField,
   sha256,
   upsertManifestField,
-  validateGatewayEntry,
+  validatePortEntry,
 } from '../script-utils.mjs';
 import { assertReleaseVersion, findVersionMismatches } from '../version-utils.mjs';
 
@@ -34,69 +34,68 @@ test('版本一致性检查列出所有偏离 package.json 的来源', () => {
   );
 });
 
-test('统一网关入口拒绝端口回退和不稳定 URL', () => {
+test('端口入口与 server listener 保持一致并拒绝混入网关字段', () => {
   const expected = {
     entryId: 'motrix.fnos.main',
-    gatewayPrefix: '/app/motrix',
-    gatewaySocket: 'motrix-fnos.sock',
-    url: '/app/motrix',
+    port: '17080',
+    url: '/?v=1.7.1',
     accessPerm: 'editable',
   };
   const config = {
     '.url': {
       'motrix.fnos.main': {
         type: 'iframe',
-        protocol: '',
-        gatewayPrefix: '/app/motrix',
-        gatewaySocket: 'motrix-fnos.sock',
-        url: '/app/motrix',
-        control: { accessPerm: 'editable' },
+        protocol: 'http',
+        port: '17080',
+        url: '/?v=1.7.1',
+        control: { accessPerm: 'editable', portPerm: 'readonly' },
       },
     },
   };
 
-  assert.doesNotThrow(() => validateGatewayEntry(config, expected));
+  assert.doesNotThrow(() => validatePortEntry(config, expected));
   assert.throws(
     () =>
-      validateGatewayEntry(
-        { '.url': { 'motrix.fnos.main': { ...config['.url']['motrix.fnos.main'], port: '17080' } } },
+      validatePortEntry(
+        { '.url': { 'motrix.fnos.main': { ...config['.url']['motrix.fnos.main'], port: '18080' } } },
         expected,
       ),
-    /不得声明 port/,
+    /port 必须为 17080/,
   );
   assert.throws(
     () =>
-      validateGatewayEntry(
+      validatePortEntry(
         {
           '.url': {
             'motrix.fnos.main': {
               ...config['.url']['motrix.fnos.main'],
-              url: '/app/motrix/?v=1.7.1',
+              gatewayPrefix: '/app/motrix',
+              gatewaySocket: 'motrix-fnos.sock',
             },
           },
         },
         expected,
       ),
-    /稳定路径/,
+    /不得声明 gatewayPrefix/,
   );
   assert.throws(
     () =>
-      validateGatewayEntry(
+      validatePortEntry(
         {
           '.url': {
             'motrix.fnos.main': {
               ...config['.url']['motrix.fnos.main'],
-              url: '/app/motrix/',
+              url: '/',
             },
           },
         },
         expected,
       ),
-    /稳定路径/,
+    /url 必须为/,
   );
   assert.throws(
     () =>
-      validateGatewayEntry(
+      validatePortEntry(
         {
           '.url': {
             'motrix.fnos.main': {

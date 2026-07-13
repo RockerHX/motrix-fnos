@@ -9,7 +9,7 @@ import {
   platformForTarget,
   removeManifestField,
   upsertManifestField,
-  validateGatewayEntry,
+  validatePortEntry,
 } from './script-utils.mjs';
 
 const repoRoot = process.cwd();
@@ -37,6 +37,7 @@ syncUiIcons();
 prepareStageDir();
 resetStageAppDataDir(stageDir);
 renderManifest(stageDir, platform, servicePort);
+patchUiPort(path.join(stageDir, 'app', 'ui', 'config'), servicePort);
 patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
 removeGitKeepFiles(stageDir);
 preflightStageDir(stageDir, platform, servicePort);
@@ -186,16 +187,15 @@ function preflightStageDir(dir, platform, servicePort) {
   }
   const uiConfig = validateJsonFile(path.join(desktopUiDir, 'config'), '应用入口');
   try {
-    validateGatewayEntry(uiConfig, {
-      entryId: 'motrix.fnos.main',
-      gatewayPrefix: '/app/motrix',
-      gatewaySocket: 'motrix-fnos.sock',
-      url: '/app/motrix',
+    validatePortEntry(uiConfig, {
+      entryId: `${manifest.appname}.main`,
+      port: servicePort,
+      url: `/?v=${manifest.version}`,
       accessPerm: 'editable',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    fail(`FPK 预检失败，应用入口未正确使用统一网关：${message}`);
+    fail(`FPK 预检失败，应用入口未正确使用服务端口：${message}`);
   }
 
   if (manifest.service_port !== servicePort) {
@@ -265,6 +265,12 @@ function patchPortConfig(portConfigPath, servicePort) {
   config = config.replace(/^src\.ports=.*$/m, `src.ports="${port}"`);
   config = config.replace(/^dst\.ports=.*$/m, `dst.ports="${port}"`);
   writeFileSync(portConfigPath, config);
+}
+
+function patchUiPort(uiConfigPath, servicePort) {
+  const config = JSON.parse(readFileSync(uiConfigPath, 'utf8'));
+  config['.url']['motrix.fnos.main'].port = servicePort;
+  writeFileSync(uiConfigPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 function ensureFnpack(env) {

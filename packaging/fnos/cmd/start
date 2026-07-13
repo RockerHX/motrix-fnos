@@ -17,8 +17,7 @@ if [ -n "${existing_pid}" ] && is_running_pid "${existing_pid}"; then
   exit 0
 fi
 
-rm -f "${GATEWAY_SOCKET}"
-log_msg "准备启动 motrix-fnos-server，网关 Socket ${GATEWAY_SOCKET}，JSON-RPC ${HTTP_ADDR}，数据目录 ${APP_DATA_DIR}"
+log_msg "准备启动 motrix-fnos-server，HTTP ${HTTP_ADDR}，数据目录 ${APP_DATA_DIR}"
 nohup "${SERVER_BIN}" >>"${SERVER_LOG}" 2>&1 &
 pid=$!
 if ! write_pid_record "${pid}"; then
@@ -30,8 +29,8 @@ if ! write_pid_record "${pid}"; then
 fi
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if is_running_pid "${pid}" && [ -S "${GATEWAY_SOCKET}" ]; then
-    log_msg "motrix-fnos-server 启动成功，PID ${pid}，网关 Socket ${GATEWAY_SOCKET}，JSON-RPC ${HTTP_ADDR}"
+  if is_running_pid "${pid}"; then
+    log_msg "motrix-fnos-server 启动成功，PID ${pid}，HTTP ${HTTP_ADDR}"
     echo "motrix-fnos-server 启动成功，PID ${pid}"
     exit 0
   fi

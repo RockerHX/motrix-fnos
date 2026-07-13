@@ -14,7 +14,6 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        gateway_socket_path: None,
         aria2_path: None,
     };
     let state = bootstrap_http_app_state(&runtime)

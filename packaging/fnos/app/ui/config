@@ -4,14 +4,14 @@
       "title": "Motrix",
       "icon": "images/icon_{0}.png",
       "type": "iframe",
-      "protocol": "",
-      "gatewayPrefix": "/app/motrix",
-      "gatewaySocket": "motrix-fnos.sock",
-      "url": "/app/motrix",
+      "protocol": "http",
+      "port": "17080",
+      "url": "/?v=1.7.1",
       "allUsers": false,
       "control": {
         "accessPerm": "editable",
         "fullUrlPerm": "readonly",
+        "portPerm": "readonly",
         "pathPerm": "readonly"
       }
     }

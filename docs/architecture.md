@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：fnOS 统一网关承载 HTTP API + SSE；独立 TCP 端口只承载带 token 的 JSON-RPC 兼容入口。
+- 前后端通信：fnOS 桌面入口打开应用 TCP 服务端口，同一 Rust server 承载 Web UI、HTTP API、SSE 与带 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -46,8 +46,8 @@ fnOS FPK
 - x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
 - fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
-- Web UI、HTTP API 和 SSE 只通过 fnOS 统一网关访问，并要求网关提供可信的已登录用户身份。桌面访问默认仅管理员，管理员可在应用设置中切换为设备内所有用户。
-- 独立 TCP 端口只提供带 token 的 `/jsonrpc`，不得暴露 Web UI、HTTP API、SSE 或调试日志。
+- Web UI、HTTP API、SSE 与 `/jsonrpc` 使用 manifest `service_port` 对应的同一服务端口；FPK 桌面入口必须与该监听地址保持一致。
+- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，后端不得伪装成已接入统一网关鉴权。
 
 ## 4. 分层职责
 
@@ -175,7 +175,7 @@ Rust Runtime Event
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- FPK 的管理 UI、HTTP API 与 SSE 必须通过 fnOS 统一网关访问，并只接受网关转发的可信已登录用户身份；具体可访问用户范围由 fnOS 桌面入口权限控制。
+- FPK 的管理 UI、HTTP API、SSE 与 JSON-RPC 由同一个 Rust TCP listener 提供；桌面入口权限控制可见范围，JSON-RPC 写操作继续使用独立 token。
 - 日志必须隐藏私密 URL query 和敏感配置。
 
 ## 9. fnOS 平台查证规则

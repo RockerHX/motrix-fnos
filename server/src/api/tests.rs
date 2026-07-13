@@ -14,100 +14,25 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn gateway_requires_authenticated_user_and_tcp_router_exposes_only_jsonrpc() {
+async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
     let state = test_state(None).await;
-    let gateway = gateway_router(state.clone());
-
-    let unauthorized = gateway
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/app/motrix/api/app/ping")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
-
-    let allowed_user = gateway
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/app/motrix/api/app/ping")
-                .header("x-trim-userid", "1000")
-                .header("x-trim-isadmin", "false")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(allowed_user.status(), StatusCode::OK);
-
-    let allowed = gateway
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/app/motrix/api/app/ping")
-                .header("x-trim-userid", "1000")
-                .header("x-trim-isadmin", "true")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(allowed.status(), StatusCode::OK);
-
-    let allowed_stripped = gateway
-        .oneshot(
-            Request::builder()
-                .uri("/api/app/ping")
-                .header("x-trim-userid", "1000")
-                .header("x-trim-isadmin", "false")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(allowed_stripped.status(), StatusCode::OK);
-
-    let public_api = jsonrpc_router(state)
-        .oneshot(
-            Request::builder()
-                .uri("/api/app/ping")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(public_api.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn gateway_serves_web_ui_root_and_assets_under_registered_prefix() {
-    let state = test_state(None).await;
-    let static_dir = temp_dir("gateway-static");
+    let static_dir = temp_dir("tcp-static");
     std::fs::create_dir_all(static_dir.join("assets")).expect("assets dir should create");
     std::fs::write(static_dir.join("index.html"), b"<html>motrix-ui</html>")
         .expect("index should write");
     std::fs::write(static_dir.join("assets/app.js"), b"console.log('motrix')")
         .expect("asset should write");
-    let gateway = gateway_router_with_static_dir(state, static_dir);
+    let app = router_with_static_dir(state, static_dir);
 
     for (uri, expected_body) in [
-        ("/app/motrix", "<html>motrix-ui</html>"),
-        ("/app/motrix/", "<html>motrix-ui</html>"),
-        ("/app/motrix/assets/app.js", "console.log('motrix')"),
         ("/", "<html>motrix-ui</html>"),
         ("/assets/app.js", "console.log('motrix')"),
     ] {
-        let response = gateway
+        let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .uri(uri)
-                    .header("x-trim-userid", "1000")
-                    .header("x-trim-isadmin", "false")
                     .body(Body::empty())
                     .expect("request should build"),
             )
@@ -119,6 +44,17 @@ async fn gateway_serves_web_ui_root_and_assets_under_registered_prefix() {
             .expect("response body should read");
         assert_eq!(body.as_ref(), expected_body.as_bytes());
     }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -526,7 +462,6 @@ async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        gateway_socket_path: None,
         aria2_path: aria2_path.map(PathBuf::from),
     };
 

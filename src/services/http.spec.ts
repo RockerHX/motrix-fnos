@@ -7,8 +7,7 @@ describe("http client", () => {
     vi.unstubAllGlobals();
   });
 
-  it("serializes JSON requests and uses the fnOS gateway prefix", async () => {
-    window.history.replaceState({}, "", "/app/motrix/");
+  it("serializes JSON requests with a same-origin API path", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -16,7 +15,7 @@ describe("http client", () => {
       ok: true,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("/app/motrix/api/tasks", {
+    expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: "https://example.com/a.iso" }),
