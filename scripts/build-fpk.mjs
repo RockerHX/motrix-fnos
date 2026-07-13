@@ -4,13 +4,19 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  parseManifest,
+  platformForTarget,
+  removeManifestField,
+  upsertManifestField,
+} from './script-utils.mjs';
 
 const repoRoot = process.cwd();
 const packagingRoot = path.join(repoRoot, 'packaging', 'fnos');
 const manifestTemplatePath = path.join(packagingRoot, 'manifest.template');
 const outputDir = path.join(packagingRoot, 'dist');
 const buildTarget = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
-const platform = buildTarget === 'aarch64-unknown-linux-gnu' ? 'arm' : 'x86';
+const platform = platformForTarget(buildTarget);
 const stageDir = path.join(packagingRoot, '.stage', platform);
 const sidecarTarget = buildTarget;
 const prepareOnly = process.argv.includes('--prepare-only');
@@ -239,33 +245,6 @@ function validateJsonFile(filePath, label) {
   }
 }
 
-function upsertManifestField(content, key, value) {
-  const line = `${key.padEnd(22, ' ')}= ${value}`;
-  const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, 'm');
-  if (pattern.test(content)) {
-    return content.replace(pattern, line);
-  }
-
-  const sourcePattern = /^source\s*=.*$/m;
-  if (sourcePattern.test(content)) {
-    return content.replace(sourcePattern, (sourceLine) => `${sourceLine}
-${line}`);
-  }
-
-  return `${content.trimEnd()}
-${line}
-`;
-}
-
-function removeManifestField(content, key) {
-  const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*\\r?\\n?`, 'm');
-  return content.replace(pattern, '');
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 function patchUiConfig(uiConfigPath, servicePort) {
   const config = JSON.parse(readFileSync(uiConfigPath, 'utf8'));
   config['.url']['motrix.fnos.main'].port = servicePort;
@@ -325,16 +304,6 @@ function injectPackageRootFiles(fpkPath, portConfigPath) {
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }
-}
-
-function parseManifest(content) {
-  return Object.fromEntries(
-    content
-      .split(/\r?\n/)
-      .map((line) => line.match(/^([^#=]+?)\s*=\s*(.+)$/))
-      .filter(Boolean)
-      .map(([, key, value]) => [key.trim(), value.trim()])
-  );
 }
 
 function resetDir(dir) {

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseChecksums, sha256 } from "./script-utils.mjs";
 
 const VERSION = "2.4.9";
 const TAG = `v${VERSION}`;
@@ -28,21 +28,6 @@ async function download(url) {
     throw new Error(`下载失败 ${response.status}: ${url}`);
   }
   return Buffer.from(await response.arrayBuffer());
-}
-
-function parseChecksums(text) {
-  const result = new Map();
-  for (const line of text.split(/\r?\n/)) {
-    const match = line.trim().match(/^([a-f0-9]{64})\s+(.+)$/i);
-    if (match) {
-      result.set(match[2].trim(), match[1].toLowerCase());
-    }
-  }
-  return result;
-}
-
-function sha256(buffer) {
-  return createHash("sha256").update(buffer).digest("hex");
 }
 
 await mkdir(BIN_DIR, { recursive: true });

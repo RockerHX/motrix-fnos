@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test:scripts": "node --test scripts/tests/*.test.mjs",
     "test:unit": "vitest run",
     "typecheck": "vue-tsc --noEmit",
     "clean": "node scripts/clean-generated.mjs",

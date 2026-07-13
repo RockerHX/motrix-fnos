@@ -4,6 +4,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { assertReleaseVersion, readProjectVersions, repoRoot, setProjectVersion } from './version-utils.mjs';
+import {
+  classifyCommit,
+  cleanupCommitSubject,
+  compareReleaseVersions,
+  normalizeGeneratedChangelog,
+} from './script-utils.mjs';
 
 const options = parseArgs(process.argv.slice(2));
 
@@ -215,23 +221,6 @@ ${commitLines || '- 无非发版维护提交'}
 `;
 }
 
-function normalizeGeneratedChangelog(content) {
-  let body = content
-    .trim()
-    .replace(/^```(?:markdown|md)?\s*/i, '')
-    .replace(/```$/i, '')
-    .trim();
-
-  body = body.replace(/^##[^\n]*\n+/, '').trim();
-  if (!body) {
-    throw new Error('模型返回了空 CHANGELOG');
-  }
-  if (!/^###\s+/m.test(body)) {
-    body = `### 改进\n\n${body}`;
-  }
-  return body;
-}
-
 function fallbackChangelog(commits) {
   const groups = new Map([
     ['新增', []],
@@ -262,19 +251,6 @@ function isReleaseNoiseCommit(subject) {
     || /^发布\s+\d+\.\d+\.\d+\s+版本/.test(subject)
     || /^Update CHANGELOG\.md$/i.test(subject)
   );
-}
-
-function classifyCommit(subject) {
-  if (/^(feat|新增)(\(.+\))?:/i.test(subject)) return '新增';
-  if (/^(fix|修复)(\(.+\))?:/i.test(subject)) return '修复';
-  if (/^(docs|文档)(\(.+\))?:/i.test(subject)) return '文档';
-  return '改进';
-}
-
-function cleanupCommitSubject(subject) {
-  return subject
-    .replace(/^(feat|fix|docs|chore|ci|build|refactor|perf|test)(\(.+\))?:\s*/i, '')
-    .trim();
 }
 
 function renderChangelogSection(version, body) {
@@ -382,17 +358,6 @@ function run(command, args) {
 
 function git(args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
-}
-
-function compareReleaseVersions(left, right) {
-  const leftParts = left.split('.').map(Number);
-  const rightParts = right.split('.').map(Number);
-  for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
-    }
-  }
-  return 0;
 }
 
 function todayInShanghai() {
