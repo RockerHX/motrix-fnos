@@ -1,9 +1,7 @@
 import { computed, onMounted, reactive, ref, watch, type Ref } from "vue";
 import { useMessage } from "naive-ui";
-import { getAccessiblePaths } from "../../../services/storage";
 import { useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
-import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 import type {
   CreateBatchDownloadTaskFailure,
@@ -16,8 +14,8 @@ import {
   type TaskCreateInputType,
 } from "./taskCreateFormModel";
 import { useTaskCreateValidation } from "./useTaskCreateValidation";
+import { useTaskSaveDirectory } from "./useTaskSaveDirectory";
 
-const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
 interface UseTaskCreateFormOptions {
   show: Ref<boolean>;
   onClose: () => void;
@@ -26,7 +24,6 @@ interface UseTaskCreateFormOptions {
 
 export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFormOptions) {
   const taskStore = useTaskStore();
-  const settingsStore = useSettingsStore();
   const message = useMessage();
   const { t } = useI18n();
 
@@ -34,17 +31,9 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   const activeInputType = ref<TaskCreateInputType>("url");
   const formErrorMessage = ref("");
   const batchFailedItems = ref<CreateBatchDownloadTaskFailure[]>([]);
-  const accessiblePaths = ref<string[]>([]);
-  const isLoadingAccessiblePaths = ref(false);
-  const accessiblePathsError = ref("");
+  const saveDirectory = useTaskSaveDirectory(form);
 
   const validation = useTaskCreateValidation(form, activeInputType);
-  const accessiblePathOptions = computed(() =>
-    accessiblePaths.value.map((path) => ({
-      label: path,
-      value: path,
-    })),
-  );
   const canSubmit = computed(
     () =>
       validation.hasValidSourceInput.value &&
@@ -52,7 +41,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
       validation.hasValidAdvancedOptions.value &&
       !taskStore.isCreating &&
       !taskStore.isRuntimeExiting &&
-      !isLoadingAccessiblePaths.value,
+      !saveDirectory.isLoadingAccessiblePaths.value,
   );
   const isDialogLocked = computed(() => taskStore.isCreating || taskStore.isRuntimeExiting);
   const isMaskClosable = computed(() => !isDialogLocked.value);
@@ -61,7 +50,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     if (visible) {
       formErrorMessage.value = "";
       batchFailedItems.value = [];
-      void refreshAccessiblePaths();
+      void saveDirectory.refreshAccessiblePaths();
     }
   });
 
@@ -71,7 +60,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   });
 
   onMounted(() => {
-    void refreshAccessiblePaths();
+    void saveDirectory.refreshAccessiblePaths();
   });
 
   async function submitCreateTask() {
@@ -123,7 +112,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
         category: normalizeTaskCategory(form.category),
         advancedOptions: buildTaskAdvancedOptions(form),
       });
-      rememberSaveDir(form.saveDir);
+      saveDirectory.rememberSaveDir(form.saveDir);
       if (result.failed.length > 0) {
         batchFailedItems.value = result.failed;
         formErrorMessage.value = t("create.batch.partialFailed", { count: result.failed.length });
@@ -173,61 +162,11 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     batchFailedItems.value = [];
   }
 
-  async function refreshAccessiblePaths() {
-    isLoadingAccessiblePaths.value = true;
-    accessiblePathsError.value = "";
-
-    try {
-      const [response, config] = await Promise.all([getAccessiblePaths(), settingsStore.loadConfig()]);
-      accessiblePaths.value = response.paths;
-      syncSelectedSaveDir(config.defaultDownloadDir);
-    } catch (error) {
-      accessiblePaths.value = [];
-      form.saveDir = "";
-      accessiblePathsError.value = getErrorMessage(error, t("task.operationFailed"));
-    } finally {
-      isLoadingAccessiblePaths.value = false;
-    }
-  }
-
   function finishSuccessfulCreate() {
-    rememberSaveDir(form.saveDir);
+    saveDirectory.rememberSaveDir(form.saveDir);
     resetForm();
     onClose();
     onCreated();
-  }
-
-  function syncSelectedSaveDir(defaultDownloadDir: string) {
-    if (form.saveDir && accessiblePaths.value.includes(form.saveDir)) {
-      return;
-    }
-
-    const remembered = readRememberedSaveDir();
-    if (defaultDownloadDir && accessiblePaths.value.includes(defaultDownloadDir)) {
-      form.saveDir = defaultDownloadDir;
-      return;
-    }
-    if (remembered && accessiblePaths.value.includes(remembered)) {
-      form.saveDir = remembered;
-      return;
-    }
-    form.saveDir = accessiblePaths.value[0] || "";
-  }
-
-  function rememberSaveDir(path: string) {
-    if (typeof localStorage === "undefined") {
-      return;
-    }
-
-    localStorage.setItem(LAST_SAVE_DIR_KEY, path);
-  }
-
-  function readRememberedSaveDir() {
-    if (typeof localStorage === "undefined") {
-      return "";
-    }
-
-    return localStorage.getItem(LAST_SAVE_DIR_KEY) || "";
   }
 
   return {
@@ -236,14 +175,14 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     activeInputType,
     formErrorMessage,
     batchFailedItems,
-    accessiblePaths,
-    isLoadingAccessiblePaths,
-    accessiblePathsError,
+    accessiblePaths: saveDirectory.accessiblePaths,
+    isLoadingAccessiblePaths: saveDirectory.isLoadingAccessiblePaths,
+    accessiblePathsError: saveDirectory.accessiblePathsError,
     urlFeedback: validation.urlFeedback,
     urlValidationStatus: validation.urlValidationStatus,
     magnetFeedback: validation.magnetFeedback,
     magnetValidationStatus: validation.magnetValidationStatus,
-    accessiblePathOptions,
+    accessiblePathOptions: saveDirectory.accessiblePathOptions,
     canSubmit,
     isMaskClosable,
     selectTorrentFile,
