@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::runtime::ensure_aria2_ready;
 use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
@@ -15,9 +15,12 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use std::sync::Arc;
 
+#[path = "tasks/context.rs"]
+mod context;
 #[path = "tasks/request.rs"]
 mod request;
 
+use context::TaskMutationContext;
 use request::*;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
@@ -63,31 +66,21 @@ async fn create_task(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<CreateDownloadTaskRequest>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    ensure_authorized_save_dir(&state, payload.save_dir.as_deref())?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .create_download_task(&config, payload)
+    let context =
+        TaskMutationContext::prepare_for_create(&state, payload.save_dir.as_deref()).await?;
+    let task = context
+        .service
+        .create_download_task(&context.config, payload)
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn create_batch_tasks(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<CreateBatchDownloadTasksRequest>,
 ) -> Result<(StatusCode, Json<CreateBatchDownloadTasksResponse>), ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    ensure_authorized_save_dir(&state, Some(&payload.save_dir))?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
+    let context = TaskMutationContext::prepare_for_create(&state, Some(&payload.save_dir)).await?;
 
     let urls = payload
         .urls
@@ -99,7 +92,7 @@ async fn create_batch_tasks(
     let mut created = Vec::new();
     let mut failed = Vec::new();
     if urls.is_empty() {
-        state.core.debug_logs.warn(
+        context.state.core.debug_logs.warn(
             "api.tasks",
             "批量创建任务失败：请输入至少一个 HTTP / HTTPS 下载链接",
         );
@@ -120,7 +113,11 @@ async fn create_batch_tasks(
             advanced_options: payload.advanced_options.clone(),
             aria2_options: serde_json::Map::new(),
         };
-        match service.create_download_task(&config, request).await {
+        match context
+            .service
+            .create_download_task(&context.config, request)
+            .await
+        {
             Ok(task) => created.push(task),
             Err(error) => failed.push(CreateBatchDownloadTaskFailure {
                 input: url,
@@ -130,8 +127,7 @@ async fn create_batch_tasks(
     }
 
     if !created.is_empty() {
-        broadcast_tasks_snapshot(&state)
-            .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+        context.broadcast_snapshot()?;
     }
 
     let status = if created.is_empty() {
@@ -150,15 +146,12 @@ async fn create_torrent_task(
     multipart: Multipart,
 ) -> Result<Json<DownloadTask>, ApiError> {
     let upload = parse_torrent_multipart(multipart, &state).await?;
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    ensure_authorized_save_dir(&state, Some(&upload.request.save_dir))?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
+    let context =
+        TaskMutationContext::prepare_for_create(&state, Some(&upload.request.save_dir)).await?;
+    let task = context
+        .service
         .create_torrent_download_task(
-            &config,
+            &context.config,
             CreateTorrentDownloadTaskRequest {
                 torrent_file_name: upload.file_name,
                 torrent_data: upload.data,
@@ -170,27 +163,20 @@ async fn create_torrent_task(
         )
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn pause_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .pause_download_task(&config, task_id)
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .pause_download_task(&context.config, task_id)
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn confirm_task_files(
@@ -198,54 +184,39 @@ async fn confirm_task_files(
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<ConfirmTaskFilesRequest>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .confirm_download_task_files(&config, task_id, payload.selected_file_indexes)
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .confirm_download_task_files(&context.config, task_id, payload.selected_file_indexes)
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn resume_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .resume_download_task(&config, task_id)
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .resume_download_task(&context.config, task_id)
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn redownload_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .redownload_download_task(&config, task_id)
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .redownload_download_task(&context.config, task_id)
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn delete_task(
@@ -253,18 +224,17 @@ async fn delete_task(
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
 ) -> Result<Json<DownloadTask>, ApiError> {
-    let service = task_service(&state);
-    service.ensure_not_exiting().map_err(classify_task_error)?;
-    let config = ensure_aria2_ready(&state)
-        .await
-        .map_err(classify_aria2_ready_error)?;
-    let task = service
-        .delete_download_task(&config, task_id, query.delete_files.unwrap_or(false))
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .delete_download_task(
+            &context.config,
+            task_id,
+            query.delete_files.unwrap_or(false),
+        )
         .await
         .map_err(classify_task_error)?;
-    broadcast_tasks_snapshot(&state)
-        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    context.finish(task)
 }
 
 async fn permanently_delete_task(

@@ -1,0 +1,57 @@
+use super::{
+    classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir, task_service,
+};
+use crate::api::error::ApiError;
+use crate::app::HttpAppState;
+use crate::config::aria2::Aria2Config;
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::tasks::service::TaskService;
+use crate::tasks::DownloadTask;
+
+pub(super) struct TaskMutationContext<'a> {
+    pub(super) state: &'a HttpAppState,
+    pub(super) service: TaskService<'a>,
+    pub(super) config: Aria2Config,
+}
+
+impl<'a> TaskMutationContext<'a> {
+    pub(super) async fn prepare(state: &'a HttpAppState) -> Result<Self, ApiError> {
+        Self::prepare_inner(state, None).await
+    }
+
+    pub(super) async fn prepare_for_create(
+        state: &'a HttpAppState,
+        save_dir: Option<&str>,
+    ) -> Result<Self, ApiError> {
+        Self::prepare_inner(state, Some(save_dir)).await
+    }
+
+    async fn prepare_inner(
+        state: &'a HttpAppState,
+        save_dir: Option<Option<&str>>,
+    ) -> Result<Self, ApiError> {
+        let service = task_service(state);
+        service.ensure_not_exiting().map_err(classify_task_error)?;
+        if let Some(save_dir) = save_dir {
+            ensure_authorized_save_dir(state, save_dir)?;
+        }
+        let config = ensure_aria2_ready(state)
+            .await
+            .map_err(classify_aria2_ready_error)?;
+        Ok(Self {
+            state,
+            service,
+            config,
+        })
+    }
+
+    pub(super) fn finish(&self, task: DownloadTask) -> Result<axum::Json<DownloadTask>, ApiError> {
+        self.broadcast_snapshot()?;
+        Ok(axum::Json(task))
+    }
+
+    pub(super) fn broadcast_snapshot(&self) -> Result<(), ApiError> {
+        broadcast_tasks_snapshot(self.state)
+            .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))
+    }
+}
