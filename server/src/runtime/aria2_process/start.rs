@@ -141,6 +141,7 @@ pub(crate) async fn wait_for_rpc_ready(
     debug_logs: &DebugLogStore,
     log_success_to_debug: bool,
 ) -> Result<(), String> {
+    // 子进程成功 spawn 不代表 RPC 已监听；固定次数重试用于覆盖 Aria2 初始化 session 和磁盘状态的时间窗口。
     const MAX_ATTEMPTS: usize = 10;
     const RETRY_INTERVAL_MS: u64 = 300;
 

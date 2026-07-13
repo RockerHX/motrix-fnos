@@ -102,6 +102,7 @@ async fn stop_aria2_process(
     ensure_runtime_not_exiting(&state)?;
     let status = stop_process(&state.aria2_process, &state.core.debug_logs)
         .map_err(|error| ApiError::internal("aria2_stop_failed", error))?;
+    // stop_process 返回成功才表示进程退出已确认，失败路径必须保留运行态记录。
     state.clear_aria2_runtime();
     Ok(Json(status))
 }

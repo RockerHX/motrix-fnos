@@ -49,6 +49,7 @@ pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
 }
 
 async fn require_gateway_admin(request: Request<Body>, next: Next) -> Response {
+    // x-trim-* 身份头只在 fnOS 统一网关监听入口可信；独立 TCP 路由不会挂载此中间件，也不暴露管理 API。
     let headers = request.headers();
     let user_id = headers
         .get("x-trim-userid")
