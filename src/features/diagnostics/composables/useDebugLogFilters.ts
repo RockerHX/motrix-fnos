@@ -1,5 +1,5 @@
 import { computed, ref, type Ref } from "vue";
-import type { AppMetricItem } from "../../../components/ui/AppMetricGrid.vue";
+import type { AppMetricItem } from "../../../components/ui/appMetric";
 import { useI18n } from "../../../i18n";
 import type { DebugLogCategory, DebugLogEntry, DebugLogLevel } from "../types";
 
@@ -77,4 +77,3 @@ export function useDebugLogFilters(logs: Ref<DebugLogEntry[]>) {
     categoryOptions, levelOptions, moduleOptions, filteredLogs, logStats, logSummaryItems, clearFilters,
   };
 }
-

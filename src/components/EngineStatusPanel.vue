@@ -2,7 +2,7 @@
 import { NButton } from "naive-ui";
 import { computed, onMounted, ref } from "vue";
 import AppMetricGrid from "./ui/AppMetricGrid.vue";
-import type { AppMetricItem } from "./ui/AppMetricGrid.vue";
+import type { AppMetricItem } from "./ui/appMetric";
 import {
   getAria2ConfigStatus,
   getAria2ProcessStatus,

@@ -1,14 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import AppMetricCard from "./AppMetricCard.vue";
-
-export type AppMetricItem = {
-  label: string;
-  value: string | number;
-  detail?: string;
-  note?: string;
-  tone?: "default" | "success" | "warning" | "error";
-};
+import type { AppMetricItem } from "./appMetric";
 
 const props = withDefaults(
   defineProps<{
