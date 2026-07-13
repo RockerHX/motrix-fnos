@@ -18,6 +18,7 @@ PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
 SERVER_LOG="${LOG_DIR}/server.log"
 ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 GATEWAY_SOCKET="${APP_DEST}/motrix-fnos.sock"
+# 启用网关 Socket 后，对外 TCP 地址只承载带 token 的 JSON-RPC；管理 UI、HTTP API 与 SSE 仍只允许通过统一网关访问。
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
 
@@ -127,6 +128,7 @@ json_escape() {
 
 write_accessible_paths_file() {
   mkdir -p "${PKG_VAR}"
+  # fnOS 以冒号分隔 TRIM_DATA_ACCESSIBLE_PATHS；先完整写入临时文件再原子替换，避免 server 读到半截授权列表 JSON。
   tmp_file="${ACCESSIBLE_PATHS_FILE}.tmp"
   printf '{"paths":[' > "${tmp_file}"
 
