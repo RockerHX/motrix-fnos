@@ -107,6 +107,7 @@ impl RuntimeEventHub {
     pub fn send(&self, event: RuntimeEvent) -> Result<usize, String> {
         match self.sender.send(event) {
             Ok(count) => Ok(count),
+            // 没有前端订阅者只表示当前无需投递事件，不能因此把正常的后台任务流程判为失败。
             Err(_) => Ok(0),
         }
     }
@@ -213,6 +214,7 @@ pub async fn bootstrap_http_app_state(
 ) -> Result<Arc<HttpAppState>, String> {
     let database = connect_database(runtime.database_path.clone()).await?;
     let mut restored_tasks = list_download_tasks(&database.pool).await?;
+    // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
     reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
     persist_download_task_states(&database.pool, &restored_tasks).await?;
     let next_task_id = max_download_task_id(&database.pool)
@@ -238,6 +240,7 @@ fn reconcile_magnet_metadata_dirs(
         ));
     }
 
+    // 清理范围固定在应用私有根目录；先收集仍被任务引用的目录，随后只删除其中未被引用的孤儿子目录。
     let mut referenced_dirs = std::collections::BTreeSet::new();
     for task in tasks.iter_mut() {
         let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {
@@ -388,6 +391,7 @@ async fn run_gateway_server(state: Arc<HttpAppState>, socket_path: PathBuf) -> R
             error
         )
     })?;
+    // 管理 UI、HTTP API 与 SSE 只挂载到可信 Unix Socket；独立 TCP 监听必须始终使用仅含带 token JSON-RPC 的路由。
     let jsonrpc_listener = TcpListener::bind(state.runtime.http_addr)
         .await
         .map_err(|error| {
