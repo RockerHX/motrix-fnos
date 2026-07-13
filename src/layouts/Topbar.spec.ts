@@ -28,7 +28,7 @@ describe("Topbar", () => {
       "refresh",
       "pause",
       "play",
-      "close",
+      "trash",
     ]);
 
     for (const button of buttons) {

@@ -145,7 +145,7 @@ function openSettings() {
         :aria-label="t('topbar.deleteVisible')"
         @click="deleteVisibleTasks"
       >
-        <AppIcon name="close" :size="16" />
+        <AppIcon name="trash" :size="16" />
       </button>
       <button
         v-else
