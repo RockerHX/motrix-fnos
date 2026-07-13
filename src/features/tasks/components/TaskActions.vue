@@ -4,6 +4,7 @@ import AppIcon from "../../../components/AppIcon.vue";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { NButton, NCheckbox, NSpace } from "naive-ui";
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
+import TaskRedownloadConfirmDialog from "./TaskRedownloadConfirmDialog.vue";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
@@ -326,18 +327,13 @@ function emitDeleteConfirm() {
 
   <TaskDetailsDialog v-model:show="showDetails" :details="props.details" :close-label="props.labels.close" />
 
-  <AppConfirmDialog
+  <TaskRedownloadConfirmDialog
     v-model:show="showRedownloadConfirm"
-    :title="props.confirmTexts.redownloadTitle"
-    :mask-closable="!props.state.isOperating"
-    :loading="props.state.isOperating"
-    :disabled="props.state.isActionDisabled"
-    :confirm-text="props.confirmTexts.redownloadConfirmText"
-    confirm-type="primary"
+    :state="props.state"
+    :labels="props.labels"
+    :confirm-texts="props.confirmTexts"
     @confirm="emit('confirmRedownload')"
-  >
-    <template #confirm-label>{{ props.labels.redownload }}</template>
-  </AppConfirmDialog>
+  />
 
   <AppConfirmDialog
     v-model:show="showDeleteConfirm"
