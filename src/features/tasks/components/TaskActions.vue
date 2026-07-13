@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
-import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { NButton, NSpace } from "naive-ui";
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
 import TaskRedownloadConfirmDialog from "./TaskRedownloadConfirmDialog.vue";
 import TaskDeleteConfirmDialog from "./TaskDeleteConfirmDialog.vue";
+import TaskPermanentDeleteConfirmDialog from "./TaskPermanentDeleteConfirmDialog.vue";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
@@ -337,18 +337,13 @@ function openDeleteConfirm() {
     @confirm="emit('confirmDelete', $event)"
   />
 
-  <AppConfirmDialog
+  <TaskPermanentDeleteConfirmDialog
     v-model:show="showPermanentDeleteConfirm"
-    :title="props.confirmTexts.permanentDeleteTitle"
-    :mask-closable="!props.state.isOperating"
-    :loading="props.state.isOperating"
-    :disabled="props.state.isActionDisabled"
-    :confirm-text="props.confirmTexts.permanentDeleteConfirmText"
-    confirm-type="error"
+    :state="props.state"
+    :labels="props.labels"
+    :confirm-texts="props.confirmTexts"
     @confirm="emit('confirmPermanentDelete')"
-  >
-    <template #confirm-label>{{ props.labels.permanentDelete }}</template>
-  </AppConfirmDialog>
+  />
 </template>
 
 <style scoped>
