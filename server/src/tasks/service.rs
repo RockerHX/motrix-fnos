@@ -7,18 +7,20 @@ use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
     mark_task_files_confirmed, mark_task_paused, mark_task_redownloaded, mark_task_removed,
     mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
-    readd_task_to_aria2, refresh_tasks_from_aria2, remove_task, remove_task_record,
-    should_readd_task_after_resume_error, store_created_task, store_created_task_with_id,
-    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
-    task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
-    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, TaskMemoryState,
+    readd_task_to_aria2, remove_task, remove_task_record, should_readd_task_after_resume_error,
+    store_created_task, store_created_task_with_id, sync_task_progress_after_pause_by_gid,
+    sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
+    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
+    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
+    TaskMemoryState,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::repository::TaskRepository;
+
+mod query;
 
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
@@ -169,31 +171,11 @@ impl<'a> TaskService<'a> {
         &self,
         config: &Aria2Config,
     ) -> Result<Vec<DownloadTask>, String> {
-        if self.runtime_guard.is_exiting() {
-            self.debug_logs.info(
-                "tasks.list",
-                "应用正在退出，跳过 Aria2 刷新并返回内存任务快照",
-            );
-            return Ok(visible_tasks(crate::tasks::list_tasks(
-                self.download_tasks,
-            )?));
-        }
-
-        let tasks = refresh_tasks_from_aria2(
-            self.download_tasks,
-            self.app_data_dir,
-            config,
-            Some(self.debug_logs),
-        )
-        .await?;
-        self.sync_tasks_to_database(&tasks).await?;
-
-        Ok(visible_tasks(tasks))
+        query::list_download_tasks(self, config).await
     }
 
     pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {
-        let tasks = crate::tasks::list_tasks(self.download_tasks)?;
-        Ok(removed_tasks(tasks))
+        query::list_removed_download_tasks(self)
     }
 
     pub async fn pause_download_task(
@@ -484,12 +466,8 @@ impl<'a> TaskService<'a> {
         Ok(())
     }
 
-    async fn sync_tasks_to_database(&self, tasks: &[DownloadTask]) -> Result<(), String> {
-        self.repository.persist_task_states(tasks).await
-    }
-
     async fn sync_task_to_database(&self, task: &DownloadTask) -> Result<(), String> {
-        self.repository.persist_task_state(task).await
+        query::sync_task_to_database(self, task).await
     }
 }
 
@@ -517,20 +495,6 @@ fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
         }
     }
     let _ = fs::remove_dir_all(expected_dir);
-}
-
-fn visible_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
-    tasks
-        .into_iter()
-        .filter(|task| task.status != DownloadTaskStatus::Removed)
-        .collect()
-}
-
-fn removed_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
-    tasks
-        .into_iter()
-        .filter(|task| task.status == DownloadTaskStatus::Removed)
-        .collect()
 }
 
 #[cfg(test)]

@@ -451,7 +451,12 @@ fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {
     }
 }
 
-fn sample_task(id: u64, status: DownloadTaskStatus, gid: &str, save_dir: String) -> DownloadTask {
+pub(super) fn sample_task(
+    id: u64,
+    status: DownloadTaskStatus,
+    gid: &str,
+    save_dir: String,
+) -> DownloadTask {
     DownloadTask {
         id,
         url: "https://example.com/archive.zip".to_string(),
