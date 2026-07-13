@@ -40,6 +40,7 @@ test('统一网关入口拒绝端口回退和不稳定 URL', () => {
     gatewayPrefix: '/app/motrix',
     gatewaySocket: 'motrix-fnos.sock',
     url: '/app/motrix/',
+    accessPerm: 'editable',
   };
   const config = {
     '.url': {
@@ -49,6 +50,7 @@ test('统一网关入口拒绝端口回退和不稳定 URL', () => {
         gatewayPrefix: '/app/motrix',
         gatewaySocket: 'motrix-fnos.sock',
         url: '/app/motrix/',
+        control: { accessPerm: 'editable' },
       },
     },
   };
@@ -76,6 +78,21 @@ test('统一网关入口拒绝端口回退和不稳定 URL', () => {
         expected,
       ),
     /稳定路径/,
+  );
+  assert.throws(
+    () =>
+      validateGatewayEntry(
+        {
+          '.url': {
+            'motrix.fnos.main': {
+              ...config['.url']['motrix.fnos.main'],
+              control: { accessPerm: 'readonly' },
+            },
+          },
+        },
+        expected,
+      ),
+    /accessPerm 必须为 editable/,
   );
 });
 

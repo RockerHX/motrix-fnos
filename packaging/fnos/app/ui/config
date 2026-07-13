@@ -10,7 +10,7 @@
       "url": "/app/motrix/",
       "allUsers": false,
       "control": {
-        "accessPerm": "readonly",
+        "accessPerm": "editable",
         "fullUrlPerm": "readonly",
         "pathPerm": "readonly"
       }

@@ -98,6 +98,9 @@ export function validateGatewayEntry(config, expected) {
   if (entry.url !== expected.url) {
     throw new Error(`统一网关入口 url 必须为稳定路径 ${expected.url}，实际为 ${entry.url ?? '(missing)'}`);
   }
+  if (entry.control?.accessPerm !== expected.accessPerm) {
+    throw new Error(`统一网关入口 control.accessPerm 必须为 ${expected.accessPerm}，实际为 ${entry.control?.accessPerm ?? '(missing)'}`);
+  }
 }
 
 export function parseChecksums(text) {

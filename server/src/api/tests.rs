@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn gateway_requires_authenticated_admin_and_tcp_router_exposes_only_jsonrpc() {
+async fn gateway_requires_authenticated_user_and_tcp_router_exposes_only_jsonrpc() {
     let state = test_state(None).await;
     let gateway = gateway_router(state.clone());
 
@@ -30,7 +30,7 @@ async fn gateway_requires_authenticated_admin_and_tcp_router_exposes_only_jsonrp
         .expect("response should succeed");
     assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
 
-    let forbidden = gateway
+    let allowed_user = gateway
         .clone()
         .oneshot(
             Request::builder()
@@ -42,7 +42,7 @@ async fn gateway_requires_authenticated_admin_and_tcp_router_exposes_only_jsonrp
         )
         .await
         .expect("response should succeed");
-    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+    assert_eq!(allowed_user.status(), StatusCode::OK);
 
     let allowed = gateway
         .oneshot(
@@ -90,7 +90,7 @@ async fn gateway_serves_web_ui_root_and_assets_under_registered_prefix() {
                 Request::builder()
                     .uri(uri)
                     .header("x-trim-userid", "1000")
-                    .header("x-trim-isadmin", "true")
+                    .header("x-trim-isadmin", "false")
                     .body(Body::empty())
                     .expect("request should build"),
             )

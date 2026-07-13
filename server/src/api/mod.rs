@@ -55,14 +55,14 @@ pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
 fn gateway_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     Router::new()
         .nest_service("/app/motrix", router_with_static_dir(state, static_dir))
-        .layer(middleware::from_fn(require_gateway_admin))
+        .layer(middleware::from_fn(require_gateway_user))
 }
 
 pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
     jsonrpc::routes().with_state(state)
 }
 
-async fn require_gateway_admin(request: Request<Body>, next: Next) -> Response {
+async fn require_gateway_user(request: Request<Body>, next: Next) -> Response {
     // x-trim-* 身份头只在 fnOS 统一网关监听入口可信；独立 TCP 路由不会挂载此中间件，也不暴露管理 API。
     let headers = request.headers();
     let user_id = headers
@@ -76,22 +76,6 @@ async fn require_gateway_admin(request: Request<Body>, next: Next) -> Response {
             axum::Json(serde_json::json!({
                 "code": "gateway_auth_required",
                 "message": "请通过飞牛 fnOS 登录后访问 Motrix",
-            })),
-        )
-            .into_response();
-    }
-
-    let is_admin = headers
-        .get("x-trim-isadmin")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    if !is_admin {
-        return (
-            StatusCode::FORBIDDEN,
-            axum::Json(serde_json::json!({
-                "code": "admin_required",
-                "message": "Motrix 仅允许管理员访问",
             })),
         )
             .into_response();

@@ -191,6 +191,7 @@ function preflightStageDir(dir, platform, servicePort) {
       gatewayPrefix: '/app/motrix',
       gatewaySocket: 'motrix-fnos.sock',
       url: '/app/motrix/',
+      accessPerm: 'editable',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
