@@ -13,6 +13,7 @@ pub async fn run_shutdown_cleanup(state: &Arc<HttpAppState>) {
         .debug_logs
         .info("runtime.exit", "开始执行统一退出流程");
 
+    // 顺序不可互换：先同步最新进度，再暂停并持久化未完成任务，随后保存 session，最后才停止 Aria2；各阶段失败均按最后已知状态降级继续退出。
     sync_tasks_before_exit(state).await;
     pause_unfinished_tasks_before_exit(state).await;
     save_aria2_session_before_exit(state).await;
