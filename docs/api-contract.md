@@ -1,6 +1,6 @@
 # 前后端 HTTP / SSE / JSON-RPC API 契约
 
-> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；阶段状态见 `docs/development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`；JSON-RPC 远程访问说明见 `docs/jsonrpc-remote-access.md`。
+> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；阶段状态见 `docs/development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 运行时约定
 
@@ -381,7 +381,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ## 6. JSON-RPC 兼容入口
 
-`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。远程使用说明见 [`docs/jsonrpc-remote-access.md`](jsonrpc-remote-access.md)。
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -429,5 +429,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `dir` 必须来自 `/api/storage/accessible-paths` 返回的授权目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
 - `out` 会映射为 Motrix 任务文件名。
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
+- 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`。
+- 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；对公网开放独立端口前，必须确认 fnOS 网络、防火墙和反向代理访问控制。

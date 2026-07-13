@@ -55,7 +55,6 @@ rtk pnpm run clean
 - 长期架构：[`docs/architecture.md`](docs/architecture.md)
 - 阶段状态：[`docs/development-plan.md`](docs/development-plan.md)
 - 接口契约：[`docs/api-contract.md`](docs/api-contract.md)
-- JSON-RPC 远程访问：[`docs/jsonrpc-remote-access.md`](docs/jsonrpc-remote-access.md)
 - 打包说明：[`docs/fpk-packaging.md`](docs/fpk-packaging.md)
 - UI 产品需求：[`docs/design/ui-product-requirements.md`](docs/design/ui-product-requirements.md)
 - UI 设计系统：[`docs/design/DESIGN.md`](docs/design/DESIGN.md)
