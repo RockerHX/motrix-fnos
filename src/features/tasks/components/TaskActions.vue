@@ -2,9 +2,10 @@
 import { watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
-import { NButton, NCheckbox, NSpace } from "naive-ui";
+import { NButton, NSpace } from "naive-ui";
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
 import TaskRedownloadConfirmDialog from "./TaskRedownloadConfirmDialog.vue";
+import TaskDeleteConfirmDialog from "./TaskDeleteConfirmDialog.vue";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
@@ -42,7 +43,6 @@ const showDeleteConfirm = ref(false);
 const showPermanentDeleteConfirm = ref(false);
 const showRedownloadConfirm = ref(false);
 const showDetails = ref(false);
-const deleteFiles = ref(false);
 
 watch(
   () => props.state.isRuntimeExiting,
@@ -55,17 +55,11 @@ watch(
     showPermanentDeleteConfirm.value = false;
     showRedownloadConfirm.value = false;
     showDetails.value = false;
-    deleteFiles.value = false;
   },
 );
 
 function openDeleteConfirm() {
-  deleteFiles.value = false;
   showDeleteConfirm.value = true;
-}
-
-function emitDeleteConfirm() {
-  emit("confirmDelete", deleteFiles.value);
 }
 </script>
 
@@ -335,21 +329,13 @@ function emitDeleteConfirm() {
     @confirm="emit('confirmRedownload')"
   />
 
-  <AppConfirmDialog
+  <TaskDeleteConfirmDialog
     v-model:show="showDeleteConfirm"
-    :title="props.confirmTexts.deleteTitle"
-    :mask-closable="!props.state.isOperating"
-    :loading="props.state.isOperating"
-    :disabled="props.state.isActionDisabled"
-    :confirm-text="props.confirmTexts.deleteConfirmText"
-    confirm-type="error"
-    @confirm="emitDeleteConfirm"
-  >
-    <template #extra>
-      <NCheckbox v-model:checked="deleteFiles">{{ props.confirmTexts.deleteFilesLabel }}</NCheckbox>
-    </template>
-    <template #confirm-label>{{ props.labels.delete }}</template>
-  </AppConfirmDialog>
+    :state="props.state"
+    :labels="props.labels"
+    :confirm-texts="props.confirmTexts"
+    @confirm="emit('confirmDelete', $event)"
+  />
 
   <AppConfirmDialog
     v-model:show="showPermanentDeleteConfirm"
