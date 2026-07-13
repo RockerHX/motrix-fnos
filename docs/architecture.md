@@ -40,39 +40,14 @@ fnOS FPK
   └─ Aria2 Next Linux sidecar
 ```
 
-### 3.1 FPK 目录约定
+### 3.1 交付与运行约束
 
-```text
-packaging/fnos/
-  manifest
-  config/
-  cmd/
-  wizard/
-  app/
-    bin/          # motrix-fnos-server 与 aria2-next
-    ui/dist/      # Web UI 静态资源
-    data/         # 运行时数据目录
-  dist/           # .fpk 输出
-```
-
-约定：
-
-- `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 路径。
-- `cmd/stop` 触发 server 统一退出流程。
-- `cmd/status` 只判断服务进程状态。
-- `cmd/stop` / `cmd/status` 必须同时核对 PID、`/proc/<pid>/exe` 和进程启动时间，不得仅凭 `kill -0` 判断或停止进程。
-- `app/data/` 保存 SQLite、Aria2 session、日志、PID 等运行态文件；打包前不得携带本地残留。
-- FPK Web UI 与 `/api/*`、`/api/events` 只通过 `/app/motrix` 统一网关访问，由 fnOS 校验登录态，后端再校验管理员身份。
-- `MOTRIX_FNOS_HTTP_ADDR` 对应的独立 TCP 端口只提供 `/jsonrpc`，不得暴露 Web UI 或 `/api/*`。
-
-### 3.2 架构与产物匹配
-
-| 设备架构 | Rust target | FPK 输出 |
-| --- | --- | --- |
-| `x86_64` | `x86_64-unknown-linux-gnu` | `motrix.fnos_<version>_x86.fpk` |
-| `aarch64` / `arm64` | `aarch64-unknown-linux-gnu` | `motrix.fnos_<version>_arm.fpk` |
-
-安装时必须选择与设备 CPU 架构匹配的 FPK。
+- `packaging/fnos/` 只承担 FPK 元数据、权限、生命周期脚本和产物组装；具体目录、命令与产物名称见 `docs/fpk-packaging.md`。
+- x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
+- fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
+- SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
+- Web UI、HTTP API 和 SSE 只通过 fnOS 统一网关访问，并要求已登录管理员身份。
+- 独立 TCP 端口只提供带 token 的 `/jsonrpc`，不得暴露 Web UI、HTTP API、SSE 或调试日志。
 
 ## 4. 分层职责
 
@@ -123,10 +98,10 @@ src/
 server/
   src/
     main.rs
-    state.rs
+    app/
+    state/
     api/
     runtime/
-    services/
     tasks/
       service.rs
       service/
@@ -139,13 +114,15 @@ server/
     config/
     database/
     debug_logs/
+    settings/
+    storage/
 ```
 
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
-- `services/` 负责编排业务流程。
-- `tasks/`、`aria2/`、`config/`、`database/`、`debug_logs/` 保持领域边界。
+- 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
+- `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
 - `tasks/service.rs` 只保留 `TaskService` 依赖注入、运行态守卫和查询委托；创建、查询、控制、删除与磁链确认流程分别由 `tasks/service/` 子模块承载。
 - 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
@@ -165,11 +142,11 @@ Vue Component
 
 任务创建约束：
 
-- 单链接、磁力、批量 URL、种子文件等“新建任务”入口可以在 API / service 编排层分流，但底层创建流程必须尽量复用统一的任务创建链路，避免再维护第二套校验、Aria2 option 映射、内存态写入和 SQLite 持久化逻辑。
-- 批量 URL 本质上是批量创建多个独立单任务：后端逐条校验、逐条创建，允许部分成功 / 部分失败；单条失败不回滚已成功创建的任务。
-- 磁力链接任务遵循“先解析、后创建真实下载”的交互：后端先在应用私有目录 `app/data/magnet-metadata/task-<id>/` 添加临时 magnet metadata 任务，metadata 完成后读取 `followedBy` 对应 BT 任务的文件列表、`bittorrent.info.name` 与 Aria2 保存的 hash 命名 `.torrent`，随后移除临时 metadata GID 与临时 BT GID；前端阻塞展示文件确认，用户确认后后端再使用已保存 `.torrent` 和 `select-file` 复用种子下载内部流程创建并启动真实 BT 下载任务。
-- 磁链解析阶段不得在用户授权下载目录创建 `磁力链接任务`、`磁力链接任务 (1)` 等占位目录；用户授权目录只允许在 metadata 已解析且用户确认文件后创建以真实 BT 名称命名的任务专属目录。metadata 临时目录必须和任务记录建立可恢复关联，确认成功、删除任务或启动垃圾回收时只允许清理应用私有目录下的 `app/data/magnet-metadata/task-<id>/`，不得根据用户输入路径删除任意目录。
-- 种子文件任务以用户选择的授权目录作为父目录，后端创建任务专属子目录承载 Aria2 原生 hash 命名 `.torrent` 元数据、`.aria2` 控制文件和下载产物；勾选删除文件时只允许删除该任务专属目录，不得删除授权目录根。为保持 Aria2 session 恢复语义，不额外改名或删除 Aria2 自动保存的种子元数据。
+- 单链接、批量 URL、磁力和种子入口可以在 API / service 层分流，但必须复用统一的校验、Aria2 option 映射、内存写入和 SQLite 持久化链路。
+- 批量 URL 按独立任务逐条创建，允许部分成功；单条失败不回滚已创建任务。
+- 磁力任务必须先在应用私有目录解析 metadata，待前端确认文件后，才能在用户授权目录创建真实任务及其专属子目录。解析临时目录必须与任务记录关联，以支持恢复和定向清理。
+- 种子任务与确认后的磁力任务都使用任务专属目录保存下载产物和 Aria2 元数据。删除文件时只能删除该任务专属目录或应用私有临时目录，不得删除授权目录根，也不得根据用户输入拼接任意删除路径。
+- Aria2 自动保存的种子元数据和 session 恢复语义必须保留；具体请求字段、状态和错误响应见 `docs/api-contract.md`。
 
 标准事件流：
 
