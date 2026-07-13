@@ -11,7 +11,6 @@ use super::{
     current_timestamp_ms, log_error, log_info, redact_url_for_log, sanitize_create_task_options,
 };
 
-
 #[derive(Debug)]
 pub(crate) struct PrepareBtDownloadTaskRequest {
     pub source_url: String,

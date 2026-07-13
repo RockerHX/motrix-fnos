@@ -5,9 +5,9 @@ use crate::database::{
     DATABASE_FILE_NAME,
 };
 use crate::runtime::ManagedAria2Process;
-use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::tasks::DownloadTask;
+use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -273,8 +273,7 @@ fn reconcile_magnet_metadata_dirs(
                 task.gid = None;
                 task.download_speed = 0;
                 task.error_code = None;
-                task.error_message =
-                    Some("磁链 metadata 临时目录丢失，请重新添加磁链".to_string());
+                task.error_message = Some("磁链 metadata 临时目录丢失，请重新添加磁链".to_string());
             }
         } else if let Some(metadata_dir) = task
             .metadata_torrent_path
@@ -285,9 +284,13 @@ fn reconcile_magnet_metadata_dirs(
         }
     }
 
-    for entry in fs::read_dir(&metadata_root)
-        .map_err(|error| format!("读取磁链 metadata 根目录失败：{}（{}）", metadata_root.display(), error))?
-    {
+    for entry in fs::read_dir(&metadata_root).map_err(|error| {
+        format!(
+            "读取磁链 metadata 根目录失败：{}（{}）",
+            metadata_root.display(),
+            error
+        )
+    })? {
         let entry = entry.map_err(|error| {
             format!(
                 "读取磁链 metadata 目录项失败：{}（{}）",
@@ -353,10 +356,7 @@ pub async fn run_server() -> Result<(), String> {
 }
 
 #[cfg(unix)]
-async fn run_gateway_server(
-    state: Arc<HttpAppState>,
-    socket_path: PathBuf,
-) -> Result<(), String> {
+async fn run_gateway_server(state: Arc<HttpAppState>, socket_path: PathBuf) -> Result<(), String> {
     use hyper_util::rt::{TokioExecutor, TokioIo};
     use hyper_util::server::conn::auto::Builder;
     use hyper_util::service::TowerToHyperService;
@@ -439,10 +439,7 @@ async fn run_gateway_server(
 }
 
 #[cfg(not(unix))]
-async fn run_gateway_server(
-    _state: Arc<HttpAppState>,
-    socket_path: PathBuf,
-) -> Result<(), String> {
+async fn run_gateway_server(_state: Arc<HttpAppState>, socket_path: PathBuf) -> Result<(), String> {
     Err(format!(
         "当前系统不支持统一网关 Unix Socket：{}",
         socket_path.display()

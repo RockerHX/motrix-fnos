@@ -123,7 +123,8 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
 
 #[test]
 fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
-    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-reconcile-pending-{}", now_ms()));
+    let app_data_dir =
+        std::env::temp_dir().join(format!("motrix-fnos-reconcile-pending-{}", now_ms()));
     let metadata_dir = app_data_dir.join("magnet-metadata").join("task-9");
     std::fs::create_dir_all(&metadata_dir).expect("metadata dir should create");
     std::fs::write(metadata_dir.join("pending.torrent"), b"torrent").expect("torrent should write");
@@ -158,8 +159,10 @@ fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
 
 #[test]
 fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missing() {
-    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-reconcile-missing-{}", now_ms()));
-    std::fs::create_dir_all(app_data_dir.join("magnet-metadata")).expect("metadata root should create");
+    let app_data_dir =
+        std::env::temp_dir().join(format!("motrix-fnos-reconcile-missing-{}", now_ms()));
+    std::fs::create_dir_all(app_data_dir.join("magnet-metadata"))
+        .expect("metadata root should create");
     let mut tasks = vec![DownloadTask {
         id: 10,
         url: "magnet:?xt=urn:btih:test".to_string(),

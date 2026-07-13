@@ -43,10 +43,7 @@ fn find_saved_torrent_metadata_path(task: &DownloadTask) -> Result<PathBuf, Stri
         if path.is_file() {
             return Ok(path);
         }
-        return Err(format!(
-            "磁链 metadata 种子文件不存在：{}",
-            path.display()
-        ));
+        return Err(format!("磁链 metadata 种子文件不存在：{}", path.display()));
     }
 
     let task_dir = Path::new(&task.save_dir);

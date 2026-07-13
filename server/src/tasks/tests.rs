@@ -1373,7 +1373,10 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
 
     assert_eq!(request["method"], "aria2.addUri");
     assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
-    assert_eq!(request["params"][1]["dir"], "/app-data/magnet-metadata/task-1");
+    assert_eq!(
+        request["params"][1]["dir"],
+        "/app-data/magnet-metadata/task-1"
+    );
     assert_eq!(request["params"][1]["pause"], "false");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");

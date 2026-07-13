@@ -209,9 +209,10 @@ mod tests {
                 ));
 
                 {
-                    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
-                        .expect("sqlite options should build")
-                        .create_if_missing(true);
+                    let options =
+                        SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                            .expect("sqlite options should build")
+                            .create_if_missing(true);
                     let pool = SqlitePoolOptions::new()
                         .max_connections(1)
                         .connect_with(options)
@@ -254,7 +255,10 @@ mod tests {
                     .fetch_one(&database.pool)
                     .await
                     .expect("column lookup should succeed");
-                    assert_eq!(column_count, 1, "download_tasks.{column} should be migrated");
+                    assert_eq!(
+                        column_count, 1,
+                        "download_tasks.{column} should be migrated"
+                    );
                 }
 
                 database.pool.close().await;
