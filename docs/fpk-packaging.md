@@ -160,6 +160,7 @@ rtk packaging/fnos/cmd/stop
 
 - 日志：`packaging/fnos/app/data/logs/server.log`
 - PID：`packaging/fnos/app/data/run/motrix-fnos-server.pid`
+- 进程启动时间：`packaging/fnos/app/data/run/motrix-fnos-server.starttime`，与 `/proc/<pid>/exe` 一起用于防止 PID 复用误判。
 
 ## 最小排障
 

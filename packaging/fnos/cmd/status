@@ -15,7 +15,7 @@ if [ -n "${pid}" ] && is_running_pid "${pid}"; then
   exit 0
 fi
 
-rm -f "${PID_FILE}"
+remove_pid_record
 log_msg "查询运行状态：未运行"
 echo "motrix-fnos-server 未运行"
 exit 3

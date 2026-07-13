@@ -60,6 +60,7 @@ packaging/fnos/
 - `cmd/start` 启动 Rust server，并注入数据目录、监听地址和 Aria2 路径。
 - `cmd/stop` 触发 server 统一退出流程。
 - `cmd/status` 只判断服务进程状态。
+- `cmd/stop` / `cmd/status` 必须同时核对 PID、`/proc/<pid>/exe` 和进程启动时间，不得仅凭 `kill -0` 判断或停止进程。
 - `app/data/` 保存 SQLite、Aria2 session、日志、PID 等运行态文件；打包前不得携带本地残留。
 - FPK Web UI 与 `/api/*`、`/api/events` 只通过 `/app/motrix` 统一网关访问，由 fnOS 校验登录态，后端再校验管理员身份。
 - `MOTRIX_FNOS_HTTP_ADDR` 对应的独立 TCP 端口只提供 `/jsonrpc`，不得暴露 Web UI 或 `/api/*`。
@@ -180,6 +181,7 @@ Rust Runtime Event
 ## 8. 生命周期与安全边界
 
 - 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
+- PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
 - 后端启动时准备数据目录、初始化 SQLite、启动或连接 Aria2。
 - 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
 - 前端页面关闭、刷新或重新进入不等于应用退出。

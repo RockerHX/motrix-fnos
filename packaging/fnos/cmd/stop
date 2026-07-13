@@ -10,6 +10,7 @@ clear_stale_pid
 
 pid=$(read_pid || true)
 if [ -z "${pid}" ]; then
+  remove_pid_record
   rm -f "${GATEWAY_SOCKET}"
   log_msg "motrix-fnos-server 未运行，无需停止"
   echo "motrix-fnos-server 未运行"
@@ -17,7 +18,7 @@ if [ -z "${pid}" ]; then
 fi
 
 if ! is_running_pid "${pid}"; then
-  rm -f "${PID_FILE}"
+  remove_pid_record
   rm -f "${GATEWAY_SOCKET}"
   log_msg "检测到陈旧 PID 文件，已清理：${pid}"
   echo "motrix-fnos-server 未运行（已清理陈旧 PID）"
@@ -29,7 +30,7 @@ kill -INT "${pid}"
 
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
   if ! is_running_pid "${pid}"; then
-    rm -f "${PID_FILE}"
+    remove_pid_record
     rm -f "${GATEWAY_SOCKET}"
     log_msg "motrix-fnos-server 已停止，PID ${pid}"
     echo "motrix-fnos-server 已停止，PID ${pid}"

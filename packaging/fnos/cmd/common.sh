@@ -14,10 +14,12 @@ ARIA2_BIN=${MOTRIX_FNOS_ARIA2_PATH:-"${ARIA2_BIN_DEFAULT}"}
 RUNTIME_DIR="${PKG_VAR}/run"
 LOG_DIR="${PKG_VAR}/logs"
 PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
+PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
 SERVER_LOG="${LOG_DIR}/server.log"
 ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 GATEWAY_SOCKET="${APP_DEST}/motrix-fnos.sock"
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
+PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
 
 prepare_runtime_dirs() {
   mkdir -p "${APP_DATA_DIR}" "${RUNTIME_DIR}" "${LOG_DIR}"
@@ -33,19 +35,67 @@ export_runtime_env() {
 
 read_pid() {
   if [ -f "${PID_FILE}" ]; then
-    tr -d '[:space:]' < "${PID_FILE}"
+    sed -n '1{s/[[:space:]]//g;p;}' "${PID_FILE}"
   fi
+}
+
+process_start_time() {
+  pid="$1"
+  stat_file="${PROC_ROOT}/${pid}/stat"
+  [ -r "${stat_file}" ] || return 1
+  awk '{print $22}' "${stat_file}"
+}
+
+canonical_file_path() {
+  path="$1"
+  directory=$(dirname -- "${path}")
+  file_name=$(basename -- "${path}")
+  [ -d "${directory}" ] || return 1
+  directory=$(CDPATH= cd -- "${directory}" && pwd -P) || return 1
+  printf '%s/%s\n' "${directory}" "${file_name}"
+}
+
+process_executable_path() {
+  pid="$1"
+  executable_link="${PROC_ROOT}/${pid}/exe"
+  [ -L "${executable_link}" ] || return 1
+  executable_path=$(readlink "${executable_link}") || return 1
+  canonical_file_path "${executable_path}"
+}
+
+write_pid_record() {
+  pid="$1"
+  start_time=$(process_start_time "${pid}") || return 1
+  printf '%s\n' "${pid}" > "${PID_FILE}"
+  printf '%s\n' "${start_time}" > "${PID_START_FILE}"
+}
+
+remove_pid_record() {
+  rm -f "${PID_FILE}" "${PID_START_FILE}"
 }
 
 is_running_pid() {
   pid="$1"
-  [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null || return 1
+
+  expected_executable=$(canonical_file_path "${SERVER_BIN}") || return 1
+  actual_executable=$(process_executable_path "${pid}") || return 1
+  [ "${actual_executable}" = "${expected_executable}" ] || return 1
+
+  if [ -f "${PID_START_FILE}" ]; then
+    recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
+    actual_start_time=$(process_start_time "${pid}") || return 1
+    [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
+  fi
 }
 
 clear_stale_pid() {
   pid=$(read_pid || true)
-  if [ -n "${pid}" ] && ! is_running_pid "${pid}"; then
-    rm -f "${PID_FILE}"
+  if [ -f "${PID_FILE}" ] && { [ -z "${pid}" ] || ! is_running_pid "${pid}"; }; then
+    remove_pid_record
   fi
 }
 
