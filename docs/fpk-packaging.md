@@ -80,6 +80,14 @@ rtk pnpm run build:fpk:x64
 rtk pnpm run build:fpk:arm64
 ```
 
+升级或重新校验仓库内置的 Aria2 Next 源资产：
+
+```bash
+rtk pnpm run assets:aria2:fetch
+```
+
+该命令只用于维护 `assets/aria2/` 中固定版本的双架构 sidecar，会从对应 GitHub Release 下载 checksum，校验现有或新下载的二进制并设置可执行权限。它不是日常构建步骤；升级版本时还需审查脚本中的版本号、checksum 文件和两个二进制的变更。
+
 清理本地构建输出和 staged 产物：
 
 ```bash
