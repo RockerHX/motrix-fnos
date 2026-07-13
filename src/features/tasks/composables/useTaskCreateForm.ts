@@ -7,15 +7,16 @@ import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../stores/taskStore";
 import type {
   CreateBatchDownloadTaskFailure,
-  CreateTaskAdvancedOptions,
-  DownloadTaskStartMode,
 } from "../../../types/tasks";
+import {
+  buildTaskAdvancedOptions,
+  createTaskCreateFormState,
+  normalizeTaskCategory,
+  resetTaskCreateFormState,
+  type TaskCreateInputType,
+} from "./taskCreateFormModel";
 
 const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
-const DEFAULT_CATEGORY = "默认";
-
-type TaskCreateInputType = "url" | "torrent" | "magnet";
-
 interface UseTaskCreateFormOptions {
   show: Ref<boolean>;
   onClose: () => void;
@@ -28,17 +29,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   const message = useMessage();
   const { t } = useI18n();
 
-  const form = reactive({
-    urls: "",
-    magnet: "",
-    torrentFile: null as File | null,
-    saveDir: "",
-    startMode: "now" as DownloadTaskStartMode,
-    category: DEFAULT_CATEGORY,
-    connections: 16,
-    downloadLimitKb: 0,
-    proxy: "",
-  });
+  const form = reactive(createTaskCreateFormState());
   const activeInputType = ref<TaskCreateInputType>("url");
   const formErrorMessage = ref("");
   const batchFailedItems = ref<CreateBatchDownloadTaskFailure[]>([]);
@@ -135,8 +126,8 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
         saveDir: form.saveDir,
         sourceType: "magnet",
         startMode: form.startMode,
-        category: normalizedCategory(),
-        advancedOptions: buildAdvancedOptions(),
+        category: normalizeTaskCategory(form.category),
+        advancedOptions: buildTaskAdvancedOptions(form),
       });
       finishSuccessfulCreate();
     } catch (error) {
@@ -150,8 +141,8 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
         urls: urlList.value,
         saveDir: form.saveDir,
         startMode: form.startMode,
-        category: normalizedCategory(),
-        advancedOptions: buildAdvancedOptions(),
+        category: normalizeTaskCategory(form.category),
+        advancedOptions: buildTaskAdvancedOptions(form),
       });
       rememberSaveDir(form.saveDir);
       if (result.failed.length > 0) {
@@ -178,8 +169,8 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
       torrent: form.torrentFile,
       saveDir: form.saveDir,
       startMode: form.startMode,
-      category: normalizedCategory(),
-      advancedOptions: buildAdvancedOptions(),
+      category: normalizeTaskCategory(form.category),
+      advancedOptions: buildTaskAdvancedOptions(form),
     });
     finishSuccessfulCreate();
   }
@@ -197,15 +188,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   }
 
   function resetForm() {
-    form.urls = "";
-    form.magnet = "";
-    form.torrentFile = null;
-    form.saveDir = "";
-    form.startMode = "now";
-    form.category = DEFAULT_CATEGORY;
-    form.connections = 16;
-    form.downloadLimitKb = 0;
-    form.proxy = "";
+    resetTaskCreateFormState(form);
     activeInputType.value = "url";
     formErrorMessage.value = "";
     batchFailedItems.value = [];
@@ -264,23 +247,6 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
 
   function hasValidAdvancedOptions() {
     return form.connections >= 1 && form.connections <= 64 && form.downloadLimitKb >= 0;
-  }
-
-  function buildAdvancedOptions(): CreateTaskAdvancedOptions {
-    return {
-      connections: form.connections,
-      downloadLimitKb: form.downloadLimitKb,
-      proxy: optionalText(form.proxy),
-    };
-  }
-
-  function normalizedCategory() {
-    return optionalText(form.category) || DEFAULT_CATEGORY;
-  }
-
-  function optionalText(value: string) {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : null;
   }
 
   function finishSuccessfulCreate() {
