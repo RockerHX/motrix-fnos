@@ -274,8 +274,6 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | --- | --- | --- | --- |
 | `GET` | `/api/settings` | - | `AppConfig` |
 | `PUT` | `/api/settings` | `AppConfig` | `AppConfig` |
-| `GET` | `/api/ui-preferences` | - | `UiPreferences` |
-| `PUT` | `/api/ui-preferences` | `UiPreferences` | `UiPreferences` |
 
 约定：
 
