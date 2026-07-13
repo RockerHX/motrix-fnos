@@ -75,6 +75,31 @@ export function parseManifest(content) {
   );
 }
 
+export function validateGatewayEntry(config, expected) {
+  const entry = config?.['.url']?.[expected.entryId];
+  if (!entry || typeof entry !== 'object') {
+    throw new Error(`缺少统一网关入口 ${expected.entryId}`);
+  }
+  if (entry.type !== 'iframe') {
+    throw new Error(`统一网关入口 type 必须为 iframe，实际为 ${entry.type ?? '(missing)'}`);
+  }
+  if (entry.protocol !== '') {
+    throw new Error(`统一网关入口 protocol 必须为空字符串，实际为 ${entry.protocol ?? '(missing)'}`);
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, 'port')) {
+    throw new Error('统一网关入口不得声明 port，否则 fnOS 可能退回直连服务端口');
+  }
+  if (entry.gatewayPrefix !== expected.gatewayPrefix) {
+    throw new Error(`统一网关入口 gatewayPrefix 必须为 ${expected.gatewayPrefix}，实际为 ${entry.gatewayPrefix ?? '(missing)'}`);
+  }
+  if (entry.gatewaySocket !== expected.gatewaySocket) {
+    throw new Error(`统一网关入口 gatewaySocket 必须为 ${expected.gatewaySocket}，实际为 ${entry.gatewaySocket ?? '(missing)'}`);
+  }
+  if (entry.url !== expected.url) {
+    throw new Error(`统一网关入口 url 必须为稳定路径 ${expected.url}，实际为 ${entry.url ?? '(missing)'}`);
+  }
+}
+
 export function parseChecksums(text) {
   const result = new Map();
   for (const line of text.split(/\r?\n/)) {

@@ -9,6 +9,7 @@ import {
   platformForTarget,
   removeManifestField,
   upsertManifestField,
+  validateGatewayEntry,
 } from './script-utils.mjs';
 
 const repoRoot = process.cwd();
@@ -36,7 +37,6 @@ syncUiIcons();
 prepareStageDir();
 resetStageAppDataDir(stageDir);
 renderManifest(stageDir, platform, servicePort);
-patchUiConfig(path.join(stageDir, 'app', 'ui', 'config'), servicePort);
 patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
 removeGitKeepFiles(stageDir);
 preflightStageDir(stageDir, platform, servicePort);
@@ -184,6 +184,18 @@ function preflightStageDir(dir, platform, servicePort) {
   if (!existsSync(desktopUiDir)) {
     fail(`FPK 预检失败，desktop_uidir 对应目录不存在：${desktopUiDir}`);
   }
+  const uiConfig = validateJsonFile(path.join(desktopUiDir, 'config'), '应用入口');
+  try {
+    validateGatewayEntry(uiConfig, {
+      entryId: 'motrix.fnos.main',
+      gatewayPrefix: '/app/motrix',
+      gatewaySocket: 'motrix-fnos.sock',
+      url: '/app/motrix/',
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`FPK 预检失败，应用入口未正确使用统一网关：${message}`);
+  }
 
   if (manifest.service_port !== servicePort) {
     fail(`FPK 预检失败，manifest.service_port=${manifest.service_port} 与预期 ${servicePort} 不一致`);
@@ -239,17 +251,11 @@ function validateFnosIcon(filePath, expectedSize, label) {
 
 function validateJsonFile(filePath, label) {
   try {
-    JSON.parse(readFileSync(filePath, 'utf8'));
+    return JSON.parse(readFileSync(filePath, 'utf8'));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fail(`FPK 预检失败，${label} JSON 格式无效：${filePath}，${message}`);
   }
-}
-
-function patchUiConfig(uiConfigPath, servicePort) {
-  const config = JSON.parse(readFileSync(uiConfigPath, 'utf8'));
-  config['.url']['motrix.fnos.main'].port = servicePort;
-  writeFileSync(uiConfigPath, JSON.stringify(config, null, 2) + '\n');
 }
 
 function patchPortConfig(portConfigPath, servicePort) {

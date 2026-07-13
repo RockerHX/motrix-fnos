@@ -8,14 +8,16 @@
 
 ## 已查证约束
 
-截至 2026-07-06，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准：
+截至 2026-07-13，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准：
 
 - 官方 Manifest 文档明确了 `platform=x86|arm|all`、`os_min_version`、`service_port` 等字段，但**没有文档化 `arch` 字段**。当前仓库仍保留 x86 staging 中的 `arch = x86_64`，直到官方资料或实机验证证明可删。
 - 官方应用框架文档列出了 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*`、`config_*` 生命周期脚本。
+- 官方统一网关文档明确：`app/ui/config` 通过 `gatewayPrefix` 和 `gatewaySocket` 注册入口，`url` 使用稳定的网关路径；`protocol` 和 `port` 不参与统一网关路由。Motrix 的入口固定为 `/app/motrix/`，Socket 固定为 `motrix-fnos.sock`，不得再添加端口字段或版本查询参数。
 - 使用**当前已验证版本** `fnpack 1.2.1` 创建最小工程并在本地验证后确认：
   - 缺少 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*` 时，`fnpack build` 会报告 `Required file ... is missing`。
   - 缺少 `config_init` 或 `config_callback` 时，`fnpack build` 仍可成功。
   - `fnpack build` 在打印 `Packing failed` 时**仍可能返回退出码 0**，因此仓库构建脚本必须额外校验产物和日志，不能只信退出码。
+- 2026-07-13 本仓库实证：旧构建脚本会向 staged `app/ui/config` 注入 `port=17080`，fnOS 随后将桌面入口打开为 `http://<设备>:17080/app/motrix/`；而 17080 按架构只承载 JSON-RPC，因此返回 404。当前构建预检会拒绝带 `port` 或版本查询参数的网关入口。
 - `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
 
 如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：
@@ -30,6 +32,8 @@
 - Manifest：https://developer.fnnas.com/docs/core-concepts/manifest/
 - 应用框架 / 生命周期：https://developer.fnnas.com/docs/core-concepts/framework/
 - fnpack：https://developer.fnnas.com/docs/cli/fnpack/
+- 应用入口：https://developer.fnnas.com/docs/core-concepts/app-entry/
+- 统一网关：https://developer.fnnas.com/docs/core-concepts/gateway-registration/
 
 ## 当前产物
 
@@ -206,7 +210,7 @@ rtk packaging/fnos/cmd/stop
 
 - 安装失败：先检查包架构是否与设备一致
 - 启动失败：先看 `server.log`
-- Web UI 打不开：先看 `cmd/status` 和 `service_port`
+- Web UI 打不开：先看 `cmd/status` 和浏览器请求地址。桌面入口应通过 `/app/motrix/` 统一网关访问；如果请求直达 `http://<设备>:<service_port>/app/motrix/`，说明 FPK 入口错误地退回了端口模式，应检查 staged `app/ui/config` 是否含有 `port` 或不稳定 URL。
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
 - 升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
 - 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”

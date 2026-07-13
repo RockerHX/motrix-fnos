@@ -11,6 +11,7 @@ import {
   removeManifestField,
   sha256,
   upsertManifestField,
+  validateGatewayEntry,
 } from '../script-utils.mjs';
 import { assertReleaseVersion, findVersionMismatches } from '../version-utils.mjs';
 
@@ -28,12 +29,53 @@ test('版本一致性检查列出所有偏离 package.json 的来源', () => {
       packageJson: '1.7.0',
       cargoToml: '1.7.0',
       manifestTemplate: '1.6.0',
-      uiConfig: '1.5.0',
     }),
-    [
-      { source: 'manifestTemplate', version: '1.6.0', expected: '1.7.0' },
-      { source: 'uiConfig', version: '1.5.0', expected: '1.7.0' },
-    ],
+    [{ source: 'manifestTemplate', version: '1.6.0', expected: '1.7.0' }],
+  );
+});
+
+test('统一网关入口拒绝端口回退和不稳定 URL', () => {
+  const expected = {
+    entryId: 'motrix.fnos.main',
+    gatewayPrefix: '/app/motrix',
+    gatewaySocket: 'motrix-fnos.sock',
+    url: '/app/motrix/',
+  };
+  const config = {
+    '.url': {
+      'motrix.fnos.main': {
+        type: 'iframe',
+        protocol: '',
+        gatewayPrefix: '/app/motrix',
+        gatewaySocket: 'motrix-fnos.sock',
+        url: '/app/motrix/',
+      },
+    },
+  };
+
+  assert.doesNotThrow(() => validateGatewayEntry(config, expected));
+  assert.throws(
+    () =>
+      validateGatewayEntry(
+        { '.url': { 'motrix.fnos.main': { ...config['.url']['motrix.fnos.main'], port: '17080' } } },
+        expected,
+      ),
+    /不得声明 port/,
+  );
+  assert.throws(
+    () =>
+      validateGatewayEntry(
+        {
+          '.url': {
+            'motrix.fnos.main': {
+              ...config['.url']['motrix.fnos.main'],
+              url: '/app/motrix/?v=1.7.1',
+            },
+          },
+        },
+        expected,
+      ),
+    /稳定路径/,
   );
 });
 
