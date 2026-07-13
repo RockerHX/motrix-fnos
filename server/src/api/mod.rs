@@ -53,8 +53,10 @@ pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
 }
 
 fn gateway_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
+    let app = router_with_static_dir(state, static_dir);
     Router::new()
-        .nest_service("/app/motrix", router_with_static_dir(state, static_dir))
+        .nest_service("/app/motrix", app.clone())
+        .fallback_service(app)
         .layer(middleware::from_fn(require_gateway_user))
 }
 

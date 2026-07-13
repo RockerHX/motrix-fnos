@@ -190,7 +190,7 @@ function preflightStageDir(dir, platform, servicePort) {
       entryId: 'motrix.fnos.main',
       gatewayPrefix: '/app/motrix',
       gatewaySocket: 'motrix-fnos.sock',
-      url: '/app/motrix/',
+      url: '/app/motrix',
       accessPerm: 'editable',
     });
   } catch (error) {

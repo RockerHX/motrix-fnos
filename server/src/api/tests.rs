@@ -45,6 +45,7 @@ async fn gateway_requires_authenticated_user_and_tcp_router_exposes_only_jsonrpc
     assert_eq!(allowed_user.status(), StatusCode::OK);
 
     let allowed = gateway
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/app/motrix/api/app/ping")
@@ -56,6 +57,19 @@ async fn gateway_requires_authenticated_user_and_tcp_router_exposes_only_jsonrpc
         .await
         .expect("response should succeed");
     assert_eq!(allowed.status(), StatusCode::OK);
+
+    let allowed_stripped = gateway
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .header("x-trim-userid", "1000")
+                .header("x-trim-isadmin", "false")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(allowed_stripped.status(), StatusCode::OK);
 
     let public_api = jsonrpc_router(state)
         .oneshot(
@@ -81,8 +95,11 @@ async fn gateway_serves_web_ui_root_and_assets_under_registered_prefix() {
     let gateway = gateway_router_with_static_dir(state, static_dir);
 
     for (uri, expected_body) in [
+        ("/app/motrix", "<html>motrix-ui</html>"),
         ("/app/motrix/", "<html>motrix-ui</html>"),
         ("/app/motrix/assets/app.js", "console.log('motrix')"),
+        ("/", "<html>motrix-ui</html>"),
+        ("/assets/app.js", "console.log('motrix')"),
     ] {
         let response = gateway
             .clone()

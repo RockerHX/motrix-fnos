@@ -7,7 +7,7 @@
       "protocol": "",
       "gatewayPrefix": "/app/motrix",
       "gatewaySocket": "motrix-fnos.sock",
-      "url": "/app/motrix/",
+      "url": "/app/motrix",
       "allUsers": false,
       "control": {
         "accessPerm": "editable",
