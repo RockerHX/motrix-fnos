@@ -18,6 +18,7 @@
   - 缺少 `config_init` 或 `config_callback` 时，`fnpack build` 仍可成功。
   - `fnpack build` 在打印 `Packing failed` 时**仍可能返回退出码 0**，因此仓库构建脚本必须额外校验产物和日志，不能只信退出码。
 - 2026-07-13 本仓库实证：旧构建脚本会向 staged `app/ui/config` 注入 `port=17080`，fnOS 随后将桌面入口打开为 `http://<设备>:17080/app/motrix/`；而 17080 按架构只承载 JSON-RPC，因此返回 404。当前构建预检会拒绝带 `port` 或版本查询参数的网关入口。
+- 2026-07-13 Unix Socket 本地复现实证：Axum `Router::nest` 虽能匹配 `/app/motrix/api/*`，但不会把未匹配的 Web UI 根路径交给内层静态文件 fallback，导致网关访问 `/app/motrix/` 返回 404；网关入口必须使用 `nest_service`，并分别验证根 HTML 与静态资源路径。
 - `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
 
 如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：

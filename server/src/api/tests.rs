@@ -10,6 +10,7 @@ use crate::settings::service::AppConfig;
 use axum::body::to_bytes;
 use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -66,6 +67,41 @@ async fn gateway_requires_authenticated_admin_and_tcp_router_exposes_only_jsonrp
         .await
         .expect("response should succeed");
     assert_eq!(public_api.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn gateway_serves_web_ui_root_and_assets_under_registered_prefix() {
+    let state = test_state(None).await;
+    let static_dir = temp_dir("gateway-static");
+    std::fs::create_dir_all(static_dir.join("assets")).expect("assets dir should create");
+    std::fs::write(static_dir.join("index.html"), b"<html>motrix-ui</html>")
+        .expect("index should write");
+    std::fs::write(static_dir.join("assets/app.js"), b"console.log('motrix')")
+        .expect("asset should write");
+    let gateway = gateway_router_with_static_dir(state, static_dir);
+
+    for (uri, expected_body) in [
+        ("/app/motrix/", "<html>motrix-ui</html>"),
+        ("/app/motrix/assets/app.js", "console.log('motrix')"),
+    ] {
+        let response = gateway
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .header("x-trim-userid", "1000")
+                    .header("x-trim-isadmin", "true")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should read");
+        assert_eq!(body.as_ref(), expected_body.as_bytes());
+    }
 }
 
 #[tokio::test]
@@ -511,12 +547,17 @@ fn json_request<T: serde::Serialize>(method: &str, uri: &str, payload: &T) -> Re
 }
 
 fn temp_dir(label: &str) -> PathBuf {
+    let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
     std::env::temp_dir().join(format!(
-        "motrix-fnos-{}-{}",
+        "motrix-fnos-{}-{}-{}-{}",
         label,
+        std::process::id(),
+        counter,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be valid")
             .as_nanos()
     ))
 }
+
+static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);

@@ -21,7 +21,10 @@ use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
 pub fn router(state: Arc<HttpAppState>) -> Router {
-    let static_dir = static_assets_dir();
+    router_with_static_dir(state, static_assets_dir())
+}
+
+fn router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     let index_file = static_dir.join("index.html");
     let api_routes = Router::new()
         .merge(app::routes())
@@ -46,8 +49,12 @@ async fn api_not_found() -> StatusCode {
 }
 
 pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
+    gateway_router_with_static_dir(state, static_assets_dir())
+}
+
+fn gateway_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     Router::new()
-        .nest("/app/motrix", router(state))
+        .nest_service("/app/motrix", router_with_static_dir(state, static_dir))
         .layer(middleware::from_fn(require_gateway_admin))
 }
 
