@@ -119,10 +119,24 @@ pub(crate) fn safe_task_path_component(name: &str) -> String {
 
 fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> Result<(), String> {
     let task_dir = Path::new(&task.save_dir);
-    if !task_dir.exists() {
-        return Ok(());
+    let metadata = match fs::symlink_metadata(task_dir) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "读取 BT 任务目录元数据失败：{}（{}）",
+                task_dir.display(),
+                error
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "拒绝删除符号链接形式的 BT 任务目录：{}",
+            task_dir.display()
+        ));
     }
-    if !task_dir.is_dir() {
+    if !metadata.is_dir() {
         return delete_non_torrent_task_files(task);
     }
 

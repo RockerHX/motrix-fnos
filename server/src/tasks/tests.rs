@@ -662,6 +662,33 @@ fn mark_task_removed_deletes_torrent_task_dir() {
     assert!(base_dir.exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn mark_task_removed_refuses_torrent_task_dir_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let base_dir = PathBuf::from(temp_download_dir("delete-torrent-symlink"));
+    let outside_dir =
+        PathBuf::from(temp_download_dir("delete-torrent-symlink-target")).join("Ubuntu ISO");
+    fs::create_dir_all(&base_dir).expect("base dir should be created");
+    fs::create_dir_all(&outside_dir).expect("outside dir should be created");
+    let outside_file = outside_dir.join("keep.txt");
+    fs::write(&outside_file, b"keep").expect("outside file should be written");
+    let task_dir = base_dir.join("Ubuntu ISO");
+    symlink(&outside_dir, &task_dir).expect("task dir symlink should be created");
+
+    let mut task = sample_task(None, task_dir.display().to_string());
+    task.url = "torrent:Ubuntu ISO.torrent".to_string();
+    task.file_name = "Ubuntu ISO".to_string();
+    let tasks = TaskMemoryState::new(vec![task]);
+
+    let error = mark_task_removed(&tasks, 1, true).expect_err("symlink should be rejected");
+
+    assert!(error.contains("符号链接"));
+    assert!(task_dir.is_symlink());
+    assert!(outside_file.exists());
+}
+
 #[test]
 fn mark_task_removed_deletes_magnet_task_dir_with_saved_metadata() {
     let base_dir = PathBuf::from(temp_download_dir("delete-magnet"));
