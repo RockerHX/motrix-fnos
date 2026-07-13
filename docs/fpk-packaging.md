@@ -2,9 +2,9 @@
 
 ## 作用
 
-这份文档只说明 **如何构建和定位 FPK 产物**，以及最小调试 / 排障入口。
+这份文档统一说明 **开发验证、FPK 构建、产物定位和发布流程**，以及最小调试 / 排障入口。
 
-它不记录项目阶段状态，也不承担运行时能力说明；其中命令、路径、产物命名和 manifest 约定必须与仓库脚本保持一致。
+它不记录项目阶段状态，也不承担产品能力说明；其中命令、路径、产物命名和 manifest 约定必须与仓库脚本保持一致。
 
 ## 已查证约束
 
@@ -105,6 +105,38 @@ rtk pnpm run clean:rust
 ```
 
 `pnpm run verify` / `pnpm run verify:pre-commit` 默认会在验证结束后自动执行 Rust incremental 缓存清理；如需临时保留增量缓存，可追加 `--keep-rust-incremental`。
+
+## 开发与验证
+
+Web UI 类型检查：
+
+```bash
+rtk pnpm run typecheck
+```
+
+Web UI 生产构建：
+
+```bash
+rtk pnpm run build
+```
+
+Rust server 测试：
+
+```bash
+rtk cargo test --manifest-path server/Cargo.toml
+```
+
+提交前快速验证：
+
+```bash
+rtk pnpm run verify:pre-commit
+```
+
+发布前完整验证：
+
+```bash
+rtk pnpm run verify
+```
 
 ## 打包目录
 
