@@ -15,6 +15,7 @@ import {
   resetTaskCreateFormState,
   type TaskCreateInputType,
 } from "./taskCreateFormModel";
+import { useTaskCreateValidation } from "./useTaskCreateValidation";
 
 const LAST_SAVE_DIR_KEY = "motrix-fnos:last-save-dir";
 interface UseTaskCreateFormOptions {
@@ -37,31 +38,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   const isLoadingAccessiblePaths = ref(false);
   const accessiblePathsError = ref("");
 
-  const isMagnetValid = computed(() => /^magnet:\?/i.test(form.magnet.trim()));
-  const urlList = computed(() =>
-    form.urls.split(/\r?\n/).map((url) => url.trim()).filter(Boolean),
-  );
-  const invalidUrlLines = computed(() =>
-    form.urls
-      .split(/\r?\n/)
-      .map((url, index) => ({ url: url.trim(), line: index + 1 }))
-      .filter(({ url }) => url && !/^https?:\/\/.+/i.test(url))
-      .map(({ line }) => line),
-  );
-  const urlFeedback = computed(() => {
-    if (invalidUrlLines.value.length > 0) {
-      return t("create.url.invalidLines", { lines: invalidUrlLines.value.join(", ") });
-    }
-    if (urlList.value.length > 0) {
-      return t("create.url.detected", { count: urlList.value.length });
-    }
-    return t("create.url.hint");
-  });
-  const urlValidationStatus = computed(() => (invalidUrlLines.value.length > 0 ? "error" : undefined));
-  const magnetFeedback = computed(() =>
-    form.magnet && !isMagnetValid.value ? t("create.magnet.invalid") : undefined,
-  );
-  const magnetValidationStatus = computed(() => (form.magnet && !isMagnetValid.value ? "error" : undefined));
+  const validation = useTaskCreateValidation(form, activeInputType);
   const accessiblePathOptions = computed(() =>
     accessiblePaths.value.map((path) => ({
       label: path,
@@ -70,9 +47,9 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   );
   const canSubmit = computed(
     () =>
-      hasValidSourceInput() &&
+      validation.hasValidSourceInput.value &&
       !!form.saveDir &&
-      hasValidAdvancedOptions() &&
+      validation.hasValidAdvancedOptions.value &&
       !taskStore.isCreating &&
       !taskStore.isRuntimeExiting &&
       !isLoadingAccessiblePaths.value,
@@ -102,7 +79,9 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
       message.warning(t("task.runtimeExiting"));
       return;
     }
-    if (!validateForm()) {
+    const validationError = validation.validationError();
+    if (validationError) {
+      formErrorMessage.value = validationError;
       return;
     }
 
@@ -138,7 +117,7 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
   async function submitUrlTasks() {
     try {
       const result = await taskStore.createBatchTasks({
-        urls: urlList.value,
+        urls: validation.urlList.value,
         saveDir: form.saveDir,
         startMode: form.startMode,
         category: normalizeTaskCategory(form.category),
@@ -211,44 +190,6 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     }
   }
 
-  function validateForm() {
-    if (activeInputType.value === "url" && (urlList.value.length === 0 || invalidUrlLines.value.length > 0)) {
-      formErrorMessage.value = t("create.url.required");
-      return false;
-    }
-    if (activeInputType.value === "torrent" && !form.torrentFile) {
-      formErrorMessage.value = t("create.torrent.required");
-      return false;
-    }
-    if (activeInputType.value === "magnet" && !isMagnetValid.value) {
-      formErrorMessage.value = t("create.magnet.required");
-      return false;
-    }
-    if (!form.saveDir) {
-      formErrorMessage.value = t("create.saveDir.required");
-      return false;
-    }
-    if (!hasValidAdvancedOptions()) {
-      formErrorMessage.value = t("create.advanced.invalid");
-      return false;
-    }
-    return true;
-  }
-
-  function hasValidSourceInput() {
-    if (activeInputType.value === "url") {
-      return urlList.value.length > 0 && invalidUrlLines.value.length === 0;
-    }
-    if (activeInputType.value === "torrent") {
-      return !!form.torrentFile;
-    }
-    return isMagnetValid.value;
-  }
-
-  function hasValidAdvancedOptions() {
-    return form.connections >= 1 && form.connections <= 64 && form.downloadLimitKb >= 0;
-  }
-
   function finishSuccessfulCreate() {
     rememberSaveDir(form.saveDir);
     resetForm();
@@ -298,10 +239,10 @@ export function useTaskCreateForm({ show, onClose, onCreated }: UseTaskCreateFor
     accessiblePaths,
     isLoadingAccessiblePaths,
     accessiblePathsError,
-    urlFeedback,
-    urlValidationStatus,
-    magnetFeedback,
-    magnetValidationStatus,
+    urlFeedback: validation.urlFeedback,
+    urlValidationStatus: validation.urlValidationStatus,
+    magnetFeedback: validation.magnetFeedback,
+    magnetValidationStatus: validation.magnetValidationStatus,
     accessiblePathOptions,
     canSubmit,
     isMaskClosable,
