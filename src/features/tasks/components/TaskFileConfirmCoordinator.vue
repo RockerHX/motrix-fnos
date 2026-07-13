@@ -27,6 +27,7 @@ const showFileConfirm = computed(() => confirmationTask.value !== null);
 watch(
   () => tasks.value.map((task) => `${task.id}:${task.confirmationRequired}:${task.files.length}`).join("|"),
   () => {
+    // 关闭只对当前仍待确认的任务生效；任务离开确认态后移除记录，未来再次进入确认态时必须重新弹出。
     dismissedTaskIds.value = dismissedTaskIds.value.filter((taskId) =>
       tasks.value.some((task) => task.id === taskId && task.confirmationRequired && task.files.length > 0),
     );

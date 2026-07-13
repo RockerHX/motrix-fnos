@@ -55,6 +55,7 @@ export function useTaskTopbarActions(options: UseTaskTopbarActionsOptions) {
 
   async function refresh() {
     if (!toolbar.canRefresh.value) return;
+    // 引擎状态与任务列表互不依赖，并行触发可避免状态探测延迟阻塞用户主动刷新任务。
     void refreshAria2Status();
     if (activeCategory.value === "trash") {
       await refreshRemovedTasks(true);

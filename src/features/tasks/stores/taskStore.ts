@@ -66,6 +66,7 @@ export const useTaskStore = defineStore("tasks", () => {
       return { taskErrorMessages };
     } catch (error) {
       const now = Date.now();
+      // 时间窗口只抑制自动刷新产生的重复提示；刷新请求仍会照常执行，用户主动刷新也始终返回错误。
       const shouldReport = options.showError || now - lastRefreshErrorAt.value > 10000;
       if (shouldReport) {
         lastRefreshErrorAt.value = now;
@@ -120,6 +121,7 @@ export const useTaskStore = defineStore("tasks", () => {
 
     try {
       const result = await createBatchDownloadTasks(payload);
+      // upsertTask 会把新任务插到列表头部，因此反向处理才能保持后端 created 数组的原始顺序。
       for (const task of [...result.created].reverse()) {
         upsertTask(task);
       }
@@ -185,6 +187,7 @@ export const useTaskStore = defineStore("tasks", () => {
     beginTaskOperation(taskId);
     try {
       const task = await operation();
+      // 退出事件可能先于 HTTP 响应到达；此时不能再用迟到结果覆盖已经锁定的退出态界面。
       if (!isRuntimeExiting.value) {
         if (task.status === "removed") {
           removeTask(task.id);
@@ -320,5 +323,6 @@ export const useTaskStore = defineStore("tasks", () => {
 });
 
 function taskKey(task: DownloadTask) {
+  // 优先按 GID 去重，同一记录重新加入 Aria2 获得新 GID 后仍可提示新一轮失败；没有 GID 时才回退到稳定的应用任务 ID。
   return task.gid || String(task.id);
 }
