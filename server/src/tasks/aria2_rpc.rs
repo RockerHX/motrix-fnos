@@ -1,13 +1,17 @@
-use crate::config::aria2::Aria2Config;
-use crate::debug_logs::DebugLogStore;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
-use serde::Deserialize;
-
 use super::{
     log_error, log_info, redact_url_for_log, Aria2TaskStatus, DownloadTaskSourceType,
     DownloadTaskStartMode, PreparedDownloadTask,
 };
+use crate::config::aria2::Aria2Config;
+use crate::debug_logs::DebugLogStore;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+
+#[path = "aria2_rpc/transport.rs"]
+mod transport;
+
+pub(crate) use transport::TellManyResponse;
+use transport::{rpc_params, AddUriResponse, GidResponse, TellStatusResponse};
 
 const DEFAULT_BT_TRACKERS: &[&str] = &[
     "udp://tracker.opentrackr.org:1337/announce",
@@ -17,36 +21,6 @@ const DEFAULT_BT_TRACKERS: &[&str] = &[
     "udp://tracker.torrent.eu.org:451/announce",
     "udp://open.demonii.com:1337/announce",
 ];
-
-#[derive(Debug, Deserialize)]
-struct AddUriResponse {
-    result: Option<String>,
-    error: Option<JsonRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
-struct GidResponse {
-    result: Option<String>,
-    error: Option<JsonRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TellStatusResponse {
-    result: Option<Aria2TaskStatus>,
-    error: Option<JsonRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct TellManyResponse {
-    pub(crate) result: Option<Vec<Aria2TaskStatus>>,
-    pub(crate) error: Option<JsonRpcError>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct JsonRpcError {
-    pub(crate) message: String,
-}
 
 pub async fn add_uri_to_aria2(
     config: &Aria2Config,
@@ -336,10 +310,7 @@ pub(crate) async fn tell_status(
 }
 
 pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
     params.push(serde_json::json!([
         "gid",
@@ -370,10 +341,7 @@ pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serd
 }
 
 pub(crate) fn build_tell_many_request(config: &Aria2Config, method: &str) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
     if method != "aria2.tellActive" {
         params.push(serde_json::json!(0));
         params.push(serde_json::json!(1000));
@@ -468,10 +436,7 @@ pub(crate) fn build_gid_control_request(
     method: &str,
     request_id: &str,
 ) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
 
     serde_json::json!({
@@ -487,10 +452,7 @@ pub(crate) fn build_change_option_request(
     gid: &str,
     options: serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
     params.push(serde_json::Value::Object(options));
 
@@ -506,10 +468,7 @@ pub(crate) fn build_add_uri_request(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
 ) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
 
     params.push(serde_json::json!([task.url.clone()]));
 
@@ -572,10 +531,7 @@ pub(crate) fn build_add_torrent_request(
     task: &PreparedDownloadTask,
     torrent_data: &[u8],
 ) -> serde_json::Value {
-    let mut params = Vec::new();
-    if !config.rpc_secret.is_empty() {
-        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
-    }
+    let mut params = rpc_params(config);
 
     params.push(serde_json::json!(STANDARD.encode(torrent_data)));
     params.push(serde_json::json!([]));
