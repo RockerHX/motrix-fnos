@@ -108,6 +108,7 @@ function syncUiIcons() {
 }
 
 function prepareStageDir() {
+  // 源码目录包含模板和本地生成物，不能直接交给 fnpack；每次从白名单源重新生成独立 stage，避免把残留数据打进安装包。
   rmSync(stageDir, { recursive: true, force: true });
   mkdirSync(stageDir, { recursive: true });
 
@@ -295,6 +296,7 @@ function moveOutputFile(dir) {
 }
 
 function injectPackageRootFiles(fpkPath, portConfigPath) {
+  // fnpack 1.2.1 不会稳定保留 MotrixFNOS.sc 到包根，因此在产物生成后重新封包；升级 fnpack 时需重新验证这一兼容步骤。
   const workDir = mkdtempSync(path.join(os.tmpdir(), 'motrix-fnos-fpk-'));
   try {
     run('tar', ['-xzf', fpkPath, '-C', workDir], env);

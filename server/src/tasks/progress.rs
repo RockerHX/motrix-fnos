@@ -27,6 +27,7 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     status: &Aria2TaskStatus,
     metadata_torrent_path: String,
 ) {
+    // metadata 下载完成后，临时 GID 的职责已经结束；真实下载必须等待用户选文件，因此清空 GID 并进入待确认状态。
     let display_name = status
         .bittorrent
         .as_ref()
@@ -66,12 +67,14 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
 
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
+    // Aria2 在切换状态或 session 恢复时可能暂时返回 0 长度，不能用瞬时空值抹掉已经持久化的进度。
     let should_preserve_progress = should_preserve_existing_progress(
         &status.status,
         next_total_length,
         next_completed_length,
         task.total_length,
     );
+    // 活跃任务的 completedLength 偶尔会短暂回退；总长度未变化时保持单调递增，避免 UI 和数据库进度倒退。
     let should_keep_completed_length = should_keep_non_decreasing_completed_length(
         &status.status,
         next_total_length,
@@ -162,6 +165,7 @@ fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus
         return false;
     };
 
+    // followedBy 是 metadata 临时任务生成的后继 GID，后续状态查询必须切换到它，不能继续轮询已经完成的旧 GID。
     task.gid = Some(next_gid.to_string());
     task.status = DownloadTaskStatus::Pending;
     task.total_length = 0;

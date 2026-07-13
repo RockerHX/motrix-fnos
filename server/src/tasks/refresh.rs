@@ -23,12 +23,15 @@ pub async fn refresh_tasks_from_aria2(
         return Ok(snapshot);
     }
 
+    // 远端 RPC 可能阻塞，必须基于快照完成查询，不能在 await 期间持有任务写锁。
+    // 查询结果先收集为更新指令，最后一次性回写，避免半批任务已更新、半批仍是旧状态。
     let client = reqwest::Client::new();
     let mut updates = Vec::new();
     for candidate in candidates {
         let Some(gid) = candidate.gid.clone() else {
             continue;
         };
+        // session 恢复后旧 GID 可能已经失效：普通任务可按原配置重建，等待 metadata 的磁链任务则必须保留确认流程并报告错误。
         match tell_status(&client, config, &gid, debug_logs).await {
             Ok(status) if is_stale_aria2_gid_status(&status) => {
                 if is_pending_magnet_metadata_task(&candidate) {
@@ -93,6 +96,7 @@ pub async fn refresh_tasks_from_aria2(
         }
     }
 
+    // 回写时再次核对 task id 与旧 GID，防止 RPC 往返期间并发操作产生的新 GID 被旧查询结果覆盖。
     let mut guard = tasks.with_tasks_mut(|tasks| {
         for update in &updates {
             match update {
@@ -165,6 +169,7 @@ pub async fn sync_task_progress_after_pause_by_gid(
     let mut previous_completed = None;
     let mut latest_status = None;
 
+    // Aria2 接受 pause 后仍可能短暂写入缓存；需要状态已暂停且连续两次进度不变，才能把最终进度持久化。
     for attempt in 0..MAX_ATTEMPTS {
         let status = tell_status(&client, config, gid, debug_logs).await?;
         let completed = parse_aria2_u64(&status.completed_length);

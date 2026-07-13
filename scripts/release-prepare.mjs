@@ -27,6 +27,7 @@ try {
   }
 
   const existingChangelog = readExistingChangelog(options.version);
+  // 自动发版会改版本文件并创建 commit/tag，只允许接管目标版本已有的 CHANGELOG，避免把用户的其他工作区改动混入发布提交。
   const statusBefore = gitStatus();
   if (statusBefore.length > 0) {
     const unexpectedDirtyEntries = initialUnexpectedDirtyEntries(statusBefore, existingChangelog);
@@ -65,10 +66,12 @@ try {
     console.warn('已跳过本地 verify。');
   }
 
+  // verify 可能生成或改写文件；提交前再次使用发布白名单核对，确保自动提交边界没有被构建副作用扩大。
   const statusAfterVerify = gitStatus();
   assertOnlyExpectedReleaseChanges(statusAfterVerify);
 
   if (!options.noCommit) {
+    // 只暂存固定的版本与 CHANGELOG 文件，不使用 git add -A，防止并发产生的无关文件进入发布 commit。
     stageExpectedReleaseFiles();
     run('git', ['commit', '-m', `chore: 发布 ${options.version} 版本`, '-m', changelogBody.trim()]);
   } else {
