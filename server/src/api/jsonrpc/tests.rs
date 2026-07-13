@@ -228,8 +228,6 @@ async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
             "maxConcurrentDownloads": 5,
             "downloadLimit": 0,
             "uploadLimit": 0,
-            "autoStartEnabled": false,
-            "notificationsEnabled": false,
             "language": "zh-CN",
             "jsonRpcToken": token
         }),

@@ -19,10 +19,6 @@ pub struct AppConfig {
     pub max_concurrent_downloads: u32,
     pub download_limit: u64,
     pub upload_limit: u64,
-    #[serde(default)]
-    pub auto_start_enabled: bool,
-    #[serde(default)]
-    pub notifications_enabled: bool,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -87,8 +83,6 @@ pub fn normalize_app_config(
         max_concurrent_downloads: config.max_concurrent_downloads.clamp(1, 64),
         download_limit: config.download_limit,
         upload_limit: config.upload_limit,
-        auto_start_enabled: config.auto_start_enabled,
-        notifications_enabled: config.notifications_enabled,
         language: normalize_language(&config.language),
         json_rpc_token: config.json_rpc_token.trim().to_string(),
     })
@@ -100,8 +94,6 @@ fn default_app_config(default_download_dir: &str) -> Result<AppConfig, String> {
         max_concurrent_downloads: 5,
         download_limit: 0,
         upload_limit: 0,
-        auto_start_enabled: false,
-        notifications_enabled: false,
         language: default_language(),
         json_rpc_token: String::new(),
     })
@@ -151,8 +143,6 @@ mod tests {
                         max_concurrent_downloads: 0,
                         download_limit: 1024,
                         upload_limit: 2048,
-                        auto_start_enabled: true,
-                        notifications_enabled: true,
                         language: "en-US".to_string(),
                         json_rpc_token: "  test-token  ".to_string(),
                     },
@@ -176,8 +166,6 @@ mod tests {
                 assert_eq!(loaded.max_concurrent_downloads, 1);
                 assert_eq!(loaded.download_limit, 1024);
                 assert_eq!(loaded.upload_limit, 2048);
-                assert!(loaded.auto_start_enabled);
-                assert!(loaded.notifications_enabled);
                 assert_eq!(loaded.language, "en-US");
                 assert_eq!(loaded.json_rpc_token, "test-token");
 
@@ -209,8 +197,6 @@ mod tests {
                         max_concurrent_downloads: 5,
                         download_limit: 0,
                         upload_limit: 0,
-                        auto_start_enabled: false,
-                        notifications_enabled: false,
                         language: "zh-CN".to_string(),
                         json_rpc_token: String::new(),
                     },
@@ -247,7 +233,7 @@ mod tests {
                 sqlx::query(
                     r#"
                     INSERT INTO app_config (key, value, updated_at)
-                    VALUES ('download', '{"defaultDownloadDir":"/tmp/downloads","maxConcurrentDownloads":128,"downloadLimit":0,"uploadLimit":0}', 1)
+                    VALUES ('download', '{"defaultDownloadDir":"/tmp/downloads","maxConcurrentDownloads":128,"downloadLimit":0,"uploadLimit":0,"autoStartEnabled":true,"notificationsEnabled":true}', 1)
                     "#,
                 )
                 .execute(&database.pool)
@@ -260,10 +246,11 @@ mod tests {
 
                 assert_eq!(loaded.default_download_dir, "/tmp/downloads");
                 assert_eq!(loaded.max_concurrent_downloads, 64);
-                assert!(!loaded.auto_start_enabled);
-                assert!(!loaded.notifications_enabled);
                 assert_eq!(loaded.language, "zh-CN");
                 assert_eq!(loaded.json_rpc_token, "");
+                let serialized = serde_json::to_value(&loaded).expect("config should serialize");
+                assert!(serialized.get("autoStartEnabled").is_none());
+                assert!(serialized.get("notificationsEnabled").is_none());
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
@@ -278,8 +265,6 @@ mod tests {
                 max_concurrent_downloads: 5,
                 download_limit: 0,
                 upload_limit: 0,
-                auto_start_enabled: false,
-                notifications_enabled: false,
                 language: "fr-FR".to_string(),
                 json_rpc_token: String::new(),
             },

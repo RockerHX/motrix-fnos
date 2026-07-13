@@ -293,8 +293,6 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
   "maxConcurrentDownloads": 5,
   "downloadLimit": 0,
   "uploadLimit": 0,
-  "autoStartEnabled": false,
-  "notificationsEnabled": false,
   "language": "zh-CN",
   "jsonRpcToken": ""
 }

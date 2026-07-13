@@ -251,8 +251,6 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
                     max_concurrent_downloads: 0,
                     download_limit: 1024,
                     upload_limit: 2048,
-                    auto_start_enabled: true,
-                    notifications_enabled: true,
                     language: "en-US".to_string(),
                     json_rpc_token: "test-token".to_string(),
                 },
@@ -266,8 +264,6 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
     assert_eq!(updated_settings.max_concurrent_downloads, 1);
     assert_eq!(updated_settings.download_limit, 1024);
     assert_eq!(updated_settings.upload_limit, 2048);
-    assert!(updated_settings.auto_start_enabled);
-    assert!(updated_settings.notifications_enabled);
     assert_eq!(updated_settings.language, "en-US");
     assert_eq!(updated_settings.json_rpc_token, "test-token");
 
@@ -311,8 +307,6 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
                 max_concurrent_downloads: 5,
                 download_limit: 0,
                 upload_limit: 0,
-                auto_start_enabled: false,
-                notifications_enabled: false,
                 language: "zh-CN".to_string(),
                 json_rpc_token: String::new(),
             },
@@ -517,10 +511,11 @@ async fn response_json<T: DeserializeOwned>(
     response: axum::response::Response,
     expected_status: StatusCode,
 ) -> T {
-    assert_eq!(response.status(), expected_status);
+    let status = response.status();
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("body should read");
+    assert_eq!(status, expected_status, "response body: {}", String::from_utf8_lossy(&body));
     serde_json::from_slice(&body).expect("response json should deserialize")
 }
 
