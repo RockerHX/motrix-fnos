@@ -5,6 +5,7 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 
 prepare_runtime_dirs
+rm -f "${GATEWAY_SOCKET}"
 write_accessible_paths_file
 export_runtime_env
 clear_stale_pid
@@ -17,15 +18,15 @@ if [ -n "${existing_pid}" ] && is_running_pid "${existing_pid}"; then
   exit 0
 fi
 
-log_msg "准备启动 motrix-fnos-server，监听 ${HTTP_ADDR}，数据目录 ${APP_DATA_DIR}"
+log_msg "准备启动 motrix-fnos-server，网关 Socket ${GATEWAY_SOCKET}，JSON-RPC ${HTTP_ADDR}，数据目录 ${APP_DATA_DIR}"
 nohup "${SERVER_BIN}" >>"${SERVER_LOG}" 2>&1 &
 pid=$!
 printf '%s\n' "${pid}" > "${PID_FILE}"
 
 sleep 2
 if is_running_pid "${pid}"; then
-  log_msg "motrix-fnos-server 启动成功，PID ${pid}，监听 ${HTTP_ADDR}"
-echo "motrix-fnos-server 启动成功，PID ${pid}，监听 ${HTTP_ADDR}"
+  log_msg "motrix-fnos-server 启动成功，PID ${pid}，网关 Socket ${GATEWAY_SOCKET}，JSON-RPC ${HTTP_ADDR}"
+  echo "motrix-fnos-server 启动成功，PID ${pid}"
   exit 0
 fi
 

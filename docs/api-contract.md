@@ -10,12 +10,15 @@
 | `MOTRIX_FNOS_HTTP_ADDR` | HTTP 监听地址 | `127.0.0.1:17080` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
+| `MOTRIX_FNOS_GATEWAY_SOCKET` | fnOS 统一网关 Unix Socket | 未设置；FPK 设置为应用 target 目录下的 `motrix-fnos.sock` |
 
 FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录，并写入 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`。后端以该文件为主，文件不存在时才回退读取当前进程环境变量。
 
 ## 2. 前端消费约定
 
-- Web UI 通过相对路径访问后端：`/api/*` 和 `/api/events`。
+- FPK Web UI 通过统一网关前缀访问后端：`/app/motrix/api/*` 和 `/app/motrix/api/events`。
+- fnOS 统一网关先校验 NAS 登录态，Rust server 再要求 `X-Trim-Userid` 有效且 `X-Trim-Isadmin=true`。
+- 独立 TCP 端口只提供 `/jsonrpc`；访问 `/api/*` 返回 `404`。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用浏览器原生 `EventSource`。
@@ -45,7 +48,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ## 4. HTTP API
 
-所有 HTTP 路由均以 `/api` 为前缀，当前不设置显式版本号。
+下表使用应用内部 `/api` 路径。FPK 实际公开路径需加统一网关前缀 `/app/motrix`；开发态保持原路径。
 
 ### 4.1 应用信息
 

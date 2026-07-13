@@ -12,9 +12,9 @@ mod tasks;
 use crate::app::HttpAppState;
 use axum::body::Body;
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
-use axum::http::{HeaderValue, Request};
+use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -36,6 +36,53 @@ pub fn router(state: Arc<HttpAppState>) -> Router {
         .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
+}
+
+pub fn gateway_router(state: Arc<HttpAppState>) -> Router {
+    Router::new()
+        .nest("/app/motrix", router(state))
+        .layer(middleware::from_fn(require_gateway_admin))
+}
+
+pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
+    jsonrpc::routes().with_state(state)
+}
+
+async fn require_gateway_admin(request: Request<Body>, next: Next) -> Response {
+    let headers = request.headers();
+    let user_id = headers
+        .get("x-trim-userid")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if user_id.is_none() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "code": "gateway_auth_required",
+                "message": "请通过飞牛 fnOS 登录后访问 Motrix",
+            })),
+        )
+            .into_response();
+    }
+
+    let is_admin = headers
+        .get("x-trim-isadmin")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !is_admin {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({
+                "code": "admin_required",
+                "message": "Motrix 仅允许管理员访问",
+            })),
+        )
+            .into_response();
+    }
+
+    next.run(request).await
 }
 
 async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {

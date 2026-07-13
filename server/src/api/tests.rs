@@ -14,6 +14,62 @@ use std::collections::BTreeMap;
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn gateway_requires_authenticated_admin_and_tcp_router_exposes_only_jsonrpc() {
+    let state = test_state(None).await;
+    let gateway = gateway_router(state.clone());
+
+    let unauthorized = gateway
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/app/motrix/api/app/ping")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let forbidden = gateway
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/app/motrix/api/app/ping")
+                .header("x-trim-userid", "1000")
+                .header("x-trim-isadmin", "false")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let allowed = gateway
+        .oneshot(
+            Request::builder()
+                .uri("/app/motrix/api/app/ping")
+                .header("x-trim-userid", "1000")
+                .header("x-trim-isadmin", "true")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(allowed.status(), StatusCode::OK);
+
+    let public_api = jsonrpc_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(public_api.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn app_routes_return_expected_payloads() {
     let state = test_state(None).await;
     let app = router(state);
@@ -448,6 +504,7 @@ async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        gateway_socket_path: None,
         aria2_path: aria2_path.map(PathBuf::from),
     };
 

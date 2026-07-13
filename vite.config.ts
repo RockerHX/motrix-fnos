@@ -5,6 +5,7 @@ const serverTarget = "http://127.0.0.1:17080";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "./",
   plugins: [vue()],
   clearScreen: false,
   build: {

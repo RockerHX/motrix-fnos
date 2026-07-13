@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：HTTP API + SSE。
+- 前后端通信：fnOS 统一网关承载 HTTP API + SSE；独立 TCP 端口只承载带 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -61,7 +61,8 @@ packaging/fnos/
 - `cmd/stop` 触发 server 统一退出流程。
 - `cmd/status` 只判断服务进程状态。
 - `app/data/` 保存 SQLite、Aria2 session、日志、PID 等运行态文件；打包前不得携带本地残留。
-- Web UI 由 Rust server 托管，通过相对路径访问 `/api/*` 和 `/api/events`。
+- FPK Web UI 与 `/api/*`、`/api/events` 只通过 `/app/motrix` 统一网关访问，由 fnOS 校验登录态，后端再校验管理员身份。
+- `MOTRIX_FNOS_HTTP_ADDR` 对应的独立 TCP 端口只提供 `/jsonrpc`，不得暴露 Web UI 或 `/api/*`。
 
 ### 3.2 架构与产物匹配
 
@@ -185,6 +186,7 @@ Rust Runtime Event
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
+- FPK 的管理 UI、HTTP API 与 SSE 必须通过 fnOS 统一网关访问，并只接受网关转发的已登录管理员身份。
 - 日志必须隐藏私密 URL query 和敏感配置。
 
 ## 9. fnOS 平台查证规则

@@ -1,6 +1,6 @@
 # JSON-RPC 远程访问说明
 
-本文档说明如何通过 `/jsonrpc` 兼容入口从外部工具添加下载任务。接口字段和错误码以 [`docs/api-contract.md`](api-contract.md#6-json-rpc-兼容入口) 为准；Web UI 主通信仍使用 `/api/*` 与 `/api/events`。
+本文档说明如何通过独立 TCP 端口的 `/jsonrpc` 兼容入口从外部工具添加下载任务。接口字段和错误码以 [`docs/api-contract.md`](api-contract.md#6-json-rpc-兼容入口) 为准；Web UI、`/api/*` 与 SSE 只通过 fnOS 统一网关访问。
 
 ## 适用场景
 
@@ -55,3 +55,4 @@ curl -X POST 'http://<host>:<port>/jsonrpc' \
 - 不要把 `jsonRpcToken` 写入公开网页、前端仓库或日志。
 - 对公网暴露服务端口前，应先确认 fnOS 网络、防火墙和反向代理访问控制。
 - JSON-RPC 入口只用于兼容外部添加任务，不应绕过 Web UI 或后端授权目录校验。
+- 独立端口不提供 Web UI、`/api/*` 或调试日志接口。

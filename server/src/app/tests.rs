@@ -14,10 +14,12 @@ fn runtime_config_uses_explicit_env_values() {
     let _guard = env_lock().lock().expect("env lock should succeed");
     let temp_dir = std::env::temp_dir().join(format!("motrix-fnos-app-config-{}", now_ms()));
     let aria2_path = temp_dir.join("aria2-next");
+    let gateway_socket_path = temp_dir.join("motrix-fnos.sock");
 
     std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
     std::env::set_var(HTTP_ADDR_ENV, "127.0.0.1:18080");
     std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
+    std::env::set_var(GATEWAY_SOCKET_ENV, &gateway_socket_path);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
 
     let config = ServerRuntimeConfig::from_env().expect("config should load");
@@ -33,10 +35,15 @@ fn runtime_config_uses_explicit_env_values() {
     );
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
     assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
+    assert_eq!(
+        config.gateway_socket_path.as_deref(),
+        Some(gateway_socket_path.as_path())
+    );
 
     std::env::remove_var(APP_DATA_DIR_ENV);
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(ARIA2_PATH_ENV);
+    std::env::remove_var(GATEWAY_SOCKET_ENV);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
 }
 
@@ -52,6 +59,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
                 app_data_dir: app_data_dir.clone(),
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+                gateway_socket_path: None,
                 aria2_path: None,
             };
 
@@ -90,6 +98,7 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
         accessible_paths_path: temp_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
         app_data_dir: temp_dir,
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        gateway_socket_path: None,
         aria2_path: None,
     };
     let database = tokio::runtime::Runtime::new()
