@@ -30,7 +30,7 @@ impl<'a> TaskService<'a> {
         }
         remove_magnet_metadata_dir(self.app_data_dir, &task_before_delete);
         let task = mark_task_removed(self.download_tasks, task_id, delete_files)?;
-        self.sync_task_to_database(&task).await?;
+        query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",
             format!(

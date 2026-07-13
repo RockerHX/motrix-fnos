@@ -118,7 +118,7 @@ impl<'a> TaskService<'a> {
                 ),
             ),
         }
-        self.sync_task_to_database(&task).await?;
+        query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",
             format!("任务文件已确认并开始下载，ID {}，GID {}", task_id, gid),

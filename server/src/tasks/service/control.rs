@@ -26,7 +26,7 @@ impl<'a> TaskService<'a> {
             );
         }
         let task = mark_task_paused(self.download_tasks, task_id)?;
-        self.sync_task_to_database(&task).await?;
+        query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",
             format!("任务已暂停，ID {}，GID {}", task_id, gid),
@@ -75,7 +75,7 @@ impl<'a> TaskService<'a> {
             }
             Err(error) => return Err(error),
         };
-        self.sync_task_to_database(&task).await?;
+        query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",
             format!(
@@ -118,7 +118,7 @@ impl<'a> TaskService<'a> {
         };
         let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
         let task = mark_task_redownloaded(self.download_tasks, task_id, gid.clone())?;
-        self.sync_task_to_database(&task).await?;
+        query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",
             format!(

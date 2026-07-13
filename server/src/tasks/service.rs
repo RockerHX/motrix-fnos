@@ -91,10 +91,6 @@ impl<'a> TaskService<'a> {
     pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {
         query::list_removed_download_tasks(self)
     }
-
-    async fn sync_task_to_database(&self, task: &DownloadTask) -> Result<(), String> {
-        query::sync_task_to_database(self, task).await
-    }
 }
 
 #[cfg(test)]
