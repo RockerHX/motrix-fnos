@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, toRef, watch } from "vue";
 import { useMessage } from "naive-ui";
 import { useMobileLayout } from "../app/composables/useMobileLayout";
 import AppIcon from "../components/AppIcon.vue";
@@ -20,6 +20,8 @@ import { useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
 import MainWindowDialogs from "./MainWindowDialogs.vue";
+import { useMainWindowDialogs } from "./composables/useMainWindowDialogs";
+import { useMainWindowLifecycle } from "./composables/useMainWindowLifecycle";
 import { useI18n } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
@@ -34,11 +36,6 @@ const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
-const showCreateDialog = ref(false);
-const showAbout = ref(false);
-const showDiagnostics = ref(false);
-const showHelp = ref(false);
-const showSettings = ref(false);
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
@@ -72,6 +69,7 @@ const toolbar = useTaskToolbar({
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
 });
+const dialogs = useMainWindowDialogs({ taskStore, toolbar, message, t });
 const bulkActions = useTaskBulkActions({ taskStore, toolbar, message, t });
 isToolbarBulkOperating.value = bulkActions.isBulkOperating.value;
 watch(bulkActions.isBulkOperating, (value) => (isToolbarBulkOperating.value = value));
@@ -84,26 +82,14 @@ const topbar = useTaskTopbarActions({
   refreshAria2Status,
   t,
 });
-
-function openCreateDialog() {
-  if (taskStore.isRuntimeExiting) {
-    message.warning(t("task.runtimeExiting"));
-    return;
-  }
-
-  showCreateDialog.value = true;
-}
-
-function handleToolbarCreate() {
-  if (!toolbar.canCreate.value) {
-    if (taskStore.isRuntimeExiting) {
-      message.warning(t("task.runtimeExiting"));
-    }
-    return;
-  }
-
-  openCreateDialog();
-}
+useMainWindowLifecycle({
+  errorMessage: toRef(props, "errorMessage"),
+  isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
+  showCreateDialog: dialogs.showCreateDialog,
+  message,
+  refreshTasks,
+  refreshAria2Status,
+});
 
 function selectCategory(category: MainNavCategory) {
   const previousCategory = activeCategory.value;
@@ -123,28 +109,6 @@ async function handleTaskCreated() {
   void refreshAria2Status();
 }
 
-watch(
-  () => props.errorMessage,
-  (nextMessage) => {
-    if (nextMessage) {
-      message.error(nextMessage);
-    }
-  },
-);
-
-watch(
-  () => taskStore.isRuntimeExiting,
-  (isRuntimeExiting) => {
-    if (isRuntimeExiting) {
-      showCreateDialog.value = false;
-    }
-  },
-);
-
-onMounted(() => {
-  void refreshAria2Status();
-  void refreshTasks(true);
-});
 </script>
 
 <template>
@@ -152,16 +116,16 @@ onMounted(() => {
     :app-info="appInfo"
     :active-category="activeCategory"
     :topbar-actions="topbar.topbarActions.value"
-    @create="handleToolbarCreate"
+    @create="dialogs.handleToolbarCreate"
     @refresh="topbar.refresh"
     @pause-visible="bulkActions.pauseVisibleTasks"
     @resume-visible="bulkActions.resumeVisibleTasks"
     @delete-visible="bulkActions.requestDeleteVisibleTasks"
     @clear-trash="bulkActions.requestClearTrash"
-    @open-about="showAbout = true"
-    @open-diagnostics="showDiagnostics = true"
-    @open-help="showHelp = true"
-    @open-settings="showSettings = true"
+    @open-about="dialogs.showAbout.value = true"
+    @open-diagnostics="dialogs.showDiagnostics.value = true"
+    @open-help="dialogs.showHelp.value = true"
+    @open-settings="dialogs.showSettings.value = true"
     @select-category="selectCategory"
   >
     <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
@@ -174,8 +138,8 @@ onMounted(() => {
         :show-create-action="emptyState.showCreateAction"
         :disable-create-action="taskStore.isRuntimeExiting"
         :show-settings-action="emptyState.showSettingsAction"
-        @create="openCreateDialog"
-        @open-settings="showSettings = true"
+        @create="dialogs.openCreateDialog"
+        @open-settings="dialogs.showSettings.value = true"
       />
       <TaskTable
         v-else
@@ -197,7 +161,7 @@ onMounted(() => {
         class="floating-add"
         :title="t('empty.create')"
         :aria-label="t('empty.create')"
-        @click="openCreateDialog"
+        @click="dialogs.openCreateDialog"
       >
         <AppIcon name="plus" :size="28" />
       </button>
@@ -214,20 +178,20 @@ onMounted(() => {
       <MainWindowDialogs
         :app-info="props.appInfo"
         :backend-ping="backendPing"
-        :show-create-dialog="showCreateDialog"
-        :show-about="showAbout"
-        :show-settings="showSettings"
-        :show-help="showHelp"
-        :show-diagnostics="showDiagnostics"
+        :show-create-dialog="dialogs.showCreateDialog.value"
+        :show-about="dialogs.showAbout.value"
+        :show-settings="dialogs.showSettings.value"
+        :show-help="dialogs.showHelp.value"
+        :show-diagnostics="dialogs.showDiagnostics.value"
         :update-check="updateCheck"
         :is-checking-update="isCheckingUpdate"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
-        @update:show-create-dialog="showCreateDialog = $event"
-        @update:show-about="showAbout = $event"
-        @update:show-settings="showSettings = $event"
-        @update:show-help="showHelp = $event"
-        @update:show-diagnostics="showDiagnostics = $event"
+        @update:show-create-dialog="dialogs.showCreateDialog.value = $event"
+        @update:show-about="dialogs.showAbout.value = $event"
+        @update:show-settings="dialogs.showSettings.value = $event"
+        @update:show-help="dialogs.showHelp.value = $event"
+        @update:show-diagnostics="dialogs.showDiagnostics.value = $event"
         @task-created="handleTaskCreated"
         @check-update="runUpdateCheck"
         @refresh-status="refreshAria2Status"
