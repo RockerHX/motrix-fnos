@@ -8,7 +8,3 @@ export interface AppConfig {
   language: AppLanguage;
   jsonRpcToken: string;
 }
-
-export interface UiPreferences {
-  taskTableColumnWidths: Record<string, number>;
-}
