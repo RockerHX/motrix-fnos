@@ -1,3 +1,5 @@
+use super::refresh::{is_stale_aria2_gid_status, pause_status_is_settled};
+use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
 use crate::tasks::aria2_rpc::{
     build_add_torrent_request, build_add_uri_request, build_gid_control_request,

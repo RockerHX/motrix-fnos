@@ -42,8 +42,6 @@ pub use refresh::{
     is_stale_aria2_gid_error, refresh_tasks_from_aria2, should_readd_task_after_resume_error,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid,
 };
-#[cfg(test)]
-use refresh::{is_stale_aria2_gid_status, pause_status_is_settled};
 use session::readd_download_task;
 pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
@@ -54,8 +52,6 @@ pub use state::{
     TaskMemoryState,
 };
 use status::Aria2TaskStatus;
-#[cfg(test)]
-use status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
