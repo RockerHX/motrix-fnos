@@ -3,11 +3,11 @@ import { storeToRefs } from "pinia";
 import { NButton, NCard, NEmpty, NInput, NModal, NSelect, NSwitch, NTag, useMessage } from "naive-ui";
 import { computed, nextTick, ref, watch } from "vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
-import type { AppMetricItem } from "../../../components/ui/AppMetricGrid.vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
 import { useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import type { DebugLogCategory, DebugLogEntry, DebugLogLevel } from "../types";
+import { useDebugLogFilters } from "../composables/useDebugLogFilters";
 
 const props = defineProps<{
   show: boolean;
@@ -16,11 +16,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
 }>();
-
-type SelectOption = {
-  label: string;
-  value: string;
-};
 
 type ManualCopyInputRef = {
   focus?: () => void;
@@ -39,69 +34,20 @@ const logListRef = ref<HTMLElement | null>(null);
 const manualCopyRef = ref<ManualCopyInputRef | null>(null);
 const showManualCopy = ref(false);
 const manualCopyText = ref("");
-const levelFilter = ref<DebugLogLevel | null>(null);
-const categoryFilter = ref<DebugLogCategory | null>(null);
-const moduleFilter = ref<string | null>(null);
-const searchText = ref("");
-const onlyProblems = ref(false);
-
-const categoryOptions = computed<SelectOption[]>(() => [
-  { label: t("logs.category.app"), value: "app" },
-  { label: t("logs.category.task"), value: "task" },
-  { label: t("logs.category.aria2"), value: "aria2" },
-  { label: t("logs.category.settings"), value: "settings" },
-  { label: t("logs.category.storage"), value: "storage" },
-  { label: t("logs.category.api"), value: "api" },
-  { label: t("logs.category.runtime"), value: "runtime" },
-]);
-
-const levelOptions = computed<SelectOption[]>(() => [
-  { label: "INFO", value: "info" },
-  { label: "WARN", value: "warn" },
-  { label: "ERROR", value: "error" },
-]);
-
-const moduleOptions = computed<SelectOption[]>(() =>
-  [...new Set(logs.value.map((log) => log.module).filter(Boolean))]
-    .sort((a, b) => a.localeCompare(b))
-    .map((module) => ({ label: module, value: module })),
-);
-
-const filteredLogs = computed(() => {
-  const keyword = searchText.value.trim().toLowerCase();
-  return logs.value.filter((log) => {
-    if (onlyProblems.value && log.level === "info") return false;
-    if (levelFilter.value && log.level !== levelFilter.value) return false;
-    if (categoryFilter.value && log.category !== categoryFilter.value) return false;
-    if (moduleFilter.value && log.module !== moduleFilter.value) return false;
-    if (!keyword) return true;
-    return [log.module, log.category, log.message].some((value) => value.toLowerCase().includes(keyword));
-  });
-});
-
-const logStats = computed(() => {
-  const errors = logs.value.filter((log) => log.level === "error").length;
-  const warnings = logs.value.filter((log) => log.level === "warn").length;
-  const moduleCounts = new Map<string, number>();
-  for (const log of logs.value) {
-    moduleCounts.set(log.module, (moduleCounts.get(log.module) ?? 0) + repeatCount(log));
-  }
-  const topModule = [...moduleCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "-";
-  return {
-    total: logs.value.length,
-    filtered: filteredLogs.value.length,
-    errors,
-    warnings,
-    topModule,
-  };
-});
-const logSummaryItems = computed<AppMetricItem[]>(() => [
-  { label: t("logs.stats.total"), value: logStats.value.total },
-  { label: t("logs.stats.filtered"), value: logStats.value.filtered },
-  { label: t("logs.stats.warnings"), value: logStats.value.warnings, tone: logStats.value.warnings > 0 ? "warning" : "default" },
-  { label: t("logs.stats.errors"), value: logStats.value.errors, tone: logStats.value.errors > 0 ? "error" : "default" },
-  { label: t("logs.stats.topModule"), value: logStats.value.topModule },
-]);
+const {
+  levelFilter,
+  categoryFilter,
+  moduleFilter,
+  searchText,
+  onlyProblems,
+  categoryOptions,
+  levelOptions,
+  moduleOptions,
+  filteredLogs,
+  logStats,
+  logSummaryItems,
+  clearFilters,
+} = useDebugLogFilters(logs);
 
 watch(
   propsShow,
@@ -146,14 +92,6 @@ async function clearLogs() {
   } catch (error) {
     message.error(getErrorMessage(error, t("common.unknown")));
   }
-}
-
-function clearFilters() {
-  levelFilter.value = null;
-  categoryFilter.value = null;
-  moduleFilter.value = null;
-  searchText.value = "";
-  onlyProblems.value = false;
 }
 
 async function copyAllLogs() {
