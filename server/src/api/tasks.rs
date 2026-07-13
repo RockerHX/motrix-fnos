@@ -48,6 +48,7 @@ async fn list_tasks(
         return Ok(Json(tasks));
     }
 
+    // 退出期间只读取最后已知配置，不能为了列表查询重新启动已经进入清理流程的 Aria2。
     let config = if state.core.shutdown.is_exiting() {
         state.aria2_config()
     } else {
@@ -102,6 +103,7 @@ async fn create_batch_tasks(
         });
     }
 
+    // 每个 URL 都是独立任务：单条失败只进入 failed，已经创建并持久化的任务不回滚。
     for url in urls {
         let request = CreateDownloadTaskRequest {
             url: url.clone(),
@@ -130,6 +132,7 @@ async fn create_batch_tasks(
         context.broadcast_snapshot()?;
     }
 
+    // 至少创建一条即返回成功并由响应体携带失败项；全部失败才把整个请求标记为参数错误。
     let status = if created.is_empty() {
         StatusCode::BAD_REQUEST
     } else {
@@ -319,6 +322,7 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }
+    // 当前 service 使用中文错误文本区分可修正请求；新增或调整领域错误时必须同步检查这里的 HTTP 分类。
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")
         || error.contains("请先确认")

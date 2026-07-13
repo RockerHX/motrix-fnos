@@ -45,6 +45,7 @@ pub async fn sync_session_tasks_from_aria2(
                 matched_count += 1;
             } else {
                 unmatched_count += 1;
+                // SQLite 才是 UI 任务清单的来源，不能把 Aria2 中未知的 session 项目自动提升为应用任务。
                 log_info(
                     debug_logs,
                     "tasks.restore",
@@ -118,6 +119,7 @@ pub(crate) fn find_matching_sqlite_task(
     tasks: &[DownloadTask],
     session_task: &Aria2TaskStatus,
 ) -> Option<usize> {
+    // GID 是首选身份；只有 session 恢复导致 GID 变化时，才允许继续用 URL 与本地位置联合匹配。
     if let Some(gid) = session_task
         .gid
         .as_deref()
@@ -135,6 +137,7 @@ pub(crate) fn find_matching_sqlite_task(
         return None;
     }
 
+    // URL 本身可能重复，必须再核对保存目录或文件路径，避免把 session 状态写入另一条同源任务。
     tasks.iter().position(|task| {
         task.status != DownloadTaskStatus::Removed
             && urls.iter().any(|url| url == &task.url)
