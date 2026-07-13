@@ -1,26 +1,12 @@
-use super::{
+use super::transport::{rpc_params, AddUriResponse};
+use crate::config::aria2::Aria2Config;
+use crate::debug_logs::DebugLogStore;
+use crate::tasks::{
     log_error, log_info, redact_url_for_log, DownloadTaskSourceType, DownloadTaskStartMode,
     PreparedDownloadTask,
 };
-use crate::config::aria2::Aria2Config;
-use crate::debug_logs::DebugLogStore;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-
-#[path = "aria2_rpc/control.rs"]
-mod control;
-#[path = "aria2_rpc/query.rs"]
-mod query;
-#[path = "aria2_rpc/transport.rs"]
-mod transport;
-
-pub(crate) use control::{
-    build_change_option_request, build_gid_control_request, send_gid_control_request,
-};
-pub use control::{change_task_options, pause_task, remove_task, unpause_task};
-pub(crate) use query::{build_tell_many_request, build_tell_status_request, tell_status};
-pub(crate) use transport::TellManyResponse;
-use transport::{rpc_params, AddUriResponse};
 
 const DEFAULT_BT_TRACKERS: &[&str] = &[
     "udp://tracker.opentrackr.org:1337/announce",
@@ -45,7 +31,7 @@ pub async fn add_uri_to_aria2(
             task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)
         ),
     );
-    let request_body = build_add_uri_request(config, task);
+    let request_body = super::build_add_uri_request(config, task);
     let response = match reqwest::Client::new()
         .post(config.rpc_url())
         .json(&request_body)
@@ -101,7 +87,7 @@ pub async fn add_torrent_to_aria2(
             task.file_name, task.save_dir
         ),
     );
-    let request_body = build_add_torrent_request(config, task, torrent_data);
+    let request_body = super::build_add_torrent_request(config, task, torrent_data);
     let response = match reqwest::Client::new()
         .post(config.rpc_url())
         .json(&request_body)
