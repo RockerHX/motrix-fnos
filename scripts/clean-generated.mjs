@@ -10,6 +10,8 @@ const generatedTargets = [
   'dist',
   'packaging/fnos/app/bin/aria2-next',
   'packaging/fnos/app/bin/motrix-fnos-server',
+  'packaging/fnos/app/ui/images/icon_64.png',
+  'packaging/fnos/app/ui/images/icon_256.png',
   'packaging/fnos/app/ui/dist',
   'packaging/fnos/.stage',
   'packaging/fnos/dist',
