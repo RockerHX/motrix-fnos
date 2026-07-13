@@ -20,7 +20,7 @@
 - 磁力链接支持 metadata 解析后确认真实文件，再开始下载。
 - FPK 仍按设备 CPU 架构区分 x86 与 ARM 两个产物。
 
-详细阶段状态、已完成里程碑和验收口径见 [`docs/development-plan.md`](docs/development-plan.md)。
+当前阶段和验收口径见 [`docs/development-plan.md`](docs/development-plan.md)。
 
 ## FPK 构建
 
