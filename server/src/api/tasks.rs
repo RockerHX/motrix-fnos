@@ -6,17 +6,19 @@ use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTask,
+    DownloadTaskSourceType,
 };
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-const MAX_TORRENT_FILE_SIZE: usize = 10 * 1024 * 1024;
+#[path = "tasks/request.rs"]
+mod request;
+
+use request::*;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
@@ -29,78 +31,6 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks/:id/redownload", post(redownload_task))
         .route("/tasks/:id/permanent", delete(permanently_delete_task))
         .route("/tasks/:id", delete(delete_task))
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct DeleteTaskQuery {
-    delete_files: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct ListTasksQuery {
-    status: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateBatchDownloadTasksRequest {
-    urls: Vec<String>,
-    save_dir: String,
-    #[serde(default)]
-    start_mode: DownloadTaskStartMode,
-    category: Option<String>,
-    #[serde(default)]
-    advanced_options: CreateTaskAdvancedOptions,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateBatchDownloadTasksResponse {
-    created: Vec<DownloadTask>,
-    failed: Vec<CreateBatchDownloadTaskFailure>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateBatchDownloadTaskFailure {
-    input: String,
-    message: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CreateTorrentUploadRequest {
-    save_dir: String,
-    #[serde(default)]
-    start_mode: DownloadTaskStartMode,
-    category: Option<String>,
-    #[serde(default)]
-    advanced_options: CreateTaskAdvancedOptions,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConfirmTaskFilesRequest {
-    selected_file_indexes: Vec<u32>,
-}
-
-enum ListTasksFilter {
-    Visible,
-    Removed,
-}
-
-impl ListTasksQuery {
-    fn filter(&self) -> Result<ListTasksFilter, ApiError> {
-        match self.status.as_deref().map(str::trim) {
-            None | Some("") => Ok(ListTasksFilter::Visible),
-            Some("removed") => Ok(ListTasksFilter::Removed),
-            Some(status) => Err(ApiError::bad_request(
-                "task_status_filter_invalid",
-                format!("不支持的任务状态筛选：{}", status),
-            )),
-        }
-    }
 }
 
 async fn list_tasks(
@@ -243,93 +173,6 @@ async fn create_torrent_task(
     broadcast_tasks_snapshot(&state)
         .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
     Ok(Json(task))
-}
-
-struct ParsedTorrentUpload {
-    file_name: String,
-    data: Vec<u8>,
-    request: CreateTorrentUploadRequest,
-}
-
-async fn parse_torrent_multipart(
-    mut multipart: Multipart,
-    state: &HttpAppState,
-) -> Result<ParsedTorrentUpload, ApiError> {
-    let mut file_name = None;
-    let mut data = None;
-    let mut request = None;
-
-    while let Some(field) = multipart.next_field().await.map_err(|error| {
-        bad_request_with_log(
-            state,
-            "invalid_multipart",
-            format!("上传表单无效：{}", error),
-        )
-    })? {
-        let name = field.name().unwrap_or_default().to_string();
-        match name.as_str() {
-            "torrent" => {
-                let next_file_name = field
-                    .file_name()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("download.torrent")
-                    .to_string();
-                let bytes = field.bytes().await.map_err(|error| {
-                    bad_request_with_log(
-                        state,
-                        "invalid_torrent_file",
-                        format!("读取种子文件失败：{}", error),
-                    )
-                })?;
-                if bytes.is_empty() {
-                    return Err(bad_request_with_log(
-                        state,
-                        "torrent_empty",
-                        "种子文件不能为空",
-                    ));
-                }
-                if bytes.len() > MAX_TORRENT_FILE_SIZE {
-                    return Err(bad_request_with_log(
-                        state,
-                        "torrent_too_large",
-                        "种子文件不能超过 10 MiB",
-                    ));
-                }
-                file_name = Some(next_file_name);
-                data = Some(bytes.to_vec());
-            }
-            "request" => {
-                let text = field.text().await.map_err(|error| {
-                    bad_request_with_log(
-                        state,
-                        "invalid_torrent_request",
-                        format!("读取种子请求失败：{}", error),
-                    )
-                })?;
-                request = Some(
-                    serde_json::from_str::<CreateTorrentUploadRequest>(&text).map_err(|error| {
-                        bad_request_with_log(
-                            state,
-                            "invalid_torrent_request",
-                            format!("种子请求 JSON 无效：{}", error),
-                        )
-                    })?,
-                );
-            }
-            _ => {}
-        }
-    }
-
-    Ok(ParsedTorrentUpload {
-        file_name: file_name
-            .ok_or_else(|| bad_request_with_log(state, "torrent_required", "请选择种子文件"))?,
-        data: data
-            .ok_or_else(|| bad_request_with_log(state, "torrent_required", "请选择种子文件"))?,
-        request: request.ok_or_else(|| {
-            bad_request_with_log(state, "torrent_request_required", "缺少种子任务请求参数")
-        })?,
-    })
 }
 
 async fn pause_task(
