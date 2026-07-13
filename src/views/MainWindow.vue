@@ -15,6 +15,7 @@ import { useTaskBulkActions } from "../features/tasks/composables/useTaskBulkAct
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskPagination } from "../features/tasks/composables/useTaskPagination";
 import { useTaskToasts } from "../features/tasks/composables/useTaskToasts";
+import { useTaskTopbarActions } from "../features/tasks/composables/useTaskTopbarActions";
 import { useTaskToolbar } from "../features/tasks/composables/useTaskToolbar";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import AppShell from "../layouts/AppShell.vue";
@@ -22,7 +23,6 @@ import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useI18n } from "../i18n";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
-import type { TopbarActionStates } from "../types/topbar";
 const props = defineProps<{
   appInfo: AppInfo | null;
   backendPing: BackendPing | null;
@@ -75,74 +75,15 @@ const toolbar = useTaskToolbar({
 const bulkActions = useTaskBulkActions({ taskStore, toolbar, message, t });
 isToolbarBulkOperating.value = bulkActions.isBulkOperating.value;
 watch(bulkActions.isBulkOperating, (value) => (isToolbarBulkOperating.value = value));
-const topbarActions = computed<TopbarActionStates>(() => ({
-  create: {
-    disabled: !toolbar.canCreate.value,
-    title: toolbar.canCreate.value ? t("topbar.create") : createDisabledTitle(),
-  },
-  refresh: {
-    disabled: !toolbar.canRefresh.value,
-    title: toolbar.canRefresh.value ? t("common.refresh") : refreshDisabledTitle(),
-  },
-  pauseVisible: {
-    disabled: !toolbar.canPauseVisible.value,
-    title: toolbar.canPauseVisible.value ? t("topbar.pauseVisible") : batchDisabledTitle("pause"),
-  },
-  resumeVisible: {
-    disabled: !toolbar.canResumeVisible.value,
-    title: toolbar.canResumeVisible.value ? t("topbar.resumeVisible") : batchDisabledTitle("resume"),
-  },
-  deleteVisible: {
-    disabled: !toolbar.canDeleteVisible.value,
-    title: toolbar.canDeleteVisible.value ? t("topbar.deleteVisible") : batchDisabledTitle("delete"),
-  },
-  clearTrash: {
-    disabled: !toolbar.canClearTrash.value,
-    title: toolbar.canClearTrash.value ? t("topbar.clearTrash") : clearTrashDisabledTitle(),
-  },
-}));
-
-function clearTrashDisabledTitle() {
-  return taskStore.isRuntimeExiting
-    ? t("topbar.disabled.runtimeExiting")
-    : t("topbar.disabled.trashEmpty");
-}
-
-function createDisabledTitle() {
-  if (taskStore.isRuntimeExiting) {
-    return t("topbar.disabled.runtimeExiting");
-  }
-  if (activeCategory.value === "extensions") {
-    return t("topbar.disabled.extensions");
-  }
-  return t("topbar.create");
-}
-
-function refreshDisabledTitle() {
-  if (taskStore.isRuntimeExiting) {
-    return t("topbar.disabled.runtimeExiting");
-  }
-  if (activeCategory.value === "extensions") {
-    return t("topbar.disabled.extensions");
-  }
-  return t("common.refresh");
-}
-
-function batchDisabledTitle(action: "pause" | "resume" | "delete") {
-  if (taskStore.isRuntimeExiting) {
-    return t("topbar.disabled.runtimeExiting");
-  }
-  if (activeCategory.value === "extensions") {
-    return t("topbar.disabled.extensions");
-  }
-  if (action === "pause") {
-    return t("topbar.disabled.noPauseable");
-  }
-  if (action === "resume") {
-    return t("topbar.disabled.noResumable");
-  }
-  return t("topbar.disabled.noDeletable");
-}
+const topbar = useTaskTopbarActions({
+  activeCategory,
+  taskStore,
+  toolbar,
+  refreshTasks,
+  refreshRemovedTasks,
+  refreshAria2Status,
+  t,
+});
 
 function openCreateDialog() {
   if (taskStore.isRuntimeExiting) {
@@ -162,20 +103,6 @@ function handleToolbarCreate() {
   }
 
   openCreateDialog();
-}
-
-async function handleToolbarRefresh() {
-  if (!toolbar.canRefresh.value) {
-    return;
-  }
-
-  void refreshAria2Status();
-  if (activeCategory.value === "trash") {
-    await refreshRemovedTasks(true);
-    return;
-  }
-
-  await refreshTasks(true);
 }
 
 function selectCategory(category: MainNavCategory) {
@@ -224,9 +151,9 @@ onMounted(() => {
   <AppShell
     :app-info="appInfo"
     :active-category="activeCategory"
-    :topbar-actions="topbarActions"
+    :topbar-actions="topbar.topbarActions.value"
     @create="handleToolbarCreate"
-    @refresh="handleToolbarRefresh"
+    @refresh="topbar.refresh"
     @pause-visible="bulkActions.pauseVisibleTasks"
     @resume-visible="bulkActions.resumeVisibleTasks"
     @delete-visible="bulkActions.requestDeleteVisibleTasks"
