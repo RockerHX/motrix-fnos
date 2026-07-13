@@ -15,26 +15,9 @@ impl<'a> TaskService<'a> {
         {
             return Err("请选择已授权的保存目录".to_string());
         }
-        let mut prepared = prepare_task_with_logs(payload, self.debug_logs)?;
+        let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
         let task = if prepared.source_type == DownloadTaskSourceType::Magnet {
-            let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
-            let metadata_dir = magnet_metadata_task_dir(self.app_data_dir, task_id);
-            fs::create_dir_all(&metadata_dir).map_err(|error| {
-                format!(
-                    "创建磁链 metadata 临时目录失败：{}（{}）",
-                    metadata_dir.display(),
-                    error
-                )
-            })?;
-            prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
-            let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
-                Ok(gid) => gid,
-                Err(error) => {
-                    let _ = fs::remove_dir_all(&metadata_dir);
-                    return Err(error);
-                }
-            };
-            store_created_task_with_id(self.download_tasks, task_id, prepared, gid)?
+            magnet::create_magnet_download_task(self, config, prepared).await?
         } else {
             let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
                 Ok(gid) => gid,

@@ -63,7 +63,7 @@ impl<'a> TaskService<'a> {
 }
 
 pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
-    let expected_dir = magnet_metadata_task_dir(app_data_dir, task.id);
+    let expected_dir = magnet::magnet_metadata_task_dir(app_data_dir, task.id);
     if !expected_dir.exists() {
         return;
     }
