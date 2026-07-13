@@ -9,6 +9,7 @@ import { getErrorMessage } from "../../../app/utils/errors";
 import type { DebugLogCategory, DebugLogEntry, DebugLogLevel } from "../types";
 import { useDebugLogFilters } from "../composables/useDebugLogFilters";
 import { useDebugLogExport } from "../composables/useDebugLogExport";
+import DebugLogManualCopyDialog from "./DebugLogManualCopyDialog.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -18,21 +19,12 @@ const emit = defineEmits<{
   "update:show": [show: boolean];
 }>();
 
-type ManualCopyInputRef = {
-  focus?: () => void;
-  select?: () => void;
-  textareaElRef?: HTMLTextAreaElement | null;
-  inputElRef?: HTMLInputElement | null;
-  $el?: HTMLElement;
-};
-
 const propsShow = computed(() => props.show);
 const message = useMessage();
 const { t } = useI18n();
 const debugLogStore = useDebugLogStore();
 const { logs, isLoading, isClearing } = storeToRefs(debugLogStore);
 const logListRef = ref<HTMLElement | null>(null);
-const manualCopyRef = ref<ManualCopyInputRef | null>(null);
 const showManualCopy = ref(false);
 const manualCopyText = ref("");
 const {
@@ -105,26 +97,6 @@ async function clearLogs() {
 function showManualCopyDialog(text: string) {
   manualCopyText.value = text;
   showManualCopy.value = true;
-  void nextTick(() => {
-    focusManualCopyInput();
-  });
-}
-
-function closeManualCopyDialog() {
-  showManualCopy.value = false;
-}
-
-function focusManualCopyInput() {
-  const input = manualCopyRef.value;
-  input?.focus?.();
-  input?.select?.();
-
-  const nativeInput =
-    input?.textareaElRef ??
-    input?.inputElRef ??
-    (input?.$el?.querySelector?.("textarea, input") as HTMLTextAreaElement | HTMLInputElement | null | undefined);
-  nativeInput?.focus();
-  nativeInput?.select();
 }
 
 async function scrollToBottom() {
@@ -230,43 +202,16 @@ function levelType(level: DebugLogLevel) {
     </NCard>
   </NModal>
 
-  <NModal :show="showManualCopy" @update:show="showManualCopy = $event">
-    <NCard class="manual-copy-dialog app-dialog" role="dialog" aria-modal="true">
-      <template #header>
-        <div>
-          <p class="app-dialog-eyebrow">{{ t("logs.manualCopy.eyebrow") }}</p>
-          <h2>{{ t("logs.manualCopy.title") }}</h2>
-        </div>
-      </template>
-      <template #header-extra>
-        <NButton quaternary circle :title="t('common.close')" :aria-label="t('common.close')" @click="closeManualCopyDialog">×</NButton>
-      </template>
-
-      <p class="manual-copy-hint">{{ t("logs.manualCopy.hint") }}</p>
-      <NInput
-        ref="manualCopyRef"
-        class="manual-copy-input"
-        type="textarea"
-        readonly
-        :value="manualCopyText"
-        :input-props="{ readonly: true }"
-        :autosize="{ minRows: 12, maxRows: 24 }"
-      />
-      <div class="manual-copy-actions">
-        <NButton secondary @click="downloadAllLogs">{{ t("logs.download") }}</NButton>
-        <NButton type="primary" @click="closeManualCopyDialog">{{ t("common.done") }}</NButton>
-      </div>
-    </NCard>
-  </NModal>
+  <DebugLogManualCopyDialog
+    v-model:show="showManualCopy"
+    :text="manualCopyText"
+    @download="downloadAllLogs"
+  />
 </template>
 
 <style scoped>
 .debug-log-dialog {
   --app-dialog-width: 1120px;
-}
-
-.manual-copy-dialog {
-  --app-dialog-width: 900px;
 }
 
 h2 {
@@ -342,29 +287,6 @@ h2 {
   word-break: break-word;
 }
 
-.manual-copy-hint {
-  margin: 0 0 12px;
-  color: #b8c4be;
-  line-height: 1.6;
-}
-
-.manual-copy-input {
-  width: 100%;
-}
-
-.manual-copy-input :deep(textarea),
-.manual-copy-input :deep(.n-input__textarea-el) {
-  min-height: min(460px, calc(100vh - 260px));
-  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-}
-
-.manual-copy-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
-}
-
 @media (max-width: 900px) {
   .log-filters {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -393,18 +315,5 @@ h2 {
     gap: 6px;
   }
 
-  .manual-copy-input :deep(textarea),
-  .manual-copy-input :deep(.n-input__textarea-el) {
-    min-height: calc(var(--app-viewport-height) - 360px);
-    font-size: 16px;
-  }
-
-  .manual-copy-actions {
-    flex-direction: column-reverse;
-  }
-
-  .manual-copy-actions :deep(.n-button) {
-    width: 100%;
-  }
 }
 </style>
