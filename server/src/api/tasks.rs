@@ -2,6 +2,7 @@ use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{
@@ -450,34 +451,29 @@ fn ensure_authorized_save_dir(
     state: &HttpAppState,
     save_dir: Option<&str>,
 ) -> Result<(), ApiError> {
-    let save_dir = save_dir
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("save_dir_required", "请选择已授权的保存目录"))?;
     let accessible_paths = super::storage::load_accessible_paths(state)?;
-
-    if accessible_paths.is_empty() {
-        state
-            .core
-            .debug_logs
-            .warn("storage.auth", "保存目录校验失败：未检测到已授权目录");
-        return Err(ApiError::bad_request(
-            "no_accessible_paths",
-            "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
-        ));
-    }
-    if !accessible_paths.iter().any(|path| path == save_dir) {
-        state.core.debug_logs.warn(
-            "storage.auth",
-            format!("保存目录校验失败：未授权目录 {}", save_dir),
-        );
-        return Err(ApiError::bad_request(
-            "save_dir_not_authorized",
-            "保存目录不在飞牛已授权目录列表中",
-        ));
-    }
-
-    Ok(())
+    crate::storage::validate_task_save_dir(save_dir, &accessible_paths).map_err(|error| {
+        let (code, message) = match error {
+            TaskSaveDirError::Required => ("save_dir_required", "请选择已授权的保存目录"),
+            TaskSaveDirError::NoAccessiblePaths => (
+                "no_accessible_paths",
+                "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
+            ),
+            TaskSaveDirError::Unauthorized => (
+                "save_dir_not_authorized",
+                "保存目录不在飞牛已授权目录列表中",
+            ),
+        };
+        let log_message = match error {
+            TaskSaveDirError::Unauthorized => format!(
+                "保存目录校验失败：未授权目录 {}",
+                save_dir.unwrap_or_default()
+            ),
+            _ => format!("保存目录校验失败：{}", message),
+        };
+        state.core.debug_logs.warn("storage.auth", log_message);
+        ApiError::bad_request(code, message)
+    })
 }
 
 fn bad_request_with_log(

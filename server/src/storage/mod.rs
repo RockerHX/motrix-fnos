@@ -9,6 +9,13 @@ pub struct AccessiblePathsResponse {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskSaveDirError {
+    Required,
+    NoAccessiblePaths,
+    Unauthorized,
+}
+
 pub fn load_accessible_paths(accessible_paths_path: &Path) -> Result<Vec<String>, String> {
     if accessible_paths_path.is_file() {
         let content = std::fs::read_to_string(accessible_paths_path)
@@ -82,6 +89,23 @@ pub fn validate_default_download_dir(
     }
 
     Err("默认下载目录不在已授权目录列表中".to_string())
+}
+
+pub fn validate_task_save_dir(
+    save_dir: Option<&str>,
+    accessible_paths: &[String],
+) -> Result<(), TaskSaveDirError> {
+    let save_dir = save_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(TaskSaveDirError::Required)?;
+    if accessible_paths.is_empty() {
+        return Err(TaskSaveDirError::NoAccessiblePaths);
+    }
+    if accessible_paths.iter().any(|path| path == save_dir) {
+        return Ok(());
+    }
+    Err(TaskSaveDirError::Unauthorized)
 }
 
 pub fn normalize_paths(paths: Vec<String>) -> Vec<String> {
@@ -177,5 +201,31 @@ mod tests {
     #[test]
     fn validate_default_download_dir_allows_app_data_dir_without_authorized_paths() {
         assert!(validate_default_download_dir("/app/data", &[], Path::new("/app/data")).is_ok());
+    }
+
+    #[test]
+    fn validate_task_save_dir_requires_non_empty_path() {
+        assert_eq!(
+            validate_task_save_dir(Some("  "), &["/downloads".to_string()]),
+            Err(TaskSaveDirError::Required)
+        );
+    }
+
+    #[test]
+    fn validate_task_save_dir_requires_authorized_paths() {
+        assert_eq!(
+            validate_task_save_dir(Some("/downloads"), &[]),
+            Err(TaskSaveDirError::NoAccessiblePaths)
+        );
+    }
+
+    #[test]
+    fn validate_task_save_dir_accepts_only_exact_authorized_path() {
+        let paths = vec!["/downloads".to_string()];
+        assert!(validate_task_save_dir(Some("/downloads"), &paths).is_ok());
+        assert_eq!(
+            validate_task_save_dir(Some("/downloads/movies"), &paths),
+            Err(TaskSaveDirError::Unauthorized)
+        );
     }
 }
