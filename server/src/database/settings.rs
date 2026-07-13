@@ -17,24 +17,6 @@ where
     set_json_value(pool, "app_config", key, value).await
 }
 
-pub async fn get_ui_preference_value<T>(pool: &SqlitePool, key: &str) -> Result<Option<T>, String>
-where
-    T: DeserializeOwned,
-{
-    get_json_value(pool, "ui_preferences", key).await
-}
-
-pub async fn set_ui_preference_value<T>(
-    pool: &SqlitePool,
-    key: &str,
-    value: &T,
-) -> Result<(), String>
-where
-    T: Serialize,
-{
-    set_json_value(pool, "ui_preferences", key, value).await
-}
-
 async fn get_json_value<T>(pool: &SqlitePool, table: &str, key: &str) -> Result<Option<T>, String>
 where
     T: DeserializeOwned,
@@ -102,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_repository_round_trips_app_config_and_ui_preferences() {
+    fn settings_repository_round_trips_app_config() {
         tokio::runtime::Runtime::new()
             .expect("tokio runtime should create")
             .block_on(async {
@@ -120,21 +102,11 @@ mod tests {
                 set_app_config_value(&database.pool, "download", &value)
                     .await
                     .expect("app config should save");
-                set_ui_preference_value(&database.pool, "table", &value)
-                    .await
-                    .expect("ui preference should save");
-
                 let app_config: Option<SampleConfig> =
                     get_app_config_value(&database.pool, "download")
                         .await
                         .expect("app config should read");
-                let ui_preference: Option<SampleConfig> =
-                    get_ui_preference_value(&database.pool, "table")
-                        .await
-                        .expect("ui preference should read");
-
-                assert_eq!(app_config, Some(value.clone()));
-                assert_eq!(ui_preference, Some(value));
+                assert_eq!(app_config, Some(value));
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);

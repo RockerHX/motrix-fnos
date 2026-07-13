@@ -74,6 +74,12 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|error| format!("迁移磁链 metadata 路径字段失败：{}", error))?;
     }
 
+    // 旧版本创建的 UI 偏好表从未承载已上线功能，移除预留接口时同步清理遗留空表。
+    sqlx::query("DROP TABLE IF EXISTS ui_preferences")
+        .execute(pool)
+        .await
+        .map_err(|error| format!("清理旧 UI 偏好表失败：{}", error))?;
+
     Ok(())
 }
 
@@ -132,13 +138,6 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         created_at INTEGER NOT NULL
     )
     "#,
-    r#"
-    CREATE TABLE IF NOT EXISTS ui_preferences (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    "#,
 ];
 
 #[cfg(test)]
@@ -167,7 +166,6 @@ mod tests {
                     "app_config",
                     "task_history",
                     "task_errors",
-                    "ui_preferences",
                 ] {
                     let exists: i64 = sqlx::query_scalar(
                         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -179,6 +177,14 @@ mod tests {
                     assert_eq!(exists, 1, "{table} should exist");
                 }
 
+                let ui_preferences_exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ui_preferences'",
+                )
+                .fetch_one(&database.pool)
+                .await
+                .expect("ui preferences table lookup should succeed");
+                assert_eq!(ui_preferences_exists, 0);
+
                 for column in ["category", "confirmation_required", "metadata_torrent_path"] {
                     let column_count: i64 = sqlx::query_scalar(
                         "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
@@ -189,6 +195,48 @@ mod tests {
                     .expect("column lookup should succeed");
                     assert_eq!(column_count, 1, "download_tasks.{column} should exist");
                 }
+
+                database.pool.close().await;
+                let _ = std::fs::remove_file(path);
+            });
+    }
+
+    #[test]
+    fn connect_database_removes_legacy_ui_preferences_table() {
+        tokio::runtime::Runtime::new()
+            .expect("tokio runtime should create")
+            .block_on(async {
+                let path = std::env::temp_dir().join(format!(
+                    "motrix-fnos-ui-preferences-migrate-test-{}.sqlite",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("system time should be valid")
+                        .as_nanos()
+                ));
+                let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                    .expect("sqlite options should build")
+                    .create_if_missing(true);
+                let pool = SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect_with(options)
+                    .await
+                    .expect("legacy db should connect");
+                sqlx::query("CREATE TABLE ui_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)")
+                    .execute(&pool)
+                    .await
+                    .expect("legacy ui preferences table should create");
+                pool.close().await;
+
+                let database = connect_database(path.clone())
+                    .await
+                    .expect("database should connect and migrate");
+                let exists: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ui_preferences'",
+                )
+                .fetch_one(&database.pool)
+                .await
+                .expect("ui preferences table lookup should succeed");
+                assert_eq!(exists, 0);
 
                 database.pool.close().await;
                 let _ = std::fs::remove_file(path);
