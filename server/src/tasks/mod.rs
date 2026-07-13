@@ -1,5 +1,6 @@
 pub mod aria2_rpc;
 pub mod files;
+mod magnet_refresh;
 pub mod model;
 pub mod options;
 pub mod prepare;
@@ -19,6 +20,7 @@ pub use aria2_rpc::{
     unpause_task,
 };
 pub use files::delete_task_files;
+use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};
 pub use model::{
     is_pending_magnet_metadata_task, should_force_pause_task_on_startup, should_pause_task_on_exit,
     CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
@@ -100,65 +102,19 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Ok(status) => {
-                if let Some(followed_gid) = followed_gid(&status) {
-                    if let Err(error) = pause_task(config, &followed_gid, debug_logs).await {
-                        log_info(
-                            debug_logs,
-                            "tasks.magnet",
-                            format!(
-                                "磁链 metadata 完成后暂停真实任务失败，继续同步状态，GID {}：{}",
-                                followed_gid, error
-                            ),
-                        );
+                match resolve_followed_metadata(&client, config, &gid, &status, debug_logs).await {
+                    Some(Ok((followed_status, metadata_torrent_path))) => {
+                        updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
+                            old_gid: gid,
+                            status: followed_status,
+                            metadata_torrent_path,
+                        });
                     }
-                    match tell_status(&client, config, &followed_gid, debug_logs).await {
-                        Ok(followed_status) => {
-                            let Some(metadata_dir) =
-                                status.dir.as_deref().filter(|dir| !dir.trim().is_empty())
-                            else {
-                                updates.push(TaskRefreshUpdate::Status {
-                                    gid,
-                                    status: task_status_error(
-                                        "磁链 metadata 解析完成但缺少 metadata 目录".to_string(),
-                                    ),
-                                });
-                                continue;
-                            };
-                            let metadata_torrent_path = match find_single_torrent_file(
-                                std::path::Path::new(metadata_dir),
-                            ) {
-                                Ok(path) => path.display().to_string(),
-                                Err(error) => {
-                                    updates.push(TaskRefreshUpdate::Status {
-                                        gid,
-                                        status: task_status_error(error),
-                                    });
-                                    continue;
-                                }
-                            };
-                            remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
-                            remove_temporary_magnet_gid(config, &gid, debug_logs).await;
-                            log_info(
-                                debug_logs,
-                                "tasks.magnet",
-                                format!(
-                                    "磁链 metadata 已解析完成，临时 GID {}，真实 GID {}，等待用户确认文件",
-                                    gid, followed_gid
-                                ),
-                            );
-                            updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
-                                old_gid: gid,
-                                status: followed_status,
-                                metadata_torrent_path,
-                            });
-                        }
-                        Err(error) => updates.push(TaskRefreshUpdate::Status {
-                            gid,
-                            status: task_status_error(error),
-                        }),
-                    }
-                } else {
-                    updates.push(TaskRefreshUpdate::Status { gid, status });
+                    Some(Err(error)) => updates.push(TaskRefreshUpdate::Status {
+                        gid,
+                        status: task_status_error(error),
+                    }),
+                    None => updates.push(TaskRefreshUpdate::Status { gid, status }),
                 }
             }
             Err(error) if is_stale_aria2_gid_error(&error) => {
@@ -313,38 +269,6 @@ enum TaskRefreshUpdate {
     },
 }
 
-async fn remove_temporary_magnet_gid(
-    config: &Aria2Config,
-    gid: &str,
-    debug_logs: Option<&DebugLogStore>,
-) {
-    if let Err(error) = remove_task(config, gid, debug_logs).await {
-        if is_stale_aria2_gid_error(&error) {
-            log_info(
-                debug_logs,
-                "tasks.magnet",
-                format!("临时磁链 GID 已不存在，跳过清理，GID {}：{}", gid, error),
-            );
-            return;
-        }
-        log_info(
-            debug_logs,
-            "tasks.magnet",
-            format!("清理临时磁链 GID 失败，GID {}：{}", gid, error),
-        );
-    }
-}
-
-fn followed_gid(status: &Aria2TaskStatus) -> Option<String> {
-    status
-        .followed_by
-        .as_ref()
-        .and_then(|gids| gids.first())
-        .map(|gid| gid.trim())
-        .filter(|gid| !gid.is_empty())
-        .map(ToOwned::to_owned)
-}
-
 fn task_status_error(message: String) -> Aria2TaskStatus {
     Aria2TaskStatus {
         gid: None,
@@ -383,24 +307,6 @@ pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) 
     is_stale_aria2_gid_error(&normalized)
         || (normalized.contains("cannot be unpaused now")
             && task.status == DownloadTaskStatus::Error)
-}
-
-fn stale_magnet_metadata_status(app_data_dir: &Path, task: &DownloadTask) -> Aria2TaskStatus {
-    let metadata_dir = magnet_metadata_task_dir(app_data_dir, task.id);
-    let message = match find_single_torrent_file(&metadata_dir) {
-        Ok(path) => format!(
-            "磁链 metadata 解析任务已失效，请重新添加磁链：{}",
-            path.display()
-        ),
-        Err(_) => "磁链 metadata 解析任务已失效，请重新添加磁链".to_string(),
-    };
-    task_status_error(message)
-}
-
-fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
-    app_data_dir
-        .join("magnet-metadata")
-        .join(format!("task-{task_id}"))
 }
 
 fn current_timestamp_ms() -> u64 {
