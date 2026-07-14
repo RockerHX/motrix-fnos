@@ -1,6 +1,6 @@
 # 阶段 13：UI 重设计开发计划
 
-> 更新时间：2026-07-13
+> 更新时间：2026-07-14
 > 本文档只记录阶段 13 的状态、范围、实施门禁和验收口径。已完成内容见 `CHANGELOG.md`。
 
 ## 1. 当前状态
@@ -53,3 +53,30 @@
 - `docs/api-contract.md`：HTTP、SSE 与 JSON-RPC 接口契约。
 - `docs/fpk-packaging.md`：FPK 构建、发布和实机验证。
 - `CHANGELOG.md`：已完成功能与发布历史。
+
+## 6. 后期平台实验：统一网关可信性验证
+
+状态：延期、非阻塞，不属于阶段 13。当前 Motrix 继续使用已经实机验证的端口入口；本实验不得阻塞功能开发、常规修复或正式发布。
+
+实验必须使用独立 appname 的最小 FPK，不得直接修改 `motrix.fnos` 主包。最小包只包含：
+
+- 一个 `gatewayPrefix` 与一个位于 `TRIM_APPDEST` 的 Unix Socket。
+- 一个返回固定 HTML 的根路由和一个返回固定 JSON 的健康检查路由。
+- 一个 SSE 或 WebSocket 回显路由，用于验证长连接转发。
+- 记录请求 path、`X-Trim-Userid`、`X-Trim-Isadmin` 和 `X-Trim-Username` 是否存在的脱敏日志。
+
+实机验证矩阵：
+
+1. 全新安装后，确认 `trim_sac/open_gateway` 生成入口和转发表，登录用户访问公开路径返回 `200`。
+2. 直接请求 Unix Socket 与通过 fnOS nginx 请求得到一致响应，并记录网关转发时 path 是保留还是剥离前缀。
+3. 未登录请求被 fnOS 拒绝；已登录请求携带可信 `X-Trim-*` Header。
+4. 根 HTML、子路径、静态资源、健康检查及 SSE/WebSocket 均能通过同一网关前缀访问。
+5. 分别验证停止后启动、覆盖升级、卸载重装和设备重启，确认 Socket 清理与路由注册不会残留或丢失。
+6. 收集 fnOS 版本、入口数据库记录、nginx access/error log、注册服务日志和最小 FPK 校验和，形成可复现报告。
+
+迁移门禁：
+
+- 最小 FPK 在目标 fnOS 实机上完整通过上述矩阵后，才能提出 Motrix 统一网关迁移方案。
+- 迁移前必须先更新 `docs/architecture.md`、`docs/api-contract.md` 和 `docs/fpk-packaging.md`，并明确端口模式回退方案。
+- Motrix 的候选实现必须单独验证 FPK 最终产物和真实 fnOS 转发链路；仅有 Axum Router 测试或 Unix Socket 直连测试不算通过。
+- 任一注册、鉴权、路径或长连接场景失败时，Motrix 继续保持当前端口入口，不合并实验代码。
