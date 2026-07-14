@@ -241,6 +241,12 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
         .send()
         .await
         .expect("management API should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let response = client
+        .get(format!("http://{management_addr}/api/auth/status"))
+        .send()
+        .await
+        .expect("management auth status should respond");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let response = client
         .post(format!("http://{management_addr}/jsonrpc"))

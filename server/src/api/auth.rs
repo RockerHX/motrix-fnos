@@ -5,9 +5,11 @@ use crate::auth::{
     clear_session_cookie, session_cookie, AuthError, AuthState, CreatedSession, SessionKind,
     ValidatedSession, SESSION_COOKIE_NAME,
 };
+use axum::body::Body;
 use axum::extract::State;
 use axum::http::header::{COOKIE, SET_COOKIE};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -16,14 +18,73 @@ use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
 
+#[cfg(test)]
 pub fn routes() -> Router<Arc<HttpAppState>> {
+    Router::new()
+        .merge(public_routes())
+        .merge(session_routes())
+        .merge(admin_routes())
+}
+
+pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/auth/status", get(status))
         .route("/auth/setup", post(setup))
         .route("/auth/login", post(login))
-        .route("/auth/logout", post(logout))
+}
+
+pub(crate) fn session_routes() -> Router<Arc<HttpAppState>> {
+    Router::new().route("/auth/logout", post(logout))
+}
+
+pub(crate) fn admin_routes() -> Router<Arc<HttpAppState>> {
+    Router::new()
         .route("/auth/password", put(change_password))
         .route("/auth/protection", put(change_protection))
+}
+
+pub(crate) async fn management_auth(
+    State(state): State<Arc<HttpAppState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    match authorize_management_request(&state, request.headers(), request.method()).await {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.into_response(),
+    }
+}
+
+pub(crate) async fn event_auth(
+    State(state): State<Arc<HttpAppState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    match authorize_context_request(&state, request.headers(), false, false).await {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.into_response(),
+    }
+}
+
+pub(crate) async fn session_auth(
+    State(state): State<Arc<HttpAppState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    match authorize_context_request(&state, request.headers(), false, true).await {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.into_response(),
+    }
+}
+
+pub(crate) async fn admin_auth(
+    State(state): State<Arc<HttpAppState>>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    match authorize_context_request(&state, request.headers(), true, true).await {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.into_response(),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -237,6 +298,87 @@ async fn load_auth_state(state: &HttpAppState) -> Result<AuthState, ApiError> {
         .map_err(classify_auth_error)
 }
 
+async fn authorize_management_request(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+    method: &Method,
+) -> Result<(), ApiError> {
+    let auth_state = load_auth_state(state).await?;
+    if auth_state.setup_required {
+        return Err(authentication_required());
+    }
+    if auth_state.enabled {
+        let session = validated_session(state, headers, &auth_state)?
+            .filter(|session| session.kind == SessionKind::Admin)
+            .ok_or_else(authentication_required)?;
+        if is_write_method(method) {
+            validate_csrf(state, headers, &auth_state, &session)?;
+        }
+        return Ok(());
+    }
+    if !is_write_method(method) {
+        return Ok(());
+    }
+    let session =
+        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    validate_csrf(state, headers, &auth_state, &session)
+}
+
+async fn authorize_context_request(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+    admin_only: bool,
+    require_csrf: bool,
+) -> Result<(), ApiError> {
+    let auth_state = load_auth_state(state).await?;
+    if auth_state.setup_required {
+        return Err(authentication_required());
+    }
+    let session =
+        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    if admin_only && session.kind != SessionKind::Admin {
+        return Err(ApiError::unauthorized(
+            "admin_authentication_required",
+            "需要管理员登录会话",
+        ));
+    }
+    if auth_state.enabled && session.kind != SessionKind::Admin {
+        return Err(authentication_required());
+    }
+    if require_csrf {
+        validate_csrf(state, headers, &auth_state, &session)?;
+    }
+    Ok(())
+}
+
+fn validate_csrf(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+    auth_state: &AuthState,
+    session: &ValidatedSession,
+) -> Result<(), ApiError> {
+    let csrf = headers
+        .get(CSRF_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if !state
+        .auth
+        .sessions
+        .validate_csrf(&session.id, auth_state.auth_version, csrf)
+        .map_err(session_error)?
+    {
+        return Err(ApiError::forbidden("csrf_invalid", "CSRF Token 缺失或无效"));
+    }
+    Ok(())
+}
+
+fn is_write_method(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
+}
+
 fn require_session_with_csrf(
     state: &HttpAppState,
     headers: &HeaderMap,
@@ -341,6 +483,10 @@ fn classify_auth_error(error: AuthError) -> ApiError {
 
 fn invalid_credentials() -> ApiError {
     ApiError::unauthorized("invalid_credentials", "管理密码无效")
+}
+
+fn authentication_required() -> ApiError {
+    ApiError::unauthorized("authentication_required", "需要有效的管理会话")
 }
 
 fn rate_limited(seconds: u64) -> ApiError {

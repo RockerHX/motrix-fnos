@@ -32,15 +32,35 @@ pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
 
 fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     let index_file = static_dir.join("index.html");
-    let api_routes = Router::new()
-        .merge(auth::routes())
+    let management_routes = Router::new()
         .merge(app::routes())
         .merge(aria2::routes())
         .merge(settings::routes())
         .merge(storage::routes())
         .merge(debug_logs::routes())
         .merge(tasks::routes())
-        .merge(events::routes())
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::management_auth,
+        ));
+    let event_routes = events::routes().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth::event_auth,
+    ));
+    let session_auth_routes = auth::session_routes().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth::session_auth,
+    ));
+    let admin_auth_routes = auth::admin_routes().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        auth::admin_auth,
+    ));
+    let api_routes = Router::new()
+        .merge(auth::public_routes())
+        .merge(session_auth_routes)
+        .merge(admin_auth_routes)
+        .merge(management_routes)
+        .merge(event_routes)
         .fallback(api_not_found);
 
     Router::new()

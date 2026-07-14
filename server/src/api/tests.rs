@@ -284,18 +284,12 @@ async fn aria2_routes_return_status_payloads() {
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();
-    let app = management_router(state);
+    let app = management_router(state.clone());
 
     for uri in ["/api/aria2/start", "/api/aria2/stop"] {
         let error = response_json::<ErrorResponse>(
             app.clone()
-                .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri(uri)
-                        .body(Body::empty())
-                        .expect("request should build"),
-                )
+                .oneshot(authorized_request(&state, "POST", uri, Body::empty()).await)
                 .await
                 .expect("response should succeed"),
             StatusCode::CONFLICT,
@@ -343,18 +337,22 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
 
     let updated_settings = response_json::<AppConfig>(
         app.clone()
-            .oneshot(json_request(
-                "PUT",
-                "/api/settings",
-                &AppConfig {
-                    default_download_dir: "/tmp/custom".to_string(),
-                    max_concurrent_downloads: 0,
-                    download_limit: 1024,
-                    upload_limit: 2048,
-                    language: "en-US".to_string(),
-                    json_rpc_token: "test-token".to_string(),
-                },
-            ))
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "PUT",
+                    "/api/settings",
+                    &AppConfig {
+                        default_download_dir: "/tmp/custom".to_string(),
+                        max_concurrent_downloads: 0,
+                        download_limit: 1024,
+                        upload_limit: 2048,
+                        language: "en-US".to_string(),
+                        json_rpc_token: "test-token".to_string(),
+                    },
+                )
+                .await,
+            )
             .await
             .expect("response should succeed"),
         StatusCode::OK,
@@ -396,21 +394,25 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
         .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = management_router(state);
+    let app = management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
-        app.oneshot(json_request(
-            "PUT",
-            "/api/settings",
-            &AppConfig {
-                default_download_dir: "/tmp/custom".to_string(),
-                max_concurrent_downloads: 5,
-                download_limit: 0,
-                upload_limit: 0,
-                language: "zh-CN".to_string(),
-                json_rpc_token: String::new(),
-            },
-        ))
+        app.oneshot(
+            authorized_json_request(
+                &state,
+                "PUT",
+                "/api/settings",
+                &AppConfig {
+                    default_download_dir: "/tmp/custom".to_string(),
+                    max_concurrent_downloads: 5,
+                    download_limit: 0,
+                    upload_limit: 0,
+                    language: "zh-CN".to_string(),
+                    json_rpc_token: String::new(),
+                },
+            )
+            .await,
+        )
         .await
         .expect("response should succeed"),
         StatusCode::BAD_REQUEST,
@@ -487,14 +489,18 @@ async fn task_route_logs_unauthorized_save_dir_failure() {
     let app = management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
-        app.oneshot(json_request(
-            "POST",
-            "/api/tasks",
-            &serde_json::json!({
-                "url": "https://example.com/file.iso",
-                "saveDir": "/vol1/not-authorized"
-            }),
-        ))
+        app.oneshot(
+            authorized_json_request(
+                &state,
+                "POST",
+                "/api/tasks",
+                &serde_json::json!({
+                    "url": "https://example.com/file.iso",
+                    "saveDir": "/vol1/not-authorized"
+                }),
+            )
+            .await,
+        )
         .await
         .expect("response should succeed"),
         StatusCode::BAD_REQUEST,
@@ -531,13 +537,7 @@ async fn debug_log_routes_list_and_clear_entries() {
     assert!(logs.iter().any(|entry| entry.message == "second"));
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .method("DELETE")
-                .uri("/api/debug-logs")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
+        .oneshot(authorized_request(&state, "DELETE", "/api/debug-logs", Body::empty()).await)
         .await
         .expect("response should succeed");
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
@@ -547,19 +547,12 @@ async fn debug_log_routes_list_and_clear_entries() {
 #[tokio::test]
 async fn invalid_json_payload_uses_unified_error_response() {
     let state = test_state(None).await;
-    let app = management_router(state);
+    let app = management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
-        app.oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri("/api/settings")
-                .header("content-type", "application/json")
-                .body(Body::from("{"))
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed"),
+        app.oneshot(authorized_request(&state, "PUT", "/api/settings", Body::from("{")).await)
+            .await
+            .expect("response should succeed"),
         StatusCode::BAD_REQUEST,
     )
     .await;
@@ -567,7 +560,150 @@ async fn invalid_json_payload_uses_unified_error_response() {
     assert!(error.message.contains("请求体 JSON 无效"));
 }
 
+#[tokio::test]
+async fn management_router_requires_setup_session_csrf_and_event_context() {
+    let state = raw_test_state(None).await;
+    let app = management_router(state.clone());
+    for uri in [
+        "/api/app/ping",
+        "/api/settings",
+        "/api/tasks",
+        "/api/events",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "uri: {uri}");
+    }
+
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    let admin = state
+        .auth
+        .sessions
+        .create(crate::auth::SessionKind::Admin, configured.auth_version)
+        .expect("admin session should create");
+    let admin_cookie = format!("motrix_web_session={}", admin.id);
+    let authenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .header("cookie", &admin_cookie)
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(authenticated.status(), StatusCode::OK);
+
+    let missing_csrf = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/aria2/stop")
+                .header("cookie", &admin_cookie)
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+
+    let disabled = state
+        .auth
+        .service
+        .set_protection(false, "test management password")
+        .await
+        .expect("protection should disable");
+    let anonymous_read = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(anonymous_read.status(), StatusCode::OK);
+    let anonymous_write = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/debug-logs")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(anonymous_write.status(), StatusCode::UNAUTHORIZED);
+    let anonymous_event = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/events")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(anonymous_event.status(), StatusCode::UNAUTHORIZED);
+
+    let anonymous = state
+        .auth
+        .sessions
+        .create(
+            crate::auth::SessionKind::AnonymousManagement,
+            disabled.auth_version,
+        )
+        .expect("anonymous session should create");
+    let protected_write = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/debug-logs")
+                .header("cookie", format!("motrix_web_session={}", anonymous.id))
+                .header("x-csrf-token", anonymous.csrf_token)
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(protected_write.status(), StatusCode::NO_CONTENT);
+}
+
 async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
+    let state = raw_test_state(aria2_path).await;
+    state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("test auth should initialize");
+    state
+        .auth
+        .service
+        .set_protection(false, "test management password")
+        .await
+        .expect("test auth protection should disable");
+    state
+}
+
+async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
     let app_data_dir = temp_dir("api-state");
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
@@ -608,6 +744,51 @@ fn json_request<T: serde::Serialize>(method: &str, uri: &str, payload: &T) -> Re
         .body(Body::from(
             serde_json::to_vec(payload).expect("payload should serialize"),
         ))
+        .expect("request should build")
+}
+
+async fn authorized_json_request<T: serde::Serialize>(
+    state: &HttpAppState,
+    method: &str,
+    uri: &str,
+    payload: &T,
+) -> Request<Body> {
+    authorized_request(
+        state,
+        method,
+        uri,
+        Body::from(serde_json::to_vec(payload).expect("payload should serialize")),
+    )
+    .await
+}
+
+async fn authorized_request(
+    state: &HttpAppState,
+    method: &str,
+    uri: &str,
+    body: Body,
+) -> Request<Body> {
+    let auth_state = state
+        .auth
+        .service
+        .state()
+        .await
+        .expect("auth state should load");
+    let session = state
+        .auth
+        .sessions
+        .create(
+            crate::auth::SessionKind::AnonymousManagement,
+            auth_state.auth_version,
+        )
+        .expect("test session should create");
+    Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("cookie", format!("motrix_web_session={}", session.id))
+        .header("x-csrf-token", session.csrf_token)
+        .body(body)
         .expect("request should build")
 }
 
