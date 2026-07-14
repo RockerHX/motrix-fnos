@@ -18,6 +18,7 @@ PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
 SERVER_LOG="${LOG_DIR}/server.log"
 ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
+JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}
 PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
 
 prepare_runtime_dirs() {
@@ -27,6 +28,7 @@ prepare_runtime_dirs() {
 export_runtime_env() {
   export MOTRIX_FNOS_APP_DATA_DIR="${APP_DATA_DIR}"
   export MOTRIX_FNOS_HTTP_ADDR="${HTTP_ADDR}"
+  export MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"
   export MOTRIX_FNOS_ARIA2_PATH="${ARIA2_BIN}"
   export MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE="${ACCESSIBLE_PATHS_FILE}"
 }

@@ -10,7 +10,7 @@ clear_stale_pid
 
 pid=$(read_pid || true)
 if [ -n "${pid}" ] && is_running_pid "${pid}"; then
-  log_msg "查询运行状态：运行中，PID ${pid}，HTTP ${HTTP_ADDR}"
+  log_msg "查询运行状态：运行中，PID ${pid}，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}"
   echo "motrix-fnos-server 运行中，PID ${pid}"
   exit 0
 fi

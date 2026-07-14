@@ -30,6 +30,24 @@ export MOTRIX_FNOS_SERVER_BIN MOTRIX_FNOS_PROC_ROOT TRIM_PKGVAR MOTRIX_FNOS_TEST
 
 . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
 
+test "${HTTP_ADDR}" = "0.0.0.0:17080"
+test "${JSONRPC_ADDR}" = "127.0.0.1:17081"
+export_runtime_env
+test "${MOTRIX_FNOS_HTTP_ADDR}" = "0.0.0.0:17080"
+test "${MOTRIX_FNOS_JSONRPC_ADDR}" = "127.0.0.1:17081"
+
+(
+  MOTRIX_FNOS_HTTP_ADDR="127.0.0.1:27080"
+  MOTRIX_FNOS_JSONRPC_ADDR="127.0.0.1:27081"
+  export MOTRIX_FNOS_HTTP_ADDR MOTRIX_FNOS_JSONRPC_ADDR
+  . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+  export_runtime_env
+  test "${HTTP_ADDR}" = "127.0.0.1:27080"
+  test "${JSONRPC_ADDR}" = "127.0.0.1:27081"
+  test "${MOTRIX_FNOS_HTTP_ADDR}" = "127.0.0.1:27080"
+  test "${MOTRIX_FNOS_JSONRPC_ADDR}" = "127.0.0.1:27081"
+)
+
 prepare_runtime_dirs
 write_pid_record "$$"
 is_running_pid "$$"
