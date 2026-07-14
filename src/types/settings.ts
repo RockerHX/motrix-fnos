@@ -6,5 +6,9 @@ export interface AppConfig {
   downloadLimit: number;
   uploadLimit: number;
   language: AppLanguage;
-  jsonRpcToken: string;
+}
+
+export interface JsonRpcTokenStatus {
+  configured: boolean;
+  maskedToken: string | null;
 }

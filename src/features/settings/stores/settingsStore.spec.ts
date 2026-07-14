@@ -78,7 +78,6 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     downloadLimit: 0,
     uploadLimit: 0,
     language: "zh-CN",
-    jsonRpcToken: "token",
     ...overrides,
   };
 }

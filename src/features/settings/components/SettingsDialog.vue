@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, watch } from "vue";
 import {
   NButton,
   NForm,
   NFormItem,
-  NInput,
   NInputNumber,
   NSelect,
-  NSpace,
   NText,
   useMessage,
 } from "naive-ui";
@@ -19,6 +17,7 @@ import { supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
+import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -32,14 +31,12 @@ const message = useMessage();
 const settingsStore = useSettingsStore();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
-const isJsonRpcTokenVisible = ref(false);
 const form = reactive({
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
   language: "zh-CN" as AppConfig["language"],
-  jsonRpcToken: "",
 });
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
@@ -114,7 +111,6 @@ function applyConfig(config: AppConfig) {
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
   form.language = config.language;
-  form.jsonRpcToken = config.jsonRpcToken || "";
 }
 
 function buildPayload(): AppConfig {
@@ -124,18 +120,7 @@ function buildPayload(): AppConfig {
     downloadLimit: kbToBytes(form.downloadLimitKb),
     uploadLimit: kbToBytes(form.uploadLimitKb),
     language: form.language,
-    jsonRpcToken: form.jsonRpcToken,
   };
-}
-
-function toggleJsonRpcTokenVisible() {
-  isJsonRpcTokenVisible.value = !isJsonRpcTokenVisible.value;
-}
-
-function generateJsonRpcToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  form.jsonRpcToken = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function closeDialog() {
@@ -189,25 +174,6 @@ function kbToBytes(value: number) {
           <NText depth="3">{{ t("settings.background.help") }}</NText>
         </NFormItem>
 
-        <NFormItem :label="t('settings.jsonRpcToken')" :feedback="t('settings.jsonRpcToken.help')">
-          <div class="json-rpc-token-stack">
-            <NInput
-              v-model:value="form.jsonRpcToken"
-              :type="isJsonRpcTokenVisible ? 'text' : 'password'"
-              clearable
-              :placeholder="t('settings.jsonRpcToken.placeholder')"
-            />
-            <NSpace class="json-rpc-token-actions" :size="8" wrap>
-              <NButton size="tiny" quaternary @click.stop="toggleJsonRpcTokenVisible">
-                {{ isJsonRpcTokenVisible ? t("settings.jsonRpcToken.hide") : t("settings.jsonRpcToken.show") }}
-              </NButton>
-              <NButton size="tiny" quaternary @click.stop="generateJsonRpcToken">
-                {{ t("settings.jsonRpcToken.generate") }}
-              </NButton>
-            </NSpace>
-          </div>
-        </NFormItem>
-
         <NFormItem :label="t('settings.maxConcurrentDownloads')">
           <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
         </NFormItem>
@@ -225,6 +191,7 @@ function kbToBytes(value: number) {
         </NFormItem>
 
         <WebAuthSettings />
+        <JsonRpcTokenSettings :active="show" />
     </NForm>
 
     <template #footer>
@@ -243,14 +210,6 @@ function kbToBytes(value: number) {
   width: 100%;
 }
 
-.json-rpc-token-stack {
-  width: 100%;
-}
-
-.json-rpc-token-actions {
-  margin-top: 10px;
-}
-
 @media (max-width: 767px) {
   .settings-form :deep(.n-form-item-label) {
     padding-bottom: 8px;
@@ -263,13 +222,5 @@ function kbToBytes(value: number) {
     width: 100%;
   }
 
-  .json-rpc-token-actions {
-    width: 100%;
-  }
-
-  .json-rpc-token-actions :deep(.n-button) {
-    flex: 1 1 0;
-    min-width: 0;
-  }
 }
 </style>

@@ -62,6 +62,5 @@ function config(defaultDownloadDir: string) {
     downloadLimit: 0,
     uploadLimit: 0,
     language: "zh-CN" as const,
-    jsonRpcToken: "",
   };
 }

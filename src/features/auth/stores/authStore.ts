@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useDebugLogStore } from "../../diagnostics/stores/debugLogStore";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../../tasks/stores/taskStore";
+import { useJsonRpcTokenStore } from "../../settings/stores/jsonRpcTokenStore";
 import { setCsrfTokenProvider, setUnauthorizedHandler } from "../../../services/http";
 import { createAuthChannel, type AuthChannel } from "../services/authChannel";
 import {
@@ -163,6 +164,7 @@ export const useAuthStore = defineStore("auth", () => {
   function clearSensitiveState() {
     useTaskStore().clearSensitiveState();
     useSettingsStore().clearSensitiveState();
+    useJsonRpcTokenStore().clearSensitiveState();
     useDebugLogStore().clearSensitiveState();
   }
 

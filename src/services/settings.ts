@@ -6,5 +6,11 @@ export function getAppConfig(): Promise<AppConfig> {
 }
 
 export function saveAppConfig(payload: AppConfig): Promise<AppConfig> {
-  return httpPut<AppConfig>("/api/settings", payload);
+  return httpPut<AppConfig>("/api/settings", {
+    defaultDownloadDir: payload.defaultDownloadDir,
+    maxConcurrentDownloads: payload.maxConcurrentDownloads,
+    downloadLimit: payload.downloadLimit,
+    uploadLimit: payload.uploadLimit,
+    language: payload.language,
+  });
 }

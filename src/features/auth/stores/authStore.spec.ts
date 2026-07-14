@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDebugLogStore } from "../../diagnostics/stores/debugLogStore";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
+import { useJsonRpcTokenStore } from "../../settings/stores/jsonRpcTokenStore";
 import { useTaskStore } from "../../tasks/stores/taskStore";
 import { getAuthStatus, loginAuth, logoutAuth, setupAuth } from "../services/authService";
 import { useAuthStore } from "./authStore";
@@ -61,6 +62,8 @@ describe("authStore", () => {
     settingsStore.accessiblePaths = ["/downloads"];
     const debugStore = useDebugLogStore();
     debugStore.logs = [{ id: 1 } as never];
+    const tokenStore = useJsonRpcTokenStore();
+    tokenStore.draftToken = "raw-token";
     mockedLogout.mockResolvedValueOnce(undefined);
     await store.logout();
     expect(store.phase).toBe("login");
@@ -68,6 +71,7 @@ describe("authStore", () => {
     expect(taskStore.tasks).toEqual([]);
     expect(settingsStore.accessiblePaths).toEqual([]);
     expect(debugStore.logs).toEqual([]);
+    expect(tokenStore.draftToken).toBe("");
   });
 
   it("rechecks status after a business 401 and clears sensitive state", async () => {

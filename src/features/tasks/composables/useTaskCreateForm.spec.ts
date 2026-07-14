@@ -66,7 +66,6 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
   });
 
@@ -122,7 +121,6 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
     const { wrapper: rememberedWrapper } = mountHarness();
     await flushPromises();
@@ -135,7 +133,6 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
     const { wrapper: fallbackWrapper } = mountHarness({
       accessiblePaths: ["/first", "/second"],

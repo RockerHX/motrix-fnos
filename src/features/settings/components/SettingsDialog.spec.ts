@@ -99,7 +99,6 @@ vi.mock("../../../services/settings", () => ({
     downloadLimit: 0,
     uploadLimit: 0,
     language: "zh-CN",
-    jsonRpcToken: "",
   })),
   saveAppConfig: vi.fn(async (payload) => payload),
 }));
@@ -111,6 +110,11 @@ vi.mock("../../../services/storage", () => ({
 vi.mock("../../auth/components/WebAuthSettings.vue", async () => {
   const { defineComponent, h } = await import("vue");
   return { default: defineComponent({ name: "WebAuthSettingsStub", setup: () => () => h("div", "Web 管理安全") }) };
+});
+
+vi.mock("./JsonRpcTokenSettings.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return { default: defineComponent({ name: "JsonRpcTokenSettingsStub", setup: () => () => h("div", "JSON-RPC Token 专用设置") }) };
 });
 
 import SettingsDialog from "./SettingsDialog.vue";
@@ -128,6 +132,7 @@ describe("SettingsDialog", () => {
     expect(wrapper.text()).toContain("设置");
     expect(wrapper.text()).toContain("默认下载目录");
     expect(wrapper.text()).toContain("Web 管理安全");
+    expect(wrapper.text()).toContain("JSON-RPC Token 专用设置");
     expect(wrapper.text()).toContain("保存");
     expect(wrapper.get('[data-test="app-dialog-actions"]').text()).toContain("保存");
   });
