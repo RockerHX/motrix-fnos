@@ -46,10 +46,15 @@ fnOS FPK
 - x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
 - fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
-- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，不注册 `/jsonrpc`。
+- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，未知路径统一返回 404。
 - RPC 专用监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
 - 两个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
+
+升级不兼容约定：
+
+- JSON-RPC 已迁移到回环专用监听器 `127.0.0.1:17081`；外部客户端必须经本机 Lucky 等反向代理访问，不能再复用管理监听器。
+- Web 管理首次使用必须设置独立管理密码；升级不会把 JSON-RPC Token 复用为 Web 密码，也不会根据 fnOS 登录态自动放行。
 
 ## 4. 分层职责
 

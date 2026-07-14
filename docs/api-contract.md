@@ -16,7 +16,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 监听器约定：
 
-- 管理监听器承载 Web UI、`/api/*` 与 `/api/events`，不注册 `/jsonrpc`。
+- 管理监听器只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
 - JSON-RPC 专用监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - 两个监听器共享业务状态和退出信号；任一地址绑定失败时 server 整体启动失败。
@@ -491,7 +491,9 @@ Session 与 Cookie 约定：
 
 ## 6. JSON-RPC 兼容入口
 
-`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。它只注册在默认 `127.0.0.1:17081` 的 RPC 专用监听器；管理监听器 `17080` 上的同名路径必须为 404。Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。它只注册在默认 `127.0.0.1:17081` 的 RPC 专用监听器；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
+
+不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理首次使用必须先设置独立管理密码。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
