@@ -7,17 +7,26 @@
 | 环境变量 | 作用 | 默认值 |
 | --- | --- | --- |
 | `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 | 用户本地数据目录下的 `motrix-fnos` |
-| `MOTRIX_FNOS_HTTP_ADDR` | HTTP 监听地址 | `127.0.0.1:17080` |
+| `MOTRIX_FNOS_HTTP_ADDR` | 管理监听地址 | `0.0.0.0:17080` |
+| `MOTRIX_FNOS_JSONRPC_ADDR` | JSON-RPC 专用监听地址 | `127.0.0.1:17081` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
 
 FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录，并写入 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`。后端以该文件为主，文件不存在时才回退读取当前进程环境变量。
 
+监听器约定：
+
+- 管理监听器承载 Web UI、`/api/*` 与 `/api/events`，不注册 `/jsonrpc`。
+- JSON-RPC 专用监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
+- `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
+- 两个监听器共享业务状态和退出信号；任一地址绑定失败时 server 整体启动失败。
+
 ## 2. 前端消费约定
 
-- FPK Web UI 从 manifest `service_port` 对应的应用端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
+- FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- `/jsonrpc` 与 Web UI 共用服务端口，写操作继续要求 JSON-RPC token。
+- 浏览器请求使用同源服务端 Session Cookie；管理写操作通过 `X-CSRF-Token` 请求头携带 CSRF Token。
+- `/jsonrpc` 只存在于 `MOTRIX_FNOS_JSONRPC_ADDR`，不与 Web UI 共用监听器；写操作继续要求独立 JSON-RPC Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用浏览器原生 `EventSource`。
@@ -40,7 +49,10 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | 状态码 | 含义 |
 | --- | --- |
 | `400 Bad Request` | 请求参数非法或业务校验失败 |
+| `401 Unauthorized` | 管理 Session 缺失、无效或过期；不得返回 SPA HTML |
+| `403 Forbidden` | CSRF Token 缺失或错误，或当前凭据无权执行操作 |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
+| `429 Too Many Requests` | 登录失败限速或递增延迟生效 |
 | `500 Internal Server Error` | 未预期内部错误 |
 
 `204 No Content` 响应不带 JSON body。
@@ -49,7 +61,89 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 下表使用同源 `/api` 路径，FPK 与开发态保持一致。
 
-### 4.1 应用信息
+### 4.1 Web 管理鉴权
+
+静态资源允许匿名加载，但不得包含任务、路径、设置、日志或 Token 等业务数据。除本节明确标记为匿名的接口外，所有 `/api/*` 与 `/api/events` 默认要求有效 Session；保护关闭时，普通管理 API 可进入显式匿名管理模式，鉴权配置变更仍按本节要求校验当前密码。
+
+| 方法 | 路径 | 访问要求 | 作用 |
+| --- | --- | --- | --- |
+| `GET` | `/api/auth/status` | 匿名 | 返回初始化、保护和当前会话状态 |
+| `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并创建 Session |
+| `POST` | `/api/auth/login` | 匿名 | 验证密码并创建 Session |
+| `POST` | `/api/auth/logout` | Session + CSRF | 撤销当前 Session |
+| `PUT` | `/api/auth/password` | Session + CSRF + 当前密码 | 修改密码并撤销其他 Session |
+| `PUT` | `/api/auth/protection` | Session + CSRF + 当前密码 | 启用或关闭 Web 管理保护 |
+
+`GET /api/auth/status` 响应：
+
+```json
+{
+  "setupRequired": false,
+  "enabled": true,
+  "authenticated": true,
+  "csrfToken": "opaque-csrf-token"
+}
+```
+
+约定：
+
+- `setupRequired=true` 时，除 `status`、`setup` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
+- `csrfToken` 只在当前浏览器具备管理访问权时返回；未登录且保护已启用时为 `null`。保护关闭时，服务端可为匿名管理浏览器签发短期访问上下文并返回对应 CSRF Token。
+- 前端不得把 CSRF Token 写入持久存储；Session 失效后必须丢弃旧 Token。
+- 鉴权配置读取失败时 `status` 安全失败，不得把 `enabled` 自动降级为 `false`。
+
+`POST /api/auth/setup` 与 `POST /api/auth/login` 请求：
+
+```json
+{
+  "password": "user-entered-password"
+}
+```
+
+- `setup` 必须在数据库事务中确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict`。
+- `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
+- 登录限速不得信任未经独立验证的 `X-Forwarded-For`。
+
+`PUT /api/auth/password` 请求：
+
+```json
+{
+  "currentPassword": "current-password",
+  "newPassword": "new-password"
+}
+```
+
+`PUT /api/auth/protection` 请求：
+
+```json
+{
+  "enabled": false,
+  "currentPassword": "current-password"
+}
+```
+
+- 密码修改、保护状态变更与本地重置必须递增 `authVersion` 并撤销已有 Session；修改密码成功时可只为当前请求签发新 Session。
+- 关闭保护不会删除密码哈希，也不会更改 JSON-RPC Token；重新启用保护仍需当前密码。
+- 密码明文、密码哈希、Session ID、Cookie 与 CSRF Token 不得写入日志、普通设置响应或调试日志。
+
+Session 与 Cookie 约定：
+
+- 密码使用 Argon2id 和随机 salt 保存不可逆哈希；Session ID 使用密码学安全随机源生成，仅在服务端内存保存。
+- Cookie 名固定为 `motrix_web_session`，只保存不透明 Session ID，并设置 `HttpOnly`、`SameSite=Strict`、`Path=/` 和固定最长有效期；请求确实通过 HTTPS 到达 server 时增加 `Secure`，不得仅信任客户端可伪造的代理 Header。
+- Session 同时受固定最长有效期和空闲超时限制；server 重启后允许全部失效，不提供永久 Session。
+- `POST`、`PUT`、`PATCH`、`DELETE` 等管理写操作必须校验与当前访问上下文绑定的 `X-CSRF-Token`，缺失或错误时返回结构化 `403 Forbidden`。
+- `/api/events` 必须校验 Session 或已关闭保护的匿名访问上下文；失效时返回 `401`，前端停止无限重连并回到登录页。
+
+统一鉴权错误示例：
+
+```json
+{
+  "code": "authentication_required",
+  "message": "请先登录 Web 管理界面"
+}
+```
+
+### 4.2 应用信息
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
@@ -105,7 +199,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - `GET /api/app/update-check` 由后端请求 GitHub Releases latest；网络失败或解析失败时仍返回 `200 OK`，`status` 为 `unavailable`，并给出可展示 `message`。
 - `assets` 只识别 `*_x86.fpk` 与 `*_arm.fpk`；无法识别的附件不返回给前端。
 
-### 4.2 Aria2
+### 4.3 Aria2
 
 | 方法 | 路径 | 说明 | 响应 |
 | --- | --- | --- | --- |
@@ -115,7 +209,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `POST` | `/api/aria2/start` | 启动受管 Aria2 | `Aria2ProcessStatus` |
 | `POST` | `/api/aria2/stop` | 停止受管 Aria2 | `Aria2ProcessStatus` |
 
-### 4.3 任务
+### 4.4 任务
 
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
@@ -267,20 +361,24 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - 成功后返回更新后的 `DownloadTask`，其中 `confirmationRequired=false`，任务进入下载中状态。
 - 本接口只负责确认文件并开始下载；磁链解析出的 `.torrent` 元数据由创建磁链任务时的 `bt-save-metadata` 选项触发保存。
 
-### 4.4 设置
+### 4.5 设置
 
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/settings` | - | `AppConfig` |
 | `PUT` | `/api/settings` | `AppConfig` | `AppConfig` |
+| `GET` | `/api/settings/jsonrpc-token` | - | `JsonRpcTokenStatus` |
+| `PUT` | `/api/settings/jsonrpc-token` | `UpdateJsonRpcTokenRequest` | `JsonRpcTokenStatus` |
 
 约定：
 
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
 - `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
-- `jsonRpcToken` 用于公网 `/jsonrpc` 添加任务鉴权；它不是 Aria2 RPC Secret，不会传给 Aria2，保存后立即生效且无需重启 Aria2。
-- `jsonRpcToken` 为空时，`/jsonrpc` 的 `aria2.addUri` 会拒绝添加任务；`aria2.getVersion` 仍可用于连通性测试。
+- `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
+- JSON-RPC Token 通过专用受保护接口更新；保存后立即生效且无需重启 Aria2。
+- `GET /api/settings/jsonrpc-token` 只返回是否已配置和掩码，不返回 Token 原文。
+- JSON-RPC Token 为空时，`/jsonrpc` 的 `aria2.addUri` 会拒绝添加任务；`aria2.getVersion` 仍可用于连通性测试。
 
 `AppConfig`：
 
@@ -290,12 +388,28 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
   "maxConcurrentDownloads": 5,
   "downloadLimit": 0,
   "uploadLimit": 0,
-  "language": "zh-CN",
-  "jsonRpcToken": ""
+  "language": "zh-CN"
 }
 ```
 
-### 4.5 调试日志
+`JsonRpcTokenStatus`：
+
+```json
+{
+  "configured": true,
+  "maskedToken": "••••••••a1b2"
+}
+```
+
+`UpdateJsonRpcTokenRequest`：
+
+```json
+{
+  "token": "new-json-rpc-token"
+}
+```
+
+### 4.6 调试日志
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
@@ -323,7 +437,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - 应用内调试日志面向用户排障，默认只保留关键生命周期、用户操作、警告和错误；高频健康检查等详细运行轨迹进入 `app/data/logs/server.log`。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
 
-### 4.6 存储目录
+### 4.7 存储目录
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
@@ -356,6 +470,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - 可见任务列表发生变化时推送 `tasks.snapshot`。
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
+- Session 失效时连接终止；重新订阅返回 `401 Unauthorized`，不会发送任务快照。
 
 `tasks.snapshot`：
 
@@ -376,7 +491,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 ## 6. JSON-RPC 兼容入口
 
-`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。Web UI 仍通过 `/api/*` 和 `/api/events` 工作。
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。它只注册在默认 `127.0.0.1:17081` 的 RPC 专用监听器；管理监听器 `17080` 上的同名路径必须为 404。Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -394,7 +509,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 鉴权约定：
 
-- `jsonRpcToken` 通过 `/api/settings` 保存，不是 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
+- `jsonRpcToken` 通过 `/api/settings/jsonrpc-token` 专用接口更新，不是 Web 管理密码或 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
 - `aria2.getVersion` 保持匿名可用，便于外网连通性测试。
 - `system.multicall` 外层 token 会被忽略；每个 `aria2.addUri` 子调用仍需在自身 `params` 中携带 token。
@@ -427,4 +542,4 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`。
-- 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；对公网开放独立端口前，必须确认 fnOS 网络、防火墙和反向代理访问控制。
+- 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
