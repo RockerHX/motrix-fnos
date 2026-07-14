@@ -10,6 +10,7 @@ use crate::settings::service::AppConfig;
 use axum::body::to_bytes;
 use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
 
@@ -22,7 +23,7 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
         .expect("index should write");
     std::fs::write(static_dir.join("assets/app.js"), b"console.log('motrix')")
         .expect("asset should write");
-    let app = router_with_static_dir(state, static_dir);
+    let app = management_router_with_static_dir(state, static_dir);
 
     for (uri, expected_body) in [
         ("/", "<html>motrix-ui</html>"),
@@ -58,9 +59,118 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
 }
 
 #[tokio::test]
+async fn management_router_rejects_jsonrpc_paths_without_cors() {
+    let state = test_state(None).await;
+    let static_dir = temp_dir("management-router-static");
+    std::fs::create_dir_all(&static_dir).expect("static dir should create");
+    std::fs::write(static_dir.join("index.html"), b"<html>motrix-ui</html>")
+        .expect("index should write");
+    let app = management_router_with_static_dir(state, static_dir);
+
+    for uri in ["/jsonrpc", "/jsonrpc/", "/jsonrpc/nested"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
+    }
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/app/ping")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response
+        .headers()
+        .get("access-control-allow-origin")
+        .is_none());
+}
+
+#[tokio::test]
+async fn jsonrpc_router_only_serves_the_exact_jsonrpc_path() {
+    let state = test_state(None).await;
+    let app = jsonrpc_router(state);
+
+    for uri in [
+        "/",
+        "/api/settings",
+        "/api/tasks",
+        "/api/events",
+        "/index.html",
+        "/assets/app.js",
+        "/jsonrpc/",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "uri: {uri}");
+    }
+
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/jsonrpc",
+            &json!({
+                "jsonrpc": "2.0",
+                "id": "version",
+                "method": "aria2.getVersion",
+                "params": []
+            }),
+        ))
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/jsonrpc")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("*")
+    );
+}
+
+#[tokio::test]
 async fn app_routes_return_expected_payloads() {
     let state = test_state(None).await;
-    let app = router(state);
+    let app = management_router(state);
 
     let info = response_json::<AppInfo>(
         app.clone()
@@ -114,7 +224,7 @@ async fn aria2_routes_return_status_payloads() {
     std::fs::write(&explicit_path, b"").expect("binary should exist");
 
     let state = test_state(Some(explicit_path.display().to_string())).await;
-    let app = router(state);
+    let app = management_router(state);
 
     let config = response_json::<Aria2ConfigStatus>(
         app.clone()
@@ -172,7 +282,7 @@ async fn aria2_routes_return_status_payloads() {
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();
-    let app = router(state);
+    let app = management_router(state);
 
     for uri in ["/api/aria2/start", "/api/aria2/stop"] {
         let error = response_json::<ErrorResponse>(
@@ -208,7 +318,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = router(state.clone());
+    let app = management_router(state.clone());
 
     let default_settings = response_json::<AppConfig>(
         app.clone()
@@ -284,7 +394,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
         .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = router(state);
+    let app = management_router(state);
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(json_request(
@@ -312,7 +422,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
 #[tokio::test]
 async fn ui_preferences_routes_are_not_exposed() {
     let state = test_state(None).await;
-    let app = router(state);
+    let app = management_router(state);
 
     for request in [
         Request::builder()
@@ -343,7 +453,7 @@ async fn storage_route_returns_accessible_paths_from_runtime_file() {
         r#"{"paths":["/vol1/downloads"," /vol1/media ","","/vol1/downloads"]}"#,
     )
     .expect("accessible paths file should write");
-    let app = router(state);
+    let app = management_router(state);
 
     let response = response_json::<AccessiblePathsResponse>(
         app.oneshot(
@@ -372,7 +482,7 @@ async fn task_route_logs_unauthorized_save_dir_failure() {
         r#"{"paths":["/vol1/downloads"]}"#,
     )
     .expect("accessible paths file should write");
-    let app = router(state.clone());
+    let app = management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(json_request(
@@ -400,7 +510,7 @@ async fn debug_log_routes_list_and_clear_entries() {
     let state = test_state(None).await;
     state.core.debug_logs.info("test", "first");
     state.core.debug_logs.warn("test", "second");
-    let app = router(state.clone());
+    let app = management_router(state.clone());
 
     let logs = response_json::<Vec<DebugLogEntry>>(
         app.clone()
@@ -435,7 +545,7 @@ async fn debug_log_routes_list_and_clear_entries() {
 #[tokio::test]
 async fn invalid_json_payload_uses_unified_error_response() {
     let state = test_state(None).await;
-    let app = router(state);
+    let app = management_router(state);
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(

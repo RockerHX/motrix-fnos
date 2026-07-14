@@ -323,7 +323,7 @@ pub async fn run_server() -> Result<(), String> {
     let state = bootstrap_http_app_state(&runtime).await?;
     crate::runtime::spawn_task_monitor(state.clone());
 
-    let router = crate::api::router(state.clone());
+    let router = crate::api::management_router(state.clone());
     let listener = TcpListener::bind(state.runtime.http_addr)
         .await
         .map_err(|error| {

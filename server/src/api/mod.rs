@@ -15,16 +15,21 @@ use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
+use axum::routing::any;
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
 
-pub fn router(state: Arc<HttpAppState>) -> Router {
-    router_with_static_dir(state, static_assets_dir())
+pub fn management_router(state: Arc<HttpAppState>) -> Router {
+    management_router_with_static_dir(state, static_assets_dir())
 }
 
-fn router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
+pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
+    Router::new().merge(jsonrpc::routes()).with_state(state)
+}
+
+fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     let index_file = static_dir.join("index.html");
     let api_routes = Router::new()
         .merge(app::routes())
@@ -38,7 +43,9 @@ fn router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Rout
 
     Router::new()
         .nest("/api", api_routes)
-        .merge(jsonrpc::routes())
+        .route("/jsonrpc", any(api_not_found))
+        .route("/jsonrpc/", any(api_not_found))
+        .route("/jsonrpc/*path", any(api_not_found))
         .fallback_service(ServeDir::new(static_dir).not_found_service(ServeFile::new(index_file)))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
