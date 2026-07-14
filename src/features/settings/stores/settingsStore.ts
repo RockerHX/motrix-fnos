@@ -57,6 +57,15 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
+  function clearSensitiveState() {
+    config.value = null;
+    accessiblePaths.value = [];
+    isLoading.value = false;
+    isLoadingAccessiblePaths.value = false;
+    isSaving.value = false;
+    accessiblePathsError.value = "";
+  }
+
   return {
     config,
     accessiblePaths,
@@ -67,6 +76,6 @@ export const useSettingsStore = defineStore("settings", () => {
     loadConfig,
     loadAccessiblePaths,
     saveConfig,
+    clearSensitiveState,
   };
 });
-

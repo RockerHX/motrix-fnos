@@ -40,6 +40,13 @@ export const useDebugLogStore = defineStore("debugLogs", () => {
     }
   }
 
+  function clearSensitiveState() {
+    logs.value = [];
+    isLoading.value = false;
+    isClearing.value = false;
+    errorMessage.value = "";
+  }
+
   return {
     logs,
     isLoading,
@@ -47,6 +54,6 @@ export const useDebugLogStore = defineStore("debugLogs", () => {
     errorMessage,
     refreshLogs,
     clearLogs,
+    clearSensitiveState,
   };
 });
-

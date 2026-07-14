@@ -1,14 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { httpDelete, httpGet, httpPost, httpPostFormData, httpPut } from "./http";
+import {
+  httpDelete,
+  httpGet,
+  httpPost,
+  httpPostFormData,
+  httpPut,
+  setCsrfTokenProvider,
+  setUnauthorizedHandler,
+} from "./http";
 
 describe("http client", () => {
   afterEach(() => {
     window.history.replaceState({}, "", "/");
     vi.unstubAllGlobals();
+    setCsrfTokenProvider(null);
+    setUnauthorizedHandler(null);
   });
 
   it("serializes JSON requests with a same-origin API path", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(httpPost<{ ok: boolean }>("/api/tasks", { url: "https://example.com/a.iso" })).resolves.toEqual({
@@ -17,6 +27,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "POST",
+      credentials: "same-origin",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: "https://example.com/a.iso" }),
     });
@@ -32,6 +43,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks/torrent", {
       method: "POST",
+      credentials: "same-origin",
       headers: {},
       body: formData,
     });
@@ -87,6 +99,43 @@ describe("http client", () => {
       status: 500,
       message: "请求失败（500）",
     });
+  });
+
+  it("adds an in-memory csrf token only to write requests", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    setCsrfTokenProvider(() => "csrf-value");
+
+    await httpGet("/api/tasks");
+    await httpPut("/api/settings", {});
+
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({});
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({
+      "content-type": "application/json",
+      "X-CSRF-Token": "csrf-value",
+    });
+  });
+
+  it("handles concurrent business 401 responses once and allows public auth requests to opt out", async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(jsonResponse({ code: "authentication_required", message: "请先登录" }, 401)),
+        ),
+    );
+
+    const results = await Promise.allSettled([httpGet("/api/tasks"), httpGet("/api/settings")]);
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(unauthorized).toHaveBeenCalledOnce();
+
+    await expect(httpPost("/api/auth/login", { password: "wrong" }, { handleUnauthorized: false })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(unauthorized).toHaveBeenCalledOnce();
   });
 });
 

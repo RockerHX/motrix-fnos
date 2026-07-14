@@ -268,6 +268,21 @@ export const useTaskStore = defineStore("tasks", () => {
     return messages;
   }
 
+  function clearSensitiveState() {
+    tasks.value = [];
+    removedTasks.value = [];
+    isCreating.value = false;
+    isRefreshing.value = false;
+    operatingTaskIds.value = [];
+    lastRefreshErrorAt.value = 0;
+    lastRemovedRefreshErrorAt.value = 0;
+    hasLoadedTasks.value = false;
+    pendingTaskErrorMessages.value = [];
+    isRuntimeExiting.value = false;
+    runtimeExitReason.value = "";
+    notifiedErrorTaskKeys.clear();
+  }
+
   function collectNewTaskErrorMessages(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
     const previousStatus = new Map(previousTasks.map((task) => [taskKey(task), task.status]));
     const messages: string[] = [];
@@ -318,6 +333,7 @@ export const useTaskStore = defineStore("tasks", () => {
     applyTaskSnapshot,
     markRuntimeExiting,
     consumeTaskErrorMessages,
+    clearSensitiveState,
     isTaskOperating,
   };
 });

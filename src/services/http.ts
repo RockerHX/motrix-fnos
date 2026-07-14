@@ -19,14 +19,30 @@ interface RequestOptions {
   body?: unknown;
   rawBody?: BodyInit;
   headers?: HeadersInit;
+  handleUnauthorized?: boolean;
+}
+
+let csrfTokenProvider: (() => string | null) | null = null;
+let unauthorizedHandler: (() => void | Promise<void>) | null = null;
+let isHandlingUnauthorized = false;
+
+export function setCsrfTokenProvider(provider: (() => string | null) | null) {
+  csrfTokenProvider = provider;
+}
+
+export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
+  unauthorizedHandler = handler;
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const hasJsonBody = options.body !== undefined;
+  const csrfToken = isWriteMethod(method) ? csrfTokenProvider?.() : null;
   const response = await fetch(path, {
     method,
+    credentials: "same-origin",
     headers: {
       ...(hasJsonBody ? { "content-type": "application/json" } : {}),
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...options.headers,
     },
     body: options.rawBody ?? (hasJsonBody ? JSON.stringify(options.body) : undefined),
@@ -47,10 +63,23 @@ async function request<T>(method: string, path: string, options: RequestOptions 
           code: "http_error",
           message: typeof payload === "string" && payload ? payload : `请求失败（${response.status}）`,
         };
-    throw new ApiError(response.status, errorPayload);
+    const error = new ApiError(response.status, errorPayload);
+    if (response.status === 401 && options.handleUnauthorized !== false && unauthorizedHandler && !isHandlingUnauthorized) {
+      isHandlingUnauthorized = true;
+      try {
+        await unauthorizedHandler();
+      } finally {
+        isHandlingUnauthorized = false;
+      }
+    }
+    throw error;
   }
 
   return payload as T;
+}
+
+function isWriteMethod(method: string) {
+  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
 function isApiErrorResponse(payload: unknown): payload is ApiErrorResponse {
@@ -62,20 +91,20 @@ function isApiErrorResponse(payload: unknown): payload is ApiErrorResponse {
   return typeof candidate.code === "string" && typeof candidate.message === "string";
 }
 
-export function httpGet<T>(path: string) {
-  return request<T>("GET", path);
+export function httpGet<T>(path: string, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+  return request<T>("GET", path, options);
 }
 
-export function httpPost<T>(path: string, body?: unknown) {
-  return request<T>("POST", path, { body });
+export function httpPost<T>(path: string, body?: unknown, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+  return request<T>("POST", path, { body, ...options });
 }
 
 export function httpPostFormData<T>(path: string, formData: FormData) {
   return request<T>("POST", path, { rawBody: formData });
 }
 
-export function httpPut<T>(path: string, body: unknown) {
-  return request<T>("PUT", path, { body });
+export function httpPut<T>(path: string, body: unknown, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+  return request<T>("PUT", path, { body, ...options });
 }
 
 export function httpDelete<T>(path: string) {
