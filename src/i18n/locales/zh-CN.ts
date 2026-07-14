@@ -15,6 +15,25 @@ export const zhCN = {
   "language.zhCN": "简体中文",
   "language.enUS": "English",
 
+  "auth.brandSubtitle": "飞牛 fnOS 下载管理应用",
+  "auth.loading": "正在确认管理访问权限",
+  "auth.loadFailed": "无法确认管理访问状态",
+  "auth.retry": "重试",
+  "auth.setup.title": "设置管理密码",
+  "auth.setup.description": "首次使用前请设置 Web 管理密码。密码只用于管理界面，不会替代 JSON-RPC Token。",
+  "auth.login.title": "登录 Motrix",
+  "auth.login.description": "请输入 Web 管理密码以访问任务和设置。",
+  "auth.password": "管理密码",
+  "auth.passwordConfirm": "确认密码",
+  "auth.passwordPlaceholder": "输入 12–128 个字符",
+  "auth.passwordRequired": "请输入管理密码",
+  "auth.passwordLength": "密码必须为 12–128 个字符，且不能超过 512 字节",
+  "auth.passwordMismatch": "两次输入的密码不一致",
+  "auth.setup.submit": "完成设置",
+  "auth.login.submit": "登录",
+  "auth.submitFailed": "鉴权操作失败",
+  "auth.language": "界面语言",
+
   "nav.all": "全部",
   "nav.downloading": "下载中",
   "nav.completed": "已完成",
@@ -315,4 +334,3 @@ export const zhCN = {
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;
-

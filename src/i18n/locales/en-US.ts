@@ -17,6 +17,25 @@ export const enUS: Record<TranslationKey, string> = {
   "language.zhCN": "简体中文",
   "language.enUS": "English",
 
+  "auth.brandSubtitle": "Download manager for fnOS",
+  "auth.loading": "Checking management access",
+  "auth.loadFailed": "Unable to verify management access",
+  "auth.retry": "Retry",
+  "auth.setup.title": "Set management password",
+  "auth.setup.description": "Create a Web management password before first use. It is separate from the JSON-RPC Token.",
+  "auth.login.title": "Sign in to Motrix",
+  "auth.login.description": "Enter the Web management password to access tasks and settings.",
+  "auth.password": "Management password",
+  "auth.passwordConfirm": "Confirm password",
+  "auth.passwordPlaceholder": "Enter 12–128 characters",
+  "auth.passwordRequired": "Enter the management password",
+  "auth.passwordLength": "Password must contain 12–128 characters and no more than 512 bytes",
+  "auth.passwordMismatch": "Passwords do not match",
+  "auth.setup.submit": "Finish setup",
+  "auth.login.submit": "Sign in",
+  "auth.submitFailed": "Authentication failed",
+  "auth.language": "Language",
+
   "nav.all": "All",
   "nav.downloading": "Downloading",
   "nav.completed": "Completed",
@@ -315,4 +334,3 @@ export const enUS: Record<TranslationKey, string> = {
   "logs.manualCopy.title": "Copy Debug Logs Manually",
   "logs.manualCopy.hint": "The fnOS embedded window blocked automatic clipboard writes. The text below is selected automatically. Press Command+C or Ctrl+C to copy it manually, or use Download Logs.",
 };
-
