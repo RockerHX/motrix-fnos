@@ -160,6 +160,148 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
     }
 }
 
+#[tokio::test]
+async fn listener_binding_fails_without_starting_jsonrpc_when_management_port_is_occupied() {
+    let occupied_management = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("management port should bind");
+    let management_addr = occupied_management
+        .local_addr()
+        .expect("management address should read");
+    let jsonrpc_addr = reserve_local_addr().await;
+    let runtime = listener_runtime(management_addr, jsonrpc_addr);
+
+    let error = bind_http_listeners(&runtime)
+        .await
+        .expect_err("management binding should fail");
+
+    assert!(error.contains("绑定管理监听地址失败"));
+    assert!(error.contains(&management_addr.to_string()));
+    TcpListener::bind(jsonrpc_addr)
+        .await
+        .expect("jsonrpc port should remain available");
+}
+
+#[tokio::test]
+async fn listener_binding_releases_management_when_jsonrpc_port_is_occupied() {
+    let management_addr = reserve_local_addr().await;
+    let occupied_jsonrpc = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("jsonrpc port should bind");
+    let jsonrpc_addr = occupied_jsonrpc
+        .local_addr()
+        .expect("jsonrpc address should read");
+    let runtime = listener_runtime(management_addr, jsonrpc_addr);
+
+    let error = bind_http_listeners(&runtime)
+        .await
+        .expect_err("jsonrpc binding should fail");
+
+    assert!(error.contains("绑定 JSON-RPC 监听地址失败"));
+    assert!(error.contains(&jsonrpc_addr.to_string()));
+    TcpListener::bind(management_addr)
+        .await
+        .expect("management port should be released after failure");
+}
+
+#[tokio::test]
+async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().expect("address should parse"),
+        "127.0.0.1:0".parse().expect("address should parse"),
+    );
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    let listeners = bind_http_listeners(&runtime)
+        .await
+        .expect("listeners should bind");
+    let management_addr = listeners
+        .management
+        .local_addr()
+        .expect("management address should read");
+    let jsonrpc_addr = listeners
+        .jsonrpc
+        .local_addr()
+        .expect("jsonrpc address should read");
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<String>();
+    let serving_state = state.clone();
+    let server = tokio::spawn(async move {
+        serve_http_listeners(serving_state, listeners, async move {
+            shutdown_receiver
+                .await
+                .map_err(|error| format!("测试停止信号丢失：{}", error))
+        })
+        .await
+    });
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{management_addr}/api/app/ping"))
+        .send()
+        .await
+        .expect("management API should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response = client
+        .post(format!("http://{management_addr}/jsonrpc"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "management-isolation",
+            "method": "aria2.getVersion",
+            "params": []
+        }))
+        .send()
+        .await
+        .expect("management jsonrpc request should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let response = client
+        .get(format!("http://{jsonrpc_addr}/api/app/ping"))
+        .send()
+        .await
+        .expect("jsonrpc management path should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    let response = client
+        .post(format!("http://{jsonrpc_addr}/jsonrpc"))
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "rpc-version",
+            "method": "system.unsupported",
+            "params": []
+        }))
+        .send()
+        .await
+        .expect("jsonrpc request should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .expect("jsonrpc response should deserialize");
+    assert_eq!(payload["id"], "rpc-version");
+    assert_eq!(payload["error"]["code"], -32601);
+
+    shutdown_sender
+        .send("测试双监听器停止".to_string())
+        .expect("shutdown signal should send");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("server should stop before timeout")
+        .expect("server task should join");
+    assert_eq!(result, Ok(()));
+
+    drop(client);
+    assert_listener_closed(management_addr).await;
+    assert_listener_closed(jsonrpc_addr).await;
+    let cleanup_count = state
+        .core
+        .debug_logs
+        .list()
+        .iter()
+        .filter(|entry| entry.module == "runtime.exit" && entry.message == "开始执行统一退出流程")
+        .count();
+    assert_eq!(cleanup_count, 1);
+}
+
 #[test]
 fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
     let app_data_dir =
@@ -255,6 +397,37 @@ fn sample_task() -> DownloadTask {
         files: Vec::new(),
         created_at: 100,
         updated_at: 101,
+    }
+}
+
+async fn reserve_local_addr() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("temporary port should bind");
+    listener.local_addr().expect("local address should read")
+}
+
+async fn assert_listener_closed(addr: SocketAddr) {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_millis(250),
+        tokio::net::TcpStream::connect(addr),
+    )
+    .await;
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "listener should reject new connections: {addr}"
+    );
+}
+
+fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRuntimeConfig {
+    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-listeners-{}", now_ms()));
+    ServerRuntimeConfig {
+        database_path: app_data_dir.join(DATABASE_FILE_NAME),
+        accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        app_data_dir,
+        http_addr,
+        jsonrpc_addr,
+        aria2_path: None,
     }
 }
 

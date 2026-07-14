@@ -11,11 +11,12 @@ use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
@@ -337,42 +338,172 @@ fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
 pub async fn run_server() -> Result<(), String> {
     let runtime = ServerRuntimeConfig::from_env()?;
     let state = bootstrap_http_app_state(&runtime).await?;
+    let listeners = bind_http_listeners(&runtime).await?;
     crate::runtime::spawn_task_monitor(state.clone());
 
-    let router = crate::api::management_router(state.clone());
-    let listener = TcpListener::bind(state.runtime.http_addr)
-        .await
-        .map_err(|error| {
-            format!(
-                "绑定 HTTP 监听地址失败：{}（{}）",
-                state.runtime.http_addr, error
-            )
-        })?;
     state.core.debug_logs.info(
         "app",
         format!(
-            "独立 server 入口已初始化，监听地址 {}，数据目录 {}",
+            "管理服务入口已初始化，监听地址 {}，数据目录 {}",
             state.runtime.http_addr,
             state.runtime.app_data_dir.display()
         ),
     );
-    axum::serve(listener, router)
-        .with_graceful_shutdown(wait_for_shutdown_signal(state.clone()))
-        .await
-        .map_err(|error| format!("HTTP 服务运行失败：{}", error))
+    state.core.debug_logs.info(
+        "app",
+        format!(
+            "JSON-RPC 专用入口已初始化，监听地址 {}",
+            state.runtime.jsonrpc_addr
+        ),
+    );
+
+    serve_http_listeners(state, listeners, wait_for_shutdown_signal()).await
 }
 
-async fn wait_for_shutdown_signal(state: Arc<HttpAppState>) {
-    match tokio::signal::ctrl_c().await {
-        Ok(()) => {
-            state.request_shutdown("收到停止信号");
-            crate::runtime::run_shutdown_cleanup(&state).await;
+#[derive(Debug)]
+struct HttpListeners {
+    management: TcpListener,
+    jsonrpc: TcpListener,
+}
+
+async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListeners, String> {
+    let management = TcpListener::bind(runtime.http_addr)
+        .await
+        .map_err(|error| format!("绑定管理监听地址失败：{}（{}）", runtime.http_addr, error))?;
+    let jsonrpc = TcpListener::bind(runtime.jsonrpc_addr)
+        .await
+        .map_err(|error| {
+            format!(
+                "绑定 JSON-RPC 监听地址失败：{}（{}）",
+                runtime.jsonrpc_addr, error
+            )
+        })?;
+
+    Ok(HttpListeners {
+        management,
+        jsonrpc,
+    })
+}
+
+enum HttpStopTrigger {
+    Signal(Result<String, String>),
+    Management(std::io::Result<()>),
+    JsonRpc(std::io::Result<()>),
+}
+
+async fn serve_http_listeners<F>(
+    state: Arc<HttpAppState>,
+    listeners: HttpListeners,
+    shutdown_signal: F,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<String, String>>,
+{
+    let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+    let management_server = axum::serve(
+        listeners.management,
+        crate::api::management_router(state.clone()),
+    )
+    .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
+    .into_future();
+    let jsonrpc_server = axum::serve(listeners.jsonrpc, crate::api::jsonrpc_router(state.clone()))
+        .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver))
+        .into_future();
+
+    tokio::pin!(management_server);
+    tokio::pin!(jsonrpc_server);
+    tokio::pin!(shutdown_signal);
+
+    let trigger = tokio::select! {
+        signal = &mut shutdown_signal => HttpStopTrigger::Signal(signal),
+        result = &mut management_server => HttpStopTrigger::Management(result),
+        result = &mut jsonrpc_server => HttpStopTrigger::JsonRpc(result),
+    };
+
+    let (reason, primary_error) = match &trigger {
+        HttpStopTrigger::Signal(Ok(reason)) => (reason.clone(), None),
+        HttpStopTrigger::Signal(Err(error)) => (
+            "等待停止信号失败，准备关闭服务".to_string(),
+            Some(error.clone()),
+        ),
+        HttpStopTrigger::Management(Ok(())) => (
+            "管理 HTTP 服务意外停止".to_string(),
+            Some("管理 HTTP 服务意外停止".to_string()),
+        ),
+        HttpStopTrigger::Management(Err(error)) => (
+            "管理 HTTP 服务运行失败，准备关闭 JSON-RPC 服务".to_string(),
+            Some(format!("管理 HTTP 服务运行失败：{}", error)),
+        ),
+        HttpStopTrigger::JsonRpc(Ok(())) => (
+            "JSON-RPC HTTP 服务意外停止".to_string(),
+            Some("JSON-RPC HTTP 服务意外停止".to_string()),
+        ),
+        HttpStopTrigger::JsonRpc(Err(error)) => (
+            "JSON-RPC HTTP 服务运行失败，准备关闭管理服务".to_string(),
+            Some(format!("JSON-RPC HTTP 服务运行失败：{}", error)),
+        ),
+    };
+
+    state.request_shutdown(reason);
+    crate::runtime::run_shutdown_cleanup(&state).await;
+    let _ = shutdown_sender.send(true);
+
+    let remaining_error = match trigger {
+        HttpStopTrigger::Signal(_) => {
+            let (management_result, jsonrpc_result) =
+                tokio::join!(&mut management_server, &mut jsonrpc_server);
+            combine_server_errors(management_result, jsonrpc_result)
         }
-        Err(error) => state
-            .core
-            .debug_logs
-            .error("runtime.exit", format!("等待停止信号失败：{}", error)),
+        HttpStopTrigger::Management(_) => jsonrpc_server
+            .await
+            .err()
+            .map(|error| format!("JSON-RPC HTTP 服务停止失败：{}", error)),
+        HttpStopTrigger::JsonRpc(_) => management_server
+            .await
+            .err()
+            .map(|error| format!("管理 HTTP 服务停止失败：{}", error)),
+    };
+
+    match (primary_error, remaining_error) {
+        (Some(primary), Some(remaining)) => Err(format!("{}；{}", primary, remaining)),
+        (Some(error), None) | (None, Some(error)) => Err(error),
+        (None, None) => Ok(()),
     }
+}
+
+fn combine_server_errors(
+    management: std::io::Result<()>,
+    jsonrpc: std::io::Result<()>,
+) -> Option<String> {
+    let management = management
+        .err()
+        .map(|error| format!("管理 HTTP 服务停止失败：{}", error));
+    let jsonrpc = jsonrpc
+        .err()
+        .map(|error| format!("JSON-RPC HTTP 服务停止失败：{}", error));
+    match (management, jsonrpc) {
+        (Some(management), Some(jsonrpc)) => Some(format!("{}；{}", management, jsonrpc)),
+        (Some(error), None) | (None, Some(error)) => Some(error),
+        (None, None) => None,
+    }
+}
+
+async fn wait_for_http_shutdown(mut receiver: watch::Receiver<bool>) {
+    if *receiver.borrow() {
+        return;
+    }
+    while receiver.changed().await.is_ok() {
+        if *receiver.borrow() {
+            return;
+        }
+    }
+}
+
+async fn wait_for_shutdown_signal() -> Result<String, String> {
+    tokio::signal::ctrl_c()
+        .await
+        .map(|()| "收到停止信号".to_string())
+        .map_err(|error| format!("等待停止信号失败：{}", error))
 }
 
 fn default_local_app_data_dir() -> PathBuf {
