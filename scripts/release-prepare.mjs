@@ -10,6 +10,11 @@ import {
   compareReleaseVersions,
   normalizeGeneratedChangelog,
 } from './script-utils.mjs';
+import {
+  buildChangelogPrompt,
+  collectReleaseChangeContext,
+  readReleaseCommits,
+} from './release-changelog-context.mjs';
 
 const options = parseArgs(process.argv.slice(2));
 
@@ -134,40 +139,28 @@ function tagExists(tag) {
 }
 
 function readCommits(baseRef) {
-  const output = git(['log', `${baseRef}..HEAD`, '--no-merges', '--pretty=format:%h%x09%s']);
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [hash, ...subjectParts] = line.split('\t');
-      return { hash, subject: subjectParts.join('\t').trim() };
-    });
+  return readReleaseCommits(repoRoot, baseRef);
 }
 
 async function generateChangelogBody(version, baseRef, commits) {
   if (process.env.MOTRIX_RELEASE_CHANGELOG_PROVIDER === 'github-models') {
     const model = process.env.MOTRIX_RELEASE_CHANGELOG_MODEL ?? 'openai/gpt-4o-mini';
-    try {
-      const body = await generateChangelogWithGitHubModels({ version, baseRef, commits, model });
-      return { body, source: `GitHub Models (${model})` };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`GitHub Models 生成 CHANGELOG 失败，回退到 commit log 归类：${message}`);
-    }
+    const changeContext = collectReleaseChangeContext({ repoRoot, baseRef, commits });
+    const body = await generateChangelogWithGitHubModels({ version, baseRef, changeContext, model });
+    return { body, source: `GitHub Models (${model})` };
   }
 
   console.warn(`CHANGELOG.md 未包含 ${version} 条目，使用 commit log 生成确定性 CHANGELOG 草稿。`);
   return { body: fallbackChangelog(commits), source: 'commit log 生成' };
 }
 
-async function generateChangelogWithGitHubModels({ version, baseRef, commits, model }) {
+async function generateChangelogWithGitHubModels({ version, baseRef, changeContext, model }) {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   if (!token) {
     throw new Error('缺少 GITHUB_TOKEN/GH_TOKEN');
   }
 
-  const prompt = buildChangelogPrompt({ version, baseRef, commits });
+  const prompt = buildChangelogPrompt({ version, baseRef, changeContext });
   const response = await fetch('https://models.github.ai/inference/chat/completions', {
     method: 'POST',
     headers: {
@@ -199,29 +192,6 @@ async function generateChangelogWithGitHubModels({ version, baseRef, commits, mo
   }
 
   return normalizeGeneratedChangelog(content);
-}
-
-function buildChangelogPrompt({ version, baseRef, commits }) {
-  const commitLines = commits
-    .filter((commit) => !isReleaseNoiseCommit(commit.subject))
-    .map((commit) => `- ${commit.hash} ${commit.subject}`)
-    .join('\n');
-
-  return `请根据以下 Git commit 为 motrix-fnos 生成 ${version} 版本的中文 CHANGELOG。
-
-要求：
-- 只返回 Markdown 正文，不要返回版本标题。
-- 使用这些分组标题中的一种或多种：### 新增、### 改进、### 修复、### 文档。
-- 每条使用简洁中文 bullet。
-- 不要夸大 commit 中没有体现的内容。
-- 不要提及 commit hash。
-- 如果只有 CI、发版流程或工程化改动，请归类到“### 改进”。
-
-范围：${baseRef}..HEAD
-
-Commits:
-${commitLines || '- 无非发版维护提交'}
-`;
 }
 
 function fallbackChangelog(commits) {
