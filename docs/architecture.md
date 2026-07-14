@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：fnOS 桌面入口打开应用 TCP 服务端口，同一 Rust server 承载 Web UI、HTTP API、SSE 与带 token 的 JSON-RPC 兼容入口。
+- 前后端通信：同一 Rust server 共享业务状态并启动两个 TCP 监听器；管理监听器承载 Web UI、HTTP API 与 SSE，RPC 专用监听器只承载带 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -30,8 +30,8 @@
 fnOS FPK
   ├─ manifest / config / cmd / wizard / icons
   ├─ Rust server
-  │   ├─ Axum HTTP API
-  │   ├─ SSE 事件流
+  │   ├─ 管理监听器（Web UI、HTTP API、SSE）
+  │   ├─ RPC 专用监听器（仅 /jsonrpc）
   │   ├─ Aria2 Next 进程管理
   │   ├─ SQLite 持久化
   │   └─ 调试日志与运行状态
@@ -46,8 +46,10 @@ fnOS FPK
 - x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
 - fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
-- Web UI、HTTP API、SSE 与 `/jsonrpc` 使用 manifest `service_port` 对应的同一服务端口；FPK 桌面入口必须与该监听地址保持一致。
-- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，后端不得伪装成已接入统一网关鉴权。
+- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，不注册 `/jsonrpc`。
+- RPC 专用监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
+- 两个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
+- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
 
 ## 4. 分层职责
 
@@ -101,6 +103,7 @@ server/
     app/
     state/
     api/
+    auth/
     runtime/
     tasks/
       service.rs
@@ -121,6 +124,7 @@ server/
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
+- `auth/` 负责 Web 管理密码、服务端 Session、CSRF 校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
 - 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
 - `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
 - `tasks/service.rs` 只保留 `TaskService` 依赖注入、运行态守卫和查询委托；创建、查询、控制、删除与磁链确认流程分别由 `tasks/service/` 子模块承载。
@@ -134,8 +138,8 @@ server/
 Vue Component
   -> Pinia Store
   -> Feature Service
-  -> HTTP client
-  -> Axum Route
+  -> HTTP client（Web Session + 写操作 CSRF）
+  -> 管理监听器 Axum Route
   -> Rust Service / Repository
   -> Aria2 JSON-RPC / SQLite
 ```
@@ -168,6 +172,7 @@ Rust Runtime Event
 ## 8. 生命周期与安全边界
 
 - 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
+- 管理监听器与 RPC 专用监听器必须在业务服务就绪后共同启动；任一监听器启动失败都不得留下半可用进程。
 - PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
 - 后端启动时准备数据目录、初始化 SQLite、启动或连接 Aria2。
 - 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
@@ -175,7 +180,10 @@ Rust Runtime Event
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- FPK 的管理 UI、HTTP API、SSE 与 JSON-RPC 由同一个 Rust TCP listener 提供；桌面入口权限控制可见范围，JSON-RPC 写操作继续使用独立 token。
+- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；明文密码、密码哈希、Session ID 与 CSRF Token 不得通过普通设置接口返回或写入日志。
+- 管理 API 与 SSE 默认要求有效的服务端 Web Session；管理写操作还必须校验 CSRF Token。首次启动必须完成密码初始化，关闭管理保护必须验证当前密码并使已有 Session 失效。
+- JSON-RPC Token 与 Web 管理密码是两套独立凭据。JSON-RPC 写操作继续校验独立 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
+- 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
 - 日志必须隐藏私密 URL query 和敏感配置。
 
 ## 9. fnOS 平台查证规则
