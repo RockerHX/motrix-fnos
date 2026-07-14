@@ -7,6 +7,7 @@ export const versionFiles = {
   packageJson: path.join(repoRoot, 'package.json'),
   cargoToml: path.join(repoRoot, 'server', 'Cargo.toml'),
   manifestTemplate: path.join(repoRoot, 'packaging', 'fnos', 'manifest.template'),
+  uiConfig: path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'config'),
 };
 
 export function assertReleaseVersion(version) {
@@ -15,45 +16,51 @@ export function assertReleaseVersion(version) {
   }
 }
 
-export function readProjectVersions() {
-  const packageJson = readJson(versionFiles.packageJson);
-  const cargoToml = readText(versionFiles.cargoToml);
-  const manifestTemplate = readText(versionFiles.manifestTemplate);
+export function readProjectVersions(files = versionFiles) {
+  const packageJson = readJson(files.packageJson);
+  const cargoToml = readText(files.cargoToml);
+  const manifestTemplate = readText(files.manifestTemplate);
+  const uiConfig = readJson(files.uiConfig);
 
   return {
     packageJson: packageJson.version,
-    cargoToml: matchRequired(cargoToml, /^version\s*=\s*"([^"]+)"/m, versionFiles.cargoToml),
-    manifestTemplate: matchRequired(manifestTemplate, /^version\s*=\s*(\S+)/m, versionFiles.manifestTemplate),
+    cargoToml: matchRequired(cargoToml, /^version\s*=\s*"([^"]+)"/m, files.cargoToml),
+    manifestTemplate: matchRequired(manifestTemplate, /^version\s*=\s*(\S+)/m, files.manifestTemplate),
+    uiConfig: readUiCacheVersion(uiConfig, files.uiConfig),
   };
 }
 
-export function setProjectVersion(version) {
+export function setProjectVersion(version, files = versionFiles) {
   assertReleaseVersion(version);
 
-  const packageJson = readJson(versionFiles.packageJson);
+  const packageJson = readJson(files.packageJson);
   packageJson.version = version;
-  writeJson(versionFiles.packageJson, packageJson);
+  writeJson(files.packageJson, packageJson);
 
   writeText(
-    versionFiles.cargoToml,
+    files.cargoToml,
     replaceRequired(
-      readText(versionFiles.cargoToml),
+      readText(files.cargoToml),
       /^version\s*=\s*"[^"]+"/m,
       `version = "${version}"`,
-      versionFiles.cargoToml,
+      files.cargoToml,
     ),
   );
 
   writeText(
-    versionFiles.manifestTemplate,
+    files.manifestTemplate,
     replaceRequired(
-      readText(versionFiles.manifestTemplate),
+      readText(files.manifestTemplate),
       /^version\s*=.*$/m,
       `version               = ${version}`,
-      versionFiles.manifestTemplate,
+      files.manifestTemplate,
     ),
   );
 
+  const uiConfig = readJson(files.uiConfig);
+  const uiEntry = readUiEntry(uiConfig, files.uiConfig);
+  uiEntry.url = `/?v=${version}`;
+  writeJson(files.uiConfig, uiConfig);
 }
 
 export function findVersionMismatches(versions) {
@@ -77,6 +84,22 @@ function readJson(filePath) {
 
 function writeJson(filePath, value) {
   writeText(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function readUiCacheVersion(uiConfig, filePath) {
+  const url = readUiEntry(uiConfig, filePath).url;
+  if (typeof url !== 'string') {
+    throw new Error(`无法读取版本号：${filePath}`);
+  }
+  return matchRequired(url, /^\/\?v=(\d+\.\d+\.\d+)$/, filePath);
+}
+
+function readUiEntry(uiConfig, filePath) {
+  const entry = uiConfig?.['.url']?.['motrix.fnos.main'];
+  if (!entry || typeof entry !== 'object') {
+    throw new Error(`无法读取版本号：${filePath}`);
+  }
+  return entry;
 }
 
 function matchRequired(content, pattern, filePath) {

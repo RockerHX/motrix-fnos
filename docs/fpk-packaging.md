@@ -40,7 +40,7 @@
 
 ## 当前产物
 
-默认命令会同时生成 x86 与 ARM 两个 FPK，`<version>` 来自核心版本源；Release workflow 会校验 `package.json`、`server/Cargo.toml` 与 `packaging/fnos/manifest.template` 保持一致：
+默认命令会同时生成 x86 与 ARM 两个 FPK，`<version>` 来自核心版本源；Release workflow 会校验 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest.template` 与 `packaging/fnos/app/ui/config` 的入口缓存版本保持一致：
 
 - x86：`packaging/fnos/dist/motrix.fnos_<version>_x86.fpk`
 - ARM：`packaging/fnos/dist/motrix.fnos_<version>_arm.fpk`

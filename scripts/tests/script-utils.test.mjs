@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
   classifyCommit,
@@ -13,7 +16,12 @@ import {
   upsertManifestField,
   validatePortEntry,
 } from '../script-utils.mjs';
-import { assertReleaseVersion, findVersionMismatches } from '../version-utils.mjs';
+import {
+  assertReleaseVersion,
+  findVersionMismatches,
+  readProjectVersions,
+  setProjectVersion,
+} from '../version-utils.mjs';
 
 test('版本号校验与比较使用语义化数字段', () => {
   assert.doesNotThrow(() => assertReleaseVersion('1.10.0'));
@@ -29,9 +37,47 @@ test('版本一致性检查列出所有偏离 package.json 的来源', () => {
       packageJson: '1.7.0',
       cargoToml: '1.7.0',
       manifestTemplate: '1.6.0',
+      uiConfig: '1.6.1',
     }),
-    [{ source: 'manifestTemplate', version: '1.6.0', expected: '1.7.0' }],
+    [
+      { source: 'manifestTemplate', version: '1.6.0', expected: '1.7.0' },
+      { source: 'uiConfig', version: '1.6.1', expected: '1.7.0' },
+    ],
   );
+});
+
+test('版本同步同时更新 package、Cargo、manifest 与 UI cache', () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'motrix-version-'));
+  const files = {
+    packageJson: path.join(fixtureRoot, 'package.json'),
+    cargoToml: path.join(fixtureRoot, 'server', 'Cargo.toml'),
+    manifestTemplate: path.join(fixtureRoot, 'packaging', 'fnos', 'manifest.template'),
+    uiConfig: path.join(fixtureRoot, 'packaging', 'fnos', 'app', 'ui', 'config'),
+  };
+
+  try {
+    mkdirSync(path.dirname(files.cargoToml), { recursive: true });
+    mkdirSync(path.dirname(files.uiConfig), { recursive: true });
+    writeFileSync(files.packageJson, '{\n  "version": "1.7.1"\n}\n');
+    writeFileSync(files.cargoToml, '[package]\nversion = "1.7.1"\n');
+    writeFileSync(files.manifestTemplate, 'appname               = motrix.fnos\nversion               = 1.7.1\n');
+    writeFileSync(
+      files.uiConfig,
+      `${JSON.stringify({ '.url': { 'motrix.fnos.main': { url: '/?v=1.7.1' } } }, null, 2)}\n`,
+    );
+
+    setProjectVersion('1.7.2', files);
+
+    assert.deepEqual(readProjectVersions(files), {
+      packageJson: '1.7.2',
+      cargoToml: '1.7.2',
+      manifestTemplate: '1.7.2',
+      uiConfig: '1.7.2',
+    });
+    assert.equal(JSON.parse(readFileSync(files.uiConfig, 'utf8'))['.url']['motrix.fnos.main'].url, '/?v=1.7.2');
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test('端口入口与 server listener 保持一致并拒绝混入网关字段', () => {
