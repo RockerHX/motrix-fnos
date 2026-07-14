@@ -8,7 +8,7 @@
 
 ## 已查证约束
 
-截至 2026-07-14，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准：
+截至 2026-07-14，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；本轮双监听器交付前已重新读取下列 Manifest、应用框架、fnpack 与应用入口页面：
 
 - 官方 Manifest 文档明确了 `platform=x86|arm|all`、`os_min_version`、`service_port` 等字段，但**没有文档化 `arch` 字段**。当前仓库仍保留 x86 staging 中的 `arch = x86_64`，直到官方资料或实机验证证明可删。
 - 官方应用框架文档列出了 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*`、`config_*` 生命周期脚本。
@@ -22,6 +22,7 @@
 - Web UI 构建保持相对基址 `./`，确保从端口入口根路径加载静态资源。
 - 桌面入口默认 `allUsers=false`，但 `control.accessPerm=editable`，允许管理员在应用设置中切换“仅管理员 / 设备内所有用户”。端口模式不提供可信 `X-Trim-*` Header，后端不得依赖统一网关身份。
 - `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
+- 官方入口和 manifest 只描述对外服务端口，不提供“仅供应用内本机反代”的第二端口声明。Motrix 因此只把管理端口 `17080` 注册给 fnOS；JSON-RPC 专用端口 `17081` 由 server 在回环地址监听，不注册为平台资源。
 
 如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：
 
@@ -49,6 +50,23 @@
 
 - x86：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
 - ARM：`server/target/aarch64-unknown-linux-gnu/release/motrix-fnos-server`
+
+## 双监听器与端口边界
+
+FPK 启动脚本必须向同一个 Rust server 注入两个地址：
+
+| 环境变量 | FPK 默认值 | 平台可见性 |
+| --- | --- | --- |
+| `MOTRIX_FNOS_HTTP_ADDR` | `0.0.0.0:17080` | manifest、桌面入口和 `MotrixFNOS.sc` 只映射该管理端口 |
+| `MOTRIX_FNOS_JSONRPC_ADDR` | `127.0.0.1:17081` | 仅 NAS 本机反向代理可访问，不进入任何 fnOS 端口声明 |
+
+固定规则：
+
+- `manifest.service_port`、`app/ui/config` 的 iframe 入口端口以及 `MotrixFNOS.sc` 的源/目标端口必须都是 `17080`。
+- `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
+- `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
+- 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
+- FPK 日志可以记录两个监听地址，但不得记录 Web 密码、Session、CSRF、JSON-RPC Token 或 Aria2 secret。
 
 设备架构必须匹配：
 
@@ -153,6 +171,30 @@ rtk pnpm run verify:pre-commit
 rtk pnpm run verify
 ```
 
+双架构预组装并执行端口预检：
+
+```bash
+rtk pnpm run build:fpk:prepare
+```
+
+预组装后应分别检查 `.stage/x86` 和 `.stage/arm`：
+
+```bash
+rtk rg -n '17080|17081' packaging/fnos/.stage/x86/manifest packaging/fnos/.stage/x86/MotrixFNOS.sc packaging/fnos/.stage/x86/app/ui/config packaging/fnos/.stage/x86/config/resource
+rtk rg -n 'MOTRIX_FNOS_(HTTP|JSONRPC)_ADDR' packaging/fnos/.stage/x86/cmd/common.sh
+rtk file packaging/fnos/.stage/x86/app/bin/motrix-fnos-server packaging/fnos/.stage/arm/app/bin/motrix-fnos-server
+```
+
+预期 `17081` 不出现在任何平台端口声明中，只出现在生命周期脚本的回环监听默认值中；两个 staged `app/data/` 目录均为空。
+
+完整构建后可在临时目录解包，不要直接修改产物：
+
+```bash
+mkdir -p /tmp/motrix-fpk-check/x86 /tmp/motrix-fpk-check/arm
+tar -xzf packaging/fnos/dist/motrix.fnos_<version>_x86.fpk -C /tmp/motrix-fpk-check/x86
+tar -xzf packaging/fnos/dist/motrix.fnos_<version>_arm.fpk -C /tmp/motrix-fpk-check/arm
+```
+
 ## 打包目录
 
 当前 FPK 主目录：
@@ -227,6 +269,20 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
 - 卸载向导的 `switch` 不要设置`initValue`初始值，字符串使用什么字符串的初始值都不对，感觉是开发者文档有问题，如果设置布尔值会导致打包失败。
+
+### 升级前备份与回滚
+
+- 实机升级前先停止应用，再备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。
+- 记录升级前的任务数量、下载设置、授权目录、Aria2 session 校验值和 JSON-RPC Token“是否已配置”，不要把 Token 原文写入验证记录。
+- 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；避免把公网流量提前指向尚未监听的端口。
+- 回滚需要恢复旧 FPK 和升级前应用数据备份，并将 Lucky 后端恢复为旧版对应地址；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
+
+### 验证结论分级
+
+- “本地构建通过”只表示自动化测试、双架构交叉编译、FPK 预检、解包和静态内容检查通过。
+- “ARM/x86 实机通过”必须分别完成对应架构的安装或升级、启动/停止、监听地址、管理登录、数据保留和恢复命令验证。
+- “公网链路通过”还必须在真实 IPv4-only 与原生 IPv6 网络完成 Cloudflare、Lucky、HTTP、CORS 和 WebSocket 矩阵。
+- 未取得实机或外网证据时，只能记录为“待验证”，不得由本地构建结果推断通过。
 
 ## 生命周期实机验证矩阵
 
