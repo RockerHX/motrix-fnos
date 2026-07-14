@@ -17,6 +17,7 @@ fn runtime_config_uses_explicit_env_values() {
 
     std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
     std::env::set_var(HTTP_ADDR_ENV, "127.0.0.1:18080");
+    std::env::set_var(JSONRPC_ADDR_ENV, "127.1.2.3:18081");
     std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
 
@@ -32,12 +33,57 @@ fn runtime_config_uses_explicit_env_values() {
         config.app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME)
     );
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
+    assert_eq!(config.jsonrpc_addr.to_string(), "127.1.2.3:18081");
     assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
 
     std::env::remove_var(APP_DATA_DIR_ENV);
     std::env::remove_var(HTTP_ADDR_ENV);
+    std::env::remove_var(JSONRPC_ADDR_ENV);
     std::env::remove_var(ARIA2_PATH_ENV);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
+}
+
+#[test]
+fn runtime_config_uses_default_listener_addresses() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    let temp_dir = std::env::temp_dir().join(format!("motrix-fnos-default-config-{}", now_ms()));
+    std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
+    std::env::remove_var(HTTP_ADDR_ENV);
+    std::env::remove_var(JSONRPC_ADDR_ENV);
+
+    let config = ServerRuntimeConfig::from_env().expect("config should load");
+
+    assert_eq!(config.http_addr.to_string(), DEFAULT_HTTP_ADDR);
+    assert_eq!(config.jsonrpc_addr.to_string(), DEFAULT_JSONRPC_ADDR);
+
+    std::env::remove_var(APP_DATA_DIR_ENV);
+}
+
+#[test]
+fn runtime_config_rejects_invalid_or_non_loopback_jsonrpc_addresses() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    for (value, expected_message) in [
+        ("not-an-address", "解析 JSON-RPC 监听地址失败"),
+        ("0.0.0.0:17081", "JSON-RPC 监听地址必须使用回环 IP"),
+        ("192.168.1.10:17081", "JSON-RPC 监听地址必须使用回环 IP"),
+        ("203.0.113.10:17081", "JSON-RPC 监听地址必须使用回环 IP"),
+    ] {
+        std::env::set_var(JSONRPC_ADDR_ENV, value);
+        let error = ServerRuntimeConfig::from_env().expect_err("address should be rejected");
+        assert!(error.contains(expected_message), "error: {error}");
+    }
+    std::env::remove_var(JSONRPC_ADDR_ENV);
+}
+
+#[test]
+fn runtime_config_accepts_ipv4_and_ipv6_loopback_jsonrpc_addresses() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    for value in ["127.0.0.1:17081", "[::1]:17081"] {
+        std::env::set_var(JSONRPC_ADDR_ENV, value);
+        let config = ServerRuntimeConfig::from_env().expect("loopback address should load");
+        assert!(config.jsonrpc_addr.ip().is_loopback());
+    }
+    std::env::remove_var(JSONRPC_ADDR_ENV);
 }
 
 #[test]
@@ -52,6 +98,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
                 app_data_dir: app_data_dir.clone(),
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+                jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 aria2_path: None,
             };
 
@@ -90,6 +137,7 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
         accessible_paths_path: temp_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
         app_data_dir: temp_dir,
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
     };
     let database = tokio::runtime::Runtime::new()

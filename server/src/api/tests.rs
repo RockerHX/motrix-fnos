@@ -2,7 +2,9 @@ use super::*;
 use crate::api::app::{AppInfo, BackendPing};
 use crate::api::error::ErrorResponse;
 use crate::api::storage::AccessiblePathsResponse;
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
@@ -572,6 +574,7 @@ async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: aria2_path.map(PathBuf::from),
     };
 

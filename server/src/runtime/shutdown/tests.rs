@@ -1,5 +1,7 @@
 use super::*;
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::config::aria2::Aria2BinarySource;
 use crate::database::tasks::list_download_tasks;
 use crate::runtime::ManagedAria2Process;
@@ -81,6 +83,7 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
     };
     let state = bootstrap_http_app_state(&runtime)

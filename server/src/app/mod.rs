@@ -19,8 +19,10 @@ use tokio::sync::broadcast;
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
+pub const JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_JSONRPC_ADDR";
 pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
-pub const DEFAULT_HTTP_ADDR: &str = "127.0.0.1:17080";
+pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
+pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
@@ -29,6 +31,7 @@ pub struct ServerRuntimeConfig {
     pub app_data_dir: PathBuf,
     pub database_path: PathBuf,
     pub http_addr: SocketAddr,
+    pub jsonrpc_addr: SocketAddr,
     pub aria2_path: Option<PathBuf>,
     pub accessible_paths_path: PathBuf,
 }
@@ -45,7 +48,19 @@ impl ServerRuntimeConfig {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| DEFAULT_HTTP_ADDR.to_string())
             .parse::<SocketAddr>()
-            .map_err(|error| format!("解析 HTTP 监听地址失败：{}", error))?;
+            .map_err(|error| format!("解析管理监听地址失败：{}", error))?;
+        let jsonrpc_addr = env::var(JSONRPC_ADDR_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_JSONRPC_ADDR.to_string())
+            .parse::<SocketAddr>()
+            .map_err(|error| format!("解析 JSON-RPC 监听地址失败：{}", error))?;
+        if !jsonrpc_addr.ip().is_loopback() {
+            return Err(format!(
+                "JSON-RPC 监听地址必须使用回环 IP：{}",
+                jsonrpc_addr
+            ));
+        }
         let aria2_path = env::var(ARIA2_PATH_ENV)
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -60,6 +75,7 @@ impl ServerRuntimeConfig {
             app_data_dir,
             database_path,
             http_addr,
+            jsonrpc_addr,
             aria2_path,
             accessible_paths_path,
         })

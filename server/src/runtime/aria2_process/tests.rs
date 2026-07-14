@@ -1,7 +1,7 @@
 use super::resolve::{platform_binary_name, repo_debug_binary_path, resolve_aria2_binary_with};
 use super::start::wait_for_rpc_ready;
 use super::*;
-use crate::app::{ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR};
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
 use axum::routing::post;
@@ -179,6 +179,7 @@ fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir,
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path,
     }
 }

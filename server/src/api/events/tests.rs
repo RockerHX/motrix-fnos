@@ -1,5 +1,7 @@
 use super::*;
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -14,6 +16,7 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
     };
     let state = bootstrap_http_app_state(&runtime)

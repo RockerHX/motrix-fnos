@@ -2,7 +2,9 @@ use super::add_uri::parse_add_uri_command;
 use super::auth::validate_add_uri_token;
 use super::methods::{execute_method, handle_jsonrpc_payload};
 use crate::app::HttpAppState;
-use crate::app::{bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR};
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::database::settings::set_app_config_value;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -210,6 +212,7 @@ async fn test_state() -> Arc<HttpAppState> {
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
     };
 
