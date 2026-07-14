@@ -12,6 +12,7 @@ argon2 = "0.5"
 async-stream = "0.3"
 axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 base64 = "0.22"
+fs2 = "0.4"
 http-body-util = "0.1"
 hyper = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

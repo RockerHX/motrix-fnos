@@ -1,4 +1,4 @@
-use crate::auth::AuthRuntime;
+use crate::auth::{AuthRuntime, AuthService, ServerProcessLock};
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     connect_database,
@@ -341,6 +341,7 @@ fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
 
 pub async fn run_server() -> Result<(), String> {
     let runtime = ServerRuntimeConfig::from_env()?;
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let state = bootstrap_http_app_state(&runtime).await?;
     let listeners = bind_http_listeners(&runtime).await?;
     crate::runtime::spawn_task_monitor(state.clone());
@@ -362,6 +363,30 @@ pub async fn run_server() -> Result<(), String> {
     );
 
     serve_http_listeners(state, listeners, wait_for_shutdown_signal()).await
+}
+
+pub async fn run_cli(args: &[String]) -> Result<(), String> {
+    match args {
+        [] => run_server().await,
+        [command] if command == "reset-web-auth" => reset_web_auth().await,
+        _ => Err("用法：motrix-fnos-server [reset-web-auth]".to_string()),
+    }
+}
+
+async fn reset_web_auth() -> Result<(), String> {
+    let runtime = ServerRuntimeConfig::from_env()?;
+    reset_web_auth_with_runtime(&runtime).await
+}
+
+async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<(), String> {
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let database = connect_database(runtime.database_path.clone()).await?;
+    AuthService::new(database.pool.clone())
+        .reset()
+        .await
+        .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"))?;
+    database.pool.close().await;
+    Ok(())
 }
 
 #[derive(Debug)]

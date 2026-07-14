@@ -1,4 +1,5 @@
 mod password;
+mod process_lock;
 mod rate_limit;
 mod session;
 
@@ -7,6 +8,7 @@ use password::{hash_password, validate_password, verify_password_hash};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub use process_lock::ServerProcessLock;
 pub use rate_limit::{LoginRateLimitError, LoginRateLimiter};
 pub use session::{
     clear_session_cookie, session_cookie, CreatedSession, SessionError, SessionKind, SessionStore,

@@ -1,5 +1,7 @@
 use super::*;
+use crate::database::tasks::list_download_tasks;
 use crate::database::tasks::upsert_download_task;
+use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
@@ -381,6 +383,89 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
     );
 
     let _ = std::fs::remove_dir_all(&app_data_dir);
+}
+
+#[tokio::test]
+async fn reset_web_auth_requires_stopped_server_and_preserves_application_data() {
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().expect("addr should parse"),
+        "127.0.0.1:0".parse().expect("addr should parse"),
+    );
+    std::fs::create_dir_all(&runtime.app_data_dir).expect("app data should create");
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .expect("database should connect");
+    let auth = AuthService::new(database.pool.clone());
+    auth.setup("test management password")
+        .await
+        .expect("auth should initialize");
+    upsert_download_task(&database.pool, &sample_task())
+        .await
+        .expect("task should save");
+    save_json_rpc_token(&database.pool, "preserved-rpc-token")
+        .await
+        .expect("token should save");
+    database.pool.close().await;
+
+    let accessible_contents = br#"{"paths":["/downloads"]}"#;
+    std::fs::write(&runtime.accessible_paths_path, accessible_contents)
+        .expect("accessible paths should write");
+    let aria2_session = runtime.app_data_dir.join("aria2").join("aria2.session");
+    std::fs::create_dir_all(aria2_session.parent().expect("parent should exist"))
+        .expect("aria2 dir should create");
+    std::fs::write(&aria2_session, b"session-record").expect("session should write");
+
+    let running_lock =
+        ServerProcessLock::acquire(&runtime.app_data_dir).expect("server lock should acquire");
+    let error = reset_web_auth_with_runtime(&runtime)
+        .await
+        .expect_err("running server should block reset");
+    assert!(error.contains("正在运行"));
+    drop(running_lock);
+
+    reset_web_auth_with_runtime(&runtime)
+        .await
+        .expect("stopped server should reset auth");
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .expect("database should reconnect");
+    let reset_state = AuthService::new(database.pool.clone())
+        .state()
+        .await
+        .expect("auth state should load");
+    assert!(reset_state.setup_required);
+    assert_eq!(reset_state.auth_version, 2);
+    assert_eq!(
+        load_json_rpc_token(&database.pool)
+            .await
+            .expect("token should load"),
+        "preserved-rpc-token"
+    );
+    assert_eq!(
+        list_download_tasks(&database.pool)
+            .await
+            .expect("tasks should load")
+            .len(),
+        1
+    );
+    assert_eq!(
+        std::fs::read(&runtime.accessible_paths_path).expect("paths should read"),
+        accessible_contents
+    );
+    assert_eq!(
+        std::fs::read(&aria2_session).expect("session should read"),
+        b"session-record"
+    );
+    database.pool.close().await;
+    let _ = std::fs::remove_dir_all(&runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn run_cli_rejects_unknown_commands() {
+    let error = run_cli(&["unknown".to_string()])
+        .await
+        .expect_err("unknown command should fail");
+    assert_eq!(error, "用法：motrix-fnos-server [reset-web-auth]");
 }
 
 fn sample_task() -> DownloadTask {

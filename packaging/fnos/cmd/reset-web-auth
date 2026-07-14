@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -eu
+
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+export_runtime_env
+clear_stale_pid
+require_file "${SERVER_BIN}" "server 二进制"
+
+pid=$(read_pid || true)
+if [ -n "${pid}" ] && is_running_pid "${pid}"; then
+  log_msg "拒绝重置 Web 鉴权：motrix-fnos-server 仍在运行"
+  echo "motrix-fnos-server 仍在运行，请先停止应用后重试" >&2
+  exit 1
+fi
+
+if "${SERVER_BIN}" reset-web-auth; then
+  log_msg "Web 管理鉴权已在本地重置"
+  echo "Web 管理鉴权已重置，请重新启动应用并设置管理密码"
+  exit 0
+fi
+
+log_msg "Web 管理鉴权本地重置失败"
+echo "Web 管理鉴权重置失败，请检查本地服务日志" >&2
+exit 1
