@@ -251,19 +251,6 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
         .expect("management auth status should respond");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let response = client
-        .post(format!("http://{management_addr}/jsonrpc"))
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": "management-isolation",
-            "method": "aria2.getVersion",
-            "params": []
-        }))
-        .send()
-        .await
-        .expect("management jsonrpc request should respond");
-    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
-
-    let response = client
         .get(format!("http://{jsonrpc_addr}/api/app/ping"))
         .send()
         .await

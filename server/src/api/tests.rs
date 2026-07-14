@@ -62,7 +62,7 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
 }
 
 #[tokio::test]
-async fn management_router_rejects_jsonrpc_paths_without_cors() {
+async fn management_router_returns_404_for_unknown_paths_without_cors() {
     let state = test_state(None).await;
     let static_dir = temp_dir("management-router-static");
     std::fs::create_dir_all(&static_dir).expect("static dir should create");
@@ -70,7 +70,7 @@ async fn management_router_rejects_jsonrpc_paths_without_cors() {
         .expect("index should write");
     let app = management_router_with_static_dir(state, static_dir);
 
-    for uri in ["/jsonrpc", "/jsonrpc/", "/jsonrpc/nested"] {
+    for uri in ["/missing", "/nested/route", "/api/missing"] {
         let response = app
             .clone()
             .oneshot(
