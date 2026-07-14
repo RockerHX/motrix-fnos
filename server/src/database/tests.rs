@@ -22,6 +22,7 @@ fn connect_database_creates_required_tables() {
                 "app_config",
                 "task_history",
                 "task_errors",
+                "web_auth_config",
             ] {
                 let exists: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",

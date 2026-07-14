@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 pub mod settings;
 pub mod tasks;
+pub(crate) mod web_auth;
 
 pub const DATABASE_FILE_NAME: &str = "motrix-fnos.sqlite";
 
@@ -136,6 +137,15 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         error_code TEXT,
         error_message TEXT NOT NULL,
         created_at INTEGER NOT NULL
+    )
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS web_auth_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        password_hash TEXT,
+        password_updated_at INTEGER,
+        auth_version INTEGER NOT NULL CHECK (auth_version > 0)
     )
     "#,
 ];
