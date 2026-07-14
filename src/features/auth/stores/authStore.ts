@@ -89,6 +89,14 @@ export const useAuthStore = defineStore("auth", () => {
     channel?.post({ type: "session-invalidated" });
   }
 
+  function handleUnauthorizedStatus(status: AuthStatus) {
+    applyStatus(status);
+    if (!isReady.value) {
+      clearSensitiveState();
+      channel?.post({ type: "session-invalidated" });
+    }
+  }
+
   function startCoordination() {
     setCsrfTokenProvider(() => csrfToken.value);
     setUnauthorizedHandler(handleUnauthorized);
@@ -128,6 +136,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   function applyStatus(status: AuthStatus) {
+    const wasReady = isReady.value;
     enabled.value = status.enabled;
     authenticated.value = status.authenticated;
     csrfToken.value = status.csrfToken;
@@ -140,6 +149,9 @@ export const useAuthStore = defineStore("auth", () => {
       csrfToken.value = null;
     } else {
       phase.value = "ready";
+    }
+    if (wasReady && phase.value !== "ready") {
+      clearSensitiveState();
     }
   }
 
@@ -176,6 +188,7 @@ export const useAuthStore = defineStore("auth", () => {
     changePassword,
     setProtection,
     handleUnauthorized,
+    handleUnauthorizedStatus,
     startCoordination,
     stopCoordination,
   };

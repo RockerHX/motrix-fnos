@@ -81,6 +81,39 @@ describe("authStore", () => {
     expect(store.phase).toBe("login");
     expect(taskStore.tasks).toEqual([]);
   });
+
+  it("applies an SSE auth probe result and clears all sensitive state", () => {
+    const store = useAuthStore();
+    store.handleUnauthorizedStatus(status({ authenticated: true, csrfToken: "csrf" }));
+    const taskStore = useTaskStore();
+    taskStore.tasks = [{ id: 1 } as never];
+    const settingsStore = useSettingsStore();
+    settingsStore.accessiblePaths = ["/downloads"];
+    const debugStore = useDebugLogStore();
+    debugStore.logs = [{ id: 1 } as never];
+
+    store.handleUnauthorizedStatus(status({ authenticated: false, csrfToken: null }));
+
+    expect(store.phase).toBe("login");
+    expect(store.csrfToken).toBeNull();
+    expect(taskStore.tasks).toEqual([]);
+    expect(settingsStore.accessiblePaths).toEqual([]);
+    expect(debugStore.logs).toEqual([]);
+  });
+
+  it("clears sensitive state when a status refresh leaves ready", async () => {
+    const store = useAuthStore();
+    mockedStatus.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "csrf" }));
+    await store.initialize();
+    const taskStore = useTaskStore();
+    taskStore.tasks = [{ id: 1 } as never];
+    mockedStatus.mockResolvedValueOnce(status({ setupRequired: true }));
+
+    await store.refreshStatus();
+
+    expect(store.phase).toBe("setup");
+    expect(taskStore.tasks).toEqual([]);
+  });
 });
 
 function status(overrides: Partial<ReturnType<typeof baseStatus>> = {}) {

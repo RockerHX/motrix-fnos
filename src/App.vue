@@ -8,6 +8,7 @@ import { useSettingsStore } from "./features/settings/stores/settingsStore";
 import MainWindow from "./views/MainWindow.vue";
 import AuthGate from "./features/auth/components/AuthGate.vue";
 import { useAuthStore } from "./features/auth/stores/authStore";
+import { getAuthStatus } from "./features/auth/services/authService";
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
@@ -48,7 +49,10 @@ watch(
 function startBusiness() {
   if (businessStarted) return;
   businessStarted = true;
-  initializeRuntimeEvents();
+  initializeRuntimeEvents({
+    checkAuth: getAuthStatus,
+    onUnauthorized: authStore.handleUnauthorizedStatus,
+  });
   void settingsStore.loadConfig();
   void refreshBackendStatus();
 }
