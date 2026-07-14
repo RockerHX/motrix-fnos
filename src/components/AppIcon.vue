@@ -9,6 +9,7 @@ import {
   IconHelpCircle,
   IconInfoCircle,
   IconList,
+  IconLogout,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlus,
@@ -52,6 +53,7 @@ const icons: Record<string, Component> = {
   help: IconHelpCircle,
   about: IconInfoCircle,
   diagnostics: IconActivityHeartbeat,
+  logout: IconLogout,
 };
 
 const iconComponent = computed(() => icons[props.name] ?? IconAlertTriangle);

@@ -65,17 +65,11 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   async function changePassword(payload: ChangePasswordRequest) {
-    const status = await changeAuthPassword(payload);
-    applyStatus(status);
-    channel?.post({ type: "auth-updated" });
-    return status;
+    return submit(() => changeAuthPassword(payload));
   }
 
   async function setProtection(nextEnabled: boolean, currentPassword: string) {
-    const status = await changeAuthProtection({ enabled: nextEnabled, currentPassword });
-    applyStatus(status);
-    channel?.post({ type: "auth-updated" });
-    return status;
+    return submit(() => changeAuthProtection({ enabled: nextEnabled, currentPassword }));
   }
 
   async function handleUnauthorized() {

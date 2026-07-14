@@ -10,6 +10,7 @@ const props = withDefaults(
   defineProps<{
     activeCategory: MainNavCategory;
     actionStates?: TopbarActionStates;
+    logoutLoading?: boolean;
   }>(),
   {
     actionStates: () => ({}),
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
+  logout: [];
 }>();
 
 const { t } = useI18n();
@@ -90,6 +92,10 @@ function openHelp() {
 
 function openSettings() {
   emit("openSettings");
+}
+
+function logout() {
+  if (!props.logoutLoading) emit("logout");
 }
 </script>
 
@@ -173,6 +179,7 @@ function openSettings() {
       <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp"><AppIcon name="help" :size="18" /></button>
       <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout"><AppIcon name="about" :size="18" /></button>
       <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics"><AppIcon name="diagnostics" :size="18" /></button>
+      <button type="button" :disabled="props.logoutLoading" :title="t('auth.logout')" :aria-label="t('auth.logout')" @click="logout"><AppIcon name="logout" :size="18" /></button>
     </div>
   </header>
 </template>

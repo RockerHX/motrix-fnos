@@ -11,6 +11,15 @@ vi.mock("naive-ui", () => ({
   useMessage: () => ({ success: vi.fn(), error: vi.fn() }),
 }));
 
+vi.mock("../features/auth/services/authService", () => ({
+  getAuthStatus: vi.fn(),
+  setupAuth: vi.fn(),
+  loginAuth: vi.fn(),
+  logoutAuth: vi.fn(async () => undefined),
+  changeAuthPassword: vi.fn(),
+  changeAuthProtection: vi.fn(),
+}));
+
 vi.mock("../features/about/composables/useUpdateCheck", () => ({
   useUpdateCheck: () => ({ updateCheck: ref(null), isCheckingUpdate: ref(false), runUpdateCheck: vi.fn() }),
 }));
@@ -33,8 +42,14 @@ vi.mock("../layouts/AppShell.vue", async () => {
   return {
     default: defineComponent({
       name: "AppShellStub",
-      setup(_, { slots }) {
-        return () => h("div", { "data-test": "app-shell" }, [slots.default?.(), slots.overlay?.()]);
+      emits: ["logout"],
+      setup(_, { emit, slots }) {
+        return () =>
+          h("div", { "data-test": "app-shell" }, [
+            h("button", { "data-test": "shell-logout", onClick: () => emit("logout") }, "logout"),
+            slots.default?.(),
+            slots.overlay?.(),
+          ]);
       },
     }),
   };
@@ -86,7 +101,8 @@ vi.mock("./MainWindowDialogs.vue", async () => {
 
 import MainWindow from "./MainWindow.vue";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
-import { mountWithPinia } from "../test/mount";
+import { useAuthStore } from "../features/auth/stores/authStore";
+import { flushPromises, mountWithPinia } from "../test/mount";
 
 describe("MainWindow floating create button", () => {
   beforeEach(() => {
@@ -129,6 +145,20 @@ describe("MainWindow floating create button", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find(".floating-add").exists()).toBe(true);
+  });
+
+  it("logs out through the shell and clears sensitive task state", async () => {
+    const { wrapper } = mountMainWindow();
+    const authStore = useAuthStore();
+    authStore.handleUnauthorizedStatus({ setupRequired: false, enabled: true, authenticated: true, csrfToken: "csrf" });
+    const taskStore = useTaskStore();
+    taskStore.tasks = [{ id: 1 } as never];
+
+    await wrapper.get('[data-test="shell-logout"]').trigger("click");
+    await flushPromises();
+
+    expect(authStore.phase).toBe("login");
+    expect(taskStore.tasks).toEqual([]);
   });
 });
 

@@ -103,6 +103,7 @@ describe("Topbar", () => {
       "帮助",
       "关于",
       "诊断",
+      "退出登录",
     ]);
     expect(wrapper.find(".topbar-more").exists()).toBe(false);
   });

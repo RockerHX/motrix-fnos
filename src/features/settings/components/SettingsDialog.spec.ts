@@ -108,6 +108,11 @@ vi.mock("../../../services/storage", () => ({
   getAccessiblePaths: vi.fn(async () => ({ paths: ["/downloads"] })),
 }));
 
+vi.mock("../../auth/components/WebAuthSettings.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return { default: defineComponent({ name: "WebAuthSettingsStub", setup: () => () => h("div", "Web 管理安全") }) };
+});
+
 import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 
@@ -122,6 +127,7 @@ describe("SettingsDialog", () => {
 
     expect(wrapper.text()).toContain("设置");
     expect(wrapper.text()).toContain("默认下载目录");
+    expect(wrapper.text()).toContain("Web 管理安全");
     expect(wrapper.text()).toContain("保存");
     expect(wrapper.get('[data-test="app-dialog-actions"]').text()).toContain("保存");
   });

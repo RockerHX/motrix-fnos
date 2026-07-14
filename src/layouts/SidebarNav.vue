@@ -8,6 +8,7 @@ import { mainNavItems } from "./navigation";
 defineProps<{
   appInfo: AppInfo | null;
   activeCategory: MainNavCategory;
+  logoutLoading?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
+  logout: [];
   selectCategory: [category: MainNavCategory];
 }>();
 
@@ -34,6 +36,10 @@ function openDiagnostics() {
 
 function openSettings() {
   emit("openSettings");
+}
+
+function logout() {
+  emit("logout");
 }
 
 function selectCategory(category: MainNavCategory) {
@@ -78,6 +84,10 @@ function selectCategory(category: MainNavCategory) {
       <button type="button" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics">
         <AppIcon class="nav-icon" name="diagnostics" :size="18" />
         <span>{{ t("topbar.diagnostics") }}</span>
+      </button>
+      <button type="button" :disabled="logoutLoading" :aria-label="t('auth.logout')" @click="logout">
+        <AppIcon class="nav-icon" name="logout" :size="18" />
+        <span>{{ t("auth.logout") }}</span>
       </button>
     </div>
   </aside>

@@ -23,6 +23,8 @@ import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useMainWindowDialogs } from "./composables/useMainWindowDialogs";
 import { useMainWindowLifecycle } from "./composables/useMainWindowLifecycle";
 import { useI18n } from "../i18n";
+import { useAuthStore } from "../features/auth/stores/authStore";
+import { getErrorMessage } from "../app/utils/errors";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
 const props = defineProps<{
@@ -35,6 +37,7 @@ const message = useMessage();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
+const authStore = useAuthStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
@@ -109,6 +112,15 @@ async function handleTaskCreated() {
   void refreshAria2Status();
 }
 
+async function logout() {
+  if (authStore.isSubmitting) return;
+  try {
+    await authStore.logout();
+  } catch (error) {
+    message.error(getErrorMessage(error, t("auth.logoutFailed")));
+  }
+}
+
 </script>
 
 <template>
@@ -116,6 +128,8 @@ async function handleTaskCreated() {
     :app-info="appInfo"
     :active-category="activeCategory"
     :topbar-actions="topbar.topbarActions.value"
+    :protection-enabled="authStore.enabled"
+    :logout-loading="authStore.isSubmitting"
     @create="dialogs.handleToolbarCreate"
     @refresh="topbar.refresh"
     @pause-visible="bulkActions.pauseVisibleTasks"
@@ -126,6 +140,8 @@ async function handleTaskCreated() {
     @open-diagnostics="dialogs.showDiagnostics.value = true"
     @open-help="dialogs.showHelp.value = true"
     @open-settings="dialogs.showSettings.value = true"
+    @enable-protection="dialogs.showSettings.value = true"
+    @logout="logout"
     @select-category="selectCategory"
   >
     <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />

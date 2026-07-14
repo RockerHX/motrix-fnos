@@ -18,6 +18,7 @@ import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
+import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -222,6 +223,8 @@ function kbToBytes(value: number) {
             <template #suffix>KB/s</template>
           </NInputNumber>
         </NFormItem>
+
+        <WebAuthSettings />
     </NForm>
 
     <template #footer>
