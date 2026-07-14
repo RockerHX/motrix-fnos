@@ -1,3 +1,4 @@
+use crate::auth::AuthRuntime;
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     connect_database,
@@ -134,6 +135,7 @@ impl Default for RuntimeEventHub {
 
 pub struct HttpAppState {
     pub core: Arc<ServerState>,
+    pub auth: AuthRuntime,
     pub runtime: ServerRuntimeConfig,
     pub base_aria2_config: Aria2Config,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
@@ -148,8 +150,10 @@ impl HttpAppState {
             .as_ref()
             .map(|path| path.display().to_string());
 
+        let auth = AuthRuntime::new(core.database.pool.clone());
         Self {
             core: Arc::new(core),
+            auth,
             runtime,
             base_aria2_config,
             aria2_process: Mutex::new(None),
