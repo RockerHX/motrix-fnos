@@ -1,4 +1,5 @@
 mod password;
+mod rate_limit;
 mod session;
 
 use crate::database::web_auth::{self, WebAuthRow};
@@ -6,6 +7,7 @@ use password::{hash_password, validate_password, verify_password_hash};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub use rate_limit::{LoginRateLimitError, LoginRateLimiter};
 pub use session::{
     clear_session_cookie, session_cookie, CreatedSession, SessionError, SessionKind, SessionStore,
     ValidatedSession, SESSION_COOKIE_NAME,
@@ -15,6 +17,7 @@ pub use session::{
 pub struct AuthRuntime {
     pub service: AuthService,
     pub sessions: SessionStore,
+    pub login_limiter: LoginRateLimiter,
 }
 
 impl AuthRuntime {
@@ -22,6 +25,7 @@ impl AuthRuntime {
         Self {
             service: AuthService::new(pool),
             sessions: SessionStore::new(),
+            login_limiter: LoginRateLimiter::new(),
         }
     }
 }
