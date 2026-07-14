@@ -103,6 +103,50 @@ export function validatePortEntry(config, expected) {
   }
 }
 
+export function validateFpkPortIsolation({
+  manifestContent,
+  uiConfig,
+  portConfigContent,
+  resourceContent,
+  managementPort,
+  jsonRpcPort,
+}) {
+  const manifest = parseManifest(manifestContent);
+  if (manifest.service_port !== managementPort) {
+    throw new Error(`manifest.service_port 必须为管理端口 ${managementPort}，实际为 ${manifest.service_port ?? '(missing)'}`);
+  }
+
+  validatePortEntry(uiConfig, {
+    entryId: `${manifest.appname}.main`,
+    port: managementPort,
+    url: `/?v=${manifest.version}`,
+    accessPerm: 'editable',
+  });
+
+  assertNoPort(manifestContent, jsonRpcPort, 'manifest');
+  assertNoPort(JSON.stringify(uiConfig), jsonRpcPort, '应用入口配置');
+  assertNoPort(resourceContent, jsonRpcPort, 'config/resource');
+  assertNoPort(portConfigContent, jsonRpcPort, 'MotrixFNOS.sc');
+
+  const expectedPort = `${managementPort}/tcp`;
+  for (const key of ['src.ports', 'dst.ports']) {
+    const value = readShellAssignment(portConfigContent, key);
+    if (value !== expectedPort) {
+      throw new Error(`MotrixFNOS.sc ${key} 必须为 ${expectedPort}，实际为 ${value ?? '(missing)'}`);
+    }
+  }
+}
+
+export function validateFpkRuntimeEnvScript(content, expectedJsonRpcAddr) {
+  const defaultLine = `JSONRPC_ADDR=\${MOTRIX_FNOS_JSONRPC_ADDR:-"${expectedJsonRpcAddr}"}`;
+  if (!content.includes(defaultLine)) {
+    throw new Error(`cmd/common.sh 缺少 JSON-RPC 回环默认值 ${expectedJsonRpcAddr}`);
+  }
+  if (!content.includes('export MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"')) {
+    throw new Error('cmd/common.sh 未导出 MOTRIX_FNOS_JSONRPC_ADDR');
+  }
+}
+
 export function parseChecksums(text) {
   const result = new Map();
   for (const line of text.split(/\r?\n/)) {
@@ -120,4 +164,16 @@ export function sha256(buffer) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function assertNoPort(content, port, label) {
+  const pattern = new RegExp(`(^|[^0-9])${escapeRegExp(port)}([^0-9]|$)`);
+  if (pattern.test(content)) {
+    throw new Error(`${label} 不得声明 JSON-RPC 专用端口 ${port}`);
+  }
+}
+
+function readShellAssignment(content, key) {
+  const pattern = new RegExp(`^${escapeRegExp(key)}="?([^"\\r\\n]+)"?$`, 'm');
+  return content.match(pattern)?.[1];
 }

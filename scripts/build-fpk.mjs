@@ -9,7 +9,8 @@ import {
   platformForTarget,
   removeManifestField,
   upsertManifestField,
-  validatePortEntry,
+  validateFpkPortIsolation,
+  validateFpkRuntimeEnvScript,
 } from './script-utils.mjs';
 
 const repoRoot = process.cwd();
@@ -187,19 +188,18 @@ function preflightStageDir(dir, platform, servicePort) {
   }
   const uiConfig = validateJsonFile(path.join(desktopUiDir, 'config'), '应用入口');
   try {
-    validatePortEntry(uiConfig, {
-      entryId: `${manifest.appname}.main`,
-      port: servicePort,
-      url: `/?v=${manifest.version}`,
-      accessPerm: 'editable',
+    validateFpkPortIsolation({
+      manifestContent: readFileSync(path.join(dir, 'manifest'), 'utf8'),
+      uiConfig,
+      portConfigContent: readFileSync(path.join(dir, 'MotrixFNOS.sc'), 'utf8'),
+      resourceContent: readFileSync(path.join(dir, 'config', 'resource'), 'utf8'),
+      managementPort: servicePort,
+      jsonRpcPort: '17081',
     });
+    validateFpkRuntimeEnvScript(readFileSync(path.join(dir, 'cmd', 'common.sh'), 'utf8'), '127.0.0.1:17081');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    fail(`FPK 预检失败，应用入口未正确使用服务端口：${message}`);
-  }
-
-  if (manifest.service_port !== servicePort) {
-    fail(`FPK 预检失败，manifest.service_port=${manifest.service_port} 与预期 ${servicePort} 不一致`);
+    fail(`FPK 预检失败，双监听器端口隔离无效：${message}`);
   }
 
   if (platform === 'x86') {

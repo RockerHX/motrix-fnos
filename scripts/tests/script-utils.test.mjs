@@ -14,6 +14,8 @@ import {
   removeManifestField,
   sha256,
   upsertManifestField,
+  validateFpkPortIsolation,
+  validateFpkRuntimeEnvScript,
   validatePortEntry,
 } from '../script-utils.mjs';
 import {
@@ -154,6 +156,53 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
       ),
     /accessPerm 必须为 editable/,
   );
+});
+
+test('FPK 端口隔离只允许公开管理端口', () => {
+  const fixture = {
+    manifestContent: 'appname = motrix.fnos\nversion = 1.7.2\nservice_port = 17080\n',
+    uiConfig: {
+      '.url': {
+        'motrix.fnos.main': {
+          type: 'iframe',
+          protocol: 'http',
+          port: '17080',
+          url: '/?v=1.7.2',
+          control: { accessPerm: 'editable', portPerm: 'readonly' },
+        },
+      },
+    },
+    portConfigContent: '[MotrixFNOS]\nsrc.ports="17080/tcp"\ndst.ports="17080/tcp"\n',
+    resourceContent: '{"port-config":{"protocol-file":"MotrixFNOS.sc"}}',
+    managementPort: '17080',
+    jsonRpcPort: '17081',
+  };
+
+  assert.doesNotThrow(() => validateFpkPortIsolation(fixture));
+  assert.throws(
+    () => validateFpkPortIsolation({ ...fixture, manifestContent: fixture.manifestContent.replace('17080', '17081') }),
+    /manifest\.service_port 必须为管理端口 17080/,
+  );
+  assert.throws(
+    () => validateFpkPortIsolation({ ...fixture, uiConfig: JSON.parse(JSON.stringify(fixture.uiConfig).replace('17080', '17081')) }),
+    /port 必须为 17080/,
+  );
+  assert.throws(
+    () => validateFpkPortIsolation({ ...fixture, portConfigContent: fixture.portConfigContent.replace('src.ports="17080', 'src.ports="17081') }),
+    /MotrixFNOS\.sc 不得声明 JSON-RPC 专用端口 17081/,
+  );
+  assert.throws(
+    () => validateFpkPortIsolation({ ...fixture, resourceContent: '{"ports":[17081]}' }),
+    /config\/resource 不得声明 JSON-RPC 专用端口 17081/,
+  );
+});
+
+test('FPK 运行脚本必须导出 JSON-RPC 回环地址', () => {
+  const script = 'JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}\nexport MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"\n';
+
+  assert.doesNotThrow(() => validateFpkRuntimeEnvScript(script, '127.0.0.1:17081'));
+  assert.throws(() => validateFpkRuntimeEnvScript(script.replace('127.0.0.1', '0.0.0.0'), '127.0.0.1:17081'), /缺少 JSON-RPC 回环默认值/);
+  assert.throws(() => validateFpkRuntimeEnvScript(script.replace('export MOTRIX_FNOS_JSONRPC_ADDR', 'export OTHER_ADDR'), '127.0.0.1:17081'), /未导出/);
 });
 
 test('CHANGELOG 生成逻辑清理提交前缀并保持中文分组', () => {
