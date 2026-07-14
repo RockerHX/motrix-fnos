@@ -3,14 +3,34 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
-use crate::settings::service::{load_app_config_from_pool, save_app_config, AppConfig};
+use crate::settings::service::{
+    load_app_config_from_pool, load_json_rpc_token, save_app_config, save_json_rpc_token, AppConfig,
+};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
-    Router::new().route("/settings", get(get_settings).put(update_settings))
+    Router::new()
+        .route("/settings", get(get_settings).put(update_settings))
+        .route(
+            "/settings/jsonrpc-token",
+            get(get_json_rpc_token).put(update_json_rpc_token),
+        )
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonRpcTokenStatus {
+    pub configured: bool,
+    pub masked_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateJsonRpcTokenRequest {
+    token: String,
 }
 
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
@@ -44,6 +64,51 @@ async fn update_settings(
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))
 }
+
+async fn get_json_rpc_token(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<Json<JsonRpcTokenStatus>, ApiError> {
+    let token = load_json_rpc_token(&state.core.database.pool)
+        .await
+        .map_err(|error| ApiError::internal("jsonrpc_token_load_failed", error))?;
+    Ok(Json(json_rpc_token_status(&token)))
+}
+
+async fn update_json_rpc_token(
+    State(state): State<Arc<HttpAppState>>,
+    ApiJson(payload): ApiJson<UpdateJsonRpcTokenRequest>,
+) -> Result<Json<JsonRpcTokenStatus>, ApiError> {
+    let token = save_json_rpc_token(&state.core.database.pool, &payload.token)
+        .await
+        .map_err(|error| ApiError::internal("jsonrpc_token_save_failed", error))?;
+    state
+        .core
+        .debug_logs
+        .info("settings.jsonrpc", "JSON-RPC Token 已更新");
+    Ok(Json(json_rpc_token_status(&token)))
+}
+
+fn json_rpc_token_status(token: &str) -> JsonRpcTokenStatus {
+    if token.is_empty() {
+        return JsonRpcTokenStatus {
+            configured: false,
+            masked_token: None,
+        };
+    }
+    let chars = token.chars().collect::<Vec<_>>();
+    let suffix = if chars.len() >= 8 {
+        chars[chars.len() - 4..].iter().collect::<String>()
+    } else {
+        String::new()
+    };
+    JsonRpcTokenStatus {
+        configured: true,
+        masked_token: Some(format!("••••••••{suffix}")),
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 fn default_download_dir(state: &HttpAppState) -> Result<String, ApiError> {
     crate::storage::load_default_download_dir(

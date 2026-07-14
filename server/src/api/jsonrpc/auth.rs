@@ -1,6 +1,6 @@
 use super::types::{positional_params, RpcFault};
 use crate::app::HttpAppState;
-use crate::settings::service::load_app_config_from_pool;
+use crate::settings::service::load_json_rpc_token;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -8,12 +8,11 @@ pub(super) async fn ensure_add_uri_token(
     state: &Arc<HttpAppState>,
     params: &Value,
 ) -> Result<(), RpcFault> {
-    let default_download_dir = state.runtime.app_data_dir.display().to_string();
-    let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
+    let token = load_json_rpc_token(&state.core.database.pool)
         .await
         .map_err(RpcFault::server_error)?;
 
-    validate_add_uri_token(&config.json_rpc_token, params)
+    validate_add_uri_token(&token, params)
 }
 
 pub(super) fn validate_add_uri_token(

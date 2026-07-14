@@ -1,6 +1,7 @@
 use super::*;
 use crate::api::app::{AppInfo, BackendPing};
 use crate::api::error::ErrorResponse;
+use crate::api::settings::JsonRpcTokenStatus;
 use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -203,14 +204,15 @@ async fn app_routes_return_expected_payloads() {
     assert_eq!(info.update_mode, "manual_fpk_or_app_center");
 
     let ping = response_json::<BackendPing>(
-        app.oneshot(
-            Request::builder()
-                .uri("/api/app/ping")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed"),
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/app/ping")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
         StatusCode::OK,
     )
     .await;
@@ -333,7 +335,25 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         default_settings.default_download_dir,
         state.runtime.app_data_dir.display().to_string()
     );
-    assert_eq!(default_settings.json_rpc_token, "");
+
+    let token_status = response_json::<JsonRpcTokenStatus>(
+        app.clone()
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "PUT",
+                    "/api/settings/jsonrpc-token",
+                    &json!({ "token": "test-token-a1b2" }),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(token_status.configured);
+    assert_eq!(token_status.masked_token.as_deref(), Some("••••••••a1b2"));
 
     let updated_settings = response_json::<AppConfig>(
         app.clone()
@@ -342,14 +362,14 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
                     &state,
                     "PUT",
                     "/api/settings",
-                    &AppConfig {
-                        default_download_dir: "/tmp/custom".to_string(),
-                        max_concurrent_downloads: 0,
-                        download_limit: 1024,
-                        upload_limit: 2048,
-                        language: "en-US".to_string(),
-                        json_rpc_token: "test-token".to_string(),
-                    },
+                    &json!({
+                        "defaultDownloadDir": "/tmp/custom",
+                        "maxConcurrentDownloads": 0,
+                        "downloadLimit": 1024,
+                        "uploadLimit": 2048,
+                        "language": "en-US",
+                        "jsonRpcToken": "must-not-overwrite"
+                    }),
                 )
                 .await,
             )
@@ -363,21 +383,35 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
     assert_eq!(updated_settings.download_limit, 1024);
     assert_eq!(updated_settings.upload_limit, 2048);
     assert_eq!(updated_settings.language, "en-US");
-    assert_eq!(updated_settings.json_rpc_token, "test-token");
 
     let stored_settings = response_json::<AppConfig>(
-        app.oneshot(
-            Request::builder()
-                .uri("/api/settings")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed"),
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/settings")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
         StatusCode::OK,
     )
     .await;
     assert_eq!(stored_settings, updated_settings);
+    let stored_token = response_json::<JsonRpcTokenStatus>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/settings/jsonrpc-token")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(stored_token.masked_token.as_deref(), Some("••••••••a1b2"));
     assert!(state.core.debug_logs.list().iter().any(|entry| {
         entry.module == "settings" && entry.message.contains("下载配置将在下次启动后生效")
     }));
@@ -408,7 +442,6 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
                     download_limit: 0,
                     upload_limit: 0,
                     language: "zh-CN".to_string(),
-                    json_rpc_token: String::new(),
                 },
             )
             .await,

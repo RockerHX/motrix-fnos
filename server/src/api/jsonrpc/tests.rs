@@ -5,7 +5,7 @@ use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::database::settings::set_app_config_value;
+use crate::settings::service::save_json_rpc_token;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -222,20 +222,9 @@ async fn test_state() -> Arc<HttpAppState> {
 }
 
 async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
-    set_app_config_value(
-        &state.core.database.pool,
-        "download",
-        &json!({
-            "defaultDownloadDir": state.runtime.app_data_dir.display().to_string(),
-            "maxConcurrentDownloads": 5,
-            "downloadLimit": 0,
-            "uploadLimit": 0,
-            "language": "zh-CN",
-            "jsonRpcToken": token
-        }),
-    )
-    .await
-    .expect("JSON-RPC token should save");
+    save_json_rpc_token(&state.core.database.pool, token)
+        .await
+        .expect("JSON-RPC token should save");
 }
 
 fn temp_dir(label: &str) -> PathBuf {
