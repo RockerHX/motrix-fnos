@@ -16,6 +16,7 @@ import {
   upsertManifestField,
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
+  validateChangelogBody,
   validatePortEntry,
 } from '../script-utils.mjs';
 import {
@@ -215,7 +216,13 @@ test('CHANGELOG 生成逻辑清理提交前缀并保持中文分组', () => {
     normalizeGeneratedChangelog('```md\n## 1.8.0\n\n### 修复\n\n- 修复状态\n```'),
     '### 修复\n\n- 修复状态',
   );
-  assert.equal(normalizeGeneratedChangelog('- 内部整理'), '### 改进\n\n- 内部整理');
+  assert.doesNotThrow(() => validateChangelogBody('### 新增\n\n- 增加任务\n\n### 文档\n\n- 更新说明'));
+  assert.throws(() => normalizeGeneratedChangelog(''), /模型返回了空 CHANGELOG/);
+  assert.throws(() => normalizeGeneratedChangelog('- 内部整理'), /未归入分类/);
+  assert.throws(() => normalizeGeneratedChangelog('### 其他\n\n- 内部整理'), /不允许的分类“其他”/);
+  assert.throws(() => normalizeGeneratedChangelog('### 修复\n\n### 文档\n\n- 更新说明'), /“修复”分类没有日志条目/);
+  assert.throws(() => normalizeGeneratedChangelog('### 修复'), /“修复”分类没有日志条目/);
+  assert.throws(() => normalizeGeneratedChangelog('### 修复\n\n修复状态'), /不支持的内容/);
 });
 
 test('FPK manifest 字段转换保持对齐并支持删除', () => {

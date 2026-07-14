@@ -9,6 +9,7 @@ import {
   cleanupCommitSubject,
   compareReleaseVersions,
   normalizeGeneratedChangelog,
+  validateChangelogBody,
 } from './script-utils.mjs';
 import {
   buildChangelogPrompt,
@@ -246,6 +247,7 @@ function readExistingChangelog(version) {
   if (!body) {
     fail(`CHANGELOG.md 中 ${version} 条目为空`);
   }
+  validateChangelogBody(body, `CHANGELOG.md 中 ${version} 条目`);
   return { section: `${section}\n`, body };
 }
 

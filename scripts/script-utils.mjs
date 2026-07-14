@@ -18,14 +18,59 @@ export function normalizeGeneratedChangelog(content) {
     .replace(/```$/i, '')
     .trim();
 
-  body = body.replace(/^##[^\n]*\n+/, '').trim();
+  body = body.replace(/^##(?!#)\s+[^\n]*\n+/, '').trim();
   if (!body) {
     throw new Error('模型返回了空 CHANGELOG');
   }
-  if (!/^###\s+/m.test(body)) {
-    body = `### 改进\n\n${body}`;
-  }
+  validateChangelogBody(body, '模型生成的 CHANGELOG');
   return body;
+}
+
+export function validateChangelogBody(body, source = 'CHANGELOG') {
+  const allowedSections = new Set(['新增', '改进', '修复', '文档']);
+  let currentSection = null;
+  let currentItemCount = 0;
+  let totalItemCount = 0;
+
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const sectionMatch = line.match(/^###\s+(.+)$/);
+    if (sectionMatch) {
+      if (currentSection && currentItemCount === 0) {
+        throw new Error(`${source} 的“${currentSection}”分类没有日志条目`);
+      }
+      const section = sectionMatch[1].trim();
+      if (!allowedSections.has(section)) {
+        throw new Error(`${source} 包含不允许的分类“${section}”`);
+      }
+      currentSection = section;
+      currentItemCount = 0;
+      continue;
+    }
+
+    if (line.startsWith('- ')) {
+      if (!currentSection) {
+        throw new Error(`${source} 包含未归入分类的日志条目：${line}`);
+      }
+      if (!line.slice(2).trim()) {
+        throw new Error(`${source} 的“${currentSection}”分类包含空日志条目`);
+      }
+      currentItemCount += 1;
+      totalItemCount += 1;
+      continue;
+    }
+
+    throw new Error(`${source} 包含不支持的内容：${line}`);
+  }
+
+  if (currentSection && currentItemCount === 0) {
+    throw new Error(`${source} 的“${currentSection}”分类没有日志条目`);
+  }
+  if (totalItemCount === 0) {
+    throw new Error(`${source} 没有有效日志条目`);
+  }
 }
 
 export function classifyCommit(subject) {

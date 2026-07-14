@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { validateChangelogBody } from './script-utils.mjs';
 
 const version = process.argv[2];
 const bodyOnly = process.argv.includes('--body');
@@ -40,6 +41,7 @@ function readChangelogSection(targetVersion) {
   if (!body) {
     throw new Error(`CHANGELOG.md 中 ${targetVersion} 条目为空`);
   }
+  validateChangelogBody(body, `CHANGELOG.md 中 ${targetVersion} 条目`);
 
   return { section, body };
 }
