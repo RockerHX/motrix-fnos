@@ -1,5 +1,6 @@
 mod app;
 mod aria2;
+mod auth;
 mod debug_logs;
 pub mod error;
 mod events;
@@ -32,6 +33,7 @@ pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
 fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
     let index_file = static_dir.join("index.html");
     let api_routes = Router::new()
+        .merge(auth::routes())
         .merge(app::routes())
         .merge(aria2::routes())
         .merge(settings::routes())
