@@ -42,11 +42,14 @@ vi.mock("../layouts/AppShell.vue", async () => {
   return {
     default: defineComponent({
       name: "AppShellStub",
-      emits: ["logout"],
+      emits: ["logout", "selectCategory"],
       setup(_, { emit, slots }) {
         return () =>
           h("div", { "data-test": "app-shell" }, [
             h("button", { "data-test": "shell-logout", onClick: () => emit("logout") }, "logout"),
+            h("button", { "data-test": "shell-select-completed", onClick: () => emit("selectCategory", "completed") }, "completed"),
+            h("button", { "data-test": "shell-select-trash", onClick: () => emit("selectCategory", "trash") }, "trash"),
+            h("button", { "data-test": "shell-select-extensions", onClick: () => emit("selectCategory", "extensions") }, "extensions"),
             slots.default?.(),
             slots.overlay?.(),
           ]);
@@ -81,7 +84,12 @@ vi.mock("../features/tasks/components/TaskTable.vue", async () => {
 
 vi.mock("../features/extensions/components/ExtensionsPlaceholder.vue", async () => {
   const { defineComponent, h } = await import("vue");
-  return { default: defineComponent({ name: "ExtensionsPlaceholderStub", setup: () => () => h("div") }) };
+  return {
+    default: defineComponent({
+      name: "ExtensionsPlaceholderStub",
+      setup: () => () => h("div", { "data-test": "extensions-placeholder" }),
+    }),
+  };
 });
 
 vi.mock("../features/tasks/components/TaskBulkDeleteConfirmDialog.vue", async () => {
@@ -103,6 +111,7 @@ import MainWindow from "./MainWindow.vue";
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import { useAuthStore } from "../features/auth/stores/authStore";
 import { flushPromises, mountWithPinia } from "../test/mount";
+import type { DownloadTask } from "../types/tasks";
 
 describe("MainWindow floating create button", () => {
   beforeEach(() => {
@@ -160,6 +169,49 @@ describe("MainWindow floating create button", () => {
     expect(authStore.phase).toBe("login");
     expect(taskStore.tasks).toEqual([]);
   });
+
+  it("switches between empty, list and extensions content branches", async () => {
+    const { wrapper } = mountMainWindow();
+    const taskStore = useTaskStore();
+
+    expect(wrapper.find('[data-test="task-empty"]').exists()).toBe(true);
+
+    taskStore.tasks = [createTask({ id: 2, gid: "gid-2", status: "active" })];
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="task-table"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="shell-select-completed"]').trigger("click");
+    expect(wrapper.find('[data-test="task-empty"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="shell-select-trash"]').trigger("click");
+    expect(wrapper.find('[data-test="task-empty"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="shell-select-extensions"]').trigger("click");
+    expect(wrapper.find('[data-test="extensions-placeholder"]').exists()).toBe(true);
+  });
+
+  it("keeps the task table branch for ordinary task field updates", async () => {
+    const { wrapper } = mountMainWindow();
+    const taskStore = useTaskStore();
+    const task = createTask({ id: 3, gid: "gid-3", status: "active" });
+
+    taskStore.tasks = [task];
+    await wrapper.vm.$nextTick();
+    const tableElement = wrapper.get('[data-test="task-table"]').element;
+
+    taskStore.tasks = [
+      {
+        ...task,
+        completedLength: 50,
+        downloadSpeed: 16,
+        errorMessage: "temporary network error",
+        updatedAt: 2,
+      },
+    ];
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-test="task-table"]').element).toBe(tableElement);
+  });
 });
 
 function mountMainWindow() {
@@ -175,4 +227,28 @@ function mountMainWindow() {
       },
     },
   });
+}
+
+function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
+  return {
+    id: 1,
+    url: "https://example.com/file.iso",
+    fileName: "file.iso",
+    saveDir: "/downloads",
+    category: "downloading",
+    gid: "gid-1",
+    status: "active",
+    totalLength: 100,
+    completedLength: 10,
+    downloadSpeed: 1,
+    errorCode: null,
+    errorMessage: null,
+    filePath: null,
+    metadataTorrentPath: null,
+    confirmationRequired: false,
+    files: [],
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides,
+  };
 }

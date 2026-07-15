@@ -144,10 +144,10 @@ async function logout() {
     @logout="logout"
     @select-category="selectCategory"
   >
-    <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
-    <template v-else>
+    <Transition name="app-content-switch">
+      <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
       <TaskEmptyState
-        v-if="!hasVisibleTasks"
+        v-else-if="!hasVisibleTasks"
         :key="contentViewKey"
         :title="t(emptyState.titleKey)"
         :description="t(emptyState.descriptionKey)"
@@ -168,7 +168,7 @@ async function logout() {
         @update:page="pagination.page.value = $event"
         @update:page-size="pagination.pageSize.value = $event"
       />
-    </template>
+    </Transition>
 
     <template #overlay>
       <button
@@ -219,6 +219,31 @@ async function logout() {
 </template>
 
 <style scoped>
+.app-content-switch-enter-active,
+.app-content-switch-leave-active {
+  transition:
+    opacity var(--app-transition-standard),
+    transform var(--app-transition-standard);
+}
+
+.app-content-switch-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.app-content-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+.app-content-switch-leave-active {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .floating-add {
   position: absolute;
   right: 26px;
