@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { getAppInfo, pingBackend } from "./services/backend";
 import { disposeRuntimeEvents, initializeRuntimeEvents } from "./services/runtimeEvents";
 import type { AppInfo, BackendPing } from "./types/app";
 import NaiveProvider from "./app/providers/NaiveProvider.vue";
 import { useSettingsStore } from "./features/settings/stores/settingsStore";
-import MainWindow from "./views/MainWindow.vue";
 import AuthGate from "./features/auth/components/AuthGate.vue";
 import { useAuthStore } from "./features/auth/stores/authStore";
 import { getAuthStatus } from "./features/auth/services/authService";
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
+const MainWindow = defineAsyncComponent(async () => (await import("./views/MainWindow.vue")).default);
 const appInfo = ref<AppInfo | null>(null);
 const backendPing = ref<BackendPing | null>(null);
 const errorMessage = ref("");
