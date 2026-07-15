@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { createBootstrapController } from "./app/bootstrap";
 import { getAppInfo, pingBackend } from "./services/backend";
 import { disposeRuntimeEvents, initializeRuntimeEvents } from "./services/runtimeEvents";
 import type { AppInfo, BackendPing } from "./types/app";
@@ -11,7 +12,9 @@ import { getAuthStatus } from "./features/auth/services/authService";
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
-const MainWindow = defineAsyncComponent(async () => (await import("./views/MainWindow.vue")).default);
+const loadMainWindow = () => import("./views/MainWindow.vue");
+const MainWindow = defineAsyncComponent(async () => (await loadMainWindow()).default);
+const bootstrapController = createBootstrapController();
 const appInfo = ref<AppInfo | null>(null);
 const backendPing = ref<BackendPing | null>(null);
 const errorMessage = ref("");
@@ -31,6 +34,7 @@ async function refreshBackendStatus() {
 
 onMounted(() => {
   authStore.startCoordination();
+  bootstrapController.startConfirmation();
   void authStore.initialize();
 });
 
@@ -45,6 +49,26 @@ watch(
   },
   { immediate: true },
 );
+
+watch(
+  () => authStore.phase,
+  (phase) => {
+    if (phase !== "loading") void revealResolvedAuthPhase(phase);
+  },
+  { flush: "post" },
+);
+
+async function revealResolvedAuthPhase(phase: typeof authStore.phase) {
+  if (phase === "ready") {
+    try {
+      await loadMainWindow();
+    } catch {
+      // 启动层退出后，由异步组件继续暴露自身加载失败状态。
+    }
+  }
+  await nextTick();
+  bootstrapController.finish();
+}
 
 function startBusiness() {
   if (businessStarted) return;
@@ -69,6 +93,7 @@ function stopBusiness() {
 onBeforeUnmount(() => {
   stopBusiness();
   authStore.stopCoordination();
+  bootstrapController.dispose();
 });
 </script>
 
