@@ -69,7 +69,7 @@ function openDeleteConfirm() {
       quaternary
       circle
       size="tiny"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.details"
       :aria-label="props.labels.details"
       :disabled="props.state.isActionDisabled"
@@ -82,7 +82,7 @@ function openDeleteConfirm() {
       quaternary
       circle
       size="tiny"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.pause"
       :aria-label="props.labels.pause"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
@@ -97,7 +97,7 @@ function openDeleteConfirm() {
       quaternary
       circle
       size="tiny"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.resume"
       :aria-label="props.labels.resume"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
@@ -113,7 +113,7 @@ function openDeleteConfirm() {
       circle
       size="tiny"
       type="primary"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.confirmFiles"
       :aria-label="props.labels.confirmFiles"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
@@ -128,7 +128,7 @@ function openDeleteConfirm() {
       quaternary
       circle
       size="tiny"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.redownload"
       :aria-label="props.labels.redownload"
       :disabled="props.state.isActionDisabled"
@@ -142,7 +142,7 @@ function openDeleteConfirm() {
       circle
       size="tiny"
       type="error"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.delete"
       :aria-label="props.labels.delete"
       :disabled="props.state.isActionDisabled"
@@ -156,7 +156,7 @@ function openDeleteConfirm() {
       circle
       size="tiny"
       type="error"
-      class="icon-action"
+      class="task-action-button icon-action"
       :title="props.labels.permanentDelete"
       :aria-label="props.labels.permanentDelete"
       :aria-busy="props.state.isOperating ? 'true' : undefined"
@@ -171,6 +171,7 @@ function openDeleteConfirm() {
     <NButton
       size="small"
       secondary
+      class="task-action-button"
       :title="props.labels.details"
       :aria-label="props.labels.details"
       :disabled="props.state.isActionDisabled"
@@ -182,6 +183,7 @@ function openDeleteConfirm() {
       v-if="props.permissions.canPause"
       size="small"
       secondary
+      class="task-action-button"
       :title="props.labels.pause"
       :aria-label="props.labels.pause"
       :loading="props.state.isOperating"
@@ -194,6 +196,7 @@ function openDeleteConfirm() {
       v-if="props.permissions.canResume"
       size="small"
       secondary
+      class="task-action-button"
       :title="props.labels.resume"
       :aria-label="props.labels.resume"
       :loading="props.state.isOperating"
@@ -207,6 +210,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="primary"
+      class="task-action-button"
       :title="props.labels.confirmFiles"
       :aria-label="props.labels.confirmFiles"
       :loading="props.state.isOperating"
@@ -219,6 +223,7 @@ function openDeleteConfirm() {
       v-if="props.permissions.canRedownload"
       size="small"
       secondary
+      class="task-action-button"
       :title="props.labels.redownload"
       :aria-label="props.labels.redownload"
       :disabled="props.state.isActionDisabled"
@@ -231,6 +236,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="error"
+      class="task-action-button"
       :title="props.labels.delete"
       :aria-label="props.labels.delete"
       :disabled="props.state.isActionDisabled"
@@ -243,6 +249,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="error"
+      class="task-action-button"
       :title="props.labels.permanentDelete"
       :aria-label="props.labels.permanentDelete"
       :loading="props.state.isOperating"
@@ -253,13 +260,14 @@ function openDeleteConfirm() {
     </NButton>
   </div>
   <NSpace v-else :size="6" wrap>
-    <NButton size="small" secondary :disabled="props.state.isActionDisabled" @click="showDetails = true">
+    <NButton class="task-action-button" size="small" secondary :disabled="props.state.isActionDisabled" @click="showDetails = true">
       {{ props.labels.details }}
     </NButton>
     <NButton
       v-if="props.permissions.canPause"
       size="small"
       secondary
+      class="task-action-button"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('pause')"
@@ -270,6 +278,7 @@ function openDeleteConfirm() {
       v-if="props.permissions.canResume"
       size="small"
       secondary
+      class="task-action-button"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('resume')"
@@ -281,6 +290,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="primary"
+      class="task-action-button"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="emit('confirmFiles')"
@@ -291,6 +301,7 @@ function openDeleteConfirm() {
       v-if="props.permissions.canRedownload"
       size="small"
       secondary
+      class="task-action-button"
       :disabled="props.state.isActionDisabled"
       @click="showRedownloadConfirm = true"
     >
@@ -301,6 +312,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="error"
+      class="task-action-button"
       :disabled="props.state.isActionDisabled"
       @click="openDeleteConfirm"
     >
@@ -311,6 +323,7 @@ function openDeleteConfirm() {
       size="small"
       secondary
       type="error"
+      class="task-action-button"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
       @click="showPermanentDeleteConfirm = true"
@@ -357,6 +370,18 @@ function openDeleteConfirm() {
   border: 1px solid color-mix(in srgb, var(--app-color-border-subtle) 76%, transparent);
   border-radius: var(--app-radius-pill);
   background: rgba(255, 255, 255, 0.012);
+}
+
+.task-action-button {
+  transition: transform var(--app-transition-fast);
+}
+
+.task-action-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.task-action-button:disabled {
+  transform: none;
 }
 
 .icon-action {

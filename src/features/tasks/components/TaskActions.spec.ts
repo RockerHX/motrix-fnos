@@ -181,6 +181,28 @@ describe("TaskActions", () => {
     expect(compactWrapper.emitted("confirmFiles")).toHaveLength(1);
   });
 
+  it("applies the shared action class in every layout", () => {
+    const permissions = {
+      canPause: true,
+      canResume: true,
+      canConfirmFiles: true,
+      canRedownload: true,
+      canDelete: true,
+      canPermanentDelete: true,
+    };
+    const variants = [
+      mountTaskActions({ permissions }),
+      mountTaskActions({ compact: true, permissions }),
+      mountTaskActions({ variant: "icon-pill", permissions }),
+    ];
+
+    for (const { wrapper } of variants) {
+      const buttons = wrapper.findAll("button");
+      expect(buttons).toHaveLength(7);
+      expect(buttons.every((button) => button.classes("task-action-button"))).toBe(true);
+    }
+  });
+
   it("emits confirmDelete with deleteFiles=true when checkbox is selected", async () => {
     const { wrapper } = mountTaskActions({
       permissions: { canDelete: true },
