@@ -91,61 +91,27 @@ export function collectReleaseChangeContext({
     );
   }
 
+  const patchFiles = splitPatchFiles(patch, patchPaths);
+
   return {
     commits,
     fileStatus,
     numstat,
     diffStat,
     patch,
+    patchFiles,
     patchBytes,
     omittedPatchFiles,
   };
 }
 
-export function buildChangelogPrompt({ version, baseRef, changeContext }) {
-  const commitLines = changeContext.commits
-    .filter((commit) => !isReleaseNoiseCommit(commit.subject))
-    .map((commit) => {
-      const body = commit.body ? `\n  说明：${indentMultiline(commit.body, '  ')}` : '';
-      return `- ${commit.hash} ${commit.subject}${body}`;
-    })
-    .join('\n');
-  const omittedFiles = changeContext.omittedPatchFiles
-    .map((file) => `- ${file.path}（${file.reason}）`)
-    .join('\n');
-
-  return `请根据以下 Git 提交元数据、文件统计和最终净 Diff，为 motrix-fnos 生成 ${version} 版本的中文 CHANGELOG。
-
-要求：
-- 以实际代码和文档变化为依据，不要只改写 commit 标题。
-- 合并属于同一功能的多个提交，优先描述用户可感知的最终行为。
-- 区分功能、修复、文档、测试与内部重构，不要把测试或工程改动夸大为用户功能。
-- 只返回 Markdown 正文，不要返回版本标题。
-- 使用这些分组标题中的一种或多种：### 新增、### 改进、### 修复、### 文档。
-- 每条使用简洁中文 bullet，不要提及 commit hash。
-
-范围：${baseRef}..HEAD
-
-提交：
-${commitLines || '- 无非发版维护提交'}
-
-文件状态：
-${changeContext.fileStatus || '（无）'}
-
-增删统计：
-${changeContext.numstat || '（无）'}
-
-汇总：
-${changeContext.diffStat || '（无）'}
-
-未提供补丁正文的文件：
-${omittedFiles || '（无）'}
-
-最终净文本 Diff：
-<diff>
-${changeContext.patch || '（无文本补丁）'}
-</diff>
-`;
+function splitPatchFiles(patch, patchPaths) {
+  if (!patch) return [];
+  const sections = patch.split(/(?=^diff --git )/m).filter(Boolean);
+  if (sections.length !== patchPaths.length) {
+    return [{ path: '多个文本文件', patch }];
+  }
+  return sections.map((section, index) => ({ path: patchPaths[index], patch: section.trim() }));
 }
 
 function readChangedPaths(repoRoot, range) {
@@ -170,18 +136,6 @@ function omittedPatchReason(changedPath, binaryPaths) {
   if (GENERATED_PATHS.has(changedPath)) return '构建产物';
   if (GENERATED_PATH_PREFIXES.some((prefix) => changedPath.startsWith(prefix))) return '生成目录';
   return null;
-}
-
-function indentMultiline(value, indent) {
-  return value.replace(/\n/g, `\n${indent}`);
-}
-
-function isReleaseNoiseCommit(subject) {
-  return (
-    /^chore:\s*发布\s+\d+\.\d+\.\d+\s+版本/.test(subject)
-    || /^发布\s+\d+\.\d+\.\d+\s+版本/.test(subject)
-    || /^Update CHANGELOG\.md$/i.test(subject)
-  );
 }
 
 function git(repoRoot, args, { trim = true } = {}) {

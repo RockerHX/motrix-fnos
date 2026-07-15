@@ -8,14 +8,10 @@ import {
   classifyCommit,
   cleanupCommitSubject,
   compareReleaseVersions,
-  normalizeGeneratedChangelog,
   validateChangelogBody,
 } from './script-utils.mjs';
-import {
-  buildChangelogPrompt,
-  collectReleaseChangeContext,
-  readReleaseCommits,
-} from './release-changelog-context.mjs';
+import { generateChangelogWithHierarchicalSummary } from './release-changelog-ai.mjs';
+import { collectReleaseChangeContext, readReleaseCommits } from './release-changelog-context.mjs';
 
 const options = parseArgs(process.argv.slice(2));
 
@@ -161,7 +157,17 @@ async function generateChangelogWithGitHubModels({ version, baseRef, changeConte
     throw new Error('缺少 GITHUB_TOKEN/GH_TOKEN');
   }
 
-  const prompt = buildChangelogPrompt({ version, baseRef, changeContext });
+  return generateChangelogWithHierarchicalSummary({
+    version,
+    baseRef,
+    changeContext,
+    complete: ({ systemPrompt, userPrompt, maxTokens, label }) =>
+      requestGitHubModels({ model, token, systemPrompt, userPrompt, maxTokens, label }),
+    onProgress: (message) => console.log(message),
+  });
+}
+
+async function requestGitHubModels({ model, token, systemPrompt, userPrompt, maxTokens, label }) {
   const response = await fetch('https://models.github.ai/inference/chat/completions', {
     method: 'POST',
     headers: {
@@ -171,28 +177,25 @@ async function generateChangelogWithGitHubModels({ version, baseRef, changeConte
     body: JSON.stringify({
       model,
       temperature: 0.2,
+      max_tokens: maxTokens,
       messages: [
-        {
-          role: 'system',
-          content: '你是严谨的软件发布说明助手，只根据给定 commit 生成准确、克制、面向用户的中文 CHANGELOG。',
-        },
-        { role: 'user', content: prompt },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
     }),
   });
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`${response.status} ${text}`);
+    throw new Error(`${label}调用 GitHub Models 失败：${response.status} ${text}`);
   }
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
-    throw new Error('响应缺少 choices[0].message.content');
+    throw new Error(`${label}响应缺少 choices[0].message.content`);
   }
-
-  return normalizeGeneratedChangelog(content);
+  return content;
 }
 
 function fallbackChangelog(commits) {
