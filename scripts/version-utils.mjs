@@ -10,10 +10,38 @@ export const versionFiles = {
   uiConfig: path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'config'),
 };
 
+const releaseVersionPattern = /^\d+\.\d+\.\d+$/;
+const projectVersionPattern = /^\d+\.\d+\.\d+(?:-test\.[1-9]\d*)?$/;
+
 export function assertReleaseVersion(version) {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+  if (!releaseVersionPattern.test(version)) {
     throw new Error(`版本号必须使用 x.y.z 格式，实际为：${version}`);
   }
+}
+
+export function assertProjectVersion(version) {
+  if (!projectVersionPattern.test(version)) {
+    throw new Error(`项目版本号必须使用 x.y.z 或 x.y.z-test.N 格式，实际为：${version}`);
+  }
+}
+
+export function nextTestVersion(version) {
+  assertProjectVersion(version);
+
+  const testMatch = version.match(/^(\d+\.\d+\.\d+)-test\.([1-9]\d*)$/);
+  if (testMatch) {
+    const sequence = Number(testMatch[2]);
+    if (!Number.isSafeInteger(sequence) || sequence === Number.MAX_SAFE_INTEGER) {
+      throw new Error(`测试版本序号超出安全范围：${version}`);
+    }
+    return `${testMatch[1]}-test.${sequence + 1}`;
+  }
+
+  const [major, minor, patch] = version.split('.').map(Number);
+  if (![major, minor, patch].every(Number.isSafeInteger) || patch === Number.MAX_SAFE_INTEGER) {
+    throw new Error(`版本号超出安全范围：${version}`);
+  }
+  return `${major}.${minor}.${patch + 1}-test.1`;
 }
 
 export function readProjectVersions(files = versionFiles) {
@@ -31,7 +59,7 @@ export function readProjectVersions(files = versionFiles) {
 }
 
 export function setProjectVersion(version, files = versionFiles) {
-  assertReleaseVersion(version);
+  assertProjectVersion(version);
 
   const packageJson = readJson(files.packageJson);
   packageJson.version = version;
@@ -91,7 +119,7 @@ function readUiCacheVersion(uiConfig, filePath) {
   if (typeof url !== 'string') {
     throw new Error(`无法读取版本号：${filePath}`);
   }
-  return matchRequired(url, /^\/\?v=(\d+\.\d+\.\d+)$/, filePath);
+  return matchRequired(url, /^\/\?v=(\d+\.\d+\.\d+(?:-test\.[1-9]\d*)?)$/, filePath);
 }
 
 function readUiEntry(uiConfig, filePath) {

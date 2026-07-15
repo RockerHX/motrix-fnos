@@ -1,14 +1,29 @@
 import { createHash } from 'node:crypto';
 
 export function compareReleaseVersions(left, right) {
-  const leftParts = left.split('.').map(Number);
-  const rightParts = right.split('.').map(Number);
+  const leftVersion = parseComparableVersion(left);
+  const rightVersion = parseComparableVersion(right);
   for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) {
-      return leftParts[index] - rightParts[index];
+    if (leftVersion.core[index] !== rightVersion.core[index]) {
+      return leftVersion.core[index] - rightVersion.core[index];
     }
   }
-  return 0;
+
+  if (leftVersion.testSequence === rightVersion.testSequence) return 0;
+  if (leftVersion.testSequence === null) return 1;
+  if (rightVersion.testSequence === null) return -1;
+  return leftVersion.testSequence - rightVersion.testSequence;
+}
+
+function parseComparableVersion(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-test\.([1-9]\d*))?$/);
+  if (!match) {
+    throw new Error(`无法比较版本号：${version}`);
+  }
+  return {
+    core: match.slice(1, 4).map(Number),
+    testSequence: match[4] === undefined ? null : Number(match[4]),
+  };
 }
 
 export function normalizeGeneratedChangelog(content) {

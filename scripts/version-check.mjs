@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import process from 'node:process';
-import { assertReleaseVersion, findVersionMismatches, readProjectVersions } from './version-utils.mjs';
+import { assertProjectVersion, findVersionMismatches, readProjectVersions } from './version-utils.mjs';
 
 try {
   const versions = readProjectVersions();
-  assertReleaseVersion(versions.packageJson);
+  assertProjectVersion(versions.packageJson);
 
   const mismatches = findVersionMismatches(versions);
   if (mismatches.length > 0) {
