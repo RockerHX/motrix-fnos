@@ -141,17 +141,25 @@ function readCommits(baseRef) {
 
 async function generateChangelogBody(version, baseRef, commits) {
   if (process.env.MOTRIX_RELEASE_CHANGELOG_PROVIDER === 'github-models') {
-    const model = process.env.MOTRIX_RELEASE_CHANGELOG_MODEL ?? 'openai/gpt-4o-mini';
+    const fallbackModel = process.env.MOTRIX_RELEASE_CHANGELOG_MODEL;
+    const analysisModel = process.env.MOTRIX_RELEASE_ANALYSIS_MODEL ?? fallbackModel ?? 'openai/gpt-4.1-mini';
+    const editorModel = process.env.MOTRIX_RELEASE_EDITOR_MODEL ?? fallbackModel ?? 'openai/gpt-4.1';
     const changeContext = collectReleaseChangeContext({ repoRoot, baseRef, commits });
-    const body = await generateChangelogWithGitHubModels({ version, baseRef, changeContext, model });
-    return { body, source: `GitHub Models (${model})` };
+    const body = await generateChangelogWithGitHubModels({
+      version,
+      baseRef,
+      changeContext,
+      analysisModel,
+      editorModel,
+    });
+    return { body, source: `GitHub Models（分析：${analysisModel}，编辑：${editorModel}）` };
   }
 
   console.warn(`CHANGELOG.md 未包含 ${version} 条目，使用 commit log 生成确定性 CHANGELOG 草稿。`);
   return { body: fallbackChangelog(commits), source: 'commit log 生成' };
 }
 
-async function generateChangelogWithGitHubModels({ version, baseRef, changeContext, model }) {
+async function generateChangelogWithGitHubModels({ version, baseRef, changeContext, analysisModel, editorModel }) {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
   if (!token) {
     throw new Error('缺少 GITHUB_TOKEN/GH_TOKEN');
@@ -161,8 +169,15 @@ async function generateChangelogWithGitHubModels({ version, baseRef, changeConte
     version,
     baseRef,
     changeContext,
-    complete: ({ systemPrompt, userPrompt, maxTokens, label }) =>
-      requestGitHubModels({ model, token, systemPrompt, userPrompt, maxTokens, label }),
+    complete: ({ modelRole, systemPrompt, userPrompt, maxTokens, label }) =>
+      requestGitHubModels({
+        model: modelRole === 'analysis' ? analysisModel : editorModel,
+        token,
+        systemPrompt,
+        userPrompt,
+        maxTokens,
+        label,
+      }),
     onProgress: (message) => console.log(message),
   });
 }
@@ -187,13 +202,13 @@ async function requestGitHubModels({ model, token, systemPrompt, userPrompt, max
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`${label}调用 GitHub Models 失败：${response.status} ${text}`);
+    throw new Error(`${label}调用 GitHub Models（${model}）失败：${response.status} ${text}`);
   }
 
   const data = await response.json();
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
-    throw new Error(`${label}响应缺少 choices[0].message.content`);
+    throw new Error(`${label}调用 GitHub Models（${model}）的响应缺少 choices[0].message.content`);
   }
   return content;
 }

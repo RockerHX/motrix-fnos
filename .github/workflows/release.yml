@@ -62,7 +62,8 @@ jobs:
           VERSION: ${{ inputs.version }}
           GITHUB_TOKEN: ${{ github.token }}
           MOTRIX_RELEASE_CHANGELOG_PROVIDER: github-models
-          MOTRIX_RELEASE_CHANGELOG_MODEL: openai/gpt-4o-mini
+          MOTRIX_RELEASE_ANALYSIS_MODEL: openai/gpt-4.1-mini
+          MOTRIX_RELEASE_EDITOR_MODEL: openai/gpt-4.1
         run: |
           set -euo pipefail
 

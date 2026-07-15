@@ -328,8 +328,8 @@ Actions -> Release FPK -> Run workflow -> 输入 x.y.z
 ```text
 Release FPK
   -> 读取 latest tag..HEAD 的 commit、文件统计与最终净 Diff
-  -> 按领域和 token 预算分块调用 GitHub Models 提取最终变更事实
-  -> 合并、去重阶段性摘要并生成严格分类的中文 CHANGELOG
+  -> 按领域和 token 预算使用 GPT-4.1 mini 提取结构化变更事实
+  -> 使用 GPT-4.1 编辑并独立审稿，生成严格分类的中文 CHANGELOG
   -> 同步 package / Cargo / FPK manifest / UI cache 版本
   -> 更新 Cargo.lock
   -> 跑完整 `pnpm run verify`
@@ -340,7 +340,7 @@ Release FPK
   -> 创建或更新 GitHub Release
 ```
 
-自动发版配置 GitHub Models 后不会在模型失败时静默退回 commit 标题归类：任一分块失败、超过分块上限或最终日志结构非法都会中止发布。这样可以避免遗漏大型 Diff，或把反复提交和中间修复逐条写进 Release。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用该条目并跳过模型调用。
+自动发版配置 GitHub Models 后不会在模型失败时静默退回 commit 标题归类：任一分块失败、超过分块上限或最终日志结构非法都会中止发布。第一阶段只输出带事实 ID、证据路径和发布相关性标记的 JSON；最终 Markdown 由本地脚本根据 GPT-4.1 审稿后的结构化结果渲染，并拒绝重复事实、纯测试条目和空泛描述。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用该条目并跳过模型调用。
 
 发版白名单文件：
 
