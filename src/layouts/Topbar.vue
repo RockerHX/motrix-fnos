@@ -237,18 +237,31 @@ function logout() {
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    opacity var(--app-transition-fast),
+    transform var(--app-transition-fast);
 }
 
-.topbar-actions > button:hover,
+.topbar-actions > button:hover {
+  color: var(--app-text-strong);
+  background: var(--app-color-card-overlay);
+}
+
 .topbar-actions > button:focus-visible {
   color: var(--app-text-strong);
   background: var(--app-color-card-overlay);
-  outline: none;
+  outline: 2px solid var(--app-text-accent-soft);
+  outline-offset: 2px;
+}
+
+.topbar-actions > button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .topbar-actions > button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+  transform: none;
 }
 
 .topbar-actions > button:disabled:hover {

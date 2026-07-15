@@ -107,4 +107,19 @@ describe("Topbar", () => {
     ]);
     expect(wrapper.find(".topbar-more").exists()).toBe(false);
   });
+
+  it("disables mobile logout and does not emit while logout is loading", async () => {
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "downloading",
+        logoutLoading: true,
+      },
+    });
+
+    const logoutButton = wrapper.get('.mobile-actions > button[aria-label="退出登录"]');
+    expect(logoutButton.attributes("disabled")).toBeDefined();
+
+    await logoutButton.trigger("click");
+    expect(wrapper.emitted("logout")).toBeUndefined();
+  });
 });
