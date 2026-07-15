@@ -139,6 +139,9 @@ function selectCategory(category: MainNavCategory) {
   font-size: 14px;
   text-align: left;
   cursor: pointer;
+  transition:
+    opacity var(--app-transition-fast),
+    transform var(--app-transition-fast);
 }
 
 .category-list button.active {
@@ -147,10 +150,29 @@ function selectCategory(category: MainNavCategory) {
 }
 
 .category-list button:hover,
-.category-list button:focus-visible {
+.sidebar-footer button:hover {
   color: var(--app-text-strong);
   background: rgba(255, 255, 255, 0.028);
-  outline: none;
+}
+
+.category-list button:focus-visible,
+.sidebar-footer button:focus-visible {
+  color: var(--app-text-strong);
+  background: rgba(255, 255, 255, 0.028);
+  outline: 2px solid var(--app-text-accent-soft);
+  outline-offset: 2px;
+}
+
+.category-list button:active:not(:disabled),
+.sidebar-footer button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.category-list button:disabled,
+.sidebar-footer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
 }
 
 .category-list button.active::before {
