@@ -235,6 +235,18 @@ async function logout() {
   box-shadow: var(--app-shadow-floating);
   cursor: pointer;
   z-index: 2;
+  transition:
+    opacity var(--app-transition-fast),
+    transform var(--app-transition-fast);
+}
+
+.floating-add:focus-visible {
+  outline: 2px solid var(--app-text-accent-soft);
+  outline-offset: 3px;
+}
+
+.floating-add:active {
+  transform: translateY(1px);
 }
 
 @media (max-width: 767px) {
