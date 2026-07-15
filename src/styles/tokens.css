@@ -29,6 +29,15 @@
   --app-shadow-floating: 0 10px 30px rgba(0, 0, 0, 0.35);
   --app-shadow-hero: 0 18px 50px rgba(0, 0, 0, 0.3);
 
+  --app-motion-duration-fast: 120ms;
+  --app-motion-duration-standard: 160ms;
+  --app-motion-duration-dialog: 200ms;
+  --app-motion-duration-progress: 360ms;
+  --app-motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --app-transition-fast: var(--app-motion-duration-fast) var(--app-motion-ease-out);
+  --app-transition-standard: var(--app-motion-duration-standard) var(--app-motion-ease-out);
+  --app-transition-progress: var(--app-motion-duration-progress) var(--app-motion-ease-out);
+
   --app-desktop-sidebar-width: clamp(184px, 14vw, 220px);
   --app-desktop-topbar-height: 68px;
   --app-desktop-content-gutter-x: 36px;
