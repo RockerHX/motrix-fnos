@@ -1,0 +1,124 @@
+name: Prune Old Action Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "仅预览将删除的 Action 运行记录"
+        required: true
+        default: true
+        type: boolean
+      confirmation:
+        description: "正式删除时输入 DELETE OLD ACTION RUNS"
+        required: false
+        type: string
+
+permissions:
+  actions: write
+
+concurrency:
+  group: action-run-cleanup
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Keep Latest Ten Runs
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Preview or delete old Action runs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          readonly keep_count=10
+          readonly confirm_text="DELETE OLD ACTION RUNS"
+
+          if [[ "${DRY_RUN}" != "true" && "${CONFIRMATION}" != "${confirm_text}" ]]; then
+            echo "正式删除必须在 confirmation 中输入：${confirm_text}" >&2
+            exit 1
+          fi
+
+          mapfile -t runs < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+              --jq '.workflow_runs[] | [.id, .created_at, .name, .status, (.conclusion // "-"), .html_url] | @tsv' \
+              | sort -t $'\t' -k2,2r -k1,1nr
+          )
+
+          if (( ${#runs[@]} <= keep_count )); then
+            echo "当前只有 ${#runs[@]} 次 Action 运行记录，无需清理。"
+            exit 0
+          fi
+
+          current_run_is_protected=false
+          for (( index = 0; index < keep_count; index += 1 )); do
+            IFS=$'\t' read -r run_id _ <<< "${runs[index]}"
+            if [[ "${run_id}" == "${GITHUB_RUN_ID}" ]]; then
+              current_run_is_protected=true
+              break
+            fi
+          done
+          if [[ "${current_run_is_protected}" != "true" ]]; then
+            echo "当前清理任务 ${GITHUB_RUN_ID} 不在最新 ${keep_count} 次运行中，拒绝继续。" >&2
+            exit 1
+          fi
+
+          delete_runs=("${runs[@]:keep_count}")
+          for run in "${delete_runs[@]}"; do
+            IFS=$'\t' read -r run_id created_at workflow_name status conclusion run_url <<< "${run}"
+            if [[ "${status}" != "completed" ]]; then
+              echo "候选任务 ${run_id}（${workflow_name}，${status}）尚未完成，拒绝清理；请稍后重试。" >&2
+              exit 1
+            fi
+          done
+
+          {
+            echo "## Action 运行记录清理计划"
+            echo
+            echo "- 当前记录：${#runs[@]} 次"
+            echo "- 保留最新：${keep_count} 次"
+            echo "- 待删除：${#delete_runs[@]} 次"
+            echo "- 模式：$([[ "${DRY_RUN}" == "true" ]] && echo '仅预览' || echo '正式删除')"
+            echo "- 删除运行记录会同时删除对应日志和构建产物。"
+            echo
+            echo "### 保留记录"
+            for (( index = 0; index < keep_count; index += 1 )); do
+              IFS=$'\t' read -r run_id created_at workflow_name status conclusion run_url <<< "${runs[index]}"
+              echo "- [\`${run_id}\`](${run_url}) ${created_at} · ${workflow_name} · ${status}/${conclusion}"
+            done
+            echo
+            echo "### 待删除记录"
+            for run in "${delete_runs[@]}"; do
+              IFS=$'\t' read -r run_id created_at workflow_name status conclusion run_url <<< "${run}"
+              echo "- [\`${run_id}\`](${run_url}) ${created_at} · ${workflow_name} · ${conclusion}"
+            done
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "dry-run 完成，未删除任何 Action 运行记录。"
+            exit 0
+          fi
+
+          for run in "${delete_runs[@]}"; do
+            IFS=$'\t' read -r run_id created_at workflow_name status conclusion run_url <<< "${run}"
+            echo "删除 Action 运行记录：${run_id}（${workflow_name}，${created_at}）"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          done
+
+          mapfile -t remaining_run_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs?per_page=100" \
+              --jq '.workflow_runs[].id'
+          )
+          if (( ${#remaining_run_ids[@]} != keep_count )); then
+            echo "清理后仍有 ${#remaining_run_ids[@]} 次 Action 运行记录，期望 ${keep_count} 次。" >&2
+            exit 1
+          fi
+          if [[ ! " ${remaining_run_ids[*]} " =~ " ${GITHUB_RUN_ID} " ]]; then
+            echo "清理后未找到当前任务 ${GITHUB_RUN_ID}，状态异常。" >&2
+            exit 1
+          fi
+
+          echo "清理完成，仅保留最近 ${keep_count} 次 Action 运行记录。"
