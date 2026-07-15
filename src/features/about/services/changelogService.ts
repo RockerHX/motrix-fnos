@@ -32,7 +32,14 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       continue;
     }
 
-    if (line.startsWith("- ") && currentSection) {
+    if (line.startsWith("- ") && currentEntry) {
+      if (!currentSection) {
+        currentSection = {
+          title: "变更",
+          items: [],
+        };
+        currentEntry.sections.push(currentSection);
+      }
       currentSection.items.push(line.slice(2).trim());
     }
   }

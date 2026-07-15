@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import changelogMarkdown from "../../../../CHANGELOG.md?raw";
 import { parseChangelog } from "./changelogService";
 
 describe("parseChangelog", () => {
@@ -48,6 +49,36 @@ describe("parseChangelog", () => {
         sections: [{ title: "新增", items: ["新版本"] }],
       },
     ]);
+  });
+
+  it("keeps legacy bullets before the first named section as changes", () => {
+    expect(parseChangelog(`## 2.0.0 - 2026-07-15
+
+- 未分类的历史变更
+
+### 修复
+
+- 已分类的修复
+`)).toEqual([
+      {
+        version: "2.0.0",
+        date: "2026-07-15",
+        sections: [
+          { title: "变更", items: ["未分类的历史变更"] },
+          { title: "修复", items: ["已分类的修复"] },
+        ],
+      },
+    ]);
+  });
+
+  it("reads legacy entries from the real changelog without duplicating their content", () => {
+    const entry = parseChangelog(changelogMarkdown).find(({ version }) => version === "1.7.2");
+
+    expect(entry).toBeDefined();
+    expect(entry?.sections[0]?.title).toBe("变更");
+    expect(entry?.sections[0]?.items.length).toBeGreaterThan(0);
+    expect(entry?.sections.some(({ title, items }) => title === "文档" && items.length > 0)).toBe(true);
+    expect(entry?.sections.some(({ title, items }) => title === "改进" && items.length > 0)).toBe(true);
   });
 
   it("ignores bullets outside sections and unrelated markdown", () => {
