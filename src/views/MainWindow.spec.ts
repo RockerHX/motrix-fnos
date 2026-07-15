@@ -47,6 +47,7 @@ vi.mock("../layouts/AppShell.vue", async () => {
         return () =>
           h("div", { "data-test": "app-shell" }, [
             h("button", { "data-test": "shell-logout", onClick: () => emit("logout") }, "logout"),
+            h("button", { "data-test": "shell-select-all", onClick: () => emit("selectCategory", "all") }, "all"),
             h("button", { "data-test": "shell-select-completed", onClick: () => emit("selectCategory", "completed") }, "completed"),
             h("button", { "data-test": "shell-select-trash", onClick: () => emit("selectCategory", "trash") }, "trash"),
             h("button", { "data-test": "shell-select-extensions", onClick: () => emit("selectCategory", "extensions") }, "extensions"),
@@ -154,6 +155,34 @@ describe("MainWindow floating create button", () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find(".floating-add").exists()).toBe(true);
+  });
+
+  it("keeps floating create visibility aligned with mobile category and runtime state", async () => {
+    isMobileLayout.value = true;
+    const { wrapper } = mountMainWindow();
+    const taskStore = useTaskStore();
+
+    expect(wrapper.find(".floating-add").exists()).toBe(false);
+
+    taskStore.tasks = [createTask({ id: 4, gid: "gid-4", status: "active" })];
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".floating-add").exists()).toBe(true);
+
+    await wrapper.get('[data-test="shell-select-completed"]').trigger("click");
+    expect(wrapper.find(".floating-add").exists()).toBe(true);
+
+    await wrapper.get('[data-test="shell-select-trash"]').trigger("click");
+    expect(wrapper.find(".floating-add").exists()).toBe(false);
+
+    await wrapper.get('[data-test="shell-select-extensions"]').trigger("click");
+    expect(wrapper.find(".floating-add").exists()).toBe(false);
+
+    await wrapper.get('[data-test="shell-select-all"]').trigger("click");
+    expect(wrapper.find(".floating-add").exists()).toBe(true);
+
+    taskStore.isRuntimeExiting = true;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".floating-add").exists()).toBe(false);
   });
 
   it("logs out through the shell and clears sensitive task state", async () => {

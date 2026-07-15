@@ -171,16 +171,18 @@ async function logout() {
     </Transition>
 
     <template #overlay>
-      <button
-        v-if="isMobileLayout && showFloatingAdd"
-        type="button"
-        class="floating-add"
-        :title="t('empty.create')"
-        :aria-label="t('empty.create')"
-        @click="dialogs.openCreateDialog"
-      >
-        <AppIcon name="plus" :size="28" />
-      </button>
+      <Transition name="app-floating-add">
+        <button
+          v-if="isMobileLayout && showFloatingAdd"
+          type="button"
+          class="floating-add"
+          :title="t('empty.create')"
+          :aria-label="t('empty.create')"
+          @click="dialogs.openCreateDialog"
+        >
+          <AppIcon name="plus" :size="28" />
+        </button>
+      </Transition>
 
       <TaskBulkDeleteConfirmDialog
         :show="bulkActions.showBulkDeleteConfirm.value"
@@ -241,6 +243,23 @@ async function logout() {
   inset: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
+}
+
+.app-floating-add-enter-active,
+.app-floating-add-leave-active {
+  transition:
+    opacity var(--app-transition-fast),
+    transform var(--app-transition-fast);
+}
+
+.app-floating-add-enter-from,
+.app-floating-add-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.app-floating-add-leave-active {
   pointer-events: none;
 }
 
