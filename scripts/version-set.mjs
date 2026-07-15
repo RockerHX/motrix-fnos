@@ -5,7 +5,7 @@ import { readProjectVersions, setProjectVersion } from './version-utils.mjs';
 const version = process.argv[2];
 
 if (!version) {
-  console.error('用法：pnpm run version:set <x.y.z[-test.N]>');
+  console.error('用法：pnpm run version:set <x.y.z[-beta]>');
   process.exit(1);
 }
 

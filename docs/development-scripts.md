@@ -27,7 +27,6 @@
 | `clean:rust` | 删除整个 Rust `target` | 是，删除编译缓存与产物 |
 | `clean:rust:incremental` | 只删除 Rust incremental 缓存 | 是，保留主要编译缓存 |
 | `version:set` | 显式同步项目版本 | 是，修改四个版本源 |
-| `version:test` | 迭代本地 FPK 测试版本 | 是，修改四个版本源 |
 | `version:check` | 检查四个版本源是否一致 | 否 |
 | `release:prepare` | 本地准备正式版本、日志、commit 和 tag | 是，属于高影响命令 |
 | `release:notes` | 从 `CHANGELOG.md` 提取某版本发布正文 | 否 |
@@ -140,7 +139,7 @@ pnpm run verify --keep-rust-incremental
 - `packaging/fnos/manifest.template`；
 - `packaging/fnos/app/ui/config` 中的缓存查询参数。
 
-允许的项目版本格式是正式版 `x.y.z` 和本地测试版 `x.y.z-test.N`。GitHub 正式发布仍只接受 `x.y.z`。
+允许的项目版本格式是正式版 `x.y.z` 和 fnOS 可升级的 beta 测试版 `x.y.z-beta`。GitHub 正式发布仍只接受 `x.y.z`。
 
 ### `pnpm run version:check`
 
@@ -152,32 +151,25 @@ pnpm run verify --keep-rust-incremental
 
 ```bash
 pnpm run version:set 1.7.4
-pnpm run version:set 1.7.4-test.3
+pnpm run version:set 1.7.5-beta
 ```
 
 该命令不构建 FPK、不更新 CHANGELOG、不创建 commit/tag，也不自动恢复旧版本。Cargo 后续构建可能同步更新 `server/Cargo.lock`，提交前应检查全部版本改动。
 
-### `pnpm run version:test`
+### 本地 FPK 测试版本
 
-自动生成下一个本地测试版本并同步四个版本源：
-
-```text
-1.7.3        -> 1.7.4-test.1
-1.7.4-test.1 -> 1.7.4-test.2
-1.7.4-test.2 -> 1.7.4-test.3
-```
-
-正式版必须先递增 patch 再进入 `test.1`，因为 SemVer 中 `1.7.3-test.1` 低于 `1.7.3`，不能可靠地作为已安装正式版的升级包。相同核心版本中，`1.7.4-test.2` 高于 `1.7.4-test.1`，但低于最终的 `1.7.4`。
+fnOS 的实机升级规则要求测试版使用 beta 版本链：正式版先升级到同一核心版本的 `-beta`，再升级到对应的正式版；同一 beta 版本不能重复安装。项目不再提供自动递增测试版本命令，测试版本由 `version:set` 显式指定。
 
 推荐测试流程：
 
 1. 确认工作区中的版本文件没有未预期改动；
-2. 执行 `pnpm run version:test`；
+2. 执行 `pnpm run version:set 1.7.5-beta`；
 3. 执行 `pnpm run version:check`；
 4. 构建并安装对应架构 FPK；
-5. 测试结束后按实际目标继续迭代，或将版本文件恢复为正式开发版本。
+5. 测试完成后执行 `pnpm run version:set 1.7.5` 验证 beta 到正式版升级；
+6. 测试结束后按实际目标继续迭代，或将版本文件恢复为正式开发版本。
 
-测试版本通常只用于本地安装验证，不应创建 GitHub Release 或正式 tag。
+beta 测试版本只用于本地安装验证，不应创建 GitHub Release 或正式 tag。
 
 ## 正式发布命令
 
@@ -208,7 +200,7 @@ pnpm run release:prepare 1.7.4 --dry-run
 
 - 命令会拒绝接管无关的脏工作区；执行前先提交、暂存到安全位置或恢复无关改动。
 - 本地未配置 GitHub Models provider 时会根据 commit log 生成明确的确定性草稿；自动发布配置模型后会由 GPT-4.1 mini 按领域和 token 预算提取结构化事实，再由 GPT-4.1 编辑并独立审稿。本地校验会拒绝重复事实、纯测试、空泛描述和无法追溯的条目；任一模型调用失败、分块超限或日志格式非法都会阻止发布。
-- 该命令只用于正式版本，不接受 `-test.N`。
+- 该命令只用于正式版本，不接受 `-beta`。
 - GitHub Actions 的 Release workflow 仍是远程正式发版入口；本地命令不能替代 Actions 权限、产物上传和双架构发布检查。
 
 ## Git hooks
@@ -301,7 +293,7 @@ git status --short
 ### 本地升级测试包
 
 ```bash
-pnpm run version:test
+pnpm run version:set 1.7.5-beta
 pnpm run version:check
 pnpm run build:fpk
 ```

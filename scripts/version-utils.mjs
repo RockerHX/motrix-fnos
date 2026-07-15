@@ -11,7 +11,7 @@ export const versionFiles = {
 };
 
 const releaseVersionPattern = /^\d+\.\d+\.\d+$/;
-const projectVersionPattern = /^\d+\.\d+\.\d+(?:-test\.[1-9]\d*)?$/;
+const projectVersionPattern = /^\d+\.\d+\.\d+(?:-beta)?$/;
 
 export function assertReleaseVersion(version) {
   if (!releaseVersionPattern.test(version)) {
@@ -21,27 +21,8 @@ export function assertReleaseVersion(version) {
 
 export function assertProjectVersion(version) {
   if (!projectVersionPattern.test(version)) {
-    throw new Error(`项目版本号必须使用 x.y.z 或 x.y.z-test.N 格式，实际为：${version}`);
+    throw new Error(`项目版本号必须使用 x.y.z 或 x.y.z-beta 格式，实际为：${version}`);
   }
-}
-
-export function nextTestVersion(version) {
-  assertProjectVersion(version);
-
-  const testMatch = version.match(/^(\d+\.\d+\.\d+)-test\.([1-9]\d*)$/);
-  if (testMatch) {
-    const sequence = Number(testMatch[2]);
-    if (!Number.isSafeInteger(sequence) || sequence === Number.MAX_SAFE_INTEGER) {
-      throw new Error(`测试版本序号超出安全范围：${version}`);
-    }
-    return `${testMatch[1]}-test.${sequence + 1}`;
-  }
-
-  const [major, minor, patch] = version.split('.').map(Number);
-  if (![major, minor, patch].every(Number.isSafeInteger) || patch === Number.MAX_SAFE_INTEGER) {
-    throw new Error(`版本号超出安全范围：${version}`);
-  }
-  return `${major}.${minor}.${patch + 1}-test.1`;
 }
 
 export function readProjectVersions(files = versionFiles) {
@@ -119,7 +100,7 @@ function readUiCacheVersion(uiConfig, filePath) {
   if (typeof url !== 'string') {
     throw new Error(`无法读取版本号：${filePath}`);
   }
-  return matchRequired(url, /^\/\?v=(\d+\.\d+\.\d+(?:-test\.[1-9]\d*)?)$/, filePath);
+  return matchRequired(url, /^\/\?v=(\d+\.\d+\.\d+(?:-beta)?)$/, filePath);
 }
 
 function readUiEntry(uiConfig, filePath) {

@@ -9,20 +9,18 @@ export function compareReleaseVersions(left, right) {
     }
   }
 
-  if (leftVersion.testSequence === rightVersion.testSequence) return 0;
-  if (leftVersion.testSequence === null) return 1;
-  if (rightVersion.testSequence === null) return -1;
-  return leftVersion.testSequence - rightVersion.testSequence;
+  if (leftVersion.isPrerelease === rightVersion.isPrerelease) return 0;
+  return leftVersion.isPrerelease ? -1 : 1;
 }
 
 function parseComparableVersion(version) {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-test\.([1-9]\d*))?$/);
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-(beta))?$/);
   if (!match) {
     throw new Error(`无法比较版本号：${version}`);
   }
   return {
     core: match.slice(1, 4).map(Number),
-    testSequence: match[4] === undefined ? null : Number(match[4]),
+    isPrerelease: match[4] !== undefined,
   };
 }
 

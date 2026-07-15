@@ -16,7 +16,6 @@
     "clean:rust": "node scripts/clean-rust-target.mjs",
     "clean:rust:incremental": "node scripts/clean-rust-target.mjs --incremental",
     "version:set": "node scripts/version-set.mjs",
-    "version:test": "node scripts/version-test-next.mjs",
     "version:check": "node scripts/version-check.mjs",
     "release:prepare": "node scripts/release-prepare.mjs",
     "release:notes": "node scripts/release-notes.mjs",

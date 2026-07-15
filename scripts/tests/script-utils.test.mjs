@@ -23,7 +23,6 @@ import {
   assertProjectVersion,
   assertReleaseVersion,
   findVersionMismatches,
-  nextTestVersion,
   readProjectVersions,
   setProjectVersion,
 } from '../version-utils.mjs';
@@ -31,24 +30,15 @@ import {
 test('版本号校验与比较使用语义化数字段', () => {
   assert.doesNotThrow(() => assertReleaseVersion('1.10.0'));
   assert.throws(() => assertReleaseVersion('v1.10.0'), /x\.y\.z/);
-  assert.throws(() => assertReleaseVersion('1.10.1-test.1'), /x\.y\.z/);
-  assert.doesNotThrow(() => assertProjectVersion('1.10.1-test.1'));
-  assert.throws(() => assertProjectVersion('1.10.1-test.01'), /x\.y\.z-test\.N/);
-  assert.throws(() => assertProjectVersion('1.10.1-beta.1'), /x\.y\.z-test\.N/);
+  assert.doesNotThrow(() => assertProjectVersion('1.10.1'));
+  assert.doesNotThrow(() => assertProjectVersion('1.10.1-beta'));
+  assert.throws(() => assertProjectVersion('1.10.1-beta.1'), /x\.y\.z-beta/);
   assert.ok(compareReleaseVersions('1.10.0', '1.9.9') > 0);
   assert.ok(compareReleaseVersions('2.0.0', '2.0.1') < 0);
   assert.equal(compareReleaseVersions('2.0.0', '2.0.0'), 0);
-  assert.ok(compareReleaseVersions('1.7.4-test.1', '1.7.3') > 0);
-  assert.ok(compareReleaseVersions('1.7.4-test.2', '1.7.4-test.1') > 0);
-  assert.ok(compareReleaseVersions('1.7.4', '1.7.4-test.2') > 0);
-  assert.throws(() => compareReleaseVersions('1.7.4-beta.1', '1.7.3'), /无法比较版本号/);
-});
-
-test('测试版本从下一补丁开始并依次递增序号', () => {
-  assert.equal(nextTestVersion('1.7.3'), '1.7.4-test.1');
-  assert.equal(nextTestVersion('1.7.4-test.1'), '1.7.4-test.2');
-  assert.equal(nextTestVersion('1.7.4-test.9'), '1.7.4-test.10');
-  assert.throws(() => nextTestVersion('1.7.4-rc.1'), /x\.y\.z-test\.N/);
+  assert.ok(compareReleaseVersions('1.7.5-beta', '1.7.4') > 0);
+  assert.ok(compareReleaseVersions('1.7.5', '1.7.5-beta') > 0);
+  assert.equal(compareReleaseVersions('1.7.5-beta', '1.7.5-beta'), 0);
 });
 
 test('版本一致性检查列出所有偏离 package.json 的来源', () => {
@@ -100,8 +90,8 @@ test('版本同步同时更新 package、Cargo、manifest 与 UI cache', () => {
   }
 });
 
-test('版本同步支持测试版本并能从 UI cache 读回', () => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'motrix-test-version-'));
+test('版本同步支持 beta 版本并能从 UI cache 读回', () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'motrix-beta-version-'));
   const files = {
     packageJson: path.join(fixtureRoot, 'package.json'),
     cargoToml: path.join(fixtureRoot, 'server', 'Cargo.toml'),
@@ -120,13 +110,13 @@ test('版本同步支持测试版本并能从 UI cache 读回', () => {
       `${JSON.stringify({ '.url': { 'motrix.fnos.main': { url: '/?v=1.7.3' } } }, null, 2)}\n`,
     );
 
-    setProjectVersion('1.7.4-test.1', files);
+    setProjectVersion('1.7.4-beta', files);
 
     assert.deepEqual(readProjectVersions(files), {
-      packageJson: '1.7.4-test.1',
-      cargoToml: '1.7.4-test.1',
-      manifestTemplate: '1.7.4-test.1',
-      uiConfig: '1.7.4-test.1',
+      packageJson: '1.7.4-beta',
+      cargoToml: '1.7.4-beta',
+      manifestTemplate: '1.7.4-beta',
+      uiConfig: '1.7.4-beta',
     });
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
