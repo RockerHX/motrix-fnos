@@ -103,7 +103,11 @@ function logout() {
   <header class="topbar">
     <div class="topbar-title">
       <span>Motrix</span>
-      <strong>{{ activeCategoryLabel }}</strong>
+      <div class="topbar-title-label">
+        <Transition name="app-title-switch">
+          <strong :key="props.activeCategory">{{ activeCategoryLabel }}</strong>
+        </Transition>
+      </div>
     </div>
     <div class="topbar-actions desktop-actions">
       <button
@@ -207,12 +211,43 @@ function logout() {
   line-height: 1.2;
 }
 
+.topbar-title-label {
+  position: relative;
+  min-width: 0;
+}
+
 .topbar-title strong {
+  display: block;
   color: var(--app-text-strong);
   font-size: 20px;
   font-weight: 600;
   line-height: 1.2;
   overflow-wrap: anywhere;
+}
+
+.app-title-switch-enter-active,
+.app-title-switch-leave-active {
+  transition:
+    opacity var(--app-transition-standard),
+    transform var(--app-transition-standard);
+}
+
+.app-title-switch-enter-from {
+  opacity: 0;
+  transform: translateY(2px);
+}
+
+.app-title-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+
+.app-title-switch-leave-active {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
 }
 
 .topbar-actions {

@@ -73,6 +73,38 @@ describe("Topbar", () => {
     expect(wrapper.emitted("clearTrash")).toHaveLength(1);
   });
 
+  it("updates the category title and action branch without duplicate text", async () => {
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "all",
+      },
+    });
+
+    expect(wrapper.get(".topbar-title strong").text()).toBe("全部");
+
+    await wrapper.setProps({ activeCategory: "trash" });
+    expect(wrapper.get(".topbar-title strong").text()).toBe("回收站");
+    expect(wrapper.find('.desktop-actions > button[aria-label="清空回收站"]').exists()).toBe(true);
+
+    await wrapper.setProps({ activeCategory: "extensions" });
+    const titles = wrapper.findAll(".topbar-title strong");
+    expect(titles).toHaveLength(1);
+    expect(titles[0].text()).toBe("扩展");
+  });
+
+  it("renders one complete English category title", () => {
+    setLanguage("en-US");
+    const wrapper = mount(Topbar, {
+      props: {
+        activeCategory: "completed",
+      },
+    });
+
+    const titles = wrapper.findAll(".topbar-title strong");
+    expect(titles).toHaveLength(1);
+    expect(titles[0].text()).toBe("Completed");
+  });
+
   it("does not emit disabled desktop actions and keeps disabled title", async () => {
     const wrapper = mount(Topbar, {
       props: {
