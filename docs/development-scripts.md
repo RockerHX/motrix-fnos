@@ -223,8 +223,9 @@ git config core.hooksPath .githooks
 
 当前 hook 行为：
 
-- 暂存区只有 `docs/`、Markdown/文本文档或常见图片、字体、音视频资源时，只执行 `git diff --cached --check`，跳过 Rust 和前端测试。
+- 暂存区只有 `docs/`、Markdown/文本文档或常见图片、字体、音视频资源时，只执行空白检查，跳过 Rust 和前端测试；Markdown 允许用两个行尾空格表示强制换行。
 - 暂存区包含代码、配置、脚本，或同时包含代码与文档/资源时，执行完整 `verify:pre-commit`。
+- 删除 Markdown、图片等非代码资源时，也按同样规则跳过测试，不会因为删除动作被误判为空暂存区。
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
 - `pre-push` 不做文件类型跳过，仍执行完整 `pnpm run verify`。
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+staged_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
 has_staged_file=0
 only_docs_or_assets=1
 
@@ -22,7 +22,8 @@ $staged_files
 EOF
 
 if [ "$has_staged_file" -eq 1 ] && [ "$only_docs_or_assets" -eq 1 ]; then
-  git diff --cached --check
+  # Markdown 允许用两个行尾空格表示强制换行，排除 Markdown 后继续检查其他资源文件。
+  git diff --cached --check -- . ':(exclude,glob)**/*.md' ':(exclude,glob)**/*.mdx'
   echo "仅文档或非代码资源变更，跳过 Rust/前端测试。"
   exit 0
 fi
