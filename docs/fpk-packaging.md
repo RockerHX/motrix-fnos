@@ -327,8 +327,8 @@ Actions -> Release FPK -> Run workflow -> 输入 x.y.z
 
 ```text
 Release FPK
-  -> 读取 latest tag..HEAD 的 commit、文件统计与最终净 Diff
-  -> 按领域和 token 预算使用 GPT-4.1 mini 提取结构化变更事实
+  -> 读取 latest tag..HEAD 的 commit subject/body 与本地文件统计
+  -> 按 commit 信息和 token 预算使用 GPT-4.1 mini 合并重复变更事实
   -> 使用 GPT-4.1 编辑并独立审稿，生成严格分类的中文 CHANGELOG
   -> 同步 package / Cargo / FPK manifest / UI cache 版本
   -> 更新 Cargo.lock
@@ -340,7 +340,7 @@ Release FPK
   -> 创建或更新 GitHub Release
 ```
 
-自动发版配置 GitHub Models 后不会在模型失败时静默退回 commit 标题归类：任一分块失败、超过分块上限或最终日志结构非法都会中止发布。结构化 JSON 响应如果不完整，脚本会提高输出上限并使用更严格提示自动重试一次；重试仍失败才会中止发布。GitHub Models 免费 API 受每分钟和每日请求数限制，脚本默认让模型请求至少间隔 7 秒；收到 429 时优先遵守 `Retry-After` / `x-ratelimit-reset`，最多重试 3 次。仍被限流时应等待配额重置，或提前在 `CHANGELOG.md` 写入目标版本条目以跳过模型调用。第一阶段只输出带事实 ID、证据路径和发布相关性标记的 JSON；最终 Markdown 由本地脚本根据 GPT-4.1 审稿后的结构化结果渲染，并拒绝重复事实、纯测试条目和空泛描述。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用该条目并跳过模型调用。
+自动发版配置 GitHub Models 后不会在模型失败时静默退回 commit 标题归类：任一分块失败、超过分块上限或最终日志结构非法都会中止发布。模型只接收两个版本之间的 commit subject/body，不接收源码 Diff；本地仍保留文件统计用于发布流程检查。结构化 JSON 响应如果不完整，脚本会提高输出上限并使用更严格提示自动重试一次；重试仍失败才会中止发布。GitHub Models 免费 API 受每分钟和每日请求数限制，脚本默认让模型请求至少间隔 7 秒；收到 429 时优先遵守 `Retry-After` / `x-ratelimit-reset`，最多重试 3 次。仍被限流时应等待配额重置，或提前在 `CHANGELOG.md` 写入目标版本条目以跳过模型调用。模型输出带有 `evidenceCommits`，本地校验会拒绝重复事实、纯测试条目和空泛描述。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用该条目并跳过模型调用。
 
 发版白名单文件：
 

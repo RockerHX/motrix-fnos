@@ -11,7 +11,7 @@ import {
   validateChangelogBody,
 } from './script-utils.mjs';
 import { generateChangelogWithHierarchicalSummary } from './release-changelog-ai.mjs';
-import { collectReleaseChangeContext, readReleaseCommits } from './release-changelog-context.mjs';
+import { collectReleaseCommitContext, readReleaseCommits } from './release-changelog-context.mjs';
 
 const MODEL_REQUEST_MIN_INTERVAL_MS = positiveIntegerEnv('MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS', 7_000);
 const MODEL_RATE_LIMIT_RETRIES = 3;
@@ -148,7 +148,7 @@ async function generateChangelogBody(version, baseRef, commits) {
     const fallbackModel = process.env.MOTRIX_RELEASE_CHANGELOG_MODEL;
     const analysisModel = process.env.MOTRIX_RELEASE_ANALYSIS_MODEL ?? fallbackModel ?? 'openai/gpt-4.1-mini';
     const editorModel = process.env.MOTRIX_RELEASE_EDITOR_MODEL ?? fallbackModel ?? 'openai/gpt-4.1';
-    const changeContext = collectReleaseChangeContext({ repoRoot, baseRef, commits });
+    const changeContext = collectReleaseCommitContext({ repoRoot, baseRef, commits });
     const body = await generateChangelogWithGitHubModels({
       version,
       baseRef,

@@ -184,7 +184,7 @@ beta 测试版本只用于本地安装验证，不应创建 GitHub Release 或�
 本地正式发布准备命令，默认会：
 
 1. 校验目标是高于当前版本的正式 `x.y.z`；
-2. 复用已有目标版本 CHANGELOG，或分块分析 Git 历史与最终净 Diff 后生成发布日志；
+2. 复用已有目标版本 CHANGELOG，或分块分析两个版本之间的 commit subject/body、合并重复提交后生成发布日志；
 3. 同步版本文件并更新 CHANGELOG；
 4. 运行完整 `pnpm run verify`；
 5. 暂存固定的发布文件并创建中文 release commit；
@@ -201,7 +201,7 @@ pnpm run release:prepare 1.7.4 --dry-run
 高影响注意事项：
 
 - 命令会拒绝接管无关的脏工作区；执行前先提交、暂存到安全位置或恢复无关改动。
-- 本地未配置 GitHub Models provider 时会根据 commit log 生成明确的确定性草稿；自动发布配置模型后会由 GPT-4.1 mini 按领域和 token 预算提取结构化事实，再由 GPT-4.1 编辑并独立审稿。本地校验会拒绝重复事实、纯测试、空泛描述和无法追溯的条目；任一模型调用失败、分块超限或日志格式非法都会阻止发布。
+- 本地未配置 GitHub Models provider 时会根据 commit log 生成明确的确定性草稿；自动发布配置模型后会由 GPT-4.1 mini 按 commit 信息和 token 预算合并重复变更事实，再由 GPT-4.1 编辑并独立审稿。本地校验会拒绝重复事实、纯测试、空泛描述和无法追溯的条目；任一模型调用失败、分块超限或日志格式非法都会阻止发布。
 - 该命令只用于正式版本，不接受 `-beta`。
 - GitHub Actions 的 Release workflow 仍是远程正式发版入口；本地命令不能替代 Actions 权限、产物上传和双架构发布检查。
 
