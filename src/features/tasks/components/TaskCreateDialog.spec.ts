@@ -101,9 +101,29 @@ vi.mock("naive-ui", async () => {
           type: Boolean,
           default: false,
         },
+        maskClosable: {
+          type: Boolean,
+          default: true,
+        },
       },
-      setup(props, { slots }) {
-        return () => (props.show ? h("div", { "data-test": "n-modal" }, slots.default?.()) : null);
+      emits: ["update:show"],
+      setup(props, { emit, slots }) {
+        return () =>
+          props.show
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  "data-mask-closable": String(props.maskClosable),
+                  onClick: (event: MouseEvent) => {
+                    if (event.target === event.currentTarget && props.maskClosable) {
+                      emit("update:show", false);
+                    }
+                  },
+                },
+                slots.default?.(),
+              )
+            : null;
       },
     }),
     NSelect: defineComponent({
@@ -166,6 +186,7 @@ vi.mock("naive-ui", async () => {
               type: props.attrType,
               disabled: props.disabled,
               onClick: (event: MouseEvent) => {
+                event.stopPropagation();
                 if (!props.disabled) {
                   emit("click", event);
                 }
@@ -198,6 +219,41 @@ describe("TaskCreateDialog", () => {
     expect(call.show.value).toBe(true);
     expect(wrapper.find('[data-test="n-modal"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("新建下载任务");
+  });
+
+  it("blocks mask and close controls while creating or exiting", async () => {
+    for (const stateOptions of [{ isCreating: true }, { isRuntimeExiting: true }]) {
+      const state = createComposableState(stateOptions);
+      mockUseTaskCreateForm.mockReturnValue(state);
+      const { wrapper } = mountWithPinia(TaskCreateDialog, {
+        props: { show: true },
+      });
+
+      const modal = wrapper.get('[data-test="n-modal"]');
+      expect(modal.attributes("data-mask-closable")).toBe("false");
+      expect(wrapper.get('button[aria-label="关闭"]').attributes("disabled")).toBeDefined();
+      expect(wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
+
+      await modal.trigger("click");
+      await wrapper.get('button[aria-label="关闭"]').trigger("click");
+      await wrapper.findAll("button").find((button) => button.text() === "取消")!.trigger("click");
+
+      expect(mockCloseDialog).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows a mask close when task creation is unlocked", async () => {
+    const state = createComposableState();
+    mockUseTaskCreateForm.mockReturnValue(state);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, {
+      props: { show: true },
+    });
+
+    const modal = wrapper.get('[data-test="n-modal"]');
+    expect(modal.attributes("data-mask-closable")).toBe("true");
+    await modal.trigger("click");
+
+    expect(mockCloseDialog).toHaveBeenCalledOnce();
   });
 
   it("binds composable state and handlers to the rendered dialog", async () => {
@@ -277,12 +333,16 @@ function createComposableState(overrides: {
   canSubmit?: boolean;
   formErrorMessage?: string;
   accessiblePathsError?: string;
+  isCreating?: boolean;
+  isRuntimeExiting?: boolean;
 } = {}) {
+  const taskStore = reactive({
+    isCreating: overrides.isCreating ?? false,
+    isRuntimeExiting: overrides.isRuntimeExiting ?? false,
+  });
+
   return {
-    taskStore: reactive({
-      isCreating: false,
-      isRuntimeExiting: false,
-    }),
+    taskStore,
     form: reactive({
       url: "",
       batchUrls: "",
@@ -308,9 +368,13 @@ function createComposableState(overrides: {
     magnetValidationStatus: ref<string | undefined>(undefined),
     accessiblePathOptions: ref([{ label: "/downloads", value: "/downloads" }]),
     canSubmit: ref(overrides.canSubmit ?? true),
-    isMaskClosable: ref(true),
+    isMaskClosable: ref(!taskStore.isCreating && !taskStore.isRuntimeExiting),
     selectTorrentFile: vi.fn(),
     submitCreateTask: mockSubmitCreateTask,
-    closeDialog: mockCloseDialog,
+    closeDialog: () => {
+      if (!taskStore.isCreating && !taskStore.isRuntimeExiting) {
+        mockCloseDialog();
+      }
+    },
   };
 }
