@@ -15,7 +15,6 @@ const props = withDefaults(
   },
 );
 
-const TRANSITION_MS = 360;
 const displayCompletedLength = ref(clampCompletedLength(props.task.completedLength, props.task.totalLength));
 const displayPercentage = computed(() => {
   if (props.task.totalLength <= 0) {
@@ -81,7 +80,6 @@ function clampCompletedLength(value: number, totalLength: number) {
   <div class="task-progress-cell">
     <TaskProgressBar
       :percentage="displayPercentage"
-      :transition-ms="TRANSITION_MS"
       :variant="props.variant"
       :tone="progressTone"
     />
