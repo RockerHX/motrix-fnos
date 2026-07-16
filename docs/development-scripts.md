@@ -10,7 +10,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 日常提交前使用 `pnpm run verify:pre-commit`，准备正式发布前使用 `pnpm run verify`。
+- 代码提交前使用 `pnpm run verify:pre-commit`，准备正式发布前使用 `pnpm run verify`；Git hooks 会按暂存文件类型自动选择是否执行提交前验证。
 
 ## 命令速查
 
@@ -130,6 +130,8 @@ pnpm run verify --keep-rust-incremental
 
 删除整个 `server/target/`。下一次 Rust 测试、编译或 FPK 构建需要完整重建，耗时会明显增加。
 
+`server/target/` 是 Rust 的本地编译缓存，不会提交到 Git。`debug/deps` 会保存调试测试产物，双架构 FPK 构建还会生成 x86 和 ARM 的 release 缓存，因此目录可能达到数 GB。`verify` 和 `verify:pre-commit` 默认只清理 `incremental`，保留主要缓存以缩短下次构建；磁盘紧张时再手动执行 `pnpm run clean:rust`。
+
 ## 版本命令
 
 项目版本由以下四处共同表示：
@@ -217,7 +219,16 @@ git config core.hooksPath .githooks
 
 ### `pnpm run hooks:install`
 
-显式安装本仓库 Git hooks，配置失败会返回非零退出码。当前 pre-commit hook 会运行 `verify:pre-commit`，因此普通提交可能需要一段时间。
+显式安装本仓库 Git hooks，配置失败会返回非零退出码。
+
+当前 hook 行为：
+
+- 暂存区只有 `docs/`、Markdown/文本文档或常见图片、字体、音视频资源时，只执行 `git diff --cached --check`，跳过 Rust 和前端测试。
+- 暂存区包含代码、配置、脚本，或同时包含代码与文档/资源时，执行完整 `verify:pre-commit`。
+- 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
+- `pre-push` 不做文件类型跳过，仍执行完整 `pnpm run verify`。
+
+因此只提交文档或图片通常会很快完成；代码提交仍保留原有质量检查。
 
 ## FPK 构建与资产命令
 
