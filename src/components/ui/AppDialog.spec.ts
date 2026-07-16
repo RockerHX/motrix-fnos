@@ -14,7 +14,14 @@ vi.mock("naive-ui", async () => {
       setup(props, { emit, slots }) {
         return () =>
           props.show
-            ? h("div", { "data-test": "n-modal", onClick: () => emit("update:show", false) }, slots.default?.())
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  onClick: () => props.maskClosable && emit("update:show", false),
+                },
+                slots.default?.(),
+              )
             : null;
       },
     }),
@@ -105,6 +112,21 @@ describe("AppDialog", () => {
     await flushPromises();
 
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
+  it("does not close when maskClosable is false", async () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        showClose: false,
+        maskClosable: false,
+      },
+    });
+
+    await wrapper.get('[data-test="n-modal"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.emitted("update:show")).toBeUndefined();
   });
 
   it("does not close when closeDisabled is true", async () => {
