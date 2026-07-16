@@ -11,8 +11,21 @@ vi.mock("./TaskActionsContainer.vue", () => ({
 vi.mock("./TaskProgressCell.vue", () => ({
   default: {
     name: "TaskProgressCellStub",
-    props: ["task"],
-    template: '<div data-test="task-progress">progress-{{ task.id }}</div>',
+    props: {
+      task: {
+        type: Object,
+        required: true,
+      },
+      showLabel: {
+        type: Boolean,
+        default: true,
+      },
+      variant: {
+        type: String,
+        default: "compact",
+      },
+    },
+    template: '<div data-test="task-progress">progress-{{ task.id }}-{{ showLabel }}-{{ variant }}</div>',
   },
 }));
 
@@ -40,7 +53,7 @@ describe("TaskMobileList", () => {
     expect(wrapper.get(".task-card-title").text()).toBe("ubuntu.iso");
     expect(wrapper.get('[data-test="task-status"]').text()).toBe("active");
     expect(wrapper.get(".task-card-url").text()).toBe("https://example.com/ubuntu.iso");
-    expect(wrapper.get('[data-test="task-progress"]').text()).toBe("progress-1");
+    expect(wrapper.get('[data-test="task-progress"]').text()).toBe("progress-1-true-compact");
     expect(wrapper.get(".task-card-meta").text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.get(".task-card-meta").text()).toContain("1.0 KB/s");
     expect(wrapper.get('[data-test="task-actions"]').text()).toContain("actions-1");
