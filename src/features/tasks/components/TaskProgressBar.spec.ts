@@ -1,79 +1,70 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
-
-vi.mock("naive-ui", async () => {
-  const { defineComponent, h } = await import("vue");
-
-  return {
-    NProgress: defineComponent({
-      name: "NProgressStub",
-      props: {
-        percentage: {
-          type: Number,
-          default: 0,
-        },
-        height: {
-          type: Number,
-          default: 0,
-        },
-        color: {
-          type: Object,
-          default: () => ({}),
-        },
-        railStyle: {
-          type: String,
-          default: undefined,
-        },
-      },
-      setup(props) {
-        return () =>
-          h("div", {
-            "data-test": "n-progress",
-            "data-percentage": String(props.percentage),
-            "data-height": String(props.height),
-            "data-color": JSON.stringify(props.color),
-            "data-rail-style": props.railStyle,
-          });
-      },
-    }),
-  };
-});
-
 import TaskProgressBar from "./TaskProgressBar.vue";
 
 describe("TaskProgressBar", () => {
-  it("clamps progress percentage to 0-100 before passing it to NProgress", () => {
-    const negative = mount(TaskProgressBar, { props: { percentage: -20 } });
-    expect(negative.get('[data-test="n-progress"]').attributes("data-percentage")).toBe("0");
+  it("normalizes finite percentages and rejects non-finite values", () => {
+    const cases = [
+      { percentage: -20, expected: "0", scale: "0" },
+      { percentage: 140, expected: "100", scale: "1" },
+      { percentage: Number.NaN, expected: "0", scale: "0" },
+      { percentage: Number.POSITIVE_INFINITY, expected: "0", scale: "0" },
+    ];
 
-    const overflow = mount(TaskProgressBar, { props: { percentage: 140 } });
-    expect(overflow.get('[data-test="n-progress"]').attributes("data-percentage")).toBe("100");
+    for (const { percentage, expected, scale } of cases) {
+      const wrapper = mount(TaskProgressBar, { props: { percentage } });
+
+      expect(wrapper.attributes("aria-valuenow")).toBe(expected);
+      expect(wrapper.element.style.getPropertyValue("--task-progress-scale")).toBe(scale);
+    }
   });
 
-  it("uses default tone unless complete tone is requested", () => {
+  it("exposes the normalized scale through the public progressbar root", () => {
     const wrapper = mount(TaskProgressBar, { props: { percentage: 50 } });
-    expect(wrapper.classes()).toContain("task-progress-bar--default");
-    expect(wrapper.get('[data-test="n-progress"]').attributes("data-color")).toContain("56%");
 
-    const complete = mount(TaskProgressBar, { props: { percentage: 100, tone: "complete" } });
-    expect(complete.classes()).toContain("task-progress-bar--complete");
-    expect(complete.get('[data-test="n-progress"]').attributes("data-color")).toContain("72%");
+    expect(wrapper.attributes("role")).toBe("progressbar");
+    expect(wrapper.attributes("aria-valuemin")).toBe("0");
+    expect(wrapper.attributes("aria-valuemax")).toBe("100");
+    expect(wrapper.attributes("aria-valuenow")).toBe("50");
+    expect(wrapper.element.style.getPropertyValue("--task-progress-scale")).toBe("0.5");
   });
 
-  it("supports empty tone with striped rail and zero progress", () => {
-    const wrapper = mount(TaskProgressBar, { props: { percentage: 50, tone: "empty" } });
-    const progress = wrapper.get('[data-test="n-progress"]');
+  it("forces empty tone to zero and preserves its rail class", () => {
+    const wrapper = mount(TaskProgressBar, {
+      props: { percentage: 50, tone: "empty" },
+    });
 
     expect(wrapper.classes()).toContain("task-progress-bar--empty");
-    expect(progress.attributes("data-percentage")).toBe("0");
-    expect(progress.attributes("data-rail-style")).toContain("repeating-linear-gradient");
+    expect(wrapper.attributes("aria-valuenow")).toBe("0");
+    expect(wrapper.element.style.getPropertyValue("--task-progress-scale")).toBe("0");
+    expect(wrapper.find(".task-progress-bar__fill").exists()).toBe(true);
   });
 
-  it("uses thinner height for card variant", () => {
-    const compact = mount(TaskProgressBar, { props: { percentage: 50 } });
-    expect(compact.get('[data-test="n-progress"]').attributes("data-height")).toBe("5");
+  it("keeps default and complete tone classes with a shared fill element", () => {
+    const defaultTone = mount(TaskProgressBar, { props: { percentage: 50 } });
+    const completeTone = mount(TaskProgressBar, {
+      props: { percentage: 100, tone: "complete" },
+    });
 
-    const card = mount(TaskProgressBar, { props: { percentage: 50, variant: "card" } });
-    expect(card.get('[data-test="n-progress"]').attributes("data-height")).toBe("4");
+    expect(defaultTone.classes()).toContain("task-progress-bar--default");
+    expect(defaultTone.find(".task-progress-bar__fill").exists()).toBe(true);
+    expect(completeTone.classes()).toContain("task-progress-bar--complete");
+    expect(completeTone.find(".task-progress-bar__fill").exists()).toBe(true);
+  });
+
+  it("preserves compact and card variant classes", () => {
+    const compact = mount(TaskProgressBar, { props: { percentage: 50 } });
+    const card = mount(TaskProgressBar, {
+      props: { percentage: 50, variant: "card" },
+    });
+
+    expect(compact.classes()).toContain("task-progress-bar--compact");
+    expect(card.classes()).toContain("task-progress-bar--card");
+  });
+
+  it("does not render the removed Naive UI progress component", () => {
+    const wrapper = mount(TaskProgressBar, { props: { percentage: 50 } });
+
+    expect(wrapper.find('[data-test="n-progress"]').exists()).toBe(false);
   });
 });
