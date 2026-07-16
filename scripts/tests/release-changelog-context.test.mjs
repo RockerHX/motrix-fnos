@@ -68,6 +68,7 @@ test('大型最终净 Diff 使用结构化事实、双模型编辑和独立审�
   };
   const calls = [];
   let analysisSequence = 0;
+  let consolidationAttempts = 0;
   const result = await generateChangelogWithHierarchicalSummary({
     version: '1.1.0',
     baseRef: 'v1.0.0',
@@ -93,6 +94,10 @@ test('大型最终净 Diff 使用结构化事实、双模型编辑和独立审�
         ]);
       }
       if (request.label.startsWith('结构化事实合并')) {
+        consolidationAttempts += 1;
+        if (consolidationAttempts === 1) {
+          return '[{"factId":"final-feature"';
+        }
         return JSON.stringify([
           {
             factId: 'final-feature',
@@ -120,6 +125,9 @@ test('大型最终净 Diff 使用结构化事实、双模型编辑和独立审�
 
   assert.ok(calls.length > 3);
   assert.ok(calls.some((call) => call.label.startsWith('结构化事实合并')));
+  assert.ok(consolidationAttempts >= 2);
+  const consolidationCalls = calls.filter((call) => call.label.startsWith('结构化事实合并'));
+  assert.ok(consolidationCalls[1].maxTokens > consolidationCalls[0].maxTokens);
   assert.equal(calls.find((call) => call.label === 'Release 日志编辑').modelRole, 'editor');
   assert.equal(calls.find((call) => call.label === 'Release 日志审稿').modelRole, 'editor');
   for (const call of calls) {

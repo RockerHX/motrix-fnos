@@ -7,7 +7,10 @@ export const MAX_CHANGELOG_ENTRIES = 10;
 const PATCH_SEGMENT_TOKEN_BUDGET = 4_200;
 const EDITOR_INPUT_TOKEN_BUDGET = 4_800;
 const ANALYSIS_OUTPUT_TOKENS = 1_200;
+const FACT_CONSOLIDATION_OUTPUT_TOKENS = 2_400;
 const EDITOR_OUTPUT_TOKENS = 1_000;
+const JSON_RETRY_OUTPUT_BONUS = 800;
+const JSON_RETRY_LIMIT = 1;
 const CHAT_TOKEN_OVERHEAD = 32;
 const PUBLIC_CATEGORIES = new Set(['新增', '改进', '修复', '文档']);
 const ANALYSIS_CATEGORIES = new Set([...PUBLIC_CATEGORIES, '内部', '忽略']);
@@ -83,14 +86,17 @@ export async function generateChangelogWithHierarchicalSummary({
 
   for (const [index, item] of analysisPrompts.entries()) {
     onProgress(`分析发布变更分块 ${index + 1}/${analysisPrompts.length}：${item.label}`);
-    const content = await complete({
+    const facts = await completeJsonArray({
+      complete,
       modelRole: 'analysis',
       systemPrompt: ANALYSIS_SYSTEM_PROMPT,
       userPrompt: item.prompt,
       maxTokens: ANALYSIS_OUTPUT_TOKENS,
       label: `发布变更分块 ${index + 1}/${analysisPrompts.length}`,
+      parse: parseFacts,
+      onProgress,
     });
-    extractedFacts.push(...parseFacts(content, item.label));
+    extractedFacts.push(...facts);
   }
 
   let facts = releaseRelevantFacts(mergeFacts(extractedFacts));
@@ -102,30 +108,30 @@ export async function generateChangelogWithHierarchicalSummary({
   const editorPrompt = buildEditorPrompt({ version, baseRef, facts });
   assertInputBudget(EDITOR_SYSTEM_PROMPT, editorPrompt, 'Release 日志编辑');
   onProgress(`编辑 ${facts.length} 条结构化变更事实`);
-  const draft = parseEntries(
-    await complete({
-      modelRole: 'editor',
-      systemPrompt: EDITOR_SYSTEM_PROMPT,
-      userPrompt: editorPrompt,
-      maxTokens: EDITOR_OUTPUT_TOKENS,
-      label: 'Release 日志编辑',
-    }),
-    'Release 日志编辑',
-  );
+  const draft = await completeJsonArray({
+    complete,
+    modelRole: 'editor',
+    systemPrompt: EDITOR_SYSTEM_PROMPT,
+    userPrompt: editorPrompt,
+    maxTokens: EDITOR_OUTPUT_TOKENS,
+    label: 'Release 日志编辑',
+    parse: parseEntries,
+    onProgress,
+  });
 
   const reviewPrompt = buildReviewPrompt({ version, facts, draft });
   assertInputBudget(REVIEW_SYSTEM_PROMPT, reviewPrompt, 'Release 日志审稿');
   onProgress(`审查候选 Release 日志并删除重复与实现细节`);
-  const reviewed = parseEntries(
-    await complete({
-      modelRole: 'editor',
-      systemPrompt: REVIEW_SYSTEM_PROMPT,
-      userPrompt: reviewPrompt,
-      maxTokens: EDITOR_OUTPUT_TOKENS,
-      label: 'Release 日志审稿',
-    }),
-    'Release 日志审稿',
-  );
+  const reviewed = await completeJsonArray({
+    complete,
+    modelRole: 'editor',
+    systemPrompt: REVIEW_SYSTEM_PROMPT,
+    userPrompt: reviewPrompt,
+    maxTokens: EDITOR_OUTPUT_TOKENS,
+    label: 'Release 日志审稿',
+    parse: parseEntries,
+    onProgress,
+  });
 
   validateEntries(reviewed, facts);
   return renderChangelog(reviewed);
@@ -147,19 +153,57 @@ function renderMetadata(changeContext) {
 }
 
 function buildAnalysisPrompt(domain, content, baseRef) {
-  return `分析 ${baseRef}..HEAD 的“${domain}”证据，提取最终变更事实。\n\n要求：\n- commit 只用于理解意图，实际结果以最终净 Diff 为准。\n- 合并反复提交、修复和重构形成的同一最终行为，不复述开发过程。\n- releaseRelevant 只对用户、设备管理员或项目维护者需要知道的最终变化设为 true；纯测试、内部重构和中间状态必须为 false。\n- 同一功能在不同文件或片段中使用相同的英文 kebab-case factId。\n- category 只允许：新增、改进、修复、文档、内部、忽略。\n- confidence 只允许：high、medium、low；片段不足以支持结论时使用 low 或忽略。\n- evidencePaths 只列出证据中的仓库相对路径。\n- 最多输出 8 条事实，不输出 Markdown 或代码围栏。\n\n只返回以下 JSON 数组：\n[{"factId":"auth-startup-feedback","category":"修复","summary":"优化首次鉴权启动反馈，减少黑屏和状态闪烁","releaseRelevant":true,"evidencePaths":["src/App.vue"],"confidence":"high"}]\n\n<evidence>\n${content}\n</evidence>`;
+  return `分析 ${baseRef}..HEAD 的“${domain}”证据，提取最终变更事实。\n\n要求：\n- commit 只用于理解意图，实际结果以最终净 Diff 为准。\n- 合并反复提交、修复和重构形成的同一最终行为，不复述开发过程。\n- releaseRelevant 只对用户、设备管理员或项目维护者需要知道的最终变化设为 true；纯测试、内部重构和中间状态必须为 false。\n- 同一功能在不同文件或片段中使用相同的英文 kebab-case factId。\n- category 只允许：新增、改进、修复、文档、内部、忽略。\n- confidence 只允许：high、medium、low；片段不足以支持结论时使用 low 或忽略。\n- evidencePaths 只列出证据中的仓库相对路径。\n- summary 使用简洁中文，最多 120 个字符。\n- 最多输出 8 条事实，不输出 Markdown 或代码围栏。\n\n只返回以下 JSON 数组：\n[{"factId":"auth-startup-feedback","category":"修复","summary":"优化首次鉴权启动反馈，减少黑屏和状态闪烁","releaseRelevant":true,"evidencePaths":["src/App.vue"],"confidence":"high"}]\n\n<evidence>\n${content}\n</evidence>`;
 }
 
 function buildFactConsolidationPrompt(facts, baseRef) {
-  return `合并 ${baseRef}..HEAD 的以下结构化事实。语义相同或证据重叠的事实必须合并为一个稳定 factId；删除开发过程、纯测试、内部实现和相互抵消的修改。最多返回 12 条事实，只返回与输入相同字段的合法 JSON 数组。\n\n${JSON.stringify(facts, null, 2)}`;
+  return `合并 ${baseRef}..HEAD 的以下结构化事实。语义相同或证据重叠的事实必须合并为一个稳定 factId；删除开发过程、纯测试、内部实现和相互抵消的修改。最多返回 12 条事实；summary 每条最多 120 个字符，evidencePaths 每条最多保留 6 个路径。只返回与输入相同字段的完整合法 JSON 数组，不输出解释、Markdown 或代码围栏。\n\n${JSON.stringify(facts, null, 2)}`;
 }
 
 function buildEditorPrompt({ version, baseRef, facts }) {
-  return `根据 ${baseRef}..HEAD 的结构化事实，为 motrix-fnos ${version} 编写候选 Release 日志。\n\n要求：\n- 只描述最终发布结果，不复述 commit 或中间修复过程。\n- 同一功能只能出现一次，可将多个相关 factId 合并成一条。\n- 最多 ${MAX_CHANGELOG_ENTRIES} 条，优先用户可感知变化；纯测试和内部实现禁止写入。\n- category 只允许：新增、改进、修复、文档。\n- text 使用简洁、专业中文，禁止“更新多个文件”“新增多个脚本”等空泛表述，禁止内部函数名。\n- 每条必须列出实际支持它的 factIds，每个 factId 最多使用一次。\n- 不输出 Markdown 或代码围栏。\n\n只返回以下 JSON 数组：\n[{"category":"修复","text":"优化首次鉴权启动反馈，减少进入应用时的黑屏和状态切换闪烁。","factIds":["auth-startup-feedback"]}]\n\n结构化事实：\n${JSON.stringify(facts, null, 2)}`;
+  return `根据 ${baseRef}..HEAD 的结构化事实，为 motrix-fnos ${version} 编写候选 Release 日志。\n\n要求：\n- 只描述最终发布结果，不复述 commit 或中间修复过程。\n- 同一功能只能出现一次，可将多个相关 factId 合并成一条。\n- 最多 ${MAX_CHANGELOG_ENTRIES} 条，优先用户可感知变化；纯测试和内部实现禁止写入。\n- category 只允许：新增、改进、修复、文档。\n- text 使用简洁、专业中文，最多 160 个字符，禁止“更新多个文件”“新增多个脚本”等空泛表述，禁止内部函数名。\n- 每条必须列出实际支持它的 factIds，每个 factId 最多使用一次。\n- 不输出 Markdown 或代码围栏。\n\n只返回以下 JSON 数组：\n[{"category":"修复","text":"优化首次鉴权启动反馈，减少进入应用时的黑屏和状态切换闪烁。","factIds":["auth-startup-feedback"]}]\n\n结构化事实：\n${JSON.stringify(facts, null, 2)}`;
 }
 
 function buildReviewPrompt({ version, facts, draft }) {
-  return `审查 motrix-fnos ${version} 的候选 Release 日志并直接返回修订结果。\n\n必须执行：\n- 合并语义重复项，即使措辞不同。\n- 删除纯测试、内部函数、文件级实现描述和空泛条目。\n- 不得把同一个 factId 用于多条日志。\n- 不得增加事实中不存在的内容。\n- 最多 ${MAX_CHANGELOG_ENTRIES} 条；category 只允许新增、改进、修复、文档。\n- 每条保留非空 factIds，text 使用面向用户或维护者的最终结果表述。\n- 只返回合法 JSON 数组，不输出解释、Markdown 或代码围栏。\n\n结构化事实：\n${JSON.stringify(facts, null, 2)}\n\n候选日志：\n${JSON.stringify(draft, null, 2)}`;
+  return `审查 motrix-fnos ${version} 的候选 Release 日志并直接返回修订结果。\n\n必须执行：\n- 合并语义重复项，即使措辞不同。\n- 删除纯测试、内部函数、文件级实现描述和空泛条目。\n- 不得把同一个 factId 用于多条日志。\n- 不得增加事实中不存在的内容。\n- 最多 ${MAX_CHANGELOG_ENTRIES} 条；category 只允许新增、改进、修复、文档。\n- 每条保留非空 factIds，text 使用面向用户或维护者的最终结果表述，最多 160 个字符。\n- 只返回完整合法 JSON 数组，不输出解释、Markdown 或代码围栏。\n\n结构化事实：\n${JSON.stringify(facts, null, 2)}\n\n候选日志：\n${JSON.stringify(draft, null, 2)}`;
+}
+
+async function completeJsonArray({
+  complete,
+  modelRole,
+  systemPrompt,
+  userPrompt,
+  maxTokens,
+  label,
+  parse,
+  onProgress,
+}) {
+  let prompt = userPrompt;
+  let outputTokens = maxTokens;
+  let lastError;
+
+  for (let attempt = 0; attempt <= JSON_RETRY_LIMIT; attempt += 1) {
+    const content = await complete({
+      modelRole,
+      systemPrompt,
+      userPrompt: prompt,
+      maxTokens: outputTokens,
+      label,
+    });
+
+    try {
+      return parse(content, label);
+    } catch (error) {
+      lastError = error;
+      if (attempt === JSON_RETRY_LIMIT) break;
+      outputTokens += JSON_RETRY_OUTPUT_BONUS;
+      const retryPrompt = `${userPrompt}\n\n上一次响应无法解析为完整 JSON 数组。请重新输出完整结果，禁止截断、解释、Markdown 代码围栏或额外字段；严格遵守字段和数量限制。`;
+      prompt = countChatInputTokens(systemPrompt, retryPrompt) <= MODEL_INPUT_TOKEN_BUDGET ? retryPrompt : userPrompt;
+      onProgress(`${label} 返回的 JSON 不完整，使用更严格提示重试（${attempt + 2}/${JSON_RETRY_LIMIT + 1}）`);
+    }
+  }
+
+  throw lastError;
 }
 
 async function reduceFactsToFit({ facts, baseRef, complete, onProgress }) {
@@ -177,14 +221,17 @@ async function reduceFactsToFit({ facts, baseRef, complete, onProgress }) {
     const next = [];
     for (const [index, prompt] of batches.entries()) {
       onProgress(`合并结构化事实 ${index + 1}/${batches.length}（第 ${round} 轮）`);
-      const content = await complete({
+      const mergedFacts = await completeJsonArray({
+        complete,
         modelRole: 'analysis',
         systemPrompt: ANALYSIS_SYSTEM_PROMPT,
         userPrompt: prompt,
-        maxTokens: ANALYSIS_OUTPUT_TOKENS,
+        maxTokens: FACT_CONSOLIDATION_OUTPUT_TOKENS,
         label: `结构化事实合并 ${index + 1}/${batches.length}`,
+        parse: parseFacts,
+        onProgress,
       });
-      next.push(...parseFacts(content, `结构化事实合并 ${index + 1}/${batches.length}`));
+      next.push(...mergedFacts);
     }
     current = releaseRelevantFacts(mergeFacts(next));
     if (current.length === 0) {
