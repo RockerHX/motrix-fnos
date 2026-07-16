@@ -1,6 +1,6 @@
 # 交互动画完善执行计划
 
-> 状态：待用户评审；未开始实施  
+> 状态：阶段 1、2、3、4 代码与自动化验收已完成；阶段 3/4 人工性能与 WebView 项待验收；阶段 4 已停止  
 > 初稿日期：2026-07-14  
 > 细化日期：2026-07-15  
 > 适用范围：阶段 13 UI 重设计中的交互反馈、内容切换、实时进度与弹窗过渡  
@@ -177,6 +177,17 @@
 
 ## 7. 阶段 1：基础规则与高频控件反馈
 
+阶段 1 执行记录（本节记录暂不提交）：
+
+- [x] 小任务 1.1：建立动效基础规则；commit `a1738ca`；`TaskDesktopCard.spec.ts` 3 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-15 23:50 CST。
+- [x] 小任务 1.2：完善侧栏按钮反馈；commit `cf9544c`；`SidebarNav.spec.ts` 4 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-15 23:52 CST。
+- [x] 小任务 1.3：完善顶栏按钮反馈；commit `4f500e4`；`Topbar.spec.ts` 6 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-15 23:54 CST。
+- [x] 小任务 1.4：统一任务操作按钮反馈；commit `abe0859`；`TaskActions.spec.ts` 10 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-15 23:57 CST。
+- [x] 小任务 1.5：完善移动端浮动创建按钮反馈；commit `ecc0d28`；`MainWindow.spec.ts` 3 项通过，typecheck 通过，提交钩子快速验证通过；首次提交钩子的 Rust 双监听器时序测试瞬时失败，单独复跑与完整重跑均通过；完成于 2026-07-16 00:13 CST。
+- [x] 小任务 1.6：阶段 1 总体验收；5 个定向测试文件共 26 项通过，typecheck 通过，`verify:pre-commit` 通过（Rust 192 项、前端 249 项）；静态检查未发现禁用动效规则，暂存区为空；浏览器键盘焦点、reduced-motion 和 fnOS WebView 视觉检查保留给人工验收；完成于 2026-07-16 00:15 CST。
+
+阶段 1 结论：代码实现与自动化验收完成，共产生 5 个可独立回滚的规范提交；本执行记录未提交，阶段 2 尚未开始。
+
 ### 7.1 建立 token 与 reduced-motion 基线
 
 修改：
@@ -273,6 +284,16 @@ pnpm run verify:pre-commit
 阶段 1 回滚条件：出现按钮点击事件丢失、loading spinner 不可见、disabled 仍触发事件、手机底栏尺寸变化或 focus outline 被裁切时，修复或回滚阶段 1，不得进入阶段 2。
 
 ## 8. 阶段 2：分类标题、主内容与浮动按钮切换
+
+阶段 2 执行记录（本节记录暂不提交）：
+
+- [x] 小任务 2.1：固定内容切换 key 契约；commit `45690cd`；`useTaskCategoryView.spec.ts` 5 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-16 00:25 CST。
+- [x] 小任务 2.2：添加主内容分类切换过渡；commit `8052f47`；`MainWindow.spec.ts` 与 `useTaskCategoryView.spec.ts` 共 10 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-16 00:29 CST。
+- [x] 小任务 2.3：添加顶栏分类标题过渡；commit `00b5382`；`Topbar.spec.ts` 8 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-16 00:31 CST。
+- [x] 小任务 2.4：添加浮动按钮显隐过渡；commit `de24882`；`MainWindow.spec.ts` 与 `useTaskCategoryView.spec.ts` 共 11 项通过，typecheck 通过，提交钩子快速验证通过；完成于 2026-07-16 00:33 CST。
+- [x] 小任务 2.5：阶段 2 总体验收；3 个定向测试文件共 19 项通过，typecheck 通过，`verify:pre-commit` 通过（Rust 192 项、前端 256 项）；静态检查未发现禁用动效规则，暂存区为空；快速分类切换、30 秒 SSE、reduced-motion 和 fnOS WebView 视觉检查保留给人工验收；完成于 2026-07-16 00:35 CST。
+
+阶段 2 结论：代码实现与自动化验收完成，共产生 4 个可独立回滚的规范提交；本执行记录未提交，阶段 3 尚未开始。
 
 ### 8.1 主内容 Transition：`src/views/MainWindow.vue`
 
@@ -470,6 +491,15 @@ pnpm run verify:pre-commit
 
 阶段 3 回滚条件：进度语义丢失、旧事件导致倒退、完成态不是 100%、低百分比视觉严重失真、长列表滚动明显变差或必须依赖 Naive UI 私有选择器才能完成时，回滚本阶段并记录技术验证结果；不得进入阶段 4。
 
+### 9.6 阶段 3 执行记录（本节记录暂不提交）
+
+- [x] 小任务 3.1：建立并实现进度条公开 DOM 契约；commit `6b7d667`；`TaskProgressBar.spec.ts` 6 项通过，`pnpm run typecheck` 通过，提交钩子快速验证通过（Rust 192 项、前端 258 项）；完成于 2026-07-16 08:43 CST。
+- [x] 小任务 3.2：清理 TaskProgressCell 局部时长并固化状态语义；commit `ab2769a`；`TaskProgressCell.spec.ts` 11 项通过，`pnpm run typecheck` 通过，提交钩子快速验证通过（Rust 192 项、前端 266 项）；完成于 2026-07-16 08:46 CST。
+- [x] 小任务 3.3：固化桌面与移动任务列表的进度组件契约；commit `63aac90`；桌面/移动消费者 spec 共 5 项通过，`pnpm run typecheck` 通过，提交钩子快速验证通过（Rust 192 项、前端 266 项）；完成于 2026-07-16 08:48 CST。
+- [x] 小任务 3.4：阶段 3 总体验收；四个定向测试文件共 22 项通过，`pnpm run typecheck` 通过，`pnpm run verify:pre-commit` 通过（构建脚本 18 项、Rust 192 项、前端 266 项）；静态扫描确认仅保留 `transform: scaleX(...)` 进度过渡，暂存区为空；完成于 2026-07-16 08:51 CST。
+
+阶段 3 结论：三个代码提交可独立回滚，进度归一化、不倒退、任务/总量重置、unknown total 和完成态语义均有自动化覆盖；长列表 60 秒性能、reduced-motion 实机视觉和 fnOS WebView 视觉表现仍需用户人工验收。阶段 4 已完成自动化核对，本执行记录继续保持未提交。
+
 ## 10. 阶段 4：弹窗与消息反馈核对
 
 ### 10.1 默认策略
@@ -537,6 +567,17 @@ pnpm run verify:pre-commit
 若清单中的某个 spec 文件实际不存在，不为凑命令创建空测试；先确认该组件是否由更高层测试覆盖，再只为需要修改的组件补测试。
 
 阶段 4 回滚条件：焦点无法恢复、loading 中可关闭导致状态异常、遮罩比内容提前消失、嵌套弹窗层级错误或必须依赖 Naive UI 私有类才能统一时，回滚对应组件的修改；其他已通过组件不受影响。
+
+### 10.6 阶段 4 执行记录（本节记录暂不提交）
+
+- [x] 小任务 4.1：固化通用弹窗关闭契约；commit `2e8ff40`；`AppDialog.spec.ts` 与 `AppConfirmDialog.spec.ts` 共 9 项通过，`pnpm run typecheck` 通过，提交钩子验证通过；仅修改测试，完成于 2026-07-16 09:52 CST。
+- [x] 小任务 4.2：固化任务创建与详情弹窗关闭行为；commit `1d546ea`；`TaskCreateDialog.spec.ts` 与 `TaskDetailsDialog.spec.ts` 共 8 项通过，`pnpm run typecheck` 通过，提交钩子验证通过（Rust 192 项、前端 272 项）；仅修改测试，完成于 2026-07-16 09:55 CST。
+- [x] 小任务 4.3：固化诊断弹窗嵌套、关闭与焦点契约；commit `bc034ee`；`DebugLogDialog.spec.ts` 与 `DebugLogManualCopyDialog.spec.ts` 共 6 项通过，`pnpm run typecheck` 通过，提交钩子验证通过（Rust 192 项、前端 276 项）；仅修改测试，完成于 2026-07-16 09:58 CST。
+- [x] 小任务 4.4：固化 Token 与认证弹窗 loading 保护；commit `72e924b`；`JsonRpcTokenSettings.spec.ts` 与 `WebAuthSettings.spec.ts` 共 9 项通过，`pnpm run typecheck` 通过，提交钩子验证通过（Rust 192 项、前端 278 项）；仅修改测试，完成于 2026-07-16 10:08 CST。
+- [x] 小任务 4.5：固化消息触发与 reduced-motion 边界；commit `d6d57c8`；四个消息相关 spec 共 10 项通过，`pnpm run typecheck` 通过，提交钩子验证通过（Rust 192 项、前端 280 项）；仅修改测试，完成于 2026-07-16 10:11 CST。
+- [x] 小任务 4.6：阶段 4 总体验收；13 个定向 spec 共 52 项通过，`pnpm run typecheck` 通过，`pnpm run verify:pre-commit` 通过（构建脚本 18 项、Rust 192 项、前端 280 项）；静态扫描无新增禁止模式，暂存区为空，完成于 2026-07-16 10:13 CST。
+
+阶段 4 结论：五个核对提交均为测试-only、可独立回滚，未修改生产组件、公共 API、依赖或后端；通用弹窗、任务弹窗、诊断嵌套弹窗、Token/认证 loading 保护和消息触发边界均有自动化证据。真实浏览器与 fnOS WebView 的焦点恢复、遮罩层级、reduced-motion 和视觉时长仍需用户人工验收；阶段 4 自动化完成后停止，不进入后续阶段。本执行记录继续保持未提交。
 
 ## 11. 文件级修改矩阵
 
