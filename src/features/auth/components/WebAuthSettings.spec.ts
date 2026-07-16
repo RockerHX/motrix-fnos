@@ -1,10 +1,35 @@
 import { createPinia, setActivePinia } from "pinia";
 import { NSwitch } from "naive-ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 
 vi.mock("naive-ui", async () => {
   const actual = await vi.importActual<typeof import("naive-ui")>("naive-ui");
-  return { ...actual, useMessage: () => ({ success: vi.fn(), error: vi.fn() }) };
+  const { defineComponent, h } = await import("vue");
+  const NModal = defineComponent({
+    name: "NModalStage4Stub",
+    props: {
+      show: { type: Boolean, default: false },
+      maskClosable: { type: Boolean, default: true },
+      closable: { type: Boolean, default: true },
+    },
+    setup(props, { slots, attrs }) {
+      return () =>
+        props.show
+          ? h(
+              "div",
+              {
+                ...attrs,
+                "data-test": "n-modal",
+                "data-mask-closable": String(props.maskClosable),
+                "data-closable": String(props.closable),
+              },
+              slots.default?.(),
+            )
+          : null;
+    },
+  });
+  return { ...actual, NModal, useMessage: () => ({ success: vi.fn(), error: vi.fn() }) };
 });
 
 vi.mock("../services/authService", () => ({
@@ -81,6 +106,33 @@ describe("WebAuthSettings", () => {
 
     expect(authStore.enabled).toBe(true);
     expect(wrapper.get('[data-test="protection-error"]').text()).toContain("invalid credentials");
+    expect(wrapper.find("form").exists()).toBe(true);
+  });
+
+  it("locks both security modals while submitting", async () => {
+    const { wrapper } = mountReadySettings();
+    await wrapper.findAll("button").find((button) => button.text() === "修改密码")!.trigger("click");
+    await nextTick();
+
+    const authStore = useAuthStore();
+    authStore.isSubmitting = true;
+    await nextTick();
+
+    const modal = wrapper.get('[data-test="n-modal"]');
+    expect(modal.attributes("data-mask-closable")).toBe("false");
+    expect(modal.attributes("data-closable")).toBe("false");
+    expect(wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
+
+    const protection = mountReadySettings();
+    protection.wrapper.findComponent(NSwitch).vm.$emit("update:value", false);
+    await protection.wrapper.vm.$nextTick();
+    useAuthStore().isSubmitting = true;
+    await protection.wrapper.vm.$nextTick();
+
+    const protectionModal = protection.wrapper.get('[data-test="n-modal"]');
+    expect(protectionModal.attributes("data-mask-closable")).toBe("false");
+    expect(protectionModal.attributes("data-closable")).toBe("false");
+    expect(protection.wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
   });
 
   it("prevents anonymous management contexts from opening privileged operations", async () => {
@@ -97,7 +149,10 @@ function mountReadySettings(authenticated = true) {
   setActivePinia(pinia);
   const authStore = useAuthStore();
   authStore.handleUnauthorizedStatus(status({ enabled: authenticated, authenticated, csrfToken: "csrf" }));
-  return mountWithPinia(WebAuthSettings, { pinia, global: { stubs: { teleport: true } } });
+  return mountWithPinia(WebAuthSettings, {
+    pinia,
+    global: { stubs: { teleport: true } },
+  });
 }
 
 function status(overrides: Partial<ReturnType<typeof baseStatus>> = {}) {

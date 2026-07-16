@@ -1,9 +1,34 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 
 vi.mock("naive-ui", async () => {
   const actual = await vi.importActual<typeof import("naive-ui")>("naive-ui");
-  return { ...actual, useMessage: () => ({ success: vi.fn(), error: vi.fn() }) };
+  const { defineComponent, h } = await import("vue");
+  const NModal = defineComponent({
+    name: "NModalStage4Stub",
+    props: {
+      show: { type: Boolean, default: false },
+      maskClosable: { type: Boolean, default: true },
+      closable: { type: Boolean, default: true },
+    },
+    setup(props, { slots, attrs }) {
+      return () =>
+        props.show
+          ? h(
+              "div",
+              {
+                ...attrs,
+                "data-test": "n-modal",
+                "data-mask-closable": String(props.maskClosable),
+                "data-closable": String(props.closable),
+              },
+              slots.default?.(),
+            )
+          : null;
+    },
+  });
+  return { ...actual, NModal, useMessage: () => ({ success: vi.fn(), error: vi.fn() }) };
 });
 
 vi.mock("../services/jsonRpcTokenService", () => ({ getJsonRpcTokenStatus: vi.fn(), updateJsonRpcToken: vi.fn() }));
@@ -55,6 +80,23 @@ describe("JsonRpcTokenSettings", () => {
 
     expect(mockedUpdate).toHaveBeenCalledWith("");
     expect(wrapper.text()).toContain("未配置");
+  });
+
+  it("locks clear confirmation while saving", async () => {
+    mockedGetStatus.mockResolvedValueOnce({ configured: true, maskedToken: "••••••••abcd" });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    await wrapper.findAll("button").find((button) => button.text() === "清除 Token")!.trigger("click");
+    await nextTick();
+    const tokenStore = useJsonRpcTokenStore();
+    tokenStore.isSaving = true;
+    await nextTick();
+
+    const modal = wrapper.get('[data-test="n-modal"]');
+    expect(modal.attributes("data-mask-closable")).toBe("false");
+    expect(modal.attributes("data-closable")).toBe("false");
+    expect(modal.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
   });
 
   it("drops unsaved raw input when the settings dialog closes", async () => {
