@@ -19,6 +19,28 @@ vi.mock("naive-ui", async () => {
 
   return {
     ...naiveUiStubs,
+    NModal: defineComponent({
+      name: "NModalStub",
+      props: { show: { type: Boolean, default: false } },
+      emits: ["update:show"],
+      setup(props, { emit, slots }) {
+        return () =>
+          props.show
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  onClick: (event: MouseEvent) => {
+                    if (event.target === event.currentTarget) {
+                      emit("update:show", false);
+                    }
+                  },
+                },
+                slots.default?.(),
+              )
+            : null;
+      },
+    }),
     NCard: defineComponent({
       name: "NCardStub",
       setup(_, { slots }) {
@@ -147,6 +169,52 @@ describe("DebugLogDialog", () => {
     });
   });
 
+  it("refreshes when opened and forwards a modal hide request", async () => {
+    const { wrapper } = mountWithPinia(DebugLogDialog, {
+      props: { show: false },
+    });
+
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+    expect(debugLogService.listDebugLogs).toHaveBeenCalledOnce();
+
+    await wrapper.get('[data-test="n-modal"]').trigger("click");
+
+    expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
+  it("reports a successful clear exactly once", async () => {
+    const { wrapper } = mountWithPinia(DebugLogDialog, {
+      props: { show: true },
+    });
+    await flushPromises();
+
+    await clickButton(wrapper, "清空");
+    await flushPromises();
+
+    expect(debugLogService.clearDebugLogs).toHaveBeenCalledOnce();
+    expect(messageApi.success).toHaveBeenCalledOnce();
+  });
+
+  it("allows safe close while clearing is in flight", async () => {
+    let resolveClear!: () => void;
+    debugLogService.clearDebugLogs.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveClear = resolve;
+    }));
+    const { wrapper } = mountWithPinia(DebugLogDialog, {
+      props: { show: true },
+    });
+    await flushPromises();
+
+    await clickButton(wrapper, "清空");
+    await nextTick();
+    await wrapper.get('[data-test="n-modal"]').trigger("click");
+
+    expect(wrapper.emitted("update:show")).toEqual([[false]]);
+    resolveClear();
+    await flushPromises();
+  });
+
   it("shows manual copy content with NInput textarea when clipboard copy fails", async () => {
     const { wrapper } = mountWithPinia(DebugLogDialog, {
       props: {
@@ -169,6 +237,7 @@ describe("DebugLogDialog", () => {
     expect((manualCopyTextarea.element as HTMLTextAreaElement).value).toContain("rpc failed");
     expect(messageApi.warning).toHaveBeenCalledWith(expect.stringContaining("denied"));
     expect(navigator.clipboard.writeText).toHaveBeenCalledOnce();
+    expect(wrapper.emitted("update:show")).toBeUndefined();
   });
 });
 

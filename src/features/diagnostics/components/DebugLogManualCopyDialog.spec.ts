@@ -8,6 +8,18 @@ const select = vi.hoisted(() => vi.fn());
 
 vi.mock("naive-ui", () => ({
   ...naiveUiStubs,
+  NCard: defineComponent({
+    name: "NCardStub",
+    setup(_, { slots }) {
+      return () =>
+        h("div", { "data-test": "n-card" }, [
+          ...(slots.header?.() ?? []),
+          ...(slots["header-extra"]?.() ?? []),
+          ...(slots.default?.() ?? []),
+          ...(slots.footer?.() ?? []),
+        ]);
+    },
+  }),
   NInput: defineComponent({
     props: { value: String, readonly: Boolean, inputProps: Object },
     setup(props, { expose }) {
@@ -44,6 +56,16 @@ describe("DebugLogManualCopyDialog", () => {
     await clickButton(wrapper, "完成");
     expect(wrapper.emitted("download")).toHaveLength(1);
     expect(wrapper.emitted("update:show")).toContainEqual([false]);
+  });
+
+  it("closes from the header close button", async () => {
+    const wrapper = mount(DebugLogManualCopyDialog, {
+      props: { show: true, text: "debug log text" },
+    });
+
+    await wrapper.get('button[aria-label="关闭"]').trigger("click");
+
+    expect(wrapper.emitted("update:show")).toEqual([[false]]);
   });
 });
 
