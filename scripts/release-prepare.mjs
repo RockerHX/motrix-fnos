@@ -13,6 +13,10 @@ import {
 import { generateChangelogWithHierarchicalSummary } from './release-changelog-ai.mjs';
 import { collectReleaseChangeContext, readReleaseCommits } from './release-changelog-context.mjs';
 
+const MODEL_REQUEST_MIN_INTERVAL_MS = positiveIntegerEnv('MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS', 7_000);
+const MODEL_RATE_LIMIT_RETRIES = 3;
+const MODEL_RATE_LIMIT_MAX_WAIT_MS = 300_000;
+
 const options = parseArgs(process.argv.slice(2));
 
 try {
@@ -164,6 +168,7 @@ async function generateChangelogWithGitHubModels({ version, baseRef, changeConte
   if (!token) {
     throw new Error('缺少 GITHUB_TOKEN/GH_TOKEN');
   }
+  const requestState = { nextRequestAt: 0 };
 
   return generateChangelogWithHierarchicalSummary({
     version,
@@ -177,40 +182,90 @@ async function generateChangelogWithGitHubModels({ version, baseRef, changeConte
         userPrompt,
         maxTokens,
         label,
+        requestState,
       }),
     onProgress: (message) => console.log(message),
   });
 }
 
-async function requestGitHubModels({ model, token, systemPrompt, userPrompt, maxTokens, label }) {
-  const response = await fetch('https://models.github.ai/inference/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_tokens: maxTokens,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  });
+async function requestGitHubModels({ model, token, systemPrompt, userPrompt, maxTokens, label, requestState }) {
+  for (let attempt = 0; attempt <= MODEL_RATE_LIMIT_RETRIES; attempt += 1) {
+    await waitForModelRequestSlot(requestState);
+    const response = await fetch('https://models.github.ai/inference/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${label}调用 GitHub Models（${model}）失败：${response.status} ${text}`);
+    if (response.status === 429) {
+      const text = await response.text();
+      if (attempt === MODEL_RATE_LIMIT_RETRIES) {
+        throw new Error(
+          `${label}调用 GitHub Models（${model}）失败：429 Too many requests；已重试 ${MODEL_RATE_LIMIT_RETRIES} 次。` +
+            '请等待 GitHub Models 配额重置后重试，或提前在 CHANGELOG.md 写入目标版本条目以跳过模型调用。' +
+            ` 原始响应：${text}`,
+        );
+      }
+      const delayMs = rateLimitDelayMs(response.headers, attempt);
+      requestState.nextRequestAt = Math.max(requestState.nextRequestAt, Date.now() + delayMs);
+      console.warn(`${label}触发 GitHub Models 限流（429），${Math.ceil(delayMs / 1000)} 秒后重试（${attempt + 2}/${MODEL_RATE_LIMIT_RETRIES + 1}）`);
+      continue;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`${label}调用 GitHub Models（${model}）失败：${response.status} ${text}`);
+    }
+
+    const data = await response.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error(`${label}调用 GitHub Models（${model}）的响应缺少 choices[0].message.content`);
+    }
+    return content;
   }
 
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error(`${label}调用 GitHub Models（${model}）的响应缺少 choices[0].message.content`);
+  throw new Error(`${label}调用 GitHub Models（${model}）失败：超过限流重试次数`);
+}
+
+async function waitForModelRequestSlot(requestState) {
+  const delayMs = Math.max(0, requestState.nextRequestAt - Date.now());
+  if (delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return content;
+  requestState.nextRequestAt = Date.now() + MODEL_REQUEST_MIN_INTERVAL_MS;
+}
+
+function rateLimitDelayMs(headers, attempt) {
+  const retryAfter = headers.get('retry-after');
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds)) {
+      return Math.min(MODEL_RATE_LIMIT_MAX_WAIT_MS, Math.max(1_000, seconds * 1_000));
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(MODEL_RATE_LIMIT_MAX_WAIT_MS, Math.max(1_000, retryAt - Date.now()));
+    }
+  }
+
+  const reset = Number(headers.get('x-ratelimit-reset'));
+  if (Number.isFinite(reset) && reset > 0) {
+    return Math.min(MODEL_RATE_LIMIT_MAX_WAIT_MS, Math.max(1_000, reset * 1_000 - Date.now()));
+  }
+
+  return Math.min(MODEL_RATE_LIMIT_MAX_WAIT_MS, 15_000 * 2 ** attempt);
 }
 
 function fallbackChangelog(commits) {
@@ -366,6 +421,11 @@ function todayInShanghai() {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function positiveIntegerEnv(name, fallback) {
+  const value = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 function fail(message) {

@@ -64,6 +64,7 @@ jobs:
           MOTRIX_RELEASE_CHANGELOG_PROVIDER: github-models
           MOTRIX_RELEASE_ANALYSIS_MODEL: openai/gpt-4.1-mini
           MOTRIX_RELEASE_EDITOR_MODEL: openai/gpt-4.1
+          MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS: 7000
         run: |
           set -euo pipefail
 
