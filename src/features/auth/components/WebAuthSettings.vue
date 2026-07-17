@@ -218,6 +218,6 @@ async function focusInput(target: typeof passwordInput) {
 .auth-security-row strong { color: var(--app-text-primary); }
 .auth-security-row p { margin: 4px 0 0; color: var(--app-text-muted); line-height: 1.5; }
 .auth-security-row :deep(.n-button) { flex: 0 0 auto; }
-.auth-security-modal { width: min(92vw, 520px); }
+:deep(.auth-security-modal) { width: min(520px, calc(100vw - 32px)); max-width: calc(100vw - 32px); }
 @media (max-width: 767px) { .auth-security-heading, .auth-security-row { align-items: flex-start; flex-direction: column; } .auth-security-heading > :deep(.n-text) { white-space: normal; } .auth-security-row :deep(.n-button) { width: 100%; } }
 </style>
