@@ -11,7 +11,7 @@
 - 当前等待用户在 Stitch 画布确认母版；母版未批准前不生成其他页面，也不修改 UI 代码。
 - 本次例外只允许将现有 scoped 样式外置、增加样式架构约束测试，以及在通用 UI 原语上试验构建期 UnoCSS；不得改变视觉、交互、业务流程或后端接口。
 - 现有 38 个 Vue scoped style 已全部迁移为同目录 CSS 文件，样式架构约束测试已纳入 `scripts/tests/`；迁移未改变归一化后的构建 CSS 规则。
-- UnoCSS 受控试点尚未开始，是否保留以试点验收标准为准。
+- UnoCSS 受控试点已通过，当前只保留通用 UI 原语上的静态 utility safelist，不扩大到其他组件。
 - 深色与浅色主题需求已经确认，但当前前端仍固定使用深色主题。
 - 重设计只调整视觉层级、信息密度、排版、响应式布局和组件表现，不改变现有业务流程与前后端架构。
 
@@ -49,6 +49,14 @@
 - 迁移前后构建 CSS 在归一化 `data-v-*` scope id 后保持一致；scope id 的变化属于 Vue 外部 style 编译的正常结果。
 - 基线合并 CSS：43,493 字节，gzip 8,129 字节；迁移批次未引入视觉规则变化。
 - `scripts/tests/style-architecture.test.mjs` 防止后续新增内联组件样式。
+
+## 4.2 UnoCSS 试点验收
+
+- 使用开发依赖 UnoCSS 66.7.5、`presetWind3({ preflight: false })`，关闭默认 extractor 和 pipeline，仅 safelist 11 个静态 utility。
+- 试点组件为 AppMetricCard、AppMetricGrid、AppDialogActions，保留语义 class 和所有主题/状态/深层覆盖 CSS。
+- 共移除 20 条基础布局声明；未使用任意颜色、任意尺寸或 `!important` utility。
+- 试点构建 CSS：43,303 字节，gzip 8,139 字节；相对外置迁移基线 43,493 字节、gzip 8,129 字节，gzip 增长 10 字节，低于 1 KiB 门槛。
+- 不继续在任务列表、复杂响应式组件或 Naive UI 深层覆盖中扩大 UnoCSS 使用范围。
 
 ## 4. 验收口径
 
