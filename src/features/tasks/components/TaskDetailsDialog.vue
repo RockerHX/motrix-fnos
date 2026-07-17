@@ -31,23 +31,4 @@ const emit = defineEmits<{
   </NModal>
 </template>
 
-<style scoped>
-.task-detail-card {
-  --app-dialog-width: 720px;
-  --app-dialog-mobile-margin: 24px;
-}
-
-:deep(.n-descriptions-table-content__content) {
-  word-break: break-all;
-}
-
-:deep(.n-descriptions-table-header) {
-  word-break: break-word;
-}
-
-@media (max-width: 767px) {
-  .task-detail-card {
-    min-width: 0;
-  }
-}
-</style>
+<style scoped src="./TaskDetailsDialog.css"></style>

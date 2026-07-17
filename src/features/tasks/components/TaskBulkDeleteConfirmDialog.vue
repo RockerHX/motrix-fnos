@@ -54,10 +54,4 @@ function confirm() {
   </AppConfirmDialog>
 </template>
 
-<style scoped>
-.bulk-delete-description {
-  margin: 0;
-  color: var(--app-text-secondary);
-  line-height: 1.6;
-}
-</style>
+<style scoped src="./TaskBulkDeleteConfirmDialog.css"></style>

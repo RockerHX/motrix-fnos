@@ -1,0 +1,67 @@
+.icon-pill-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  max-width: 100%;
+  padding: 1px 4px;
+  border: 1px solid color-mix(in srgb, var(--app-color-border-subtle) 76%, transparent);
+  border-radius: var(--app-radius-pill);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.task-action-button {
+  transition: transform var(--app-transition-fast);
+}
+
+.task-action-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.task-action-button:disabled {
+  transform: none;
+}
+
+.icon-action {
+  --n-width: 26px;
+  --n-height: 26px;
+  --n-icon-size: 14px;
+  color: var(--app-text-dim);
+  opacity: 0.62;
+}
+
+.icon-action:hover,
+.icon-action:focus-visible {
+  color: var(--app-text-strong);
+  opacity: 1;
+}
+
+.icon-action:disabled {
+  opacity: 0.38;
+}
+
+
+.compact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.compact-actions :deep(.n-button) {
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .compact-actions {
+    gap: 10px;
+  }
+
+  .compact-actions :deep(.n-button) {
+    min-height: var(--app-touch-target-min);
+    border-radius: var(--app-radius-sm);
+  }
+
+  .compact-actions {
+    min-width: 0;
+  }
+}
