@@ -35,17 +35,4 @@ const gridStyle = computed(() => ({
   </div>
 </template>
 
-<style scoped>
-.app-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--app-metric-grid-desktop-columns), minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 767px) {
-  .app-metric-grid {
-    grid-template-columns: repeat(var(--app-metric-grid-mobile-columns), minmax(0, 1fr));
-    gap: 10px;
-  }
-}
-</style>
+<style scoped src="./AppMetricGrid.css"></style>

@@ -75,11 +75,4 @@ function confirm() {
   </AppDialog>
 </template>
 
-<style scoped>
-.app-confirm-text {
-  margin: 0 0 14px;
-  color: var(--app-text-secondary);
-  line-height: 1.6;
-  word-break: break-word;
-}
-</style>
+<style scoped src="./AppConfirmDialog.css"></style>

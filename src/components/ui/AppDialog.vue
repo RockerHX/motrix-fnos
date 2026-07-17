@@ -90,8 +90,4 @@ function closeDialog() {
   </NModal>
 </template>
 
-<style scoped>
-.app-dialog-title {
-  margin: 0;
-}
-</style>
+<style scoped src="./AppDialog.css"></style>

@@ -8,18 +8,4 @@ import { NSpace } from "naive-ui";
   </NSpace>
 </template>
 
-<style scoped>
-.app-dialog-actions {
-  width: 100%;
-}
-
-@media (max-width: 767px) {
-  .app-dialog-actions {
-    flex-direction: column-reverse;
-  }
-
-  .app-dialog-actions :deep(.n-button) {
-    width: 100%;
-  }
-}
-</style>
+<style scoped src="./AppDialogActions.css"></style>
