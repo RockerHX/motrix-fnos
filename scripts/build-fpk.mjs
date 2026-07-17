@@ -174,11 +174,11 @@ function preflightStageDir(dir, platform, servicePort) {
 
   validateJsonFile(path.join(dir, 'wizard', 'install'), '安装向导');
   validateJsonFile(path.join(dir, 'wizard', 'uninstall'), '卸载向导');
-  validateFnosIcon(path.join(dir, 'ICON.PNG'), 64, '包根小图标 ICON.PNG');
-  validateFnosIcon(path.join(dir, 'ICON_256.PNG'), 256, '包根大图标 ICON_256.PNG');
-  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_64.png'), 64, '入口小图标 icon_64.png');
-  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_256.png'), 256, '入口大图标 icon_256.png');
-  validateFnosIcon(path.join(dir, 'app', 'ui', 'dist', 'icon.png'), 128, 'Web 图标 icon.png');
+  validateFnosIcon(path.join(dir, 'ICON.PNG'), 256, '包图标 ICON.PNG');
+  validateFnosIcon(path.join(dir, 'ICON_256.PNG'), 256, '包图标 ICON_256.PNG');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_64.png'), 256, '入口图标 icon_64.png');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_256.png'), 256, '入口图标 icon_256.png');
+  validateFnosIcon(path.join(dir, 'app', 'ui', 'dist', 'icon.png'), 256, 'Web 图标 icon.png');
 
   const manifest = parseManifest(readFileSync(path.join(dir, 'manifest'), 'utf8'));
   const expectedUiDir = manifest.desktop_uidir || 'ui';

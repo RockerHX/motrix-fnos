@@ -8,7 +8,7 @@
 
 ## 已查证约束
 
-截至 2026-07-14，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；本轮双监听器交付前已重新读取下列 Manifest、应用框架、fnpack 与应用入口页面：
+截至 2026-07-17，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；本轮双监听器交付前已重新读取下列 Manifest、应用框架、fnpack、应用入口与图标页面：
 
 - 官方 Manifest 文档明确了 `platform=x86|arm|all`、`os_min_version`、`service_port` 等字段，但**没有文档化 `arch` 字段**。当前仓库仍保留 x86 staging 中的 `arch = x86_64`，直到官方资料或实机验证证明可删。
 - 官方应用框架文档列出了 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*`、`config_*` 生命周期脚本。
@@ -34,6 +34,7 @@
 相关官方资料：
 
 - Manifest：https://developer.fnnas.com/docs/core-concepts/manifest/
+- 图标：https://developer.fnnas.com/docs/core-concepts/icon/
 - 应用框架 / 生命周期：https://developer.fnnas.com/docs/core-concepts/framework/
 - fnpack：https://developer.fnnas.com/docs/cli/fnpack/
 - 应用入口：https://developer.fnnas.com/docs/core-concepts/app-entry/
@@ -72,6 +73,35 @@ FPK 启动脚本必须向同一个 Rust server 注入两个地址：
 
 - `x86_64` 设备安装 x86 包
 - `aarch64` / `arm64` 设备安装 ARM 包
+
+## 图标尺寸与高清显示
+
+飞牛官方图标文档：<https://developer.fnnas.com/docs/core-concepts/icon/>。
+
+官方规范仍然区分两组固定文件名和尺寸：
+
+| 用途 | 固定路径 | 官方尺寸 |
+| --- | --- | ---: |
+| FPK 包图标 | `ICON.PNG` | 64×64 |
+| FPK 包图标 | `ICON_256.PNG` | 256×256 |
+| 应用入口图标 | `app/ui/images/icon_64.png` | 64×64 |
+| 应用入口图标 | `app/ui/images/icon_256.png` | 256×256 |
+
+`app/ui/config` 使用 `images/icon_{0}.png` 时，fnOS 会按入口需要替换 `{0}`。图标还应满足正方形、sRGB、PNG/JPG、单文件不超过 1024 KB 等官方要求。
+
+### 本项目的高清交付约定
+
+官方文件名和入口配置保持不变，但 2026-07-17 对 `1.7.5` FPK 的 ARM 与 x86 产物进行实机验证后，确定项目内所有交付 PNG 统一使用 **256×256**，避免桌面入口和应用中心在高 DPI 或大尺寸显示时放大低分辨率图像：
+
+- `packaging/fnos/ICON.PNG`：256×256；
+- `packaging/fnos/ICON_256.PNG`：256×256；
+- `app/ui/images/icon_64.png`：256×256，保留官方入口选择所需的文件名；
+- `app/ui/images/icon_256.png`：256×256；
+- `public/icon.png` 构建为 `app/ui/dist/icon.png`：256×256。
+
+因此，`icon_64.png` 的 `64` 是兼容 fnOS 入口文件名与 `{0}` 选择规则的名称，不代表本项目交付的像素尺寸。`scripts/build-fpk.mjs` 会同步这些资源，并在 FPK 预检阶段统一校验为 256×256；不要只修改其中一个尺寸或手工在 `app/ui/images/` 下留下旧生成物。
+
+图标显示模糊时，先确认实际 FPK 包内资源尺寸，再清理浏览器缓存、执行强制刷新或换浏览器复测。`1.7.5` 的实测表明，同一个 FPK 在缓存未更新的浏览器中可能显示模糊，而换浏览器后立即显示高清；这种现象不代表 FPK 中缺少 256 图标。官方 64/256 规范没有改变，全部使用 256 是本项目基于实机显示效果确定的交付约定。
 
 ## 常用命令
 
@@ -209,7 +239,9 @@ packaging/fnos/
 - `.stage/<target>/manifest`：预组装后的真实 manifest
 - `cmd/`：启动、停止、状态脚本
 - `config/`：资源与权限声明
+- `ICON.PNG`、`ICON_256.PNG`：FPK 包根图标
 - `app/bin/`：server 与 `aria2-next`
+- `app/ui/images/`：应用入口图标
 - `app/ui/dist/`：Web UI 静态资源
 - `app/data/`：运行时数据目录
 - `.stage/`：预组装后的打包目录

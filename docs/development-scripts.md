@@ -282,6 +282,8 @@ packaging/fnos/.stage/x86/
 packaging/fnos/.stage/arm/
 ```
 
+FPK 图标由 `scripts/build-fpk.mjs` 从包根资源同步到 `app/ui/images/`，并在预检阶段统一校验为 256×256。当前项目保留 `icon_64.png` 这个官方入口文件名，但文件内容仍使用 256×256，以保证高清显示；具体文件清单、官方 64/256 规范和浏览器缓存排查见 [FPK 打包说明](fpk-packaging.md) 的“图标尺寸与高清显示”。
+
 ### `pnpm run build:fpk`
 
 先清空 `packaging/fnos/dist/`，再完整构建 x86 与 ARM，最终保留两个 FPK：
