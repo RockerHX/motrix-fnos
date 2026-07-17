@@ -211,10 +211,13 @@ async function focusInput(target: typeof passwordInput) {
 <style scoped>
 .auth-security { display: grid; gap: 16px; padding: 18px; border: 1px solid var(--app-color-border-subtle); border-radius: var(--app-radius-md); background: var(--app-color-card-overlay); }
 .auth-security-heading, .auth-security-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.auth-security-heading > :deep(.n-text) { flex: 0 0 auto; white-space: nowrap; }
 .auth-security-heading h3 { margin: 0 0 4px; color: var(--app-text-strong); font-size: 16px; }
 .auth-security-row { padding-top: 14px; border-top: 1px solid var(--app-color-border-subtle); }
+.auth-security-row > div { min-width: 0; }
 .auth-security-row strong { color: var(--app-text-primary); }
 .auth-security-row p { margin: 4px 0 0; color: var(--app-text-muted); line-height: 1.5; }
+.auth-security-row :deep(.n-button) { flex: 0 0 auto; }
 .auth-security-modal { width: min(92vw, 520px); }
-@media (max-width: 767px) { .auth-security-heading, .auth-security-row { align-items: flex-start; flex-direction: column; } .auth-security-row :deep(.n-button) { width: 100%; } }
+@media (max-width: 767px) { .auth-security-heading, .auth-security-row { align-items: flex-start; flex-direction: column; } .auth-security-heading > :deep(.n-text) { white-space: normal; } .auth-security-row :deep(.n-button) { width: 100%; } }
 </style>

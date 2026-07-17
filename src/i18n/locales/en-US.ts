@@ -247,6 +247,8 @@ export const enUS: Record<TranslationKey, string> = {
   "create.submit": "Start Download",
 
   "settings.title": "Settings",
+  "settings.sections.preferences": "Downloads & interface",
+  "settings.sections.preferencesHelp": "Set the task directory, interface language, and transfer limits.",
   "settings.saved": "Settings saved",
   "settings.failed": "Settings operation failed, please try again later",
   "settings.defaultDownloadDir": "Default Download Directory",

@@ -141,57 +141,68 @@ function kbToBytes(value: number) {
   <AppDialog
     :show="show"
     :title="t('settings.title')"
-    width="620px"
+    width="720px"
     :mask-closable="!settingsStore.isSaving"
     :close-disabled="settingsStore.isSaving"
     @update:show="emit('update:show', $event)"
   >
     <NForm
-        class="settings-form"
-        :label-placement="isMobileLayout ? 'top' : 'left'"
-        :label-width="isMobileLayout ? undefined : 150"
-        :disabled="settingsStore.isLoading"
-      >
-        <NFormItem
-          :label="t('settings.defaultDownloadDir')"
-          :feedback="defaultDownloadDirMessage"
-          :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
-        >
-          <NSelect
-            v-model:value="form.defaultDownloadDir"
-            :options="accessiblePathOptions"
-            :loading="settingsStore.isLoadingAccessiblePaths"
-            :placeholder="t('settings.defaultDownloadDir.placeholder')"
-            filterable
-          />
-        </NFormItem>
+      class="settings-form"
+      :label-placement="isMobileLayout ? 'top' : 'left'"
+      :label-width="isMobileLayout ? undefined : 150"
+      :disabled="settingsStore.isLoading"
+    >
+      <section class="settings-preferences">
+        <header class="settings-section-heading">
+          <div>
+            <h3>{{ t("settings.sections.preferences") }}</h3>
+            <p>{{ t("settings.sections.preferencesHelp") }}</p>
+          </div>
+        </header>
 
-        <NFormItem :label="t('settings.language')">
-          <NSelect v-model:value="form.language" :options="languageOptions" />
-        </NFormItem>
+        <div class="settings-preferences-fields">
+          <NFormItem
+            :label="t('settings.defaultDownloadDir')"
+            :feedback="defaultDownloadDirMessage"
+            :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
+          >
+            <NSelect
+              v-model:value="form.defaultDownloadDir"
+              :options="accessiblePathOptions"
+              :loading="settingsStore.isLoadingAccessiblePaths"
+              :placeholder="t('settings.defaultDownloadDir.placeholder')"
+              filterable
+            />
+          </NFormItem>
 
-        <NFormItem :label="t('settings.background')">
-          <NText depth="3">{{ t("settings.background.help") }}</NText>
-        </NFormItem>
+          <NFormItem :label="t('settings.language')">
+            <NSelect v-model:value="form.language" :options="languageOptions" />
+          </NFormItem>
 
-        <NFormItem :label="t('settings.maxConcurrentDownloads')">
-          <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
-        </NFormItem>
+          <NFormItem class="settings-form-note" :label="t('settings.background')">
+            <NText depth="3">{{ t("settings.background.help") }}</NText>
+          </NFormItem>
 
-        <NFormItem :label="t('settings.downloadLimit')">
-          <NInputNumber v-model:value="form.downloadLimitKb" :min="0" :step="128">
-            <template #suffix>KB/s</template>
-          </NInputNumber>
-        </NFormItem>
+          <NFormItem :label="t('settings.maxConcurrentDownloads')">
+            <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
+          </NFormItem>
 
-        <NFormItem :label="t('settings.uploadLimit')">
-          <NInputNumber v-model:value="form.uploadLimitKb" :min="0" :step="128">
-            <template #suffix>KB/s</template>
-          </NInputNumber>
-        </NFormItem>
+          <NFormItem :label="t('settings.downloadLimit')">
+            <NInputNumber v-model:value="form.downloadLimitKb" :min="0" :step="128">
+              <template #suffix>KB/s</template>
+            </NInputNumber>
+          </NFormItem>
 
-        <WebAuthSettings />
-        <JsonRpcTokenSettings :active="show" />
+          <NFormItem :label="t('settings.uploadLimit')">
+            <NInputNumber v-model:value="form.uploadLimitKb" :min="0" :step="128">
+              <template #suffix>KB/s</template>
+            </NInputNumber>
+          </NFormItem>
+        </div>
+      </section>
+
+      <WebAuthSettings />
+      <JsonRpcTokenSettings :active="show" />
     </NForm>
 
     <template #footer>
@@ -206,11 +217,94 @@ function kbToBytes(value: number) {
 </template>
 
 <style scoped>
-.setting-stack {
+.settings-form {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-preferences {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay);
+}
+
+.settings-section-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--app-color-border-subtle);
+}
+
+.settings-section-heading h3,
+.settings-section-heading p {
+  margin: 0;
+}
+
+.settings-section-heading h3 {
+  color: var(--app-text-strong);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.settings-section-heading p {
+  margin-top: 4px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-preferences-fields :deep(.n-form-item) {
+  margin-bottom: 18px;
+}
+
+.settings-preferences-fields :deep(.n-form-item:last-child) {
+  margin-bottom: 0;
+}
+
+.settings-form :deep(.n-select),
+.settings-form :deep(.n-input),
+.settings-form :deep(.n-input-number),
+.settings-form :deep(.n-base-selection) {
   width: 100%;
 }
 
+.settings-form-note :deep(.n-form-item-label) {
+  align-self: flex-start;
+}
+
+.settings-form-note :deep(.n-form-item-blank) {
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-left: 2px solid var(--app-text-accent-soft);
+  border-radius: 0 var(--app-radius-sm) var(--app-radius-sm) 0;
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.settings-form-note :deep(.n-text) {
+  color: var(--app-text-muted);
+  line-height: 1.55;
+}
+
 @media (max-width: 767px) {
+  .settings-preferences {
+    padding: 14px;
+  }
+
+  .settings-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .settings-preferences-fields :deep(.n-form-item) {
+    margin-bottom: 16px;
+  }
+
   .settings-form :deep(.n-form-item-label) {
     padding-bottom: 8px;
   }
@@ -221,6 +315,5 @@ function kbToBytes(value: number) {
   .settings-form :deep(.n-input-number) {
     width: 100%;
   }
-
 }
 </style>

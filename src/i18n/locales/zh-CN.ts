@@ -245,6 +245,8 @@ export const zhCN = {
   "create.submit": "开始下载",
 
   "settings.title": "设置",
+  "settings.sections.preferences": "下载与界面",
+  "settings.sections.preferencesHelp": "设置任务目录、界面语言和传输限制。",
   "settings.saved": "设置已保存",
   "settings.failed": "设置操作失败，请稍后重试",
   "settings.defaultDownloadDir": "默认下载目录",
