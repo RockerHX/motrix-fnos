@@ -18,6 +18,10 @@ const requestedProtection = ref(true);
 const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPassword: "" });
 const protectionForm = reactive({ currentPassword: "" });
 const canManage = computed(() => authStore.authenticated);
+const securityModalStyle = {
+  width: "min(520px, calc(100vw - 32px))",
+  maxWidth: "calc(100vw - 32px)",
+};
 
 function openPasswordModal() {
   if (!canManage.value) return;
@@ -145,6 +149,7 @@ async function focusInput(target: typeof passwordInput) {
       v-model:show="showPasswordModal"
       preset="card"
       class="auth-security-modal"
+      :style="securityModalStyle"
       :title="t('auth.security.changePassword')"
       :mask-closable="!authStore.isSubmitting"
       :closable="!authStore.isSubmitting"
@@ -179,6 +184,7 @@ async function focusInput(target: typeof passwordInput) {
       v-model:show="showProtectionModal"
       preset="card"
       class="auth-security-modal"
+      :style="securityModalStyle"
       :title="t(requestedProtection ? 'auth.security.enableTitle' : 'auth.security.disableTitle')"
       :mask-closable="!authStore.isSubmitting"
       :closable="!authStore.isSubmitting"
