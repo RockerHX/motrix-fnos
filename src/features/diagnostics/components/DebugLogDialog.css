@@ -1,0 +1,52 @@
+.debug-log-dialog {
+  --app-dialog-width: 1120px;
+}
+
+h2 {
+  margin: 0;
+}
+
+.debug-log-actions :deep(.n-button) {
+  white-space: normal;
+}
+
+.log-metrics {
+  margin-bottom: 12px;
+}
+
+.log-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(120px, 0.8fr) minmax(140px, 0.9fr) minmax(160px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.problem-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .log-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .problem-toggle {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 767px) {
+  .debug-log-actions :deep(.n-button) {
+    min-width: 0;
+  }
+
+  .log-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+}

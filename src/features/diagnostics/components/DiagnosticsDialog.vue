@@ -76,12 +76,4 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
   <DebugLogDialog v-model:show="showDebugLogs" />
 </template>
 
-<style scoped>
-h2 {
-  margin: 0;
-}
-
-.diagnostics-metrics {
-  margin-bottom: 16px;
-}
-</style>
+<style scoped src="./DiagnosticsDialog.css"></style>
