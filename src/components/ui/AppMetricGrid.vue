@@ -22,7 +22,7 @@ const gridStyle = computed(() => ({
 </script>
 
 <template>
-  <div class="app-metric-grid" :style="gridStyle">
+  <div class="app-metric-grid grid gap-3 lt-md:gap-2.5" :style="gridStyle">
     <AppMetricCard
       v-for="item in props.items"
       :key="item.label"

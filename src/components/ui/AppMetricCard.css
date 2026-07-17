@@ -1,5 +1,4 @@
 .app-metric-card {
-  min-width: 0;
   padding: 14px;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-radius-md);
@@ -24,30 +23,10 @@
   font-size: 12px;
 }
 
-.app-metric-label {
-  display: block;
-}
-
 .app-metric-value {
-  display: block;
-  overflow: hidden;
-  margin: 8px 0;
   color: var(--app-text-strong);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .app-metric-detail {
-  overflow: hidden;
-  margin: 0 0 8px;
   color: var(--app-text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.app-metric-note {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
