@@ -1,0 +1,159 @@
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.about-content {
+  display: grid;
+  gap: 18px;
+}
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-mark {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--app-radius-lg);
+  color: #102010;
+  background: var(--app-text-accent);
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.about-hero h3 {
+  color: var(--app-text-strong);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.about-hero p,
+.version-line {
+  color: #aeb9ad;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.update-result p {
+  color: #aeb9ad;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.update-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.version-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.asset-list {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-list a {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(142, 240, 138, 0.22);
+  border-radius: var(--app-radius-sm);
+  color: #dfe8dc;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.asset-list a:hover {
+  border-color: rgba(142, 240, 138, 0.5);
+}
+
+.changelog-list {
+  display: grid;
+  gap: 12px;
+}
+
+.changelog-entry {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--app-radius-sm);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.changelog-entry header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--app-text-strong);
+}
+
+.changelog-entry header span,
+.changelog-section h4 {
+  color: #9fae9d;
+  font-size: 12px;
+}
+
+.changelog-section {
+  display: grid;
+  gap: 6px;
+}
+
+.changelog-section h4 {
+  margin: 0;
+}
+
+.changelog-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #c8d2c5;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+a {
+  color: #8ef08a;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .about-content {
+    gap: 14px;
+  }
+
+  .about-hero,
+  .update-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .about-update-card :deep(.n-button) {
+    width: 100%;
+  }
+
+  .changelog-entry header {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

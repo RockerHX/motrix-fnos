@@ -68,15 +68,4 @@ function updateShow(show: boolean) {
   </AppDialog>
 </template>
 
-<style scoped>
-.help-sections {
-  display: grid;
-  gap: 14px;
-}
-
-@media (max-width: 767px) {
-  .help-sections {
-    gap: 12px;
-  }
-}
-</style>
+<style scoped src="./HelpDialog.css"></style>
