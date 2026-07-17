@@ -1,0 +1,49 @@
+.task-progress-bar {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-task-progress-rail) 58%, transparent);
+}
+
+.task-progress-bar--compact {
+  height: 5px;
+}
+
+.task-progress-bar--card {
+  height: 4px;
+}
+
+.task-progress-bar--empty {
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 0,
+    color-mix(in srgb, var(--app-text-secondary) 18%, transparent) 8px,
+    transparent 8px,
+    transparent 14px
+  );
+}
+
+.task-progress-bar__fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(var(--task-progress-scale));
+  transform-origin: left center;
+  transition: transform var(--app-transition-progress);
+  border-radius: inherit;
+}
+
+.task-progress-bar--default .task-progress-bar__fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--app-text-accent-soft) 56%, var(--app-color-surface-elevated)),
+    color-mix(in srgb, var(--app-text-accent-soft) 76%, var(--app-color-surface-elevated))
+  );
+}
+
+.task-progress-bar--complete .task-progress-bar__fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--app-text-accent-soft) 72%, var(--app-color-surface-elevated)),
+    var(--app-text-accent-soft)
+  );
+}

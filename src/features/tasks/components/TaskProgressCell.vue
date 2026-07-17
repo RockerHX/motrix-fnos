@@ -87,15 +87,4 @@ function clampCompletedLength(value: number, totalLength: number) {
   </div>
 </template>
 
-<style scoped>
-.task-progress-cell {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-small {
-  color: #a8bab3;
-  font-variant-numeric: tabular-nums;
-}
-</style>
+<style scoped src="./TaskProgressCell.css"></style>
