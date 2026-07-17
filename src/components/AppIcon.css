@@ -1,0 +1,6 @@
+.app-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  color: currentColor;
+  vertical-align: -0.125em;
+}

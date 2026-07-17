@@ -75,11 +75,4 @@ const role = computed(() => (props.decorative ? undefined : "img"));
   />
 </template>
 
-<style scoped>
-.app-icon {
-  display: inline-block;
-  flex: 0 0 auto;
-  color: currentColor;
-  vertical-align: -0.125em;
-}
-</style>
+<style scoped src="./AppIcon.css"></style>
