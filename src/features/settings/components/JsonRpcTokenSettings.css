@@ -1,0 +1,7 @@
+.json-rpc-settings { display: grid; gap: 16px; padding: 18px; border: 1px solid var(--app-color-border-subtle); border-radius: var(--app-radius-md); background: var(--app-color-card-overlay); }
+.json-rpc-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.json-rpc-heading > :deep(.n-text) { flex: 0 0 auto; max-width: 42%; text-align: right; white-space: nowrap; }
+.json-rpc-heading h3 { margin: 0 0 4px; color: var(--app-text-strong); font-size: 16px; }
+.json-rpc-clear-modal { width: min(92vw, 500px); }
+.json-rpc-clear-actions { margin-top: 18px; }
+@media (max-width: 767px) { .json-rpc-heading { flex-direction: column; } .json-rpc-heading > :deep(.n-text) { max-width: none; text-align: left; white-space: normal; } }
