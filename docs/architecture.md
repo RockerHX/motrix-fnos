@@ -96,6 +96,9 @@ src/
 - 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue Web UI 源码、Pinia store、service、HTTP API 和 SSE 数据流；不得为手机端另建独立前端工程、独立业务状态或独立后端接口。
 - 响应式适配优先在 `layouts/` 和 `features/*` 展示组件内完成：布局外壳可按桌面/移动拆分组件，信息结构差异明显的功能组件可拆桌面/移动展示组件，但业务操作必须复用同一 store/service。
 - UI 优先使用 Naive UI；自定义 CSS 仅用于整体主题、侧栏、shell、颜色、间距和圆角。
+- 组件样式与组件同目录维护：`Component.vue` 的 scoped 样式放在同目录 `Component.css`，Vue 文件只保留 `<style scoped src="./Component.css"></style>` 声明；迁移时不得改变选择器、声明或视觉表现。
+- `src/styles/` 只保存全局 token、基础重置、弹窗公共样式和移动端基线；业务组件样式不得重新集中堆入全局样式文件。
+- UnoCSS 只作为构建期原子布局工具试点；试点不得启用全局 preflight/reset、attributify、shortcuts 或图标 preset，且只允许用于静态基础布局 utility。主题 token、语义 class、复杂响应式、`:deep()`、伪元素和状态样式继续使用外部 scoped CSS。
 
 ## 6. 后端约束
 
