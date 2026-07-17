@@ -53,6 +53,7 @@
 ## 4.2 UnoCSS 试点验收
 
 - 使用开发依赖 UnoCSS 66.7.5、`presetWind3({ preflight: false })`，关闭默认 extractor 和 pipeline，仅 safelist 11 个静态 utility。
+- 移动 utility 使用自定义 `mobile` 变体，精确复用项目既有 `max-width: 767px` 断点。
 - 试点组件为 AppMetricCard、AppMetricGrid、AppDialogActions，保留语义 class 和所有主题/状态/深层覆盖 CSS。
 - 共移除 20 条基础布局声明；未使用任意颜色、任意尺寸或 `!important` utility。
 - 试点构建 CSS：43,303 字节，gzip 8,139 字节；相对外置迁移基线 43,493 字节、gzip 8,129 字节，gzip 增长 10 字节，低于 1 KiB 门槛。
