@@ -3,6 +3,18 @@ import { defineConfig, presetWind3 } from "unocss";
 export default defineConfig({
   presets: [presetWind3({ preflight: false })],
   preflights: [],
+  variants: [
+    (matcher) => {
+      if (!matcher.startsWith("mobile:")) {
+        return;
+      }
+
+      return {
+        matcher: matcher.slice("mobile:".length),
+        parent: "@media (max-width: 767px)",
+      };
+    },
+  ],
   content: {
     pipeline: false,
   },
@@ -16,8 +28,8 @@ export default defineConfig({
     "mb-2",
     "grid",
     "gap-3",
-    "lt-md:gap-2.5",
+    "mobile:gap-2.5",
     "w-full",
-    "lt-md:flex-col-reverse",
+    "mobile:flex-col-reverse",
   ],
 });

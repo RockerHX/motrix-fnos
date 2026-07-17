@@ -3,7 +3,7 @@ import { NSpace } from "naive-ui";
 </script>
 
 <template>
-  <NSpace class="app-dialog-actions w-full lt-md:flex-col-reverse" justify="end">
+  <NSpace class="app-dialog-actions w-full mobile:flex-col-reverse" justify="end">
     <slot />
   </NSpace>
 </template>
