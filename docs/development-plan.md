@@ -56,7 +56,7 @@
 - 移动 utility 使用自定义 `mobile` 变体，精确复用项目既有 `max-width: 767px` 断点。
 - 试点组件为 AppMetricCard、AppMetricGrid、AppDialogActions，保留语义 class 和所有主题/状态/深层覆盖 CSS。
 - 共移除 20 条基础布局声明；未使用任意颜色、任意尺寸或 `!important` utility。
-- 试点构建 CSS：43,303 字节，gzip 8,139 字节；相对外置迁移基线 43,493 字节、gzip 8,129 字节，gzip 增长 10 字节，低于 1 KiB 门槛。
+- 试点构建 CSS：43,303 字节，gzip 8,133 字节；相对外置迁移基线 43,493 字节、gzip 8,129 字节，gzip 增长 4 字节，低于 1 KiB 门槛。
 - 不继续在任务列表、复杂响应式组件或 Naive UI 深层覆盖中扩大 UnoCSS 使用范围。
 
 ## 4. 验收口径
