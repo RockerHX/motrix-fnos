@@ -221,6 +221,22 @@ describe("TaskCreateDialog", () => {
     expect(wrapper.text()).toContain("新建下载任务");
   });
 
+  it("keeps dialog actions outside the scrollable form fields", () => {
+    const { wrapper } = mountWithPinia(TaskCreateDialog, {
+      props: {
+        show: true,
+      },
+    });
+
+    const form = wrapper.get('[data-test="n-form"]');
+    const fields = form.get(".task-create-fields");
+    const actions = form.get(".dialog-actions");
+
+    expect(fields.find(".task-create-tabs").exists()).toBe(true);
+    expect(fields.find(".dialog-actions").exists()).toBe(false);
+    expect(actions.element.parentElement).toBe(form.element);
+  });
+
   it("blocks mask and close controls while creating or exiting", async () => {
     for (const stateOptions of [{ isCreating: true }, { isRuntimeExiting: true }]) {
       const state = createComposableState(stateOptions);

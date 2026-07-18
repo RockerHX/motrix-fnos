@@ -1,7 +1,14 @@
 .task-create-card {
   --app-dialog-width: 720px;
   min-width: 0;
+  overflow: hidden;
   overscroll-behavior: contain;
+}
+
+.task-create-card :deep(.n-card-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .task-create-eyebrow {
@@ -17,6 +24,21 @@ h2 {
 
 .full-width {
   width: 100%;
+}
+
+.task-create-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.task-create-fields {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .field-hint {
@@ -50,14 +72,20 @@ h2 {
 }
 
 .dialog-actions {
-  margin-top: 22px;
+  flex: 0 0 auto;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-color-border-subtle);
 }
 
 @media (max-width: 767px) {
   .task-create-form {
     width: 100%;
-    padding-bottom: 4px;
-    scroll-padding-bottom: calc(88px + var(--app-safe-area-bottom));
+  }
+
+  .task-create-fields {
+    padding-right: 4px;
+    scroll-padding-bottom: 16px;
   }
 
   .task-create-form :deep(.n-form-item-label) {
@@ -81,12 +109,15 @@ h2 {
   }
 
   .dialog-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
     margin-top: 18px;
     padding-top: 14px;
     padding-bottom: calc(8px + var(--app-safe-area-bottom));
-    background: linear-gradient(180deg, rgba(27, 31, 29, 0), rgba(27, 31, 29, 0.94) 18px, #1b1f1d 100%);
+  }
+}
+
+@media (max-height: 760px) {
+  .dialog-actions {
+    margin-top: 12px;
+    padding-top: 12px;
   }
 }
