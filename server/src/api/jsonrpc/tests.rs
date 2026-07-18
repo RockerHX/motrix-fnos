@@ -162,6 +162,17 @@ fn parse_add_uri_detects_magnet_source_type() {
 }
 
 #[test]
+fn parse_add_uri_detects_torrent_source_type() {
+    let command = parse_add_uri_command(&serde_json::json!([["torrent:example.torrent"]]))
+        .expect("torrent URI should parse");
+
+    assert_eq!(
+        command.source_type,
+        crate::tasks::DownloadTaskSourceType::Torrent
+    );
+}
+
+#[test]
 fn parse_add_uri_preserves_speed_related_options() {
     let command = parse_add_uri_command(&json!([
         "token:anything",

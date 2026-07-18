@@ -75,6 +75,7 @@ pub fn store_created_task_with_id(
     let now = current_timestamp_ms();
     let task = DownloadTask {
         id: task_id,
+        source_type: prepared.source_type,
         file_name: prepared.file_name,
         save_dir: prepared.save_dir,
         category: prepared.category,

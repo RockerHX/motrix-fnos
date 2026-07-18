@@ -44,6 +44,7 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
     DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir,
         category: "默认".to_string(),
@@ -527,6 +528,7 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
     let task = DownloadTask {
         id: 1,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
@@ -582,6 +584,7 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     let tasks = TaskMemoryState::new(vec![DownloadTask {
         id: 1,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
@@ -779,6 +782,7 @@ fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "download".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
@@ -1077,6 +1081,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
     let mut task = DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),

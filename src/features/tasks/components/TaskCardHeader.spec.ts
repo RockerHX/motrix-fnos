@@ -24,6 +24,22 @@ describe("TaskCardHeader", () => {
     expect(wrapper.get(".task-card-title").text()).toBe("ubuntu.iso");
     expect(wrapper.get(".task-card-title").attributes("title")).toBe("ubuntu.iso");
     expect(wrapper.get('[data-test="task-status"]').text()).toBe("active");
+    expect(wrapper.get(".task-source-icon").attributes("aria-label")).toBe("链接下载");
+  });
+
+  it.each([
+    ["url", "链接下载", "link"],
+    ["torrent", "种子文件", "torrent"],
+    ["magnet", "磁力链接", "magnet"],
+  ] as const)("identifies %s tasks with a source icon", (sourceType, label, iconName) => {
+    const wrapper = mount(TaskCardHeader, {
+      props: {
+        task: createTask({ sourceType }),
+      },
+    });
+
+    expect(wrapper.get(".task-source-icon").attributes("aria-label")).toBe(label);
+    expect(wrapper.get(".task-source-icon [data-icon-name]").attributes("data-icon-name")).toBe(iconName);
   });
 
   it("renders actions slot when provided", () => {

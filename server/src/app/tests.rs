@@ -307,6 +307,7 @@ fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
     let mut tasks = vec![DownloadTask {
         id: 9,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
@@ -342,6 +343,7 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
     let mut tasks = vec![DownloadTask {
         id: 10,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
@@ -459,6 +461,7 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,
         url: "https://example.com/archive.zip".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),

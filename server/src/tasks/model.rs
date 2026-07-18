@@ -84,6 +84,7 @@ pub struct DownloadTaskFile {
 pub struct DownloadTask {
     pub id: u64,
     pub url: String,
+    pub source_type: DownloadTaskSourceType,
     pub file_name: String,
     pub save_dir: String,
     pub category: String,
@@ -107,7 +108,26 @@ pub struct DownloadTask {
 pub enum DownloadTaskSourceType {
     #[default]
     Url,
+    Torrent,
     Magnet,
+}
+
+impl DownloadTaskSourceType {
+    pub fn as_storage_value(self) -> &'static str {
+        match self {
+            Self::Url => "url",
+            Self::Torrent => "torrent",
+            Self::Magnet => "magnet",
+        }
+    }
+
+    pub fn from_storage_value(value: &str) -> Self {
+        match value {
+            "torrent" => Self::Torrent,
+            "magnet" => Self::Magnet,
+            _ => Self::Url,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

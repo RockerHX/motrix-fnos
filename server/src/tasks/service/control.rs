@@ -107,11 +107,7 @@ impl<'a> TaskService<'a> {
             save_dir: task.save_dir.clone(),
             aria2_save_dir: None,
             category: task.category.clone(),
-            source_type: if task.url.to_ascii_lowercase().starts_with("magnet:?") {
-                DownloadTaskSourceType::Magnet
-            } else {
-                DownloadTaskSourceType::Url
-            },
+            source_type: task.source_type,
             start_mode: DownloadTaskStartMode::Now,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),

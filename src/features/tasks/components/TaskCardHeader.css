@@ -21,6 +21,15 @@
   gap: 6px;
 }
 
+.task-card-title-group :deep(.task-source-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--app-text-dim);
+  line-height: 1;
+}
+
 .task-card-header--mobile .task-card-title-group {
   align-items: flex-start;
   justify-content: space-between;

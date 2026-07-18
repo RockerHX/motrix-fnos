@@ -31,6 +31,7 @@ fn repository_inserts_updates_and_lists_tasks() {
 
             assert_eq!(tasks.len(), 1);
             assert_eq!(tasks[0].status, DownloadTaskStatus::Paused);
+            assert_eq!(tasks[0].source_type, DownloadTaskSourceType::Url);
             assert_eq!(max_id, task.id);
 
             database.pool.close().await;
@@ -136,6 +137,7 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),

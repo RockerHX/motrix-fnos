@@ -1,16 +1,17 @@
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use sqlx::{Decode, Row, Sqlite, SqlitePool, Type};
 
 pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
     sqlx::query(
         r#"
         INSERT INTO download_tasks (
-            id, url, file_name, save_dir, category, gid, status, total_length, completed_length,
+            id, url, source_type, file_name, save_dir, category, gid, status, total_length, completed_length,
             download_speed, error_code, error_message, file_path, metadata_torrent_path, confirmation_required, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
+            source_type = excluded.source_type,
             file_name = excluded.file_name,
             save_dir = excluded.save_dir,
             category = excluded.category,
@@ -29,6 +30,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     )
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(&task.url)
+    .bind(task.source_type.as_storage_value())
     .bind(&task.file_name)
     .bind(&task.save_dir)
     .bind(&task.category)
@@ -88,7 +90,7 @@ pub async fn persist_download_task_states(
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
     let rows = sqlx::query(
         r#"
-        SELECT id, url, file_name, save_dir, gid, status, total_length, completed_length,
+        SELECT id, url, source_type, file_name, save_dir, gid, status, total_length, completed_length,
                category, download_speed, error_code, error_message, file_path,
                metadata_torrent_path, confirmation_required, created_at, updated_at
         FROM download_tasks
@@ -204,9 +206,11 @@ pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result
 
 fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
     let status: String = get(&row, "status")?;
+    let source_type: String = get(&row, "source_type")?;
     Ok(DownloadTask {
         id: i64_to_u64(get(&row, "id")?, "任务 ID")?,
         url: get(&row, "url")?,
+        source_type: DownloadTaskSourceType::from_storage_value(&source_type),
         file_name: get(&row, "file_name")?,
         save_dir: get(&row, "save_dir")?,
         category: get(&row, "category")?,

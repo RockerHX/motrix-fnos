@@ -56,6 +56,7 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
         url: "https://example.com/archive.zip".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: temp_dir("events-downloads").display().to_string(),
         category: "默认".to_string(),

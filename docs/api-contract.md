@@ -255,7 +255,7 @@ Session 与 Cookie 约定：
 
 约定：
 
-- `sourceType` 可选值为 `url` / `magnet`，省略时兼容旧请求并按 `url` 处理。
+- `sourceType` 可选值为 `url` / `magnet`；种子文件通过 `/api/tasks/torrent` 上传，不在 JSON 请求中传 `torrent`。省略时兼容旧请求并按 `url` 处理。
 - `startMode` 可选值为 `now` / `paused`，省略时按 `now` 处理。
 - `category` 是 Motrix 任务标签，默认 `默认`；它不改变保存目录，也不影响侧栏状态分类。
 - `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速；`advancedOptions.proxy` 映射 `all-proxy`。
@@ -270,6 +270,7 @@ Session 与 Cookie 约定：
 {
   "id": 1,
   "url": "https://example.com/file.zip",
+  "sourceType": "url",
   "fileName": "file.zip",
   "saveDir": "/vol1/downloads",
   "category": "默认",

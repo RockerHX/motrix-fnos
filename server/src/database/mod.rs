@@ -52,6 +52,28 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
+    if download_tasks_column_count(pool, "source_type").await? == 0 {
+        sqlx::query(
+            "ALTER TABLE download_tasks ADD COLUMN source_type TEXT NOT NULL DEFAULT 'url'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("迁移下载任务来源字段失败：{}", error))?;
+        sqlx::query(
+            r#"
+            UPDATE download_tasks
+            SET source_type = CASE
+                WHEN LOWER(url) LIKE 'magnet:?%' THEN 'magnet'
+                WHEN LOWER(url) LIKE 'torrent:%' THEN 'torrent'
+                ELSE 'url'
+            END
+            "#,
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("回填下载任务来源字段失败：{}", error))?;
+    }
+
     if download_tasks_column_count(pool, "category").await? == 0 {
         sqlx::query("ALTER TABLE download_tasks ADD COLUMN category TEXT NOT NULL DEFAULT '默认'")
             .execute(pool)
@@ -97,6 +119,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     CREATE TABLE IF NOT EXISTS download_tasks (
         id INTEGER PRIMARY KEY,
         url TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'url',
         file_name TEXT NOT NULL,
         save_dir TEXT NOT NULL,
         category TEXT NOT NULL DEFAULT '默认',

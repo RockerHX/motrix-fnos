@@ -1,5 +1,5 @@
 export type DownloadTaskStatus = "pending" | "active" | "paused" | "complete" | "error" | "removed";
-export type DownloadTaskSourceType = "url" | "magnet";
+export type DownloadTaskSourceType = "url" | "torrent" | "magnet";
 export type DownloadTaskStartMode = "now" | "paused";
 
 export interface CreateTaskAdvancedOptions {
@@ -11,6 +11,8 @@ export interface CreateTaskAdvancedOptions {
 export interface DownloadTask {
   id: number;
   url: string;
+  /** Older servers may omit this field; the UI falls back to URL inference. */
+  sourceType?: DownloadTaskSourceType;
   fileName: string;
   saveDir: string;
   category: string;

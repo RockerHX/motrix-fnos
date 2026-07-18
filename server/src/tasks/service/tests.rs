@@ -153,6 +153,7 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
         vec![DownloadTask {
             id: 1,
             url: "magnet:?xt=urn:btih:test".to_string(),
+            source_type: DownloadTaskSourceType::Magnet,
             file_name: "磁力链接任务".to_string(),
             save_dir: save_dir.display().to_string(),
             category: "默认".to_string(),
@@ -226,6 +227,7 @@ async fn confirm_download_task_files_removes_metadata_dir_without_copying_torren
         tasks: TaskMemoryState::new(vec![DownloadTask {
             id: 1,
             url: "magnet:?xt=urn:btih:test".to_string(),
+            source_type: DownloadTaskSourceType::Magnet,
             file_name: "archlinux.iso".to_string(),
             save_dir: base_save_dir.display().to_string(),
             category: "默认".to_string(),
@@ -460,6 +462,7 @@ pub(super) fn sample_task(
     DownloadTask {
         id,
         url: "https://example.com/archive.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: save_dir.clone(),
         category: "默认".to_string(),

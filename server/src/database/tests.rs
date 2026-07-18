@@ -42,7 +42,12 @@ fn connect_database_creates_required_tables() {
             .expect("ui preferences table lookup should succeed");
             assert_eq!(ui_preferences_exists, 0);
 
-            for column in ["category", "confirmation_required", "metadata_torrent_path"] {
+            for column in [
+                "category",
+                "source_type",
+                "confirmation_required",
+                "metadata_torrent_path",
+            ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
                 )
@@ -146,13 +151,31 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .execute(&pool)
                 .await
                 .expect("legacy table should create");
+                sqlx::query(
+                    r#"
+                    INSERT INTO download_tasks (
+                        id, url, file_name, save_dir, gid, status, created_at, updated_at
+                    ) VALUES
+                        (1, 'https://example.com/file.zip', 'file.zip', '/downloads', NULL, 'pending', 1, 1),
+                        (2, 'torrent:example.torrent', 'example', '/downloads', NULL, 'paused', 1, 1),
+                        (3, 'magnet:?xt=urn:btih:test', 'magnet', '/downloads', NULL, 'pending', 1, 1)
+                    "#,
+                )
+                .execute(&pool)
+                .await
+                .expect("legacy tasks should insert");
                 pool.close().await;
             }
 
             let database = connect_database(path.clone())
                 .await
                 .expect("database should connect and migrate");
-            for column in ["category", "confirmation_required", "metadata_torrent_path"] {
+            for column in [
+                "category",
+                "source_type",
+                "confirmation_required",
+                "metadata_torrent_path",
+            ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
                 )
@@ -165,6 +188,13 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     "download_tasks.{column} should be migrated"
                 );
             }
+
+            let source_types: Vec<String> =
+                sqlx::query_scalar("SELECT source_type FROM download_tasks ORDER BY id")
+                    .fetch_all(&database.pool)
+                    .await
+                    .expect("migrated source types should be readable");
+            assert_eq!(source_types, ["url", "torrent", "magnet"]);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);

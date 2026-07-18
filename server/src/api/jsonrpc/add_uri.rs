@@ -86,8 +86,11 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
 }
 
 fn detect_source_type(url: &str) -> DownloadTaskSourceType {
-    if url.to_ascii_lowercase().starts_with("magnet:?") {
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("magnet:?") {
         DownloadTaskSourceType::Magnet
+    } else if lower.starts_with("torrent:") {
+        DownloadTaskSourceType::Torrent
     } else {
         DownloadTaskSourceType::Url
     }

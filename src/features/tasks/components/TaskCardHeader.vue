@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import TaskStatusBadge from "./TaskStatusBadge.vue";
+import TaskSourceIcon from "./TaskSourceIcon.vue";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = withDefaults(
@@ -16,6 +17,7 @@ const props = withDefaults(
 <template>
   <header class="task-card-header" :class="`task-card-header--${props.variant}`">
     <div class="task-card-title-group">
+      <TaskSourceIcon :source-type="props.task.sourceType" :url="props.task.url" />
       <strong class="task-card-title" :title="props.task.fileName">{{ props.task.fileName }}</strong>
       <TaskStatusBadge :task="props.task" />
     </div>

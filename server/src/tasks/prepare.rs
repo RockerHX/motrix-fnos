@@ -49,7 +49,7 @@ pub fn prepare_torrent_task_with_logs(
             source_url: format!("torrent:{}", torrent_file_name),
             display_name: torrent_display_name(&torrent_file_name),
             base_save_dir: request.save_dir,
-            source_type: DownloadTaskSourceType::Url,
+            source_type: DownloadTaskSourceType::Torrent,
             start_mode: request.start_mode,
             category: request.category,
             advanced_options: request.advanced_options,
@@ -331,6 +331,7 @@ fn validate_task_url(source_type: DownloadTaskSourceType, url: &str) -> Result<(
             Ok(())
         }
         DownloadTaskSourceType::Url => Err("当前仅支持 HTTP / HTTPS 下载链接".to_string()),
+        DownloadTaskSourceType::Torrent => Err("种子任务必须通过种子文件创建".to_string()),
         DownloadTaskSourceType::Magnet if lower.starts_with("magnet:?") => Ok(()),
         DownloadTaskSourceType::Magnet => Err("请输入有效的磁力链接".to_string()),
     }

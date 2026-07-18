@@ -773,6 +773,7 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
         url: format!("https://example.com/archive-{id}.zip"),
+        source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: format!("archive-{id}.zip"),
         save_dir: "/downloads".to_string(),
         category: "默认".to_string(),
