@@ -10,7 +10,7 @@ import {
   compareReleaseVersions,
   validateChangelogBody,
 } from './script-utils.mjs';
-import { generateChangelogWithHierarchicalSummary } from './release-changelog-ai.mjs';
+import { generateChangelogWithHierarchicalSummary, NoReleaseFactsError } from './release-changelog-ai.mjs';
 import { collectReleaseCommitContext, readReleaseCommits } from './release-changelog-context.mjs';
 
 const MODEL_REQUEST_MIN_INTERVAL_MS = positiveIntegerEnv('MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS', 7_000);
@@ -149,14 +149,22 @@ async function generateChangelogBody(version, baseRef, commits) {
     const analysisModel = process.env.MOTRIX_RELEASE_ANALYSIS_MODEL ?? fallbackModel ?? 'openai/gpt-4.1-mini';
     const editorModel = process.env.MOTRIX_RELEASE_EDITOR_MODEL ?? fallbackModel ?? 'openai/gpt-4.1';
     const changeContext = collectReleaseCommitContext({ repoRoot, baseRef, commits });
-    const body = await generateChangelogWithGitHubModels({
-      version,
-      baseRef,
-      changeContext,
-      analysisModel,
-      editorModel,
-    });
-    return { body, source: `GitHub Models（分析：${analysisModel}，编辑：${editorModel}）` };
+    try {
+      const body = await generateChangelogWithGitHubModels({
+        version,
+        baseRef,
+        changeContext,
+        analysisModel,
+        editorModel,
+      });
+      return { body, source: `GitHub Models（分析：${analysisModel}，编辑：${editorModel}）` };
+    } catch (error) {
+      if (!(error instanceof NoReleaseFactsError)) {
+        throw error;
+      }
+      console.warn(`${error.message}；使用 commit log 生成确定性 CHANGELOG 草稿。`);
+      return { body: fallbackChangelog(commits), source: 'commit log 生成（GitHub Models 无可发布事实）' };
+    }
   }
 
   console.warn(`CHANGELOG.md 未包含 ${version} 条目，使用 commit log 生成确定性 CHANGELOG 草稿。`);

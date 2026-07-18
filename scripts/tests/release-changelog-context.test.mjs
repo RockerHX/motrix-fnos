@@ -13,6 +13,7 @@ import {
   countChatInputTokens,
   generateChangelogWithHierarchicalSummary,
   MODEL_INPUT_TOKEN_BUDGET,
+  NoReleaseFactsError,
 } from '../release-changelog-ai.mjs';
 
 test('发布上下文只提供 commit 信息和本地统计，不包含源码 Diff', () => {
@@ -154,6 +155,31 @@ test('任一分块模型调用失败会阻止发布', async () => {
         },
       }),
     /模型不可用/,
+  );
+});
+
+test('模型没有可发布事实时返回可识别的降级错误', async () => {
+  const changeContext = smallChangeContext();
+
+  await assert.rejects(
+    () =>
+      generateChangelogWithHierarchicalSummary({
+        version: '1.1.0',
+        baseRef: 'v1.0.0',
+        changeContext,
+        complete: async () =>
+          JSON.stringify([
+            {
+              factId: 'internal-refactor',
+              category: '内部',
+              summary: '内部实现调整',
+              releaseRelevant: false,
+              evidenceCommits: ['aaaaaaa'],
+              confidence: 'high',
+            },
+          ]),
+      }),
+    (error) => error instanceof NoReleaseFactsError,
   );
 });
 
