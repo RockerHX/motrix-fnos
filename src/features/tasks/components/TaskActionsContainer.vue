@@ -46,6 +46,7 @@ const permissions = computed<TaskActionPermissions>(() => ({
   canConfirmFiles: props.task.confirmationRequired && props.task.files.length > 0,
   canRedownload: props.task.status === "complete",
   canDelete: props.task.status !== "removed",
+  canRestore: props.task.status === "removed",
   canPermanentDelete: props.task.status === "removed",
 }));
 const labels = computed<TaskActionLabels>(() => ({
@@ -55,6 +56,7 @@ const labels = computed<TaskActionLabels>(() => ({
   confirmFiles: t("task.actions.confirmFiles"),
   redownload: t("task.actions.redownload"),
   delete: t("task.actions.delete"),
+  restore: t("task.actions.restore"),
   permanentDelete: t("task.actions.permanentDelete"),
   cancel: t("common.cancel"),
   close: t("common.close"),
@@ -135,6 +137,16 @@ async function confirmPermanentDeleteTask() {
   }
 }
 
+async function restoreTask() {
+  if (!ensureCanOperate()) return;
+  try {
+    await taskStore.restoreTask(props.task.id);
+    message.success(t("task.actions.restored"));
+  } catch (error) {
+    message.error(getErrorMessage(error, t("task.operationFailed")));
+  }
+}
+
 function ensureCanOperate() {
   if (taskStore.isRuntimeExiting) {
     message.warning(t("task.runtimeExiting"));
@@ -166,6 +178,7 @@ function formatTimestamp(timestamp: number) {
     @confirm-files="showFileConfirm = true"
     @confirm-redownload="confirmRedownloadTask"
     @confirm-delete="confirmDeleteTask"
+    @restore="restoreTask"
     @confirm-permanent-delete="confirmPermanentDeleteTask"
   />
   <TaskFileConfirmDialog

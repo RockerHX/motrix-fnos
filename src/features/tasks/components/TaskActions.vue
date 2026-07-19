@@ -36,6 +36,7 @@ const emit = defineEmits<{
   confirmFiles: [];
   confirmRedownload: [];
   confirmDelete: [deleteFiles: boolean];
+  restore: [];
   confirmPermanentDelete: [];
 }>();
 
@@ -151,6 +152,21 @@ function openDeleteConfirm() {
       <AppIcon name="delete" :size="14" />
     </NButton>
     <NButton
+      v-if="props.permissions.canRestore"
+      quaternary
+      circle
+      size="tiny"
+      class="task-action-button icon-action"
+      :title="props.labels.restore"
+      :aria-label="props.labels.restore"
+      :aria-busy="props.state.isOperating ? 'true' : undefined"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('restore')"
+    >
+      <AppIcon v-if="!props.state.isOperating" name="restore" :size="14" />
+    </NButton>
+    <NButton
       v-if="props.permissions.canPermanentDelete"
       quaternary
       circle
@@ -245,6 +261,19 @@ function openDeleteConfirm() {
       {{ props.labels.delete }}
     </NButton>
     <NButton
+      v-if="props.permissions.canRestore"
+      size="small"
+      secondary
+      class="task-action-button"
+      :title="props.labels.restore"
+      :aria-label="props.labels.restore"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('restore')"
+    >
+      {{ props.labels.restore }}
+    </NButton>
+    <NButton
       v-if="props.permissions.canPermanentDelete"
       size="small"
       secondary
@@ -317,6 +346,17 @@ function openDeleteConfirm() {
       @click="openDeleteConfirm"
     >
       {{ props.labels.delete }}
+    </NButton>
+    <NButton
+      v-if="props.permissions.canRestore"
+      size="small"
+      secondary
+      class="task-action-button"
+      :loading="props.state.isOperating"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('restore')"
+    >
+      {{ props.labels.restore }}
     </NButton>
     <NButton
       v-if="props.permissions.canPermanentDelete"

@@ -139,29 +139,34 @@ describe("TaskActions", () => {
 
     const { wrapper: removedWrapper } = mountTaskActions({
       permissions: {
+        canRestore: true,
         canPermanentDelete: true,
         canDelete: false,
       },
     });
+    expect(removedWrapper.text()).toContain("恢复");
     expect(removedWrapper.text()).toContain("永久删除");
   });
 
-  it("emits pause, resume and confirmFiles in both normal and compact layouts", async () => {
+  it("emits pause, resume, confirmFiles and restore in both normal and compact layouts", async () => {
     const { wrapper } = mountTaskActions({
       permissions: {
         canPause: true,
         canResume: true,
         canConfirmFiles: true,
+        canRestore: true,
       },
     });
 
     await clickButton(wrapper, "暂停");
     await clickButton(wrapper, "继续");
     await clickButton(wrapper, "确认文件");
+    await clickButton(wrapper, "恢复");
 
     expect(wrapper.emitted("pause")).toHaveLength(1);
     expect(wrapper.emitted("resume")).toHaveLength(1);
     expect(wrapper.emitted("confirmFiles")).toHaveLength(1);
+    expect(wrapper.emitted("restore")).toHaveLength(1);
 
     const { wrapper: compactWrapper } = mountTaskActions({
       compact: true,
@@ -169,16 +174,19 @@ describe("TaskActions", () => {
         canPause: true,
         canResume: true,
         canConfirmFiles: true,
+        canRestore: true,
       },
     });
 
     await clickButton(compactWrapper, "暂停");
     await clickButton(compactWrapper, "继续");
     await clickButton(compactWrapper, "确认文件");
+    await clickButton(compactWrapper, "恢复");
 
     expect(compactWrapper.emitted("pause")).toHaveLength(1);
     expect(compactWrapper.emitted("resume")).toHaveLength(1);
     expect(compactWrapper.emitted("confirmFiles")).toHaveLength(1);
+    expect(compactWrapper.emitted("restore")).toHaveLength(1);
   });
 
   it("applies the shared action class in every layout", () => {
@@ -262,6 +270,7 @@ describe("TaskActions", () => {
         canRedownload: false,
         canDelete: false,
         canPermanentDelete: false,
+        canRestore: true,
       },
     });
 
@@ -272,11 +281,13 @@ describe("TaskActions", () => {
     expect(findIconButton(wrapper, "重新下载").exists()).toBe(false);
     expect(findIconButton(wrapper, "删除").exists()).toBe(false);
     expect(findIconButton(wrapper, "永久删除").exists()).toBe(false);
+    expect(findIconButton(wrapper, "恢复").exists()).toBe(true);
 
     const expectedIcons = new Map([
       ["详情", "info"],
       ["暂停", "pause"],
       ["确认文件", "confirm"],
+      ["恢复", "restore"],
     ]);
 
     for (const [label, iconName] of expectedIcons) {
@@ -294,16 +305,19 @@ describe("TaskActions", () => {
         canPause: true,
         canResume: true,
         canConfirmFiles: true,
+        canRestore: true,
       },
     });
 
     await clickIconButton(wrapper, "暂停");
     await clickIconButton(wrapper, "继续");
     await clickIconButton(wrapper, "确认文件");
+    await clickIconButton(wrapper, "恢复");
 
     expect(wrapper.emitted("pause")).toHaveLength(1);
     expect(wrapper.emitted("resume")).toHaveLength(1);
     expect(wrapper.emitted("confirmFiles")).toHaveLength(1);
+    expect(wrapper.emitted("restore")).toHaveLength(1);
   });
 
   it("keeps the icon action slot but hides pause and resume icons while operating", () => {
@@ -379,6 +393,7 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
       canConfirmFiles: false,
       canRedownload: false,
       canDelete: true,
+      canRestore: false,
       canPermanentDelete: false,
       ...overrides.permissions,
     },
@@ -389,6 +404,7 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
       confirmFiles: "确认文件",
       redownload: "重新下载",
       delete: "删除",
+      restore: "恢复",
       permanentDelete: "永久删除",
       cancel: "取消",
       close: "关闭",

@@ -13,6 +13,7 @@ export const defaultLabels: TaskActionLabels = {
   confirmFiles: "确认文件",
   redownload: "重新下载",
   delete: "删除",
+  restore: "恢复",
   permanentDelete: "永久删除",
   cancel: "取消",
   close: "关闭",

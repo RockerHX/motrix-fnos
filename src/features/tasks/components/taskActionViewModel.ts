@@ -10,6 +10,7 @@ export interface TaskActionPermissions {
   canConfirmFiles: boolean;
   canRedownload: boolean;
   canDelete: boolean;
+  canRestore: boolean;
   canPermanentDelete: boolean;
 }
 
@@ -20,6 +21,7 @@ export interface TaskActionLabels {
   confirmFiles: string;
   redownload: string;
   delete: string;
+  restore: string;
   permanentDelete: string;
   cancel: string;
   close: string;
