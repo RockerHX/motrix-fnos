@@ -114,6 +114,16 @@ pub(crate) fn safe_task_path_component(name: &str) -> String {
     }
 }
 
+pub(crate) fn bt_task_path_component(name: &str) -> String {
+    let safe_name = safe_task_path_component(name);
+    Path::new(&safe_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&safe_name)
+        .to_string()
+}
+
 fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> Result<(), String> {
     // BT 删除只能作用于任务创建时分配的专属目录；符号链接、根目录和名称不匹配的目录一律拒绝递归删除。
     let task_dir = Path::new(&task.save_dir);
@@ -152,8 +162,8 @@ fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> R
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
-    let task_name = safe_task_path_component(&task.file_name);
-    let magnet_default_name = safe_task_path_component("磁力链接任务");
+    let task_name = bt_task_path_component(&task.file_name);
+    let magnet_default_name = bt_task_path_component("磁力链接任务");
     let matches_task_name =
         dir_name == task_name || dir_name.starts_with(&format!("{} (", task_name));
     let matches_magnet_default_name = allow_magnet_default_name

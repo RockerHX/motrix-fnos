@@ -5,7 +5,7 @@ use crate::tasks::{
 use std::path::{Path, PathBuf};
 
 use super::{current_timestamp_ms, Aria2TaskStatus};
-use crate::tasks::files::cleanup_aria2_control_file;
+use crate::tasks::files::{bt_task_path_component, cleanup_aria2_control_file};
 
 pub(crate) fn apply_aria2_status_by_gid(
     tasks: &TaskMemoryState,
@@ -208,7 +208,7 @@ fn magnet_confirmation_files(
     base_save_dir: &str,
     display_name: &str,
 ) -> Vec<DownloadTaskFile> {
-    let preview_root = Path::new(base_save_dir).join(display_name);
+    let preview_root = Path::new(base_save_dir).join(bt_task_path_component(display_name));
     let metadata_dir = status
         .dir
         .as_deref()

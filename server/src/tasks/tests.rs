@@ -5,7 +5,7 @@ use crate::tasks::aria2_rpc::{
     build_add_torrent_request, build_add_uri_request, build_gid_control_request,
     build_tell_many_request, build_tell_status_request,
 };
-use crate::tasks::files::delete_file_candidates;
+use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
 use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
 use crate::tasks::session::find_matching_sqlite_task;
@@ -132,7 +132,7 @@ fn prepare_torrent_task_creates_dedicated_task_dir() {
 
     let task = prepare_torrent_task_with_logs(
         CreateTorrentDownloadTaskRequest {
-            torrent_file_name: "Ubuntu ISO.torrent".to_string(),
+            torrent_file_name: "archlinux.iso.torrent".to_string(),
             torrent_data: b"torrent-bytes".to_vec(),
             save_dir: base_dir.clone(),
             start_mode: DownloadTaskStartMode::Now,
@@ -143,10 +143,36 @@ fn prepare_torrent_task_creates_dedicated_task_dir() {
     )
     .expect("torrent task should be prepared");
 
-    assert_eq!(task.file_name, "Ubuntu ISO");
-    assert_eq!(Path::new(&task.save_dir).file_name().unwrap(), "Ubuntu ISO");
+    assert_eq!(task.file_name, "archlinux.iso");
+    assert_eq!(Path::new(&task.save_dir).file_name().unwrap(), "archlinux");
     assert!(Path::new(&task.save_dir).is_dir());
-    assert!(Path::new(&task.save_dir).starts_with(base_dir));
+    assert!(Path::new(&task.save_dir).starts_with(&base_dir));
+
+    let duplicate = prepare_torrent_task_with_logs(
+        CreateTorrentDownloadTaskRequest {
+            torrent_file_name: "archlinux.iso.torrent".to_string(),
+            torrent_data: b"torrent-bytes".to_vec(),
+            save_dir: base_dir,
+            start_mode: DownloadTaskStartMode::Now,
+            category: None,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+        },
+        &debug_logs,
+    )
+    .expect("duplicate torrent task should be prepared");
+
+    assert_eq!(
+        Path::new(&duplicate.save_dir).file_name().unwrap(),
+        "archlinux (1)"
+    );
+}
+
+#[test]
+fn bt_task_path_component_removes_only_the_last_extension() {
+    assert_eq!(bt_task_path_component("archive.tar.gz"), "archive.tar");
+    assert_eq!(bt_task_path_component("Ubuntu ISO"), "Ubuntu ISO");
+    assert_eq!(bt_task_path_component(".hidden"), "hidden");
+    assert_eq!(bt_task_path_component(".."), "未命名种子任务");
 }
 
 #[test]
@@ -436,6 +462,25 @@ fn delete_task_files_removes_completed_file_before_redownload() {
 
     assert!(!file_path.exists());
     assert!(!aria2_path.exists());
+}
+
+#[test]
+fn delete_task_files_accepts_bt_directory_without_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-bt-extensionless-dir"));
+    let task_dir = base_dir.join("archlinux");
+    fs::create_dir_all(&task_dir).expect("BT task dir should be created");
+    fs::write(task_dir.join("archlinux.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("archlinux.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "torrent:archlinux.iso.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "archlinux.iso".to_string();
+
+    delete_task_files(&task).expect("BT task dir should delete");
+
+    assert!(!task_dir.exists());
 }
 
 fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatus {
@@ -909,7 +954,7 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
     assert_eq!(task.files.len(), 1);
-    assert_eq!(task.files[0].path, "/downloads/archlinux.iso/archlinux.iso");
+    assert_eq!(task.files[0].path, "/downloads/archlinux/archlinux.iso");
     assert!(task.file_path.is_none());
     assert_eq!(
         task.metadata_torrent_path.as_deref(),

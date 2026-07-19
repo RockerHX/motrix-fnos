@@ -102,10 +102,10 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
     assert_eq!(task.status, DownloadTaskStatus::Paused);
     assert_eq!(task.url, "torrent:example.torrent");
     assert_eq!(task.file_name, "example");
-    assert_eq!(
-        PathBuf::from(&task.save_dir).file_name().unwrap(),
-        "example"
-    );
+    assert!(PathBuf::from(&task.save_dir)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.starts_with("example")));
     assert_eq!(fixture.repository.upserted_tasks().len(), 1);
 
     mock.abort();
@@ -268,6 +268,8 @@ async fn confirm_download_task_files_removes_metadata_dir_without_copying_torren
     assert!(!metadata_dir.exists());
     let final_task_dir = PathBuf::from(&task.save_dir);
     assert!(final_task_dir.is_dir());
+    assert_eq!(final_task_dir.file_name().unwrap(), "archlinux");
+    assert_eq!(task.file_name, "archlinux.iso");
     assert!(std::fs::read_dir(&final_task_dir)
         .expect("final task dir should read")
         .filter_map(Result::ok)

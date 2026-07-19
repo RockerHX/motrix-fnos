@@ -1,5 +1,5 @@
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::files::safe_task_path_component;
+use crate::tasks::files::bt_task_path_component;
 use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
     PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
@@ -221,7 +221,7 @@ fn create_bt_task_dir(
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     let base_dir = Path::new(base_save_dir);
-    let safe_name = safe_task_path_component(task_name);
+    let safe_name = bt_task_path_component(task_name);
 
     // 通过 create_dir 原子占用名称并逐号避让，保证返回目录由当前任务独占；安全递归删除依赖这一所有权约束。
     for index in 0..1000 {
