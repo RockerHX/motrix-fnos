@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
+const { handleTaskDoubleClick } = vi.hoisted(() => ({
+  handleTaskDoubleClick: vi.fn(),
+}));
+
+vi.mock("naive-ui", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("naive-ui")>();
+  return { ...actual, useMessage: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }) };
+});
+
+vi.mock("../composables/useTaskStatusActions", () => ({
+  useTaskStatusActions: () => ({ handleTaskDoubleClick }),
+}));
+
 vi.mock("./TaskDesktopCard.vue", () => ({
   default: {
     name: "TaskDesktopCardStub",
@@ -36,6 +49,19 @@ describe("TaskDesktopList", () => {
     expect(cards[0].text()).toBe("one.iso");
     expect(cards[1].text()).toBe("two.iso");
     expect(wrapper.findAll(".n-list-item")).toHaveLength(2);
+  });
+
+  it("forwards a card double click to the task status action", async () => {
+    const task = createTask(1, "one.iso");
+    const { wrapper } = mountWithPinia(TaskDesktopList, {
+      props: { tasks: [task] },
+    });
+
+    await wrapper.get('[data-test="task-desktop-card"]').trigger("dblclick");
+
+    expect(handleTaskDoubleClick).toHaveBeenCalledOnce();
+    expect(handleTaskDoubleClick.mock.calls[0][0]).toEqual(task);
+    expect(handleTaskDoubleClick.mock.calls[0][1]).toBeInstanceOf(MouseEvent);
   });
 });
 

@@ -4,6 +4,7 @@ import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskFileConfirmDialog from "./TaskFileConfirmDialog.vue";
 import { useTaskStore } from "../stores/taskStore";
+import { useTaskStatusActions } from "../composables/useTaskStatusActions";
 import { formatDateTime, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
@@ -32,6 +33,7 @@ const taskStore = useTaskStore();
 const message = useMessage();
 const { t } = useI18n();
 const showFileConfirm = ref(false);
+const { pauseTask, resumeTask } = useTaskStatusActions({ taskStore, message, t });
 
 const actionState = computed<TaskActionState>(() => ({
   isOperating: taskStore.isTaskOperating(props.task.id),
@@ -91,26 +93,6 @@ const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
   permanentDeleteTitle: t("task.permanentDelete.title"),
   permanentDeleteConfirmText: t("task.permanentDelete.confirm", { name: props.task.fileName }),
 }));
-
-async function pauseTask() {
-  if (!ensureCanOperate()) return;
-  try {
-    await taskStore.pauseTask(props.task.id);
-    message.success(t("task.actions.paused"));
-  } catch (error) {
-    message.error(getErrorMessage(error, t("task.operationFailed")));
-  }
-}
-
-async function resumeTask() {
-  if (!ensureCanOperate()) return;
-  try {
-    await taskStore.resumeTask(props.task.id);
-    message.success(t("task.actions.resumed"));
-  } catch (error) {
-    message.error(getErrorMessage(error, t("task.operationFailed")));
-  }
-}
 
 async function confirmTaskFiles(selectedFileIndexes: number[]) {
   if (!ensureCanOperate()) return;
@@ -179,8 +161,8 @@ function formatTimestamp(timestamp: number) {
     :labels="labels"
     :details="details"
     :confirm-texts="confirmTexts"
-    @pause="pauseTask"
-    @resume="resumeTask"
+    @pause="pauseTask(props.task)"
+    @resume="resumeTask(props.task)"
     @confirm-files="showFileConfirm = true"
     @confirm-redownload="confirmRedownloadTask"
     @confirm-delete="confirmDeleteTask"
