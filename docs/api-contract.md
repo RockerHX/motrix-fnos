@@ -222,6 +222,7 @@ Session 与 Cookie 约定：
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
+| `POST` | `/api/tasks/:id/restore` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
 
@@ -230,7 +231,11 @@ Session 与 Cookie 约定：
 - `GET /api/tasks` 只返回未删除任务。
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
+- `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
+- 恢复保留本地文件的任务时复用原保存目录和控制文件续传；删除过本地文件的任务重建为从头下载的暂停任务。
+- URL 任务使用原 URL 恢复；种子和已确认磁链优先使用应用私有目录保存的源种子 metadata。磁链缺少 metadata 时重新解析并再次要求确认文件；旧种子 metadata 已丢失时返回 `400 Bad Request` 并保持回收站状态。
 - `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix 数据库记录，不删除用户下载文件。
+- 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
 - 磁力链接会先由 Aria2 下载 metadata；metadata 完成后任务会跟随到真实 BT GID，状态保持 `paused`，并设置 `confirmationRequired=true`。前端必须展示 `files` 让用户确认后再调用 `/api/tasks/:id/confirm` 开始真实下载。
 - 磁力链接任务会在用户授权的父保存目录下创建任务专属子目录，并启用 Aria2 `bt-save-metadata=true`；解析出的 hash 命名 `.torrent` 会和下载产物、`.aria2` 控制文件一起放在该目录。该 `.torrent` 仅作为磁链解析过程产物用于可见性 / 排障，不替代 Aria2 session 机制。
 - 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。
