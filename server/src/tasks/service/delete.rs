@@ -8,7 +8,28 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let task_before_delete = task_snapshot(self.download_tasks, task_id)?;
+        let mut task_before_delete = task_snapshot(self.download_tasks, task_id)?;
+        if matches!(
+            task_before_delete.source_type,
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
+        ) {
+            match archive_task_torrent_metadata(self.app_data_dir, &task_before_delete) {
+                Ok(path) => {
+                    task_before_delete = set_task_metadata_torrent_path(
+                        self.download_tasks,
+                        task_id,
+                        path.display().to_string(),
+                    )?;
+                }
+                Err(error) => self.debug_logs.warn(
+                    "tasks.restore",
+                    format!(
+                        "删除任务前未能归档 BT metadata，后续恢复可能受限：{}",
+                        error
+                    ),
+                ),
+            }
+        }
         let gid = task_before_delete
             .gid
             .clone()
@@ -53,6 +74,7 @@ impl<'a> TaskService<'a> {
         if !self.repository.delete_task_record(task_id).await? {
             return Err(format!("下载任务不存在：{}", task_id));
         }
+        remove_restore_metadata(self.app_data_dir, task_id);
         remove_task_record(self.download_tasks, task_id)?;
         self.debug_logs.info(
             "tasks.control",
@@ -63,7 +85,7 @@ impl<'a> TaskService<'a> {
 }
 
 pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {
-    // 磁链清理只允许删除按任务 ID 分配的应用私有 metadata 目录，记录中的种子路径不匹配时立即放弃。
+    // 磁链临时目录只按任务 ID 定位；稳定恢复 metadata 位于另一棵私有目录，不随临时目录清理。
     let expected_dir = magnet::magnet_metadata_task_dir(app_data_dir, task.id);
     if !expected_dir.exists() {
         return;
@@ -71,14 +93,5 @@ pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTas
     let Ok(expected_dir) = expected_dir.canonicalize() else {
         return;
     };
-    if let Some(metadata_torrent_path) = task.metadata_torrent_path.as_deref() {
-        if let Some(dir) = Path::new(metadata_torrent_path).parent() {
-            if let Ok(dir) = dir.canonicalize() {
-                if dir != expected_dir {
-                    return;
-                }
-            }
-        }
-    }
     let _ = fs::remove_dir_all(expected_dir);
 }

@@ -89,6 +89,8 @@ pub fn store_created_task_with_id(
         error_message: None,
         file_path,
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: now,
@@ -232,6 +234,7 @@ pub fn mark_task_files_confirmed(
     gid: String,
     save_dir: String,
     selected_indexes: &[u32],
+    metadata_torrent_path: String,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         task.gid = Some(gid);
@@ -241,7 +244,9 @@ pub fn mark_task_files_confirmed(
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;
-        task.metadata_torrent_path = None;
+        task.metadata_torrent_path = Some(metadata_torrent_path);
+        task.files_deleted = false;
+        task.selected_file_indexes = selected_indexes.to_vec();
         task.file_path = Some(
             Path::new(&task.save_dir)
                 .join(&task.file_name)
@@ -251,6 +256,17 @@ pub fn mark_task_files_confirmed(
         for file in &mut task.files {
             file.selected = selected_indexes.contains(&file.index);
         }
+        Ok(())
+    })
+}
+
+pub fn set_task_metadata_torrent_path(
+    tasks: &TaskMemoryState,
+    task_id: u64,
+    metadata_torrent_path: String,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        task.metadata_torrent_path = Some(metadata_torrent_path);
         Ok(())
     })
 }
@@ -265,6 +281,13 @@ pub fn mark_task_removed(
             delete_task_file(task)?;
         }
         task.status = DownloadTaskStatus::Removed;
+        task.files_deleted = delete_files;
+        task.selected_file_indexes = task
+            .files
+            .iter()
+            .filter(|file| file.selected)
+            .map(|file| file.index)
+            .collect();
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;

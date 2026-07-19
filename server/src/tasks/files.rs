@@ -2,6 +2,9 @@ use crate::tasks::{DownloadTask, PreparedDownloadTask};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const RESTORE_METADATA_ROOT: &str = "task-metadata";
+const RESTORE_TORRENT_FILE: &str = "source.torrent";
+
 pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
     delete_task_file(task)
 }
@@ -31,6 +34,69 @@ pub(crate) fn read_saved_torrent_metadata(task: &DownloadTask) -> Result<Vec<u8>
             error
         )
     })
+}
+
+pub(crate) fn save_restore_torrent_metadata(
+    app_data_dir: &Path,
+    task_id: u64,
+    torrent_data: &[u8],
+) -> Result<PathBuf, String> {
+    if torrent_data.is_empty() {
+        return Err("种子 metadata 不能为空".to_string());
+    }
+    let metadata_dir = restore_metadata_dir(app_data_dir, task_id);
+    fs::create_dir_all(&metadata_dir).map_err(|error| {
+        format!(
+            "创建任务恢复 metadata 目录失败：{}（{}）",
+            metadata_dir.display(),
+            error
+        )
+    })?;
+    let path = metadata_dir.join(RESTORE_TORRENT_FILE);
+    fs::write(&path, torrent_data).map_err(|error| {
+        format!(
+            "保存任务恢复 metadata 失败：{}（{}）",
+            path.display(),
+            error
+        )
+    })?;
+    Ok(path)
+}
+
+pub(crate) fn archive_task_torrent_metadata(
+    app_data_dir: &Path,
+    task: &DownloadTask,
+) -> Result<PathBuf, String> {
+    let target = restore_torrent_path(app_data_dir, task.id);
+    if target.is_file() {
+        return Ok(target);
+    }
+    let source = find_saved_torrent_metadata_path(task)?;
+    let data = fs::read(&source).map_err(|error| {
+        format!(
+            "读取待归档种子 metadata 失败：{}（{}）",
+            source.display(),
+            error
+        )
+    })?;
+    save_restore_torrent_metadata(app_data_dir, task.id, &data)
+}
+
+pub(crate) fn remove_restore_metadata(app_data_dir: &Path, task_id: u64) {
+    let metadata_dir = restore_metadata_dir(app_data_dir, task_id);
+    if metadata_dir.is_dir() {
+        let _ = fs::remove_dir_all(metadata_dir);
+    }
+}
+
+pub(crate) fn restore_torrent_path(app_data_dir: &Path, task_id: u64) -> PathBuf {
+    restore_metadata_dir(app_data_dir, task_id).join(RESTORE_TORRENT_FILE)
+}
+
+fn restore_metadata_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
+    app_data_dir
+        .join(RESTORE_METADATA_ROOT)
+        .join(format!("task-{task_id}"))
 }
 
 fn find_saved_torrent_metadata_path(task: &DownloadTask) -> Result<PathBuf, String> {

@@ -12,6 +12,8 @@ fn repository_inserts_updates_and_lists_tasks() {
                 .await
                 .expect("database should connect");
             let mut task = sample_task();
+            task.files_deleted = true;
+            task.selected_file_indexes = vec![1, 3];
 
             upsert_download_task(&database.pool, &task)
                 .await
@@ -32,6 +34,8 @@ fn repository_inserts_updates_and_lists_tasks() {
             assert_eq!(tasks.len(), 1);
             assert_eq!(tasks[0].status, DownloadTaskStatus::Paused);
             assert_eq!(tasks[0].source_type, DownloadTaskSourceType::Url);
+            assert!(tasks[0].files_deleted);
+            assert_eq!(tasks[0].selected_file_indexes, [1, 3]);
             assert_eq!(max_id, task.id);
 
             database.pool.close().await;
@@ -150,6 +154,8 @@ fn sample_task() -> DownloadTask {
         error_message: None,
         file_path: Some("/downloads/file.zip".to_string()),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,

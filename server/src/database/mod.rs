@@ -97,6 +97,24 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
             .map_err(|error| format!("迁移磁链 metadata 路径字段失败：{}", error))?;
     }
 
+    if download_tasks_column_count(pool, "files_deleted").await? == 0 {
+        sqlx::query(
+            "ALTER TABLE download_tasks ADD COLUMN files_deleted INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("迁移任务本地文件删除标记失败：{}", error))?;
+    }
+
+    if download_tasks_column_count(pool, "selected_file_indexes").await? == 0 {
+        sqlx::query(
+            "ALTER TABLE download_tasks ADD COLUMN selected_file_indexes TEXT NOT NULL DEFAULT '[]'",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("迁移任务文件选择字段失败：{}", error))?;
+    }
+
     // 旧版本创建的 UI 偏好表从未承载已上线功能，移除预留接口时同步清理遗留空表。
     sqlx::query("DROP TABLE IF EXISTS ui_preferences")
         .execute(pool)
@@ -133,6 +151,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         file_path TEXT,
         confirmation_required INTEGER NOT NULL DEFAULT 0,
         metadata_torrent_path TEXT,
+        files_deleted INTEGER NOT NULL DEFAULT 0,
+        selected_file_indexes TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )

@@ -48,8 +48,8 @@ use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
     list_tasks, mark_task_files_confirmed, mark_task_paused, mark_task_paused_by_gid,
     mark_task_redownloaded, mark_task_removed, mark_task_resumed, mark_unfinished_tasks_paused,
-    remove_task_record, store_created_task, store_created_task_with_id, task_gid, task_snapshot,
-    TaskMemoryState,
+    remove_task_record, set_task_metadata_torrent_path, store_created_task,
+    store_created_task_with_id, task_gid, task_snapshot, TaskMemoryState,
 };
 use status::Aria2TaskStatus;
 use std::path::{Path, PathBuf};

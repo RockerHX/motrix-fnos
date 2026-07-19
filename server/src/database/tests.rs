@@ -47,6 +47,8 @@ fn connect_database_creates_required_tables() {
                 "source_type",
                 "confirmation_required",
                 "metadata_torrent_path",
+                "files_deleted",
+                "selected_file_indexes",
             ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
@@ -175,6 +177,8 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 "source_type",
                 "confirmation_required",
                 "metadata_torrent_path",
+                "files_deleted",
+                "selected_file_indexes",
             ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",

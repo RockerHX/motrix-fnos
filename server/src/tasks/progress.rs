@@ -130,6 +130,12 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
             }
         }
         task.files = task_files(status);
+        task.selected_file_indexes = task
+            .files
+            .iter()
+            .filter(|file| file.selected)
+            .map(|file| file.index)
+            .collect();
         task.file_path = status
             .files
             .as_ref()

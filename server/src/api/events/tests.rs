@@ -69,6 +69,8 @@ fn sample_task() -> DownloadTask {
         error_message: None,
         file_path: None,
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,

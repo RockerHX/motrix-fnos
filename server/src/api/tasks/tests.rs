@@ -786,6 +786,8 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
         error_message: None,
         file_path: Some(format!("/downloads/archive-{id}.zip")),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: id,

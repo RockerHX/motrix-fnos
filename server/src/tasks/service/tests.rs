@@ -106,6 +106,14 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
         .file_name()
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.starts_with("example")));
+    let metadata_path = task
+        .metadata_torrent_path
+        .as_deref()
+        .expect("restore metadata path should persist");
+    assert_eq!(
+        std::fs::read(metadata_path).expect("restore metadata should read"),
+        b"torrent-bytes"
+    );
     assert_eq!(fixture.repository.upserted_tasks().len(), 1);
 
     mock.abort();
@@ -166,6 +174,8 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
             error_message: None,
             file_path: None,
             metadata_torrent_path: None,
+            files_deleted: false,
+            selected_file_indexes: Vec::new(),
             confirmation_required: false,
             files: Vec::new(),
             created_at: 1,
@@ -201,6 +211,8 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
         )],
         false,
     );
+    let metadata_path = save_restore_torrent_metadata(&fixture.app_data_dir, 1, b"torrent")
+        .expect("restore metadata should save");
 
     fixture
         .service()
@@ -210,10 +222,11 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
 
     assert_eq!(fixture.repository.deleted_task_ids(), vec![1]);
     assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    assert!(!metadata_path.exists());
 }
 
 #[tokio::test]
-async fn confirm_download_task_files_removes_metadata_dir_without_copying_torrent() {
+async fn confirm_download_task_files_archives_restore_metadata() {
     let mock = MockAria2Server::spawn().await;
     let base_save_dir = temp_dir("service-confirm-magnet-save");
     std::fs::create_dir_all(&base_save_dir).expect("base save dir should create");
@@ -240,6 +253,8 @@ async fn confirm_download_task_files_removes_metadata_dir_without_copying_torren
             error_message: None,
             file_path: None,
             metadata_torrent_path: Some(metadata_torrent_path.display().to_string()),
+            files_deleted: false,
+            selected_file_indexes: Vec::new(),
             confirmation_required: true,
             files: vec![DownloadTaskFile {
                 index: 1,
@@ -266,6 +281,15 @@ async fn confirm_download_task_files_removes_metadata_dir_without_copying_torren
         .expect("task files should confirm");
 
     assert!(!metadata_dir.exists());
+    let restore_metadata_path = task
+        .metadata_torrent_path
+        .as_deref()
+        .expect("restore metadata path should persist");
+    assert_eq!(
+        std::fs::read(restore_metadata_path).expect("restore metadata should read"),
+        b"torrent"
+    );
+    assert_eq!(task.selected_file_indexes, [1]);
     let final_task_dir = PathBuf::from(&task.save_dir);
     assert!(final_task_dir.is_dir());
     assert_eq!(final_task_dir.file_name().unwrap(), "archlinux");
@@ -482,6 +506,8 @@ pub(super) fn sample_task(
                 .to_string(),
         ),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,

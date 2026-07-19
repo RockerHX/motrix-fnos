@@ -97,6 +97,10 @@ pub struct DownloadTask {
     pub error_message: Option<String>,
     pub file_path: Option<String>,
     pub metadata_torrent_path: Option<String>,
+    #[serde(default)]
+    pub files_deleted: bool,
+    #[serde(default)]
+    pub selected_file_indexes: Vec<u32>,
     pub confirmation_required: bool,
     pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,

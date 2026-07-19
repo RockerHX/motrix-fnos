@@ -1,18 +1,21 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
-use crate::tasks::files::{cleanup_empty_torrent_task_dir, read_saved_torrent_metadata};
+use crate::tasks::files::{
+    archive_task_torrent_metadata, cleanup_empty_torrent_task_dir, read_saved_torrent_metadata,
+    remove_restore_metadata, save_restore_torrent_metadata,
+};
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
     mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_resumed,
     pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs, readd_task_to_aria2,
-    remove_task, remove_task_record, should_readd_task_after_resume_error, store_created_task,
-    store_created_task_with_id, sync_task_progress_after_pause_by_gid,
-    sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
-    TaskMemoryState,
+    remove_task, remove_task_record, set_task_metadata_torrent_path,
+    should_readd_task_after_resume_error, store_created_task, store_created_task_with_id,
+    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
+    task_snapshot, unpause_task, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, TaskMemoryState,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

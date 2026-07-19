@@ -66,6 +66,8 @@ impl<'a> TaskService<'a> {
         }
 
         let torrent_data = read_saved_torrent_metadata(&task)?;
+        let restore_metadata_path =
+            save_restore_torrent_metadata(self.app_data_dir, task_id, &torrent_data)?;
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
         let prepared = prepare_bt_download_task_with_logs(
@@ -89,6 +91,7 @@ impl<'a> TaskService<'a> {
                 Ok(gid) => gid,
                 Err(error) => {
                     cleanup_empty_torrent_task_dir(&prepared);
+                    remove_restore_metadata(self.app_data_dir, task_id);
                     return Err(error);
                 }
             };
@@ -99,6 +102,7 @@ impl<'a> TaskService<'a> {
             gid.clone(),
             prepared.save_dir.clone(),
             &selected,
+            restore_metadata_path.display().to_string(),
         )?;
 
         match sync_task_progress_from_aria2_by_gid(
