@@ -483,6 +483,44 @@ fn delete_task_files_accepts_bt_directory_without_task_extension() {
     assert!(!task_dir.exists());
 }
 
+#[test]
+fn delete_task_files_accepts_legacy_bt_directory_with_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-bt-legacy-dir"));
+    let task_dir = base_dir.join("archlinux.iso");
+    fs::create_dir_all(&task_dir).expect("BT task dir should be created");
+    fs::write(task_dir.join("archlinux.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("archlinux.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "torrent:archlinux.iso.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "archlinux.iso".to_string();
+
+    delete_task_files(&task).expect("legacy BT task dir should delete");
+
+    assert!(!task_dir.exists());
+}
+
+#[test]
+fn delete_task_files_accepts_legacy_magnet_directory_with_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-magnet-legacy-dir"));
+    let task_dir = base_dir.join("Ubuntu ISO.mp4");
+    fs::create_dir_all(&task_dir).expect("magnet task dir should be created");
+    fs::write(task_dir.join("ubuntu.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("ubuntu.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "Ubuntu ISO.mp4".to_string();
+
+    delete_task_files(&task).expect("legacy magnet task dir should delete");
+
+    assert!(!task_dir.exists());
+}
+
 fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatus {
     Aria2TaskStatus {
         gid: Some(gid.to_string()),

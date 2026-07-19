@@ -164,8 +164,10 @@ fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> R
         .unwrap_or_default();
     let task_name = bt_task_path_component(&task.file_name);
     let magnet_default_name = bt_task_path_component("磁力链接任务");
-    let matches_task_name =
-        dir_name == task_name || dir_name.starts_with(&format!("{} (", task_name));
+    // 升级前创建的 BT 专属目录可能保留完整任务名及扩展名，删除时需要兼容这类既有任务。
+    let legacy_task_name = safe_task_path_component(&task.file_name);
+    let matches_task_name = matches_bt_task_dir_name(dir_name, &task_name)
+        || matches_bt_task_dir_name(dir_name, &legacy_task_name);
     let matches_magnet_default_name = allow_magnet_default_name
         && (dir_name == magnet_default_name
             || dir_name.starts_with(&format!("{} (", magnet_default_name)));
@@ -183,6 +185,10 @@ fn delete_bt_task_dir(task: &DownloadTask, allow_magnet_default_name: bool) -> R
             error
         )
     })
+}
+
+fn matches_bt_task_dir_name(dir_name: &str, task_name: &str) -> bool {
+    dir_name == task_name || dir_name.starts_with(&format!("{} (", task_name))
 }
 
 fn delete_non_torrent_task_files(task: &DownloadTask) -> Result<(), String> {
