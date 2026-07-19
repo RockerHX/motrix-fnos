@@ -12,6 +12,7 @@ import {
   permanentlyDeleteDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
+  restoreDownloadTask,
 } from "../services/taskService";
 import { t } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -179,6 +180,21 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
+  async function restoreTask(taskId: number): Promise<DownloadTask> {
+    ensureRuntimeActive();
+    beginTaskOperation(taskId);
+    try {
+      const task = await restoreDownloadTask(taskId);
+      if (!isRuntimeExiting.value) {
+        removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+        upsertTask(task);
+      }
+      return task;
+    } finally {
+      endTaskOperation(taskId);
+    }
+  }
+
   async function runTaskOperation(
     taskId: number,
     operation: () => Promise<DownloadTask>,
@@ -328,6 +344,7 @@ export const useTaskStore = defineStore("tasks", () => {
     redownloadTask,
     deleteTask,
     permanentlyDeleteTask,
+    restoreTask,
     refreshTasks,
     refreshRemovedTasks,
     applyTaskSnapshot,

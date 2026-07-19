@@ -61,6 +61,10 @@ export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`);
 }
 
+export function restoreDownloadTask(taskId: number): Promise<DownloadTask> {
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`);
+}
+
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
   return httpDelete<DownloadTask>(`/api/tasks/${taskId}?deleteFiles=${deleteFiles ? "true" : "false"}`);
 }

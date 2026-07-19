@@ -15,6 +15,7 @@ import {
   permanentlyDeleteDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
+  restoreDownloadTask,
 } from "../services/taskService";
 
 vi.mock("../services/taskService", () => ({
@@ -29,6 +30,7 @@ vi.mock("../services/taskService", () => ({
   permanentlyDeleteDownloadTask: vi.fn(),
   redownloadDownloadTask: vi.fn(),
   resumeDownloadTask: vi.fn(),
+  restoreDownloadTask: vi.fn(),
 }));
 
 const mockedConfirmDownloadTaskFiles = vi.mocked(confirmDownloadTaskFiles);
@@ -42,6 +44,7 @@ const mockedPauseDownloadTask = vi.mocked(pauseDownloadTask);
 const mockedPermanentlyDeleteDownloadTask = vi.mocked(permanentlyDeleteDownloadTask);
 const mockedRedownloadDownloadTask = vi.mocked(redownloadDownloadTask);
 const mockedResumeDownloadTask = vi.mocked(resumeDownloadTask);
+const mockedRestoreDownloadTask = vi.mocked(restoreDownloadTask);
 
 describe("taskStore refresh and operation state", () => {
   beforeEach(() => {
@@ -249,6 +252,35 @@ describe("taskStore refresh and operation state", () => {
     expect(store.isTaskOperating(removedTask.id)).toBe(false);
     expect(store.removedTasks).toEqual([]);
   });
+
+  it("restoreTask moves a removed task back to the active collection", async () => {
+    const store = useTaskStore();
+    const removedTask = createTask({ id: 32, status: "removed" });
+    const restoredTask = createTask({ id: 32, status: "paused", gid: "restored-gid" });
+    store.removedTasks = [removedTask];
+    mockedRestoreDownloadTask.mockResolvedValueOnce(restoredTask);
+
+    const promise = store.restoreTask(removedTask.id);
+    expect(store.isTaskOperating(removedTask.id)).toBe(true);
+    await expect(promise).resolves.toEqual(restoredTask);
+
+    expect(store.isTaskOperating(removedTask.id)).toBe(false);
+    expect(store.removedTasks).toEqual([]);
+    expect(store.tasks).toContainEqual(restoredTask);
+  });
+
+  it("restoreTask keeps the removed task when the request fails", async () => {
+    const store = useTaskStore();
+    const removedTask = createTask({ id: 33, status: "removed" });
+    store.removedTasks = [removedTask];
+    mockedRestoreDownloadTask.mockRejectedValueOnce(new Error("restore failed"));
+
+    await expect(store.restoreTask(removedTask.id)).rejects.toThrow("restore failed");
+
+    expect(store.removedTasks).toEqual([removedTask]);
+    expect(store.tasks).toEqual([]);
+    expect(store.isTaskOperating(removedTask.id)).toBe(false);
+  });
 });
 
 describe("taskStore snapshot and runtime exiting", () => {
@@ -352,6 +384,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     ).rejects.toThrow(t("task.runtimeExiting"));
 
     await expect(store.pauseTask(71)).rejects.toThrow(t("task.runtimeExiting"));
+    await expect(store.restoreTask(removedTask.id)).rejects.toThrow(t("task.runtimeExiting"));
     await expect(store.permanentlyDeleteTask(removedTask.id)).rejects.toThrow(t("task.runtimeExiting"));
 
     expect(mockedCreateDownloadTask).not.toHaveBeenCalled();
@@ -360,6 +393,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(mockedConfirmDownloadTaskFiles).not.toHaveBeenCalled();
     expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
     expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
+    expect(mockedRestoreDownloadTask).not.toHaveBeenCalled();
   });
 });
 

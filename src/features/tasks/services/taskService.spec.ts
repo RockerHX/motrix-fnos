@@ -12,6 +12,7 @@ import {
   permanentlyDeleteDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
+  restoreDownloadTask,
 } from "./taskService";
 
 vi.mock("../../../services/http", () => ({
@@ -69,11 +70,13 @@ describe("taskService", () => {
     resumeDownloadTask(7);
     confirmDownloadTaskFiles(7, { selectedFileIndexes: [3, 1] });
     redownloadDownloadTask(7);
+    restoreDownloadTask(8);
 
     expect(httpPost).toHaveBeenNthCalledWith(1, "/api/tasks/7/pause");
     expect(httpPost).toHaveBeenNthCalledWith(2, "/api/tasks/7/resume");
     expect(httpPost).toHaveBeenNthCalledWith(3, "/api/tasks/7/confirm", { selectedFileIndexes: [3, 1] });
     expect(httpPost).toHaveBeenNthCalledWith(4, "/api/tasks/7/redownload");
+    expect(httpPost).toHaveBeenNthCalledWith(5, "/api/tasks/8/restore");
   });
 
   it("encodes soft and permanent delete endpoints", () => {
