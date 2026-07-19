@@ -9,23 +9,13 @@ impl<'a> TaskService<'a> {
         self.ensure_not_exiting()?;
         let gid = task_gid(self.download_tasks, task_id)?;
         pause_task(config, &gid, Some(self.debug_logs)).await?;
-        if let Err(error) = sync_task_progress_after_pause_by_gid(
+        let task = sync_task_progress_after_pause_by_gid(
             self.download_tasks,
             config,
             &gid,
             Some(self.debug_logs),
         )
-        .await
-        {
-            self.debug_logs.warn(
-                "tasks.control",
-                format!(
-                    "暂停后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
-                    task_id, gid, error
-                ),
-            );
-        }
-        let task = mark_task_paused(self.download_tasks, task_id)?;
+        .await?;
         query::sync_task_to_database(self, &task).await?;
         self.debug_logs.info(
             "tasks.control",

@@ -1,4 +1,6 @@
-use super::refresh::{is_stale_aria2_gid_status, pause_status_is_settled};
+use super::refresh::{
+    ensure_pause_status_settled, is_stale_aria2_gid_status, pause_status_is_settled,
+};
 use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
 use crate::tasks::aria2_rpc::{
@@ -1129,6 +1131,8 @@ fn pause_status_settles_only_after_paused_progress_is_stable() {
     assert!(!pause_status_is_settled(&paused, None));
     assert!(!pause_status_is_settled(&paused, Some(79)));
     assert!(pause_status_is_settled(&paused, Some(80)));
+    assert!(ensure_pause_status_settled("abc123", &active, false).is_err());
+    assert!(ensure_pause_status_settled("abc123", &paused, true).is_ok());
 }
 
 #[test]

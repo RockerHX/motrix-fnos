@@ -162,22 +162,24 @@ pub async fn sync_task_progress_after_pause_by_gid(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    const MAX_ATTEMPTS: usize = 8;
-    const RETRY_INTERVAL_MS: u64 = 150;
+    const MAX_ATTEMPTS: usize = 61;
+    const RETRY_INTERVAL_MS: u64 = 500;
 
     let client = reqwest::Client::new();
     let mut previous_completed = None;
     let mut latest_status = None;
+    let mut settled = false;
 
     // Aria2 接受 pause 后仍可能短暂写入缓存；需要状态已暂停且连续两次进度不变，才能把最终进度持久化。
     for attempt in 0..MAX_ATTEMPTS {
         let status = tell_status(&client, config, gid, debug_logs).await?;
         let completed = parse_aria2_u64(&status.completed_length);
-        let settled = pause_status_is_settled(&status, previous_completed);
+        let is_settled = pause_status_is_settled(&status, previous_completed);
         previous_completed = Some(completed);
         latest_status = Some(status);
 
-        if settled {
+        if is_settled {
+            settled = true;
             break;
         }
 
@@ -188,17 +190,26 @@ pub async fn sync_task_progress_after_pause_by_gid(
 
     let status =
         latest_status.ok_or_else(|| "暂停后同步 Aria2 任务状态失败：未获取到状态".to_string())?;
-    if !matches!(status.status.as_str(), "paused" | "complete" | "error") {
-        log_info(
-            debug_logs,
-            "tasks.control",
-            format!(
-                "暂停后 Aria2 状态尚未稳定，使用最后一次进度，GID {}，状态 {}",
-                gid, status.status
-            ),
-        );
+    if let Err(error) = ensure_pause_status_settled(gid, &status, settled) {
+        log_info(debug_logs, "tasks.control", &error);
+        return Err(error);
     }
     apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+pub(super) fn ensure_pause_status_settled(
+    gid: &str,
+    status: &Aria2TaskStatus,
+    settled: bool,
+) -> Result<(), String> {
+    if settled {
+        return Ok(());
+    }
+
+    Err(format!(
+        "暂停后 Aria2 状态在等待期限内仍未稳定，GID {}，当前状态 {}",
+        gid, status.status
+    ))
 }
 
 pub(super) fn pause_status_is_settled(
