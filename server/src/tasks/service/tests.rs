@@ -303,6 +303,129 @@ async fn confirm_download_task_files_archives_restore_metadata() {
     mock.abort();
 }
 
+#[tokio::test]
+async fn restore_removed_url_task_returns_paused_task() {
+    let mock = MockAria2Server::spawn().await;
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        temp_dir("restore-url").display().to_string(),
+    );
+    task.files_deleted = true;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let config = test_config(mock.addr.port(), "secret");
+
+    let restored = fixture
+        .service()
+        .restore_removed_task(&config, 1)
+        .await
+        .expect("removed URL task should restore");
+
+    assert_eq!(restored.status, DownloadTaskStatus::Paused);
+    assert_eq!(restored.gid.as_deref(), Some("gid-created"));
+    assert_eq!(restored.completed_length, 0);
+    assert!(!restored.files_deleted);
+    assert_eq!(fixture.repository.persisted_tasks(), vec![restored]);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn restore_removed_torrent_task_uses_private_metadata() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("restore-torrent");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        save_dir.display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.url = "torrent:example.torrent".to_string();
+    task.selected_file_indexes = vec![1, 3];
+    task.files_deleted = true;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let metadata_path = save_restore_torrent_metadata(&fixture.app_data_dir, 1, b"torrent")
+        .expect("restore metadata should save");
+    set_task_metadata_torrent_path(&fixture.tasks, 1, metadata_path.display().to_string())
+        .expect("metadata path should update");
+    let config = test_config(mock.addr.port(), "secret");
+
+    let restored = fixture
+        .service()
+        .restore_removed_task(&config, 1)
+        .await
+        .expect("removed torrent task should restore");
+
+    assert_eq!(restored.status, DownloadTaskStatus::Paused);
+    assert_eq!(restored.gid.as_deref(), Some("gid-torrent"));
+    assert!(save_dir.is_dir());
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn restore_removed_torrent_without_metadata_keeps_removed_state() {
+    let mock = MockAria2Server::spawn().await;
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        temp_dir("restore-torrent-missing").display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.url = "torrent:missing.torrent".to_string();
+    let fixture = ServiceFixture::new(vec![task], false);
+    let config = test_config(mock.addr.port(), "secret");
+
+    let error = fixture
+        .service()
+        .restore_removed_task(&config, 1)
+        .await
+        .expect_err("missing torrent metadata should reject restore");
+
+    assert!(error.contains("缺少可恢复的源 metadata"));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Removed
+    );
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn restore_removed_magnet_without_metadata_restarts_parsing() {
+    let mock = MockAria2Server::spawn().await;
+    let task_dir = temp_dir("restore-magnet-missing").join("example");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        task_dir.display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    let fixture = ServiceFixture::new(vec![task], false);
+    let config = test_config(mock.addr.port(), "secret");
+
+    let restored = fixture
+        .service()
+        .restore_removed_task(&config, 1)
+        .await
+        .expect("magnet task should restart metadata parsing");
+
+    assert_eq!(restored.status, DownloadTaskStatus::Pending);
+    assert_eq!(restored.gid.as_deref(), Some("gid-created"));
+    assert_eq!(
+        restored.save_dir,
+        task_dir.parent().unwrap().display().to_string()
+    );
+    assert!(fixture.app_data_dir.join("magnet-metadata/task-1").is_dir());
+
+    mock.abort();
+}
+
 struct ServiceFixture {
     repository: Arc<FakeTaskRepository>,
     tasks: TaskMemoryState,

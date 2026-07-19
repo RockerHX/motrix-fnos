@@ -445,6 +445,37 @@ async fn pause_resume_and_delete_routes_update_task_state() {
     assert_eq!(removed_list.len(), 1);
     assert_eq!(removed_list[0].status, DownloadTaskStatus::Removed);
 
+    let restored = response_json::<DownloadTask>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/tasks/1/restore")
+                    .body(Body::empty())
+                    .expect("restore request should build"),
+            )
+            .await
+            .expect("restore response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(restored.status, DownloadTaskStatus::Paused);
+
+    let _ = response_json::<DownloadTask>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/api/tasks/1?deleteFiles=false")
+                    .body(Body::empty())
+                    .expect("second delete request should build"),
+            )
+            .await
+            .expect("second delete response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
     assert_status(
         app.clone()
             .oneshot(
@@ -504,6 +535,11 @@ async fn task_mutations_reject_when_runtime_is_exiting() {
             .uri("/api/tasks/1/resume")
             .body(Body::empty())
             .expect("resume request should build"),
+        Request::builder()
+            .method("POST")
+            .uri("/api/tasks/1/restore")
+            .body(Body::empty())
+            .expect("restore request should build"),
         Request::builder()
             .method("DELETE")
             .uri("/api/tasks/1?deleteFiles=false")

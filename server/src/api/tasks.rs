@@ -32,6 +32,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
+        .route("/tasks/:id/restore", post(restore_task))
         .route("/tasks/:id/permanent", delete(permanently_delete_task))
         .route("/tasks/:id", delete(delete_task))
 }
@@ -217,6 +218,19 @@ async fn redownload_task(
     let task = context
         .service
         .redownload_download_task(&context.config, task_id)
+        .await
+        .map_err(classify_task_error)?;
+    context.finish(task)
+}
+
+async fn restore_task(
+    State(state): State<Arc<HttpAppState>>,
+    Path(task_id): Path<u64>,
+) -> Result<Json<DownloadTask>, ApiError> {
+    let context = TaskMutationContext::prepare(&state).await?;
+    let task = context
+        .service
+        .restore_removed_task(&context.config, task_id)
         .await
         .map_err(classify_task_error)?;
     context.finish(task)
