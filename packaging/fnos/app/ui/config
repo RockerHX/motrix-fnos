@@ -6,7 +6,7 @@
       "type": "iframe",
       "protocol": "http",
       "port": "17080",
-      "url": "/?v=1.7.7",
+      "url": "/?v=1.7.8",
       "allUsers": false,
       "control": {
         "accessPerm": "editable",
