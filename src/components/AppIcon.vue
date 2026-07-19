@@ -8,7 +8,6 @@ import {
   IconFileInfo,
   IconHelpCircle,
   IconInfoCircle,
-  IconFileZip,
   IconLink,
   IconList,
   IconLogout,
@@ -22,6 +21,7 @@ import {
   IconSettings,
   IconTrash,
   IconTrashX,
+  IconTopologyRing,
 } from "@tabler/icons-vue";
 import { computed, type Component } from "vue";
 
@@ -56,7 +56,7 @@ const icons: Record<string, Component> = {
   help: IconHelpCircle,
   about: IconInfoCircle,
   link: IconLink,
-  torrent: IconFileZip,
+  torrent: IconTopologyRing,
   magnet: IconMagnet,
   diagnostics: IconActivityHeartbeat,
   logout: IconLogout,
