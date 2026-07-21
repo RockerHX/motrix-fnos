@@ -156,6 +156,7 @@ async function logout() {
         :show-settings-action="emptyState.showSettingsAction"
         @create="dialogs.openCreateDialog"
         @open-settings="dialogs.showSettings.value = true"
+        @open-rpc-guide="dialogs.showSettings.value = false; dialogs.showAbout.value = true"
       />
       <TaskTable
         v-else

@@ -284,6 +284,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.jsonRpcToken.placeholder": "Enter or generate a new token",
   "settings.jsonRpcToken.help": "Protects /jsonrpc task creation and remains separate from the Web management password and Aria2 RPC secret.",
   "settings.jsonRpcToken.maskHelp": "The server only returns a mask. A new raw token remains only in this unsaved input.",
+  "settings.jsonRpcToken.portHelp": "Clients must use 17081/jsonrpc for JSON-RPC; 17080 is reserved for the Motrix management UI and API.",
+  "settings.jsonRpcToken.openGuide": "View setup guide",
   "settings.jsonRpcToken.configured": "Configured",
   "settings.jsonRpcToken.notConfigured": "Not configured",
   "settings.jsonRpcToken.loadFailed": "Failed to load JSON-RPC Token status",

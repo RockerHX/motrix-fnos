@@ -110,6 +110,19 @@ describe("JsonRpcTokenSettings", () => {
 
     expect(tokenStore.draftToken).toBe("");
   });
+
+  it("shows the port guidance and emits a request to open the full guide", async () => {
+    mockedGetStatus.mockResolvedValueOnce({ configured: false, maskedToken: null });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("17081/jsonrpc");
+    expect(wrapper.text()).toContain("17080");
+
+    await wrapper.findAll("button").find((button) => button.text() === "查看使用指南")!.trigger("click");
+
+    expect(wrapper.emitted("openGuide")).toHaveLength(1);
+  });
 });
 
 function mountSettings() {

@@ -33,6 +33,7 @@ const emit = defineEmits<{
   "update:showHelp": [value: boolean];
   "update:showDiagnostics": [value: boolean];
   openSettings: [];
+  openRpcGuide: [];
   taskCreated: [];
   checkUpdate: [];
   refreshStatus: [];
@@ -58,6 +59,7 @@ const emit = defineEmits<{
   <SettingsDialog
     :show="props.showSettings"
     @update:show="emit('update:showSettings', $event)"
+    @open-rpc-guide="emit('openRpcGuide')"
   />
   <HelpDialog
     :show="props.showHelp"

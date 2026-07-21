@@ -114,7 +114,19 @@ vi.mock("../../auth/components/WebAuthSettings.vue", async () => {
 
 vi.mock("./JsonRpcTokenSettings.vue", async () => {
   const { defineComponent, h } = await import("vue");
-  return { default: defineComponent({ name: "JsonRpcTokenSettingsStub", setup: () => () => h("div", "JSON-RPC Token 专用设置") }) };
+  return {
+    default: defineComponent({
+      name: "JsonRpcTokenSettingsStub",
+      emits: ["openGuide"],
+      setup(_, { emit }) {
+        return () =>
+          h("div", [
+            h("span", "JSON-RPC Token 专用设置"),
+            h("button", { "data-test": "open-rpc-guide", onClick: () => emit("openGuide") }, "查看使用指南"),
+          ]);
+      },
+    }),
+  };
 });
 
 import SettingsDialog from "./SettingsDialog.vue";
@@ -150,5 +162,18 @@ describe("SettingsDialog", () => {
     await flushPromises();
 
     expect(wrapper.emitted("update:show")).toEqual([[false], [false]]);
+  });
+
+  it("forwards the RPC guide request from token settings", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, {
+      props: {
+        show: true,
+      },
+    });
+    await flushPromises();
+
+    await wrapper.get('[data-test="open-rpc-guide"]').trigger("click");
+
+    expect(wrapper.emitted("openRpcGuide")).toHaveLength(1);
   });
 });

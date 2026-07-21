@@ -25,6 +25,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:show": [value: boolean];
+  openRpcGuide: [];
 }>();
 
 const message = useMessage();
@@ -202,7 +203,7 @@ function kbToBytes(value: number) {
       </section>
 
       <WebAuthSettings />
-      <JsonRpcTokenSettings :active="show" />
+      <JsonRpcTokenSettings :active="show" @open-guide="emit('openRpcGuide')" />
     </NForm>
 
     <template #footer>

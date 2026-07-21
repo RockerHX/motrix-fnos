@@ -6,6 +6,9 @@ import { useI18n } from "../../../i18n";
 import { useJsonRpcTokenStore } from "../stores/jsonRpcTokenStore";
 
 const props = defineProps<{ active: boolean }>();
+const emit = defineEmits<{
+  openGuide: [];
+}>();
 const tokenStore = useJsonRpcTokenStore();
 const message = useMessage();
 const { t } = useI18n();
@@ -74,6 +77,13 @@ async function clearToken() {
     </div>
 
     <NAlert type="info" :bordered="false">{{ t("settings.jsonRpcToken.maskHelp") }}</NAlert>
+
+    <NAlert type="warning" :bordered="false" class="json-rpc-port-hint">
+      <span>{{ t("settings.jsonRpcToken.portHelp") }}</span>
+      <NButton text type="primary" size="small" @click="emit('openGuide')">
+        {{ t("settings.jsonRpcToken.openGuide") }}
+      </NButton>
+    </NAlert>
 
     <NInput
       v-model:value="tokenStore.draftToken"

@@ -282,6 +282,8 @@ export const zhCN = {
   "settings.jsonRpcToken.placeholder": "输入或生成新的 Token",
   "settings.jsonRpcToken.help": "专门保护 /jsonrpc 添加任务；与 Web 管理密码和 Aria2 RPC Secret 相互独立。",
   "settings.jsonRpcToken.maskHelp": "服务端只返回掩码。新 Token 原文仅在此输入框未保存期间保留。",
+  "settings.jsonRpcToken.portHelp": "客户端连接 JSON-RPC 时使用 17081/jsonrpc；17080 仅用于 Motrix 管理页面和 API。",
+  "settings.jsonRpcToken.openGuide": "查看使用指南",
   "settings.jsonRpcToken.configured": "已配置",
   "settings.jsonRpcToken.notConfigured": "未配置",
   "settings.jsonRpcToken.loadFailed": "读取 JSON-RPC Token 状态失败",
