@@ -41,6 +41,8 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.text()).toContain("诊断");
     expect(wrapper.text()).toContain("1.6.1");
     expect(wrapper.text()).toContain("pong");
+    expect(wrapper.text()).toContain("127.0.0.1:17081");
+    expect(wrapper.text()).toContain("已配置");
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
   });
 
@@ -64,6 +66,7 @@ function mountDialog(show = true) {
       backendPing: createBackendPing(),
       aria2Process: { running: true, pid: 1, binarySource: "sidecar", message: "running" },
       aria2Rpc: { connected: true, version: "1.37.0", message: "ok" },
+      jsonRpcTokenConfigured: true,
     },
     global: {
       stubs: {

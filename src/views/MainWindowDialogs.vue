@@ -24,6 +24,7 @@ const props = defineProps<{
   isCheckingUpdate: boolean;
   aria2Process: Aria2ProcessStatus | null;
   aria2Rpc: Aria2RpcStatus | null;
+  jsonRpcTokenConfigured: boolean | null;
 }>();
 
 const emit = defineEmits<{
@@ -71,6 +72,7 @@ const emit = defineEmits<{
     :backend-ping="props.backendPing"
     :aria2-process="props.aria2Process"
     :aria2-rpc="props.aria2Rpc"
+    :json-rpc-token-configured="props.jsonRpcTokenConfigured"
     @update:show="emit('update:showDiagnostics', $event)"
     @refresh-status="emit('refreshStatus')"
     @engine-status-updated="emit('engineStatusUpdated', $event)"

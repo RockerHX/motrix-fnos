@@ -2,6 +2,7 @@
 import { NButton } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
+import type { AppMetricItem } from "../../../components/ui/appMetric";
 import { computed, ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
@@ -20,6 +21,7 @@ const props = defineProps<{
   backendPing: BackendPing | null;
   aria2Process: Aria2ProcessStatus | null;
   aria2Rpc: Aria2RpcStatus | null;
+  jsonRpcTokenConfigured: boolean | null;
 }>();
 
 const emit = defineEmits<{
@@ -30,12 +32,29 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const showDebugLogs = ref(false);
-const diagnosticMetrics = computed(() => [
+const diagnosticMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
   { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
   { label: t("diagnostics.communication"), value: props.backendPing?.message ?? t("common.loading") },
   { label: t("diagnostics.aria2Process"), value: props.aria2Process?.running ? t("diagnostics.running") : t("diagnostics.stopped") },
   { label: t("diagnostics.aria2Rpc"), value: props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") },
+  {
+    label: t("diagnostics.jsonRpcEndpoint"),
+    value: "127.0.0.1:17081",
+    detail: "/jsonrpc",
+    note: t("diagnostics.jsonRpcLoopback"),
+  },
+  {
+    label: t("diagnostics.jsonRpcToken"),
+    value:
+      props.jsonRpcTokenConfigured === true
+        ? t("diagnostics.jsonRpcTokenConfigured")
+        : props.jsonRpcTokenConfigured === false
+          ? t("diagnostics.jsonRpcTokenMissing")
+          : t("diagnostics.jsonRpcTokenUnknown"),
+    note: t("diagnostics.jsonRpcTokenNote"),
+    tone: props.jsonRpcTokenConfigured === true ? "success" : props.jsonRpcTokenConfigured === false ? "warning" : "default",
+  },
 ]);
 
 watch(

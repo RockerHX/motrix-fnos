@@ -24,6 +24,7 @@ import { useMainWindowDialogs } from "./composables/useMainWindowDialogs";
 import { useMainWindowLifecycle } from "./composables/useMainWindowLifecycle";
 import { useI18n } from "../i18n";
 import { useAuthStore } from "../features/auth/stores/authStore";
+import { useJsonRpcTokenStore } from "../features/settings/stores/jsonRpcTokenStore";
 import { getErrorMessage } from "../app/utils/errors";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
@@ -38,7 +39,9 @@ const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
 const authStore = useAuthStore();
+const jsonRpcTokenStore = useJsonRpcTokenStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
+const { status: jsonRpcTokenStatus } = storeToRefs(jsonRpcTokenStore);
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
@@ -73,6 +76,14 @@ const toolbar = useTaskToolbar({
   isTaskOperating: taskStore.isTaskOperating,
 });
 const dialogs = useMainWindowDialogs({ taskStore, toolbar, message, t });
+watch(
+  () => dialogs.showDiagnostics.value,
+  (show) => {
+    if (show && jsonRpcTokenStatus.value === null && !jsonRpcTokenStore.isLoading) {
+      void jsonRpcTokenStore.loadStatus().catch(() => undefined);
+    }
+  },
+);
 const bulkActions = useTaskBulkActions({ taskStore, toolbar, message, t });
 isToolbarBulkOperating.value = bulkActions.isBulkOperating.value;
 watch(bulkActions.isBulkOperating, (value) => (isToolbarBulkOperating.value = value));
@@ -206,6 +217,7 @@ async function logout() {
         :is-checking-update="isCheckingUpdate"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
+        :json-rpc-token-configured="jsonRpcTokenStatus?.configured ?? null"
         @update:show-create-dialog="dialogs.showCreateDialog.value = $event"
         @update:show-about="dialogs.showAbout.value = $event"
         @update:show-settings="dialogs.showSettings.value = $event"
