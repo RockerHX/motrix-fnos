@@ -105,7 +105,24 @@ vi.mock("../features/tasks/components/TaskFileConfirmCoordinator.vue", async () 
 
 vi.mock("./MainWindowDialogs.vue", async () => {
   const { defineComponent, h } = await import("vue");
-  return { default: defineComponent({ name: "MainWindowDialogsStub", setup: () => () => h("div") }) };
+  return {
+    default: defineComponent({
+      name: "MainWindowDialogsStub",
+      props: {
+        showAbout: Boolean,
+        showSettings: Boolean,
+      },
+      emits: ["openRpcGuide"],
+      setup(props, { emit }) {
+        return () =>
+          h("div", [
+            h("button", { "data-test": "open-rpc-guide", onClick: () => emit("openRpcGuide") }, "open guide"),
+            h("span", { "data-test": "main-dialogs-about" }, String(props.showAbout)),
+            h("span", { "data-test": "main-dialogs-settings" }, String(props.showSettings)),
+          ]);
+      },
+    }),
+  };
 });
 
 import MainWindow from "./MainWindow.vue";
@@ -123,6 +140,16 @@ describe("MainWindow floating create button", () => {
     const { wrapper } = mountMainWindow();
 
     expect(wrapper.find(".floating-add").exists()).toBe(false);
+  });
+
+  it("opens the About guide and closes Settings when requested", async () => {
+    const { wrapper } = mountMainWindow();
+
+    await wrapper.get('[data-test="open-rpc-guide"]').trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.get('[data-test="main-dialogs-about"]').text()).toBe("true");
+    expect(wrapper.get('[data-test="main-dialogs-settings"]').text()).toBe("false");
   });
 
   it("keeps floating create button on mobile layout when the task list is visible", async () => {

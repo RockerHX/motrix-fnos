@@ -167,7 +167,6 @@ async function logout() {
         :show-settings-action="emptyState.showSettingsAction"
         @create="dialogs.openCreateDialog"
         @open-settings="dialogs.showSettings.value = true"
-        @open-rpc-guide="dialogs.showSettings.value = false; dialogs.showAbout.value = true"
       />
       <TaskTable
         v-else
@@ -224,6 +223,7 @@ async function logout() {
         @update:show-help="dialogs.showHelp.value = $event"
         @update:show-diagnostics="dialogs.showDiagnostics.value = $event"
         @open-settings="dialogs.showSettings.value = true"
+        @open-rpc-guide="dialogs.showSettings.value = false; dialogs.showAbout.value = true"
         @task-created="handleTaskCreated"
         @check-update="runUpdateCheck"
         @refresh-status="refreshAria2Status"
