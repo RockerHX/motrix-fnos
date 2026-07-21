@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
+import JsonRpcGuide from "./JsonRpcGuide.vue";
 import { useI18n } from "../../../i18n";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
@@ -17,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
   checkUpdate: [];
+  openSettings: [];
 }>();
 
 const { t } = useI18n();
@@ -31,6 +33,11 @@ function updateShow(show: boolean) {
 
 function checkUpdate() {
   emit("checkUpdate");
+}
+
+function openSettings() {
+  emit("openSettings");
+  emit("update:show", false);
 }
 
 function statusTagType(status: UpdateCheckStatus | undefined) {
@@ -158,6 +165,8 @@ function targetArchLabel(arch: string | undefined) {
             </article>
           </div>
         </AppSectionCard>
+
+        <JsonRpcGuide @open-settings="openSettings" />
     </div>
   </AppDialog>
 </template>

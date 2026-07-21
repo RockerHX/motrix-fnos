@@ -32,6 +32,7 @@ const emit = defineEmits<{
   "update:showSettings": [value: boolean];
   "update:showHelp": [value: boolean];
   "update:showDiagnostics": [value: boolean];
+  openSettings: [];
   taskCreated: [];
   checkUpdate: [];
   refreshStatus: [];
@@ -52,6 +53,7 @@ const emit = defineEmits<{
     :is-checking-update="props.isCheckingUpdate"
     @update:show="emit('update:showAbout', $event)"
     @check-update="emit('checkUpdate')"
+    @open-settings="emit('openSettings')"
   />
   <SettingsDialog
     :show="props.showSettings"

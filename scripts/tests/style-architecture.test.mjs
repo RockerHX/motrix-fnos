@@ -37,7 +37,7 @@ test("Vue 组件样式必须使用同目录 scoped CSS 文件", () => {
     }
   }
 
-  assert.equal(styleFileCount, 38, "当前组件样式外置数量应保持为 38 个");
+  assert.equal(styleFileCount, 39, "当前组件样式外置数量应保持为 39 个");
 
   const mainSource = readFileSync(path.join(srcRoot, "main.ts"), "utf8");
   assert.doesNotMatch(mainSource, /from ["']\.\/features\//, "main.ts 不得引入业务组件样式");
