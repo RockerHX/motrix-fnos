@@ -1,6 +1,6 @@
 # Motrix fnOS UI 重设计与 Stitch/Figma 流程
 
-> 当前阶段：桌面暗色单页 PoC 已完成可渲染 revision 和 Naive UI 可实现性评审，等待用户确认母版。
+> 当前阶段：桌面暗色单页 PoC 已完成可渲染 revision 和 Naive UI 可实现性评审；现有母版早于 logo 蓝色主题迁移，需按最新设计规范复核或修订后再由用户确认。
 > 技术边界：继续使用 Vue 3、TypeScript、Naive UI 和 Pinia；不得以视觉稿改变 `docs/architecture.md` 规定的业务边界。
 
 ## 1. 文档职责
@@ -18,9 +18,9 @@ Stitch 仍为 Beta。当前采用“一个 Design System、一个桌面母版、
 
 1. 不执行旧的 P1-P10 独立自由生成流程。
 2. 首轮只生成一个 `DESKTOP`、暗色、Downloading 正常运行页面；整体方向失败时最多生成第二个候选。
-3. PoC 必须验证品牌绿、字体层级、侧栏、任务边界、按钮、圆角，以及二次编辑的一致性。
+3. PoC 必须验证 logo 蓝色品牌层级、字体层级、侧栏、任务边界、按钮、圆角，以及二次编辑的一致性。
 4. PoC 通过前不得生成移动端、浅色主题、弹窗或其他页面。
-5. Figma frame 获得用户明确批准前，不得执行视觉重设计、修改交互或安装运行时依赖；2026-07-17 用户明确授权的视觉零变化 scoped CSS 外置、架构约束测试和开发期 UnoCSS 试点属于例外。
+5. Figma frame 获得用户明确批准前，不得执行整体视觉重设计、修改交互或安装运行时依赖；2026-07-17 授权的 scoped CSS 外置、架构约束测试和 UnoCSS 试点，以及 2026-07-22 授权的 logo 蓝色品牌色迁移属于例外。
 6. Stitch 产出是视觉与信息架构参考，不是可直接进入项目的 UI 代码；生成 HTML、CSS、Tailwind class、Material Symbols 或其他图标实现不构成技术选型。
 7. 设计必须能映射到现有 Vue 3 + Naive UI 组件和交互语义；无法用现有组件与少量主题 CSS 实现的表现应在评审中标为需要调整。
 
@@ -80,7 +80,7 @@ unset NEW_TOKEN
 
 | 日期 | Project | Design System | Screen | Device / Theme / Model | 结论 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115` -> `5e3caaf9fd4243bf9fe8ae85556cd35f`（当前母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：新 revision 已持久化为独立截图与 HTML，Naive UI 组件映射可行；MCP 导出元数据仍为 `3072x2048`，需用户在 Stitch 画布确认视觉结果 | 等待用户批准当前母版，不生成其他页面 |
+| 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115` -> `5e3caaf9fd4243bf9fe8ae85556cd35f`（待复核母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：新 revision 已持久化为独立截图与 HTML，Naive UI 组件映射可行；母版生成早于 logo 蓝色主题迁移，需按最新 DESIGN.md 复核品牌色 | 先完成蓝色主题复核或修订，再等待用户批准；不生成其他页面 |
 
 ## 8. 新对话启动提示词
 

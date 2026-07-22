@@ -52,27 +52,9 @@ Motrix 入口 motrix.Application、默认入口为空     -> motrix.<account>.fn
 Lucky 入口与 desktop_appname=Lucky.Application  -> lucky.<account>.fnos.net
 ```
 
-`appname`、`display_name`、前端运行时的 `appName` 和 `.url` 入口 ID 是不同字段。能够在浏览器控制台看到 `trim.download-center`，不代表 FN Connect 一定注册了 `trim-download-center.<account>.fnos.net`。
-
-后续在 NAS 上只读检查 Lucky、Motrix 与下载中心的入口声明：
-
-```bash
-sudo find /var/apps -path '*/app/ui/config' -type f \
-  -exec sh -c 'echo "--- $1"; sed -n "1,160p" "$1"' sh {} \;
-
-sudo find /var/apps -name manifest -type f \
-  -exec sh -c 'echo "--- $1"; grep -E "^(appname|desktop_appname|desktop_applaunchname|service_port)" "$1"' sh {} \;
-```
-
-记录时只保留应用名、入口 ID、入口类型、端口和是否存在网关字段，不提交设备路径中的用户信息或其他应用配置全文。
-
 Lucky 2.27.2 FPK 已确认 `.url` 键和 `desktop_appname` 均为 `Lucky.Application`，`desktop_applaunchname` 为空，且 `config/resource` 没有域名或网关声明。Motrix 的两轮实测确认：入口键使用 `motrix.Application` 是短域名生效的关键；`config/resource`、端口和反向代理不是决定因素。
 
-后续重点比较：
-
-- FN Connect 的 HTTP、OPTIONS 和 WebSocket 是否都能稳定转发到 Motrix 管理端口。
-- 下载中心实际的 `.url` 键是 `trim.download-center`、`trim.download-center2`，还是没有独立端口入口。
-- 系统下载中心是否通过路径、统一网关或系统桌面内部路由打开，而不是 FN Connect 独立三级域名。
+域名命名调查已经结束。后续实验只验证 FN Connect 的 HTTP、OPTIONS、WebSocket、登录态和原生客户端兼容性，不再调整正式 FPK 的应用入口身份。
 
 ## 4. JSON-RPC 实验构建
 

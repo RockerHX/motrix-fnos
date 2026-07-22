@@ -1,6 +1,6 @@
 # Motrix fnOS Google Stitch 提示词
 
-> 状态：已确认，待通过 Stitch MCP 执行单页 PoC  
+> 状态：单页 PoC 已完成；当前母版早于 logo 蓝色主题迁移，需按最新 DESIGN.md 复核或修订并获用户确认后再派生其他页面
 > 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）  
 > 使用方式：先完成第 1 节的单页 PoC。母版通过后，才从已批准 screen 派生第 2 节页面；不得整段提交第 2 节。
 
@@ -51,11 +51,11 @@ Show the active, error, and file-confirmation samples. Each card presents name a
 ### P5 新建任务弹窗
 
 ```text
-Design the existing Add task dialog, first at desktop width and then as a 390×844 mobile modal. Provide four real input modes: URL, Batch URLs, Torrent file, and Magnet link. Keep them in one workflow.
+Design the existing Add task dialog, first at desktop width and then as a 390×844 mobile modal. Provide three real input modes: Links, Torrent file, and Magnet link. Keep them in one workflow. Links uses one multiline input where each non-empty HTTP/HTTPS line creates an independent task.
 
-Common fields are authorized save directory, start now or add paused, category, connection count, per-task speed limit, and proxy. URL mode may include file name. Batch mode uses one URL per line and can show partial-success failures. Torrent mode uses a selected .torrent file. Magnet mode validates a magnet:? URI. Use /vol1/downloads as the authorized directory.
+Common fields are authorized save directory, start now or add paused, category, connection count, per-task speed limit, and proxy. Links mode does not provide a custom file name and can show partial-success failures. Torrent mode uses a selected .torrent file. Magnet mode validates a magnet:? URI. Use /vol1/downloads as the authorized directory.
 
-Generate separate frames for: clean URL form, invalid URL inline error with disabled submit, authorized directories loading, no authorized directories with a link-like instruction to open fnOS settings, batch partial failures, torrent selected, magnet valid, and submit loading with close disabled. Labels stay above inputs and errors stay below. Footer actions are Cancel and Start download. Do not add username/password, notes, arbitrary path browsing, or future-feature labels.
+Generate separate frames for: clean Links form, invalid link inline error with disabled submit, authorized directories loading, no authorized directories with a link-like instruction to open fnOS settings, multiline partial failures, torrent selected, magnet valid, and submit loading with close disabled. Labels stay above inputs and errors stay below. Footer actions are Cancel and Start download. Do not add username/password, notes, arbitrary path browsing, or future-feature labels.
 ```
 
 ### P6 设置弹窗与主题
@@ -79,7 +79,7 @@ Second, design the blocking magnet file-confirmation dialog for Linux 教程合�
 ### P8 About
 
 ```text
-Design the existing About dialog in dark and light themes. It is a utility information view, not a brand landing page. Show Motrix name and icon, current version 1.6.1, maintainer, target architecture x86_64, repository link, manual FPK update explanation, update status, matching x86/ARM release assets when available, and recent changelog entries.
+Design the existing About dialog in dark and light themes. It is a utility information view, not a brand landing page. Show Motrix name and icon, current version `<currentVersion>`, maintainer, target architecture x86_64, repository link, manual FPK update explanation, update status, matching x86/ARM release assets when available, and recent changelog entries.
 
 Provide unchecked, checking, update available, up to date, and unavailable frames. Keep Check for updates as the single prominent action. Do not invent license, build-time, Aria2 engine-version, documentation, or feedback fields unless present in supplied requirements.
 ```

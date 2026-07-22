@@ -317,18 +317,20 @@ rtk packaging/fnos/cmd/stop
 - 启动失败：先看 `server.log`
 - Web UI 打不开：先看 `cmd/status` 和浏览器请求地址。桌面入口应打开 `http://<设备>:<service_port>/?v=<version>`；同时确认 staged `app/ui/config` 不含 `gatewayPrefix` 或 `gatewaySocket`，Rust server 的同一端口能返回根 HTML 与 `/api/app/ping`。
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
-- 升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
+- 同一 `motrix` 身份升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
+- 从旧 `motrix.fnos` 安装切换后看不到原数据：这是应用身份变化的预期结果，不属于普通升级；新应用不会自动读取旧身份的 `TRIM_PKGVAR`
 - 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”
 
 ## 数据保留与卸载向导
 
 fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以保留用户数据为默认策略：
 
-- 升级必须保留 `TRIM_PKGVAR` 中的 SQLite、设置、JSON-RPC 密钥、Aria2 session 和日志。
+- 同一 `appname=motrix` 身份内升级必须保留 `TRIM_PKGVAR` 中的 SQLite、设置、JSON-RPC 密钥、Aria2 session 和日志。
+- 从旧 `appname=motrix.fnos` 切换到 `motrix` 时，fnOS 按两个应用处理，旧数据和 JSON-RPC Token 不会自动迁移；旧应用必须先停止或卸载，避免两个应用争用 `17080`、`17081`。
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 卸载向导的 `switch` 不要设置`initValue`初始值，字符串使用什么字符串的初始值都不对，感觉是开发者文档有问题，如果设置布尔值会导致打包失败。
+- 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
 
 ### 升级前备份与回滚
 
@@ -354,7 +356,8 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
 | 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`server.log`、配置保存日志 |
-| 升级 | 安装旧版本后升级到新包 | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
+| 同身份升级 | 从旧版 `motrix` 升级到新版 `motrix` | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
+| 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081` 监听进程 |
 | 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
 | 卸载（删除数据） | 卸载应用并勾选“同时删除 Motrix 应用数据” | 仅清理 `TRIM_PKGVAR` 内的 Motrix 应用数据，不删除用户下载文件 | `cmd/uninstall_callback` 日志、数据库/设置/session/log 是否被清理 |
 
