@@ -104,7 +104,7 @@ function readUiCacheVersion(uiConfig, filePath) {
 }
 
 function readUiEntry(uiConfig, filePath) {
-  const entry = uiConfig?.['.url']?.['motrix.fnos.main'];
+  const entry = uiConfig?.['.url']?.['motrix.Application'];
   if (!entry || typeof entry !== 'object') {
     throw new Error(`无法读取版本号：${filePath}`);
   }

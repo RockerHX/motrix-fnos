@@ -116,9 +116,9 @@ jobs:
           VERSION: ${{ steps.release_files.outputs.version }}
         run: |
           set -euo pipefail
-          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_x86.fpk"
-          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_arm.fpk"
-          (cd packaging/fnos/dist && sha256sum "motrix.fnos_${VERSION}_"*.fpk > SHA256SUMS.txt)
+          test -f "packaging/fnos/dist/motrix_${VERSION}_x86.fpk"
+          test -f "packaging/fnos/dist/motrix_${VERSION}_arm.fpk"
+          (cd packaging/fnos/dist && sha256sum "motrix_${VERSION}_"*.fpk > SHA256SUMS.txt)
           cat packaging/fnos/dist/SHA256SUMS.txt
 
       - name: Commit release files and tag
@@ -208,8 +208,8 @@ jobs:
             echo
             echo "请根据 fnOS 设备 CPU 架构选择对应的 FPK："
             echo
-            echo "- x86_64：[motrix.fnos_${VERSION}_x86.fpk](${release_download_base}/motrix.fnos_${VERSION}_x86.fpk)"
-            echo "- aarch64 / arm64：[motrix.fnos_${VERSION}_arm.fpk](${release_download_base}/motrix.fnos_${VERSION}_arm.fpk)"
+            echo "- x86_64：[motrix_${VERSION}_x86.fpk](${release_download_base}/motrix_${VERSION}_x86.fpk)"
+            echo "- aarch64 / arm64：[motrix_${VERSION}_arm.fpk](${release_download_base}/motrix_${VERSION}_arm.fpk)"
             echo "- 校验文件：[SHA256SUMS.txt](${release_download_base}/SHA256SUMS.txt)"
           } > github-release-notes.md
 

@@ -79,7 +79,7 @@
 
 状态：延期、非阻塞，不属于阶段 13。当前 Motrix 继续使用已经实机验证的端口入口；本实验不得阻塞功能开发、常规修复或正式发布。
 
-实验必须使用独立 appname 的最小 FPK，不得直接修改 `motrix.fnos` 主包。最小包只包含：
+实验必须使用独立 appname 的最小 FPK，不得直接修改 Motrix 主包。最小包只包含：
 
 - 一个 `gatewayPrefix` 与一个位于 `TRIM_APPDEST` 的 Unix Socket。
 - 一个返回固定 HTML 的根路由和一个返回固定 JSON 的健康检查路由。

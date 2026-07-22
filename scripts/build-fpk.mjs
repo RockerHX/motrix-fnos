@@ -8,7 +8,9 @@ import {
   parseManifest,
   platformForTarget,
   removeManifestField,
+  resolveFpkEntryId,
   upsertManifestField,
+  validateFpkAppIdentity,
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
 } from './script-utils.mjs';
@@ -38,7 +40,8 @@ syncUiIcons();
 prepareStageDir();
 resetStageAppDataDir(stageDir);
 renderManifest(stageDir, platform, servicePort);
-patchUiPort(path.join(stageDir, 'app', 'ui', 'config'), servicePort);
+const stageManifest = parseManifest(readFileSync(path.join(stageDir, 'manifest'), 'utf8'));
+patchUiPort(path.join(stageDir, 'app', 'ui', 'config'), servicePort, stageManifest.desktop_applaunchname);
 patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
 removeGitKeepFiles(stageDir);
 preflightStageDir(stageDir, platform, servicePort);
@@ -49,7 +52,6 @@ if (prepareOnly) {
 }
 
 const fnpack = ensureFnpack(env);
-const stageManifest = parseManifest(readFileSync(path.join(stageDir, 'manifest'), 'utf8'));
 const stagedPackagePath = path.join(stageDir, `${stageManifest.appname}.fpk`);
 rmSync(stagedPackagePath, { force: true });
 const buildOutput = runAndCapture(fnpack, ['build', '--directory', stageDir], env, stageDir);
@@ -188,6 +190,12 @@ function preflightStageDir(dir, platform, servicePort) {
   }
   const uiConfig = validateJsonFile(path.join(desktopUiDir, 'config'), '应用入口');
   try {
+    validateFpkAppIdentity({
+      manifestContent: readFileSync(path.join(dir, 'manifest'), 'utf8'),
+      uiConfig,
+      expectedAppName: 'motrix',
+      expectedEntryId: 'motrix.Application',
+    });
     validateFpkPortIsolation({
       manifestContent: readFileSync(path.join(dir, 'manifest'), 'utf8'),
       uiConfig,
@@ -267,9 +275,20 @@ function patchPortConfig(portConfigPath, servicePort) {
   writeFileSync(portConfigPath, config);
 }
 
-function patchUiPort(uiConfigPath, servicePort) {
+function patchUiPort(uiConfigPath, servicePort, entryId) {
   const config = JSON.parse(readFileSync(uiConfigPath, 'utf8'));
-  config['.url']['motrix.fnos.main'].port = servicePort;
+  let resolvedEntryId;
+  try {
+    resolvedEntryId = resolveFpkEntryId(config, entryId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`无法确定应用入口：${message}`);
+  }
+  const entry = config['.url']?.[resolvedEntryId];
+  if (!entry || typeof entry !== 'object') {
+    fail(`应用入口配置缺少 manifest.desktop_applaunchname 对应入口：${resolvedEntryId}`);
+  }
+  entry.port = servicePort;
   writeFileSync(uiConfigPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 

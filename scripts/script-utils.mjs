@@ -161,6 +161,43 @@ export function validatePortEntry(config, expected) {
   }
 }
 
+export function resolveFpkEntryId(config, preferredEntryId) {
+  if (preferredEntryId) {
+    return preferredEntryId;
+  }
+
+  const entryIds = Object.keys(config?.['.url'] ?? {});
+  if (entryIds.length !== 1) {
+    throw new Error(`manifest 未指定 desktop_applaunchname 时必须且只能配置一个应用入口，实际为 ${entryIds.length} 个`);
+  }
+  return entryIds[0];
+}
+
+export function validateFpkAppIdentity({
+  manifestContent,
+  uiConfig,
+  expectedAppName,
+  expectedEntryId,
+}) {
+  const manifest = parseManifest(manifestContent);
+  if (manifest.appname !== expectedAppName) {
+    throw new Error(`manifest.appname 必须为 ${expectedAppName}，实际为 ${manifest.appname ?? '(missing)'}`);
+  }
+  if (manifest.desktop_appname !== expectedEntryId) {
+    throw new Error(`manifest.desktop_appname 必须为 ${expectedEntryId}，实际为 ${manifest.desktop_appname ?? '(missing)'}`);
+  }
+
+  const launchName = manifestContent.match(/^desktop_applaunchname\s*=([^\r\n]*)$/m);
+  if (!launchName || launchName[1].trim()) {
+    throw new Error('manifest.desktop_applaunchname 必须保留为空');
+  }
+
+  const entryIds = Object.keys(uiConfig?.['.url'] ?? {});
+  if (entryIds.length !== 1 || entryIds[0] !== expectedEntryId) {
+    throw new Error(`应用入口必须且只能为 ${expectedEntryId}，实际为 ${entryIds.join(', ') || '(missing)'}`);
+  }
+}
+
 export function validateFpkPortIsolation({
   manifestContent,
   uiConfig,
@@ -173,9 +210,10 @@ export function validateFpkPortIsolation({
   if (manifest.service_port !== managementPort) {
     throw new Error(`manifest.service_port 必须为管理端口 ${managementPort}，实际为 ${manifest.service_port ?? '(missing)'}`);
   }
+  const entryId = resolveFpkEntryId(uiConfig, manifest.desktop_applaunchname);
 
   validatePortEntry(uiConfig, {
-    entryId: `${manifest.appname}.main`,
+    entryId,
     port: managementPort,
     url: `/?v=${manifest.version}`,
     accessPerm: 'editable',

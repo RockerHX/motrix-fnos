@@ -12,8 +12,10 @@ import {
   parseManifest,
   platformForTarget,
   removeManifestField,
+  resolveFpkEntryId,
   sha256,
   upsertManifestField,
+  validateFpkAppIdentity,
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
   validateChangelogBody,
@@ -70,10 +72,10 @@ test('版本同步同时更新 package、Cargo、manifest 与 UI cache', () => {
     mkdirSync(path.dirname(files.uiConfig), { recursive: true });
     writeFileSync(files.packageJson, '{\n  "version": "1.7.1"\n}\n');
     writeFileSync(files.cargoToml, '[package]\nversion = "1.7.1"\n');
-    writeFileSync(files.manifestTemplate, 'appname               = motrix.fnos\nversion               = 1.7.1\n');
+    writeFileSync(files.manifestTemplate, 'appname               = motrix\nversion               = 1.7.1\ndesktop_appname       = motrix.Application\ndesktop_applaunchname =\n');
     writeFileSync(
       files.uiConfig,
-      `${JSON.stringify({ '.url': { 'motrix.fnos.main': { url: '/?v=1.7.1' } } }, null, 2)}\n`,
+      `${JSON.stringify({ '.url': { 'motrix.Application': { url: '/?v=1.7.1' } } }, null, 2)}\n`,
     );
 
     setProjectVersion('1.7.2', files);
@@ -84,7 +86,7 @@ test('版本同步同时更新 package、Cargo、manifest 与 UI cache', () => {
       manifestTemplate: '1.7.2',
       uiConfig: '1.7.2',
     });
-    assert.equal(JSON.parse(readFileSync(files.uiConfig, 'utf8'))['.url']['motrix.fnos.main'].url, '/?v=1.7.2');
+    assert.equal(JSON.parse(readFileSync(files.uiConfig, 'utf8'))['.url']['motrix.Application'].url, '/?v=1.7.2');
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -107,7 +109,7 @@ test('版本同步支持 beta 版本并能从 UI cache 读回', () => {
     writeFileSync(files.manifestTemplate, 'version               = 1.7.3\n');
     writeFileSync(
       files.uiConfig,
-      `${JSON.stringify({ '.url': { 'motrix.fnos.main': { url: '/?v=1.7.3' } } }, null, 2)}\n`,
+      `${JSON.stringify({ '.url': { 'motrix.Application': { url: '/?v=1.7.3' } } }, null, 2)}\n`,
     );
 
     setProjectVersion('1.7.4-beta', files);
@@ -125,14 +127,14 @@ test('版本同步支持 beta 版本并能从 UI cache 读回', () => {
 
 test('端口入口与 server listener 保持一致并拒绝混入网关字段', () => {
   const expected = {
-    entryId: 'motrix.fnos.main',
+    entryId: 'motrix.Application',
     port: '17080',
     url: '/?v=1.7.1',
     accessPerm: 'editable',
   };
   const config = {
     '.url': {
-      'motrix.fnos.main': {
+      'motrix.Application': {
         type: 'iframe',
         protocol: 'http',
         port: '17080',
@@ -146,7 +148,7 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
   assert.throws(
     () =>
       validatePortEntry(
-        { '.url': { 'motrix.fnos.main': { ...config['.url']['motrix.fnos.main'], port: '18080' } } },
+        { '.url': { 'motrix.Application': { ...config['.url']['motrix.Application'], port: '18080' } } },
         expected,
       ),
     /port 必须为 17080/,
@@ -156,8 +158,8 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
       validatePortEntry(
         {
           '.url': {
-            'motrix.fnos.main': {
-              ...config['.url']['motrix.fnos.main'],
+            'motrix.Application': {
+              ...config['.url']['motrix.Application'],
               gatewayPrefix: '/app/motrix',
               gatewaySocket: 'motrix-fnos.sock',
             },
@@ -172,8 +174,8 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
       validatePortEntry(
         {
           '.url': {
-            'motrix.fnos.main': {
-              ...config['.url']['motrix.fnos.main'],
+            'motrix.Application': {
+              ...config['.url']['motrix.Application'],
               url: '/',
             },
           },
@@ -187,8 +189,8 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
       validatePortEntry(
         {
           '.url': {
-            'motrix.fnos.main': {
-              ...config['.url']['motrix.fnos.main'],
+            'motrix.Application': {
+              ...config['.url']['motrix.Application'],
               control: { accessPerm: 'readonly' },
             },
           },
@@ -199,12 +201,49 @@ test('端口入口与 server listener 保持一致并拒绝混入网关字段', 
   );
 });
 
+test('未指定默认入口时只接受唯一应用入口', () => {
+  assert.equal(resolveFpkEntryId({ '.url': { 'motrix.Application': {} } }), 'motrix.Application');
+  assert.equal(resolveFpkEntryId({ '.url': { 'motrix.Application': {} } }, 'motrix.Application'), 'motrix.Application');
+  assert.throws(() => resolveFpkEntryId({ '.url': {} }), /必须且只能配置一个应用入口/);
+  assert.throws(
+    () => resolveFpkEntryId({ '.url': { 'motrix.Application': {}, 'motrix.rpc': {} } }),
+    /实际为 2 个/,
+  );
+});
+
+test('FPK 应用身份保持已验证的 FN Connect 短域名组合', () => {
+  const fixture = {
+    manifestContent: 'appname = motrix\ndesktop_appname = motrix.Application\ndesktop_applaunchname =\n',
+    uiConfig: { '.url': { 'motrix.Application': {} } },
+    expectedAppName: 'motrix',
+    expectedEntryId: 'motrix.Application',
+  };
+
+  assert.doesNotThrow(() => validateFpkAppIdentity(fixture));
+  assert.throws(
+    () => validateFpkAppIdentity({ ...fixture, manifestContent: fixture.manifestContent.replace('appname = motrix', 'appname = motrix.fnos') }),
+    /manifest\.appname 必须为 motrix/,
+  );
+  assert.throws(
+    () => validateFpkAppIdentity({ ...fixture, manifestContent: fixture.manifestContent.replace('motrix.Application', 'motrix.main') }),
+    /manifest\.desktop_appname 必须为 motrix\.Application/,
+  );
+  assert.throws(
+    () => validateFpkAppIdentity({ ...fixture, manifestContent: fixture.manifestContent.replace('desktop_applaunchname =', 'desktop_applaunchname = motrix.Application') }),
+    /desktop_applaunchname 必须保留为空/,
+  );
+  assert.throws(
+    () => validateFpkAppIdentity({ ...fixture, uiConfig: { '.url': { 'motrix.main': {} } } }),
+    /应用入口必须且只能为 motrix\.Application/,
+  );
+});
+
 test('FPK 端口隔离只允许公开管理端口', () => {
   const fixture = {
-    manifestContent: 'appname = motrix.fnos\nversion = 1.7.2\nservice_port = 17080\n',
+    manifestContent: 'appname = motrix\nversion = 1.7.2\ndesktop_appname = motrix.Application\ndesktop_applaunchname =\nservice_port = 17080\n',
     uiConfig: {
       '.url': {
-        'motrix.fnos.main': {
+        'motrix.Application': {
           type: 'iframe',
           protocol: 'http',
           port: '17080',
@@ -220,6 +259,19 @@ test('FPK 端口隔离只允许公开管理端口', () => {
   };
 
   assert.doesNotThrow(() => validateFpkPortIsolation(fixture));
+  assert.throws(
+    () =>
+      validateFpkPortIsolation({
+        ...fixture,
+        uiConfig: {
+          '.url': {
+            ...fixture.uiConfig['.url'],
+            'motrix.rpc': fixture.uiConfig['.url']['motrix.Application'],
+          },
+        },
+      }),
+    /必须且只能配置一个应用入口/,
+  );
   assert.throws(
     () => validateFpkPortIsolation({ ...fixture, manifestContent: fixture.manifestContent.replace('17080', '17081') }),
     /manifest\.service_port 必须为管理端口 17080/,

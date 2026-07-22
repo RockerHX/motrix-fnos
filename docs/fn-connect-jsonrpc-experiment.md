@@ -1,6 +1,6 @@
 # FN Connect 替代 Lucky 提供 JSON-RPC 的实验计划
 
-> 状态：待实机验证，不代表当前支持  
+> 状态：域名入口已实机验证；FN Connect 作为公网 JSON-RPC 入口仍待验证，不代表当前支持  
 > 记录日期：2026-07-15  
 > 安全要求：实验不得记录或提交 FN Connect Cookie、Web 密码、Session、CSRF、JSON-RPC Token、Aria2 secret 或设备完整配置。
 
@@ -10,9 +10,10 @@
 
 当前实机观察：
 
-- FN Connect 主域登录后，`motrix-fnos-main.<account>.fnos.net` 可以打开 Motrix Web 管理入口。
-- `motrix.<account>.fnos.net` 显示“FN Connect 暂无权限访问该服务”，不能据此判断 Motrix 自身鉴权是否失败。
-- 当前 FPK 的应用入口 ID 为 `motrix.fnos.main`，实测三级域名使用了 `motrix-fnos-main` 形式。
+- 旧版入口 `motrix.fnos.main` 生成 `motrix-fnos-main.<account>.fnos.net`。
+- 只清空默认入口仍会生成 `motrix-main.<account>.fnos.net`，说明 `.url` 入口身份仍参与域名注册。
+- 将 `appname`、`desktop_appname` 和唯一 `.url` 入口统一为 `motrix` / `motrix.Application`，并保持空 `desktop_applaunchname` 后，实机确认 `motrix.<account>.fnos.net` 可打开 Motrix。
+- 由于包身份已变化，新 FPK 按全新应用处理，不承担旧 `motrix.fnos` 安装的数据和升级迁移。
 
 本实验只验证技术可行性。验证完成前继续保持当前安全拓扑：
 
@@ -25,8 +26,8 @@ Lucky 公网入口      -> 17081 -> 仅 JSON-RPC
 
 ### 已确认
 
-- `manifest.service_port`、`desktop_applaunchname` 和 `app/ui/config` 当前只注册管理入口 `17080`。
-- `motrix.fnos.main` 同时是 `desktop_applaunchname` 和 `.url` 入口键。
+- `manifest.service_port` 和唯一的 `app/ui/config` 入口只注册管理端口 `17080`。
+- `motrix` 是新的 `appname`，`motrix.Application` 同时是 `desktop_appname` 和唯一 `.url` 入口键；`desktop_applaunchname` 留空，域名已实机验证。
 - JSON-RPC 专用 listener 当前只绑定 `127.0.0.1:17081`，未注册为 fnOS 平台端口。
 - `v1.7.2` 及更早的单 listener 版本曾在 `17080` 同时提供 Web UI、管理 API 与 `/jsonrpc`。
 - FN Connect 登录态、Motrix Web Session 和 JSON-RPC Token 是不同凭据，不能互相替代。
@@ -39,15 +40,16 @@ Lucky 公网入口      -> 17081 -> 仅 JSON-RPC
 3. 原生 Aria2/Motrix 客户端能否在没有浏览器 Cookie 的情况下通过 FN Connect。
 4. FN Connect 退出、Session 过期或设备离线时，已有 HTTP/WSS 连接如何结束。
 5. FN Connect 或系统代理日志是否可能记录 JSON-RPC 请求体中的 Token。
-6. 第三方应用入口三级域名的名称是否严格由 `.url` 入口 ID 派生；系统应用是否使用不同注册机制。
 
 ## 3. 域名命名调查
 
-目前只能根据实机行为作出以下推测，不能当作官方固定规则：
+根据当前实机结果，项目采用以下已验证映射：
 
 ```text
-入口 ID motrix.fnos.main -> motrix-fnos-main.<account>.fnos.net
-入口 ID lucky            -> lucky.<account>.fnos.net
+旧入口 motrix.fnos.main                         -> motrix-fnos-main.<account>.fnos.net
+Motrix 入口 motrix.main、默认入口为空            -> motrix-main.<account>.fnos.net
+Motrix 入口 motrix.Application、默认入口为空     -> motrix.<account>.fnos.net
+Lucky 入口与 desktop_appname=Lucky.Application  -> lucky.<account>.fnos.net
 ```
 
 `appname`、`display_name`、前端运行时的 `appName` 和 `.url` 入口 ID 是不同字段。能够在浏览器控制台看到 `trim.download-center`，不代表 FN Connect 一定注册了 `trim-download-center.<account>.fnos.net`。
@@ -59,14 +61,16 @@ sudo find /var/apps -path '*/app/ui/config' -type f \
   -exec sh -c 'echo "--- $1"; sed -n "1,160p" "$1"' sh {} \;
 
 sudo find /var/apps -name manifest -type f \
-  -exec sh -c 'echo "--- $1"; grep -E "^(appname|desktop_applaunchname|service_port)" "$1"' sh {} \;
+  -exec sh -c 'echo "--- $1"; grep -E "^(appname|desktop_appname|desktop_applaunchname|service_port)" "$1"' sh {} \;
 ```
 
 记录时只保留应用名、入口 ID、入口类型、端口和是否存在网关字段，不提交设备路径中的用户信息或其他应用配置全文。
 
-重点比较：
+Lucky 2.27.2 FPK 已确认 `.url` 键和 `desktop_appname` 均为 `Lucky.Application`，`desktop_applaunchname` 为空，且 `config/resource` 没有域名或网关声明。Motrix 的两轮实测确认：入口键使用 `motrix.Application` 是短域名生效的关键；`config/resource`、端口和反向代理不是决定因素。
 
-- Lucky 的 `.url` 键是否就是 `lucky`。
+后续重点比较：
+
+- FN Connect 的 HTTP、OPTIONS 和 WebSocket 是否都能稳定转发到 Motrix 管理端口。
 - 下载中心实际的 `.url` 键是 `trim.download-center`、`trim.download-center2`，还是没有独立端口入口。
 - 系统下载中心是否通过路径、统一网关或系统桌面内部路由打开，而不是 FN Connect 独立三级域名。
 
@@ -119,9 +123,9 @@ fetch("/jsonrpc", {
 
 从实际使用的第三方网页或扩展分别验证：
 
-- `POST https://motrix-fnos-main.<account>.fnos.net/jsonrpc`
-- `OPTIONS https://motrix-fnos-main.<account>.fnos.net/jsonrpc`
-- `wss://motrix-fnos-main.<account>.fnos.net/jsonrpc`
+- `POST https://motrix.<account>.fnos.net/jsonrpc`（待实机确认）
+- `OPTIONS https://motrix.<account>.fnos.net/jsonrpc`（待实机确认）
+- `wss://motrix.<account>.fnos.net/jsonrpc`（待实机确认）
 
 矩阵必须覆盖：
 

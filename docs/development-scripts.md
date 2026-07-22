@@ -289,8 +289,8 @@ FPK 图标由 `scripts/build-fpk.mjs` 从包根资源同步到 `app/ui/images/`�
 先清空 `packaging/fnos/dist/`，再完整构建 x86 与 ARM，最终保留两个 FPK：
 
 ```text
-packaging/fnos/dist/motrix.fnos_<version>_x86.fpk
-packaging/fnos/dist/motrix.fnos_<version>_arm.fpk
+packaging/fnos/dist/motrix_<version>_x86.fpk
+packaging/fnos/dist/motrix_<version>_arm.fpk
 ```
 
 构建会清空源码 staging 区的 `packaging/fnos/app/data/`，以防 SQLite、日志或运行残留进入安装包。该目录只能存放占位内容，不得用于保存本地测试数据。

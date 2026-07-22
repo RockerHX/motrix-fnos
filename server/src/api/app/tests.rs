@@ -11,11 +11,11 @@ fn compare_versions_uses_numeric_segments() {
 fn release_assets_only_returns_fpk_archives() {
     let assets = release_assets(vec![
         GitHubReleaseAsset {
-            name: "motrix.fnos_1.3.3_x86.fpk".to_string(),
+            name: "motrix_1.3.3_x86.fpk".to_string(),
             browser_download_url: "https://example.com/x86".to_string(),
         },
         GitHubReleaseAsset {
-            name: "motrix.fnos_1.3.3_arm.fpk".to_string(),
+            name: "motrix_1.3.3_arm.fpk".to_string(),
             browser_download_url: "https://example.com/arm".to_string(),
         },
         GitHubReleaseAsset {

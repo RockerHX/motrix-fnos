@@ -15,7 +15,7 @@ const generatedTargets = [
   'packaging/fnos/app/ui/dist',
   'packaging/fnos/.stage',
   'packaging/fnos/dist',
-  'packaging/fnos/motrix.fnos.fpk',
+  'packaging/fnos/motrix.fpk',
 ];
 
 const dsStoreFiles = collectDsStoreFiles(repoRoot);

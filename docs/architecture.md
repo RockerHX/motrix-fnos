@@ -51,6 +51,14 @@ fnOS FPK
 - 两个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
 
+FPK 应用身份与 FN Connect 短域名：
+
+- `manifest.appname` 是 FPK 的应用身份，当前固定为 `motrix`。
+- `manifest.desktop_appname` 与 `app/ui/config` 的唯一 `.url` 入口必须同时为 `motrix.Application`。
+- `manifest.desktop_applaunchname` 必须保留为空。指定 `motrix.main` 等自定义入口会使 FN Connect 生成带后缀的域名。
+- 以上组合已在 fnOS 实机验证，应用可通过 `motrix.<account>.fnos.net` 打开。它不依赖反向代理或 `config/resource` 的特殊网关字段。
+- 这是新的 FPK 应用身份。旧 `motrix.fnos` 安装不会按普通升级自动迁移，发布前需明确安装、数据保留和回滚策略。
+
 升级不兼容约定：
 
 - JSON-RPC 已迁移到回环专用监听器 `127.0.0.1:17081`；外部客户端必须经本机 Lucky 等反向代理访问，不能再复用管理监听器。

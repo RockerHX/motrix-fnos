@@ -1,4 +1,4 @@
-appname               = motrix.fnos
+appname               = motrix
 version               = 1.7.9
 display_name          = Motrix
 desc                  = 支持 HTTP/BT/磁力链接与远程添加任务的 fnOS 下载管理应用，内置 Aria2 引擎
@@ -12,6 +12,7 @@ distributor_url       = https://github.com/RockerHX/motrix-fnos
 changelog             = 新增批量 URL、种子文件、磁力链接、文件确认和高级下载选项
 service_port          = 17080
 checkport             = true
+desktop_appname       = motrix.Application
 desktop_uidir         = ui
-desktop_applaunchname = motrix.fnos.main
+desktop_applaunchname =
 ctl_stop              = true

@@ -178,13 +178,13 @@ Session 与 Cookie 约定：
   "assets": [
     {
       "architecture": "x86",
-      "name": "motrix.fnos_1.3.4_x86.fpk",
-      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix.fnos_1.3.4_x86.fpk"
+      "name": "motrix_1.3.4_x86.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix_1.3.4_x86.fpk"
     },
     {
       "architecture": "arm",
-      "name": "motrix.fnos_1.3.4_arm.fpk",
-      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix.fnos_1.3.4_arm.fpk"
+      "name": "motrix_1.3.4_arm.fpk",
+      "downloadUrl": "https://github.com/RockerHX/motrix-fnos/releases/download/v1.3.4/motrix_1.3.4_arm.fpk"
     }
   ],
   "checkedAt": 1760000000000,

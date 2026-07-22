@@ -6,6 +6,33 @@
 
 它不记录项目阶段状态，也不承担产品能力说明；其中命令、路径、产物命名和 manifest 约定必须与仓库脚本保持一致。
 
+## 应用身份与 FN Connect 域名
+
+Motrix 当前使用下面这组相互配套的身份字段：
+
+```text
+appname               = motrix
+desktop_appname       = motrix.Application
+desktop_applaunchname =
+```
+
+`app/ui/config` 中必须只有一个同名入口：
+
+```json
+".url": {
+  "motrix.Application": { "type": "iframe", "port": "17080" }
+}
+```
+
+这四处必须一起保持一致：
+
+1. `appname` 决定 FPK 身份和产物前缀 `motrix_`。
+2. `desktop_appname` 与 `.url` 键决定 FN Connect 注册的应用入口身份。
+3. 空的 `desktop_applaunchname` 让 FN Connect 使用标准 `Application` 入口，不生成 `-main` 后缀。
+4. `service_port`、入口 `port` 和 `MotrixFNOS.sc` 仍统一使用管理端口 `17080`。
+
+这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
+
 ## 已查证约束
 
 截至 2026-07-17，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；本轮双监听器交付前已重新读取下列 Manifest、应用框架、fnpack、应用入口与图标页面：
@@ -17,6 +44,7 @@
   - 缺少 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*` 时，`fnpack build` 会报告 `Required file ... is missing`。
   - 缺少 `config_init` 或 `config_callback` 时，`fnpack build` 仍可成功。
   - `fnpack build` 在打印 `Packing failed` 时**仍可能返回退出码 0**，因此仓库构建脚本必须额外校验产物和日志，不能只信退出码。
+  - 对用户提供的 Lucky 2.27.2 FPK 进行只读解包后确认：它使用 `appname=Lucky`、`desktop_appname=Lucky.Application`、空 `desktop_applaunchname` 和唯一 `Lucky.Application` 入口。Motrix 按同一规则配置后，已在 fnOS 实机验证 `motrix.<account>.fnos.net` 可用。
 - 2026-07-14 Release 产物与 ARM 实机回归确认：`1.6.4` 使用端口入口且可打开；commit `8f74bf7` 从 `1.6.5` 起切换到统一网关，并把 TCP 端口限制为仅 JSON-RPC，但打包脚本直到 `1.7.1` 仍向最终入口注入 `port=17080`。该混合模型使桌面入口与 Web UI listener 不一致，是首次引入 404 的回归。
 - 2026-07-14 ARM 实机进一步确认：移除入口 `port` 的本地测试包中，Unix Socket 根 HTML 与 API 直连均为 `200`，但 fnOS nginx 对桌面入口仍返回 `404 9`，请求没有进入应用 Socket。因此当前交付恢复 `1.6.4` 已验证的端口入口，不再注册统一网关。
 - Web UI 构建保持相对基址 `./`，确保从端口入口根路径加载静态资源。
@@ -44,8 +72,8 @@
 
 默认命令会同时生成 x86 与 ARM 两个 FPK，`<version>` 来自核心版本源；Release workflow 会校验 `package.json`、`server/Cargo.toml`、`packaging/fnos/manifest.template` 与 `packaging/fnos/app/ui/config` 的入口缓存版本保持一致：
 
-- x86：`packaging/fnos/dist/motrix.fnos_<version>_x86.fpk`
-- ARM：`packaging/fnos/dist/motrix.fnos_<version>_arm.fpk`
+- x86：`packaging/fnos/dist/motrix_<version>_x86.fpk`
+- ARM：`packaging/fnos/dist/motrix_<version>_arm.fpk`
 
 对应 server 二进制：
 
@@ -63,7 +91,7 @@ FPK 启动脚本必须向同一个 Rust server 注入两个地址：
 
 固定规则：
 
-- `manifest.service_port`、`app/ui/config` 的 iframe 入口端口以及 `MotrixFNOS.sc` 的源/目标端口必须都是 `17080`。
+- `manifest.service_port`、唯一 `app/ui/config` iframe 入口端口以及 `MotrixFNOS.sc` 的源/目标端口必须都是 `17080`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
 - `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
@@ -221,8 +249,8 @@ rtk file packaging/fnos/.stage/x86/app/bin/motrix-fnos-server packaging/fnos/.st
 
 ```bash
 mkdir -p /tmp/motrix-fpk-check/x86 /tmp/motrix-fpk-check/arm
-tar -xzf packaging/fnos/dist/motrix.fnos_<version>_x86.fpk -C /tmp/motrix-fpk-check/x86
-tar -xzf packaging/fnos/dist/motrix.fnos_<version>_arm.fpk -C /tmp/motrix-fpk-check/arm
+tar -xzf packaging/fnos/dist/motrix_<version>_x86.fpk -C /tmp/motrix-fpk-check/x86
+tar -xzf packaging/fnos/dist/motrix_<version>_arm.fpk -C /tmp/motrix-fpk-check/arm
 ```
 
 ## 打包目录
@@ -334,8 +362,8 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 
 ```bash
 appcenter-cli install-fpk <package>.fpk
-appcenter-cli start motrix.fnos
-appcenter-cli stop motrix.fnos
+appcenter-cli start motrix
+appcenter-cli stop motrix
 appcenter-cli list
 ```
 
@@ -387,8 +415,8 @@ packaging/fnos/app/ui/config
 
 `Release FPK` workflow 会上传：
 
-- `motrix.fnos_<version>_x86.fpk`
-- `motrix.fnos_<version>_arm.fpk`
+- `motrix_<version>_x86.fpk`
+- `motrix_<version>_arm.fpk`
 - `SHA256SUMS.txt`
 
 `Release FPK` 在同一个 workflow 内完成验证、构建、提交、打 tag 和上传 Release，不依赖 PR 自动批准、自动合并，也不依赖 `GITHUB_TOKEN` 推送 tag 后再触发另一个 workflow。
