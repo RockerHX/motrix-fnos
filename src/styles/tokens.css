@@ -2,10 +2,10 @@
   --app-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --app-color-page: #0b0f0e;
-  --app-color-shell: #121212;
+  --app-color-shell: #102846;
   --app-color-surface: #151515;
-  --app-color-surface-elevated: #1a1d1c;
-  --app-color-surface-panel: #151b1a;
+  --app-color-surface-elevated: #1a2331;
+  --app-color-surface-panel: #151e2e;
   --app-color-card-overlay: rgba(255, 255, 255, 0.05);
   --app-color-card-overlay-subtle: rgba(255, 255, 255, 0.04);
   --app-color-border-subtle: rgba(255, 255, 255, 0.08);
@@ -15,9 +15,18 @@
   --app-text-strong: #eef4ed;
   --app-text-muted: #b7bfb4;
   --app-text-dim: #83958e;
-  --app-text-accent: #66e39a;
-  --app-text-accent-soft: #67dca0;
+  --app-text-accent: #3374db;
+  --app-text-accent-soft: #5da9ff;
   --app-text-danger: #ff8d8d;
+
+  --app-color-brand-navy: #1e3a5f;
+  --app-color-brand-deep: #102846;
+  --app-color-brand-blue: #3374db;
+  --app-color-brand-blue-hover: #5da9ff;
+  --app-color-brand-blue-pressed: #285bae;
+  --app-color-brand-blue-suppl: #a8c8f0;
+  --app-color-brand-selected: #1e3a5f;
+  --app-color-on-brand: #f4f8fd;
 
   --app-radius-sm: 12px;
   --app-radius-md: 14px;

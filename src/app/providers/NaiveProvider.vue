@@ -16,10 +16,10 @@ import { language } from "../../i18n";
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: "#68ae5a",
-    primaryColorHover: "#7bc96d",
-    primaryColorPressed: "#57964b",
-    primaryColorSuppl: "#8ef08a",
+    primaryColor: "#3374db",
+    primaryColorHover: "#5da9ff",
+    primaryColorPressed: "#285bae",
+    primaryColorSuppl: "#a8c8f0",
     borderRadius: "7px",
     bodyColor: "#151515",
     cardColor: "#1b1f1d",
