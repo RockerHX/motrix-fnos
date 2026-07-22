@@ -1,5 +1,37 @@
 .json-rpc-guide {
   min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.json-rpc-guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.json-rpc-guide-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.json-rpc-guide-header h3,
+.json-rpc-guide-header p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.json-rpc-guide-header h3 {
+  color: var(--app-text-strong);
+  font-size: 18px;
+}
+
+.json-rpc-guide-header p {
+  color: var(--app-text-muted);
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .json-rpc-guide-alert {
@@ -80,11 +112,13 @@
 }
 
 @media (max-width: 767px) {
+  .json-rpc-guide-header,
   .json-rpc-guide-endpoint {
     align-items: stretch;
     flex-direction: column;
   }
 
+  .json-rpc-guide-header :deep(.n-button),
   .json-rpc-guide-endpoint :deep(.n-button) {
     width: 100%;
   }

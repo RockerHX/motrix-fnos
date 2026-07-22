@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NTag } from "naive-ui";
+import { NButton, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
 import { useI18n } from "../../../i18n";
@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
+  openRpcGuide: [];
 }>();
 
 const { t } = useI18n();
@@ -62,6 +63,14 @@ function updateShow(show: boolean) {
       <AppSectionCard :title="t('help.diagnostics.title')" :description="t('help.diagnostics.body')">
         <template #meta>
           <NTag size="small" type="info" round>{{ t("common.troubleshooting") }}</NTag>
+        </template>
+      </AppSectionCard>
+
+      <AppSectionCard :title="t('help.jsonRpc.title')" :description="t('help.jsonRpc.body')">
+        <template #actions>
+          <NButton secondary size="small" @click="emit('openRpcGuide')">
+            {{ t("help.jsonRpc.openGuide") }}
+          </NButton>
         </template>
       </AppSectionCard>
     </div>

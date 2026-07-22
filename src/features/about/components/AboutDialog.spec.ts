@@ -63,7 +63,7 @@ describe("AboutDialog", () => {
     expect(wrapper.emitted("checkUpdate")).toHaveLength(1);
   });
 
-  it("explains the dedicated RPC port and opens settings from the guide", async () => {
+  it("shows a compact entry for the independent RPC guide", async () => {
     const { wrapper } = mountWithPinia(AboutDialog, {
       props: {
         show: true,
@@ -72,36 +72,11 @@ describe("AboutDialog", () => {
       },
     });
 
-    expect(wrapper.get('[data-test="json-rpc-local-endpoint"]').text()).toBe("http://127.0.0.1:17081/jsonrpc");
-    expect(wrapper.text()).toContain("17080");
-    expect(wrapper.text()).toContain("17081");
+    expect(wrapper.text()).toContain("JSON-RPC 使用指南");
+    await wrapper.findAll("button").find((button) => button.text() === "查看指南")!.trigger("click");
 
-    await wrapper.findAll("button").find((button) => button.text() === "配置 Token")!.trigger("click");
-
-    expect(wrapper.emitted("openSettings")).toHaveLength(1);
+    expect(wrapper.emitted("openRpcGuide")).toHaveLength(1);
     expect(wrapper.emitted("update:show")).toContainEqual([false]);
-  });
-
-  it("copies the local RPC endpoint without exposing a token", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    const { wrapper } = mountWithPinia(AboutDialog, {
-      props: {
-        show: true,
-        appInfo: createAppInfo(),
-        updateCheck: null,
-      },
-    });
-
-    await wrapper.findAll("button").find((button) => button.text() === "复制地址")!.trigger("click");
-    await flushPromises();
-
-    expect(writeText).toHaveBeenCalledWith("http://127.0.0.1:17081/jsonrpc");
-    expect(wrapper.text()).not.toContain("original-token");
-    expect(wrapper.text()).toContain("已复制");
   });
 });
 

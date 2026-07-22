@@ -55,4 +55,16 @@ describe("HelpDialog", () => {
 
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
   });
+
+  it("opens the independent RPC guide", async () => {
+    const { wrapper } = mountWithPinia(HelpDialog, {
+      props: {
+        show: true,
+      },
+    });
+
+    await wrapper.findAll("button").find((button) => button.text() === "打开配置指南")!.trigger("click");
+
+    expect(wrapper.emitted("openRpcGuide")).toHaveLength(1);
+  });
 });

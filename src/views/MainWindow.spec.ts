@@ -111,6 +111,7 @@ vi.mock("./MainWindowDialogs.vue", async () => {
       props: {
         showAbout: Boolean,
         showSettings: Boolean,
+        showJsonRpcGuide: Boolean,
       },
       emits: ["openRpcGuide"],
       setup(props, { emit }) {
@@ -119,6 +120,7 @@ vi.mock("./MainWindowDialogs.vue", async () => {
             h("button", { "data-test": "open-rpc-guide", onClick: () => emit("openRpcGuide") }, "open guide"),
             h("span", { "data-test": "main-dialogs-about" }, String(props.showAbout)),
             h("span", { "data-test": "main-dialogs-settings" }, String(props.showSettings)),
+            h("span", { "data-test": "main-dialogs-rpc-guide" }, String(props.showJsonRpcGuide)),
           ]);
       },
     }),
@@ -142,14 +144,15 @@ describe("MainWindow floating create button", () => {
     expect(wrapper.find(".floating-add").exists()).toBe(false);
   });
 
-  it("opens the About guide and closes Settings when requested", async () => {
+  it("opens the independent RPC guide and closes Settings when requested", async () => {
     const { wrapper } = mountMainWindow();
 
     await wrapper.get('[data-test="open-rpc-guide"]').trigger("click");
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.get('[data-test="main-dialogs-about"]').text()).toBe("true");
+    expect(wrapper.get('[data-test="main-dialogs-about"]').text()).toBe("false");
     expect(wrapper.get('[data-test="main-dialogs-settings"]').text()).toBe("false");
+    expect(wrapper.get('[data-test="main-dialogs-rpc-guide"]').text()).toBe("true");
   });
 
   it("keeps floating create button on mobile layout when the task list is visible", async () => {

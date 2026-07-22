@@ -56,6 +56,14 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.text()).toContain("debug-log-stub");
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
   });
+
+  it("opens the independent RPC guide from diagnostics", async () => {
+    const { wrapper } = mountDialog();
+
+    await wrapper.findAll("button").find((button) => button.text() === "JSON-RPC 指南")!.trigger("click");
+
+    expect(wrapper.emitted("openRpcGuide")).toHaveLength(1);
+  });
 });
 
 function mountDialog(show = true) {

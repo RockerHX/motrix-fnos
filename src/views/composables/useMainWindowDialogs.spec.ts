@@ -21,4 +21,23 @@ describe("useMainWindowDialogs", () => {
     expect(dialogs.showCreateDialog.value).toBe(false);
     expect(message.warning).toHaveBeenCalledWith("task.runtimeExiting");
   });
+
+  it("switches between the RPC guide and settings without overlapping dialogs", () => {
+    const dialogs = useMainWindowDialogs({
+      taskStore: { isRuntimeExiting: false } as never,
+      toolbar: { canCreate: ref(true) } as never,
+      message: { warning: vi.fn() },
+      t: (key) => key,
+    });
+
+    dialogs.openJsonRpcGuide();
+    expect(dialogs.showJsonRpcGuide.value).toBe(true);
+    expect(dialogs.showAbout.value).toBe(false);
+    expect(dialogs.showSettings.value).toBe(false);
+
+    dialogs.openSettingsFromJsonRpcGuide();
+    expect(dialogs.showJsonRpcGuide.value).toBe(false);
+    expect(dialogs.showSettings.value).toBe(true);
+    expect(dialogs.showAbout.value).toBe(false);
+  });
 });

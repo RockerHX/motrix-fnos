@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton } from "naive-ui";
+import { NButton, NSpace } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
 import type { AppMetricItem } from "../../../components/ui/appMetric";
@@ -28,6 +28,7 @@ const emit = defineEmits<{
   "update:show": [show: boolean];
   refreshStatus: [];
   engineStatusUpdated: [status: EngineStatusSnapshot];
+  openRpcGuide: [];
 }>();
 
 const { t } = useI18n();
@@ -84,7 +85,10 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
     @update:show="updateShow"
   >
     <template #header-extra>
-      <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
+      <NSpace>
+        <NButton secondary @click="emit('openRpcGuide')">{{ t("diagnostics.jsonRpcGuide") }}</NButton>
+        <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
+      </NSpace>
     </template>
 
     <AppMetricGrid class="diagnostics-metrics" :items="diagnosticMetrics" :desktop-columns="2" :mobile-columns="1" />

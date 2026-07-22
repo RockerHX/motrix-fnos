@@ -3,7 +3,6 @@ import { computed } from "vue";
 import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
-import JsonRpcGuide from "./JsonRpcGuide.vue";
 import { useI18n } from "../../../i18n";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
@@ -18,7 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
   checkUpdate: [];
-  openSettings: [];
+  openRpcGuide: [];
 }>();
 
 const { t } = useI18n();
@@ -35,8 +34,8 @@ function checkUpdate() {
   emit("checkUpdate");
 }
 
-function openSettings() {
-  emit("openSettings");
+function openRpcGuide() {
+  emit("openRpcGuide");
   emit("update:show", false);
 }
 
@@ -147,6 +146,18 @@ function targetArchLabel(arch: string | undefined) {
         </AppSectionCard>
 
         <AppSectionCard
+          class="about-rpc-guide-entry"
+          :title="t('about.rpcGuide.title')"
+          :description="t('about.rpcGuide.description')"
+        >
+          <template #actions>
+            <NButton secondary size="small" @click="openRpcGuide">
+              {{ t("about.rpcGuide.openGuide") }}
+            </NButton>
+          </template>
+        </AppSectionCard>
+
+        <AppSectionCard
           :title="t('about.changelog.title')"
           :description="t('about.changelog.description')"
         >
@@ -165,8 +176,6 @@ function targetArchLabel(arch: string | undefined) {
             </article>
           </div>
         </AppSectionCard>
-
-        <JsonRpcGuide @open-settings="openSettings" />
     </div>
   </AppDialog>
 </template>
