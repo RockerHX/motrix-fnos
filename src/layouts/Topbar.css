@@ -119,7 +119,7 @@
   height: var(--app-toolbar-primary-button-size);
   min-height: var(--app-toolbar-primary-button-size);
   border-radius: var(--app-radius-pill);
-  color: #101710;
+  color: var(--app-color-on-brand);
   background: var(--app-text-accent);
   font-size: 20px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
@@ -127,13 +127,13 @@
 
 .topbar-actions > .topbar-primary-button:hover,
 .topbar-actions > .topbar-primary-button:focus-visible {
-  color: #101710;
+  color: var(--app-color-on-brand);
   background: var(--app-text-accent-soft);
 }
 
 .topbar-actions > .topbar-primary-button:disabled,
 .topbar-actions > .topbar-primary-button:disabled:hover {
-  color: #101710;
+  color: var(--app-color-on-brand);
   background: var(--app-text-accent);
   box-shadow: none;
 }

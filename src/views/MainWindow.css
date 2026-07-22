@@ -48,8 +48,8 @@
   height: 52px;
   border: 0;
   border-radius: 999px;
-  color: #101710;
-  background: #68ae5a;
+  color: var(--app-color-on-brand);
+  background: var(--app-color-brand-blue);
   font: inherit;
   font-size: 30px;
   line-height: 1;

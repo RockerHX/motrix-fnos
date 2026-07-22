@@ -50,7 +50,7 @@
 
 .category-list button.active {
   color: var(--app-text-strong);
-  background: rgba(255, 255, 255, 0.026);
+  background: var(--app-color-brand-selected);
 }
 
 .category-list button:hover,
@@ -125,7 +125,7 @@
   .sidebar {
     grid-template-rows: minmax(0, 1fr);
     padding: 8px var(--app-mobile-page-gutter) calc(8px + var(--app-safe-area-bottom));
-    border-top: 1px solid #324036;
+    border-top: 1px solid var(--app-color-border-subtle);
     border-right: 0;
   }
 
