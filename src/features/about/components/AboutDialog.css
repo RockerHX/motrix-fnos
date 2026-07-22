@@ -22,7 +22,7 @@ p {
   flex: 0 0 auto;
   place-items: center;
   border-radius: var(--app-radius-lg);
-  color: #102010;
+  color: var(--app-color-on-brand);
   background: var(--app-text-accent);
   font-size: 28px;
   font-weight: 900;
@@ -36,14 +36,14 @@ p {
 
 .about-hero p,
 .version-line {
-  color: #aeb9ad;
+  color: var(--app-text-muted);
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
 
 .update-result p {
-  color: #aeb9ad;
+  color: var(--app-text-muted);
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -77,15 +77,15 @@ p {
   display: grid;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid rgba(142, 240, 138, 0.22);
+  border: 1px solid color-mix(in srgb, var(--app-text-accent-soft) 22%, transparent);
   border-radius: var(--app-radius-sm);
-  color: #dfe8dc;
+  color: var(--app-text-secondary);
   text-decoration: none;
   overflow-wrap: anywhere;
 }
 
 .asset-list a:hover {
-  border-color: rgba(142, 240, 138, 0.5);
+  border-color: color-mix(in srgb, var(--app-text-accent-soft) 50%, transparent);
 }
 
 .changelog-list {
@@ -110,7 +110,7 @@ p {
 
 .changelog-entry header span,
 .changelog-section h4 {
-  color: #9fae9d;
+  color: var(--app-text-dim);
   font-size: 12px;
 }
 
@@ -126,14 +126,14 @@ p {
 .changelog-section ul {
   margin: 0;
   padding-left: 18px;
-  color: #c8d2c5;
+  color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
 
 a {
-  color: #8ef08a;
+  color: var(--app-text-accent-soft);
   overflow-wrap: anywhere;
 }
 

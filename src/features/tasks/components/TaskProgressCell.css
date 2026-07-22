@@ -5,6 +5,6 @@
 }
 
 small {
-  color: #a8bab3;
+  color: var(--app-text-muted);
   font-variant-numeric: tabular-nums;
 }

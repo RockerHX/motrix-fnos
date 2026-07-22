@@ -27,7 +27,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  color: #8d9c96;
+  color: var(--app-text-dim);
   font-size: 12px;
 }
 
@@ -37,7 +37,7 @@
 
 .log-entry p {
   margin: 8px 0 0;
-  color: #edf5ef;
+  color: var(--app-text-strong);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;

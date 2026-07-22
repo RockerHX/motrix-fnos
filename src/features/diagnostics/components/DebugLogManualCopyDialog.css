@@ -8,7 +8,7 @@ h2 {
 
 .manual-copy-hint {
   margin: 0 0 12px;
-  color: #b8c4be;
+  color: var(--app-text-secondary);
   line-height: 1.6;
 }
 
