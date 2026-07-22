@@ -1,31 +1,31 @@
 ---
 name: Motrix fnOS
 colors:
-  background: '#151917'
-  on-background: '#EEF3EF'
-  primary: '#68AE5A'
-  on-primary: '#111513'
-  primary-container: '#253626'
-  on-primary-container: '#EEF3EF'
-  surface-container: '#1B201D'
-  surface-container-high: '#222824'
-  on-surface: '#EEF3EF'
-  on-surface-variant: '#B6C0B9'
-  outline: '#343C37'
-  outline-variant: '#29302C'
-  shell: '#111513'
-  canvas: '#151917'
-  surface: '#1B201D'
-  surface-raised: '#222824'
-  border: '#343C37'
-  border-subtle: '#29302C'
-  text-primary: '#EEF3EF'
-  text-secondary: '#B6C0B9'
-  text-muted: '#7F8B83'
-  accent: '#68AE5A'
-  accent-hover: '#7ABE6C'
-  accent-pressed: '#57964B'
-  accent-soft: '#253626'
+  background: '#142236'
+  on-background: '#F4F8FD'
+  primary: '#3374DB'
+  on-primary: '#F4F8FD'
+  primary-container: '#1E3A5F'
+  on-primary-container: '#F4F8FD'
+  surface-container: '#142236'
+  surface-container-high: '#1B314D'
+  on-surface: '#F4F8FD'
+  on-surface-variant: '#DCEBFA'
+  outline: '#304B68'
+  outline-variant: '#243A54'
+  shell: '#102846'
+  canvas: '#0D1725'
+  surface: '#142236'
+  surface-raised: '#1B314D'
+  border: '#304B68'
+  border-subtle: '#243A54'
+  text-primary: '#F4F8FD'
+  text-secondary: '#DCEBFA'
+  text-muted: '#A8B8D0'
+  accent: '#3374DB'
+  accent-hover: '#5DA9FF'
+  accent-pressed: '#285BAE'
+  accent-soft: '#1E3A5F'
   error: '#D56A6A'
   warning: '#D5A64A'
   info: '#6F9FC7'
@@ -71,48 +71,48 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 - **密度 8/10**：优先快速扫描任务名称、进度、速度、ETA 和错误。
 - **布局变化 3/10**：稳定、可预测；信息对齐优先于装饰性不对称。
 - **动效 2/10**：仅为状态变化、弹窗和直接操作提供反馈。
-- **视觉特征**：深炭灰或柔和浅灰中性色，单一克制绿色强调，细边框、少阴影、紧凑圆角。
+- **视觉特征**：深海军蓝结构色、深炭灰中性色和明亮蓝强调，细边框、少阴影、紧凑圆角。
 - **禁止**：Hero、宣传区、滚动叙事、玻璃拟态、装饰渐变、发光、噪点纹理、嵌套卡片、大圆角 SaaS 风格和持续循环动画。
 
 ## 2. Color Palette & Roles
 
-颜色以语义 token 使用，不在组件内直接写主题色。绿色是唯一品牌强调色；危险、警告、信息色仅表达状态。
+颜色以语义 token 使用，不在组件内直接写主题色。明亮蓝是唯一品牌强调色，深海军蓝承担结构层级；成功、危险、警告、信息色仅表达状态。
 
 ### 2.1 Dark theme（默认）
 
 | Token | Value | Role |
 | --- | --- | --- |
-| `--color-shell` | `#111513` | 应用外壳与侧栏底色 |
-| `--color-canvas` | `#151917` | 主内容画布 |
-| `--color-surface` | `#1B201D` | 弹窗、输入、任务边界 |
-| `--color-surface-raised` | `#222824` | hover、选中与浮层 |
-| `--color-border` | `#343C37` | 结构边框 |
-| `--color-border-subtle` | `#29302C` | 分隔线和弱边框 |
-| `--color-text-primary` | `#EEF3EF` | 主标题和关键数值 |
-| `--color-text-secondary` | `#B6C0B9` | 正文和次要字段 |
-| `--color-text-muted` | `#7F8B83` | 辅助说明和占位符 |
-| `--color-accent` | `#68AE5A` | 主操作、进度和焦点 |
-| `--color-accent-hover` | `#7ABE6C` | 强调色 hover |
-| `--color-accent-pressed` | `#57964B` | 强调色 pressed |
-| `--color-accent-soft` | `#253626` | 选中背景 |
+| `--color-shell` | `#102846` | 应用外壳与侧栏底色 |
+| `--color-canvas` | `#0D1725` | 主内容画布 |
+| `--color-surface` | `#142236` | 弹窗、输入、任务边界 |
+| `--color-surface-raised` | `#1B314D` | hover、选中与浮层 |
+| `--color-border` | `#304B68` | 结构边框 |
+| `--color-border-subtle` | `#243A54` | 分隔线和弱边框 |
+| `--color-text-primary` | `#F4F8FD` | 主标题和关键数值 |
+| `--color-text-secondary` | `#DCEBFA` | 正文和次要字段 |
+| `--color-text-muted` | `#A8B8D0` | 辅助说明和占位符 |
+| `--color-accent` | `#3374DB` | 主操作、进度和焦点 |
+| `--color-accent-hover` | `#5DA9FF` | 强调色 hover |
+| `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
+| `--color-accent-soft` | `#1E3A5F` | 选中背景 |
 
 ### 2.2 Light theme
 
 | Token | Value | Role |
 | --- | --- | --- |
-| `--color-shell` | `#EEF1EE` | 应用外壳与侧栏底色 |
-| `--color-canvas` | `#F7F9F7` | 主内容画布 |
+| `--color-shell` | `#DCEBFA` | 应用外壳与侧栏底色 |
+| `--color-canvas` | `#F4F8FD` | 主内容画布 |
 | `--color-surface` | `#FFFFFF` | 弹窗、输入、任务边界 |
-| `--color-surface-raised` | `#F0F4F0` | hover、选中与浮层 |
-| `--color-border` | `#CBD3CD` | 结构边框 |
-| `--color-border-subtle` | `#DDE3DE` | 分隔线和弱边框 |
-| `--color-text-primary` | `#19201B` | 主标题和关键数值 |
-| `--color-text-secondary` | `#48534B` | 正文和次要字段 |
-| `--color-text-muted` | `#707C73` | 辅助说明和占位符 |
-| `--color-accent` | `#4F9145` | 主操作、进度和焦点 |
-| `--color-accent-hover` | `#43813A` | 强调色 hover |
-| `--color-accent-pressed` | `#376E30` | 强调色 pressed |
-| `--color-accent-soft` | `#E4F0E2` | 选中背景 |
+| `--color-surface-raised` | `#EDF4FD` | hover、选中与浮层 |
+| `--color-border` | `#B8C8DE` | 结构边框 |
+| `--color-border-subtle` | `#D5E2F1` | 分隔线和弱边框 |
+| `--color-text-primary` | `#102846` | 主标题和关键数值 |
+| `--color-text-secondary` | `#304A67` | 正文和次要字段 |
+| `--color-text-muted` | `#4C6B92` | 辅助说明和占位符 |
+| `--color-accent` | `#3374DB` | 主操作、进度和焦点 |
+| `--color-accent-hover` | `#5DA9FF` | 强调色 hover |
+| `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
+| `--color-accent-soft` | `#DCEBFA` | 选中背景 |
 
 ### 2.3 Shared status colors
 
@@ -223,7 +223,7 @@ Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运�
 
 - 不新增搜索、右键菜单、底部状态栏、做种分类、任务详情抽屉等候选功能。
 - 不使用 Hero、宣传文案、玻璃拟态、霓虹发光、紫蓝渐变、噪点、浮动装饰物。
-- 不使用纯黑 `#000000`、纯白大面积高亮、过饱和绿色或多品牌强调色。
+- 不使用纯黑 `#000000`、纯白大面积高亮、过饱和蓝色或多品牌强调色。
 - 不使用超大圆角、嵌套卡片、等宽三卡片营销布局或无意义徽标。
 - 不引入新的动画库、字体包、Tabler Icons 之外的通用图标库或非标准 canvas 控件。
 - 不把 Stitch 生成的 Tailwind、Material Symbols、任意第三方组件或静态 HTML 当作项目实现方案。
