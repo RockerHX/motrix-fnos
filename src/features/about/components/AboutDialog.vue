@@ -92,7 +92,7 @@ function targetArchLabel(arch: string | undefined) {
             <h3>{{ appName }}</h3>
             <p>{{ t("about.subtitle") }}</p>
             <div class="hero-tags">
-              <NTag type="success" round>v{{ currentVersion }}</NTag>
+              <NTag type="primary" round>v{{ currentVersion }}</NTag>
               <NTag round>{{ targetArchLabel(props.appInfo?.targetArch) }}</NTag>
             </div>
           </div>

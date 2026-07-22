@@ -17,6 +17,7 @@ const expectedTokens = {
   "--app-color-brand-blue-suppl": "#a8c8f0",
   "--app-color-brand-selected": "#1e3a5f",
   "--app-color-on-brand": "#f4f8fd",
+  "--app-color-success": "#68ae5a",
   "--app-text-accent": "#3374db",
   "--app-text-accent-soft": "#5da9ff",
 };
@@ -54,8 +55,11 @@ test("logo 蓝色主题令牌与 Naive UI 主色保持一致", () => {
   }
 });
 
-test("运行时代码不再包含旧绿色品牌色", () => {
-  const runtimeFiles = [path.join(repoRoot, "index.html"), ...collectFiles(srcRoot, [".css", ".ts", ".vue"])];
+test("运行时代码不再包含旧绿色品牌色（语义状态 token 除外）", () => {
+  const runtimeFiles = [
+    path.join(repoRoot, "index.html"),
+    ...collectFiles(srcRoot, [".css", ".ts", ".vue"]).filter((file) => file !== tokensPath),
+  ];
   const legacyPattern = new RegExp(legacyBrandGreens.join("|"), "i");
 
   for (const file of runtimeFiles) {

@@ -6,7 +6,7 @@
 }
 
 .app-metric-card--success {
-  border-color: color-mix(in srgb, var(--app-text-accent-soft) 34%, var(--app-color-border-subtle));
+  border-color: color-mix(in srgb, var(--app-color-success) 34%, var(--app-color-border-subtle));
 }
 
 .app-metric-card--warning {
