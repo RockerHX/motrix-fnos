@@ -125,6 +125,13 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 状态必须同时使用文字或图标；禁止只靠颜色表达。焦点环使用主题强调色并提供至少 `2px` 可见轮廓。
 
+### 2.4 Logo 蓝色主题迁移结果（2026-07-22）
+
+- 已将运行时品牌色迁移为 logo 蓝色体系：`#3374DB` 用于主操作、链接、进度和焦点，`#5DA9FF` 用于 hover，`#285BAE` 用于 pressed，`#1E3A5F` / `#102846` 用于结构区域和选中背景。
+- 组件品牌色统一通过全局 token 与 Naive UI 主色覆盖消费；组件样式继续维护在同目录外部 scoped CSS 文件中。
+- 成功、警告、危险和信息色保持独立语义，不因品牌迁移改为蓝色。
+- 当前应用仍固定使用深色 Naive UI 主题；本轮未新增运行时浅色主题切换。浅色蓝色表仅作为后续主题实现规范。
+
 ## 3. Typography Rules
 
 - **界面字体**：`-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`。不下载或新增字体包。
