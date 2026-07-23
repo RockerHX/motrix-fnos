@@ -237,8 +237,10 @@ pub async fn bootstrap_http_app_state(
         .await?
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
+    let state = Arc::new(HttpAppState::new(state, runtime.clone()));
+    crate::runtime::reconcile_unfinished_task_operations(&state).await?;
 
-    Ok(Arc::new(HttpAppState::new(state, runtime.clone())))
+    Ok(state)
 }
 
 fn migrate_legacy_owned_task_dirs(tasks: &mut [DownloadTask], accessible_paths: &[String]) {

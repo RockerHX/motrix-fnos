@@ -69,6 +69,19 @@ pub(crate) async fn tell_status(
     Ok(status)
 }
 
+pub(crate) async fn task_exists(
+    client: &reqwest::Client,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<bool, String> {
+    match tell_status(client, config, gid, debug_logs).await {
+        Ok(_) => Ok(true),
+        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
     let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
