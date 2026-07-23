@@ -1,4 +1,5 @@
 use super::*;
+use crate::tasks::files::{stage_task_files, StagedTaskFiles};
 
 impl<'a> TaskService<'a> {
     pub async fn pause_download_task(
@@ -84,34 +85,154 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let task = task_snapshot(self.download_tasks, task_id)?;
-        if task.status != DownloadTaskStatus::Complete {
+        let _operation = self.download_tasks.begin_operation(task_id)?;
+        let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.status != DownloadTaskStatus::Complete {
             return Err("只有已完成任务可以重新下载".to_string());
         }
 
-        delete_task_files(&task)?;
+        validate_task_files(&snapshot)?;
+        let torrent_data = match snapshot.source_type {
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => Some(
+                read_saved_torrent_metadata(&snapshot)
+                    .map_err(|error| format!("重新下载前无法读取源 metadata：{}", error))?,
+            ),
+            DownloadTaskSourceType::Url => None,
+        };
         let prepared = crate::tasks::PreparedDownloadTask {
-            url: task.url.clone(),
-            file_name: task.file_name.clone(),
-            output_file_name: Some(task.file_name.clone()),
-            save_dir: task_download_dir(&task).to_string(),
+            url: snapshot.url.clone(),
+            file_name: snapshot.file_name.clone(),
+            output_file_name: Some(snapshot.file_name.clone()),
+            save_dir: task_download_dir(&snapshot).to_string(),
             aria2_save_dir: None,
-            category: task.category.clone(),
-            source_type: task.source_type,
-            start_mode: DownloadTaskStartMode::Now,
+            category: snapshot.category.clone(),
+            source_type: snapshot.source_type,
+            start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
         };
-        let gid = add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?;
-        let task = mark_task_redownloaded(self.download_tasks, task_id, gid.clone())?;
-        query::sync_task_to_database(self, &task).await?;
+        let gid = match snapshot.source_type {
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
+                add_torrent_to_aria2(
+                    config,
+                    &prepared,
+                    torrent_data
+                        .as_deref()
+                        .ok_or_else(|| "重新下载缺少源 metadata".to_string())?,
+                    Some(self.debug_logs),
+                )
+                .await?
+            }
+            DownloadTaskSourceType::Url => {
+                add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?
+            }
+        };
+
+        let pending = match mark_task_redownloaded(self.download_tasks, task_id, gid.clone()) {
+            Ok(task) => task,
+            Err(error) => {
+                let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = query::sync_task_to_database(self, &pending).await {
+            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            replace_task_snapshot(self.download_tasks, snapshot.clone())?;
+            let restore_error = query::sync_task_to_database(self, &snapshot).await.err();
+            return Err(match restore_error {
+                Some(restore_error) => {
+                    format!("{}；恢复数据库任务状态失败：{}", error, restore_error)
+                }
+                None => error,
+            });
+        }
+
+        let staged = match stage_task_files(&snapshot) {
+            Ok(staged) => staged,
+            Err(error) => {
+                return self
+                    .rollback_redownload(config, snapshot, gid, None, error)
+                    .await;
+            }
+        };
+
+        if matches!(
+            snapshot.source_type,
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
+        ) {
+            if let Err(error) = fs::create_dir_all(task_download_dir(&snapshot)) {
+                return self
+                    .rollback_redownload(
+                        config,
+                        snapshot,
+                        gid,
+                        staged,
+                        format!("重建 BT 任务保存目录失败：{}", error),
+                    )
+                    .await;
+            }
+        }
+
+        if let Err(error) = unpause_task(config, &gid, Some(self.debug_logs)).await {
+            return self
+                .rollback_redownload(config, snapshot, gid, staged, error)
+                .await;
+        }
+
+        let active = match mark_task_resumed(self.download_tasks, task_id) {
+            Ok(task) => task,
+            Err(error) => {
+                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, error)
+                    .await;
+            }
+        };
+        if let Err(error) = query::sync_task_to_database(self, &active).await {
+            let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+            return self
+                .rollback_redownload(config, snapshot, gid, staged, error)
+                .await;
+        }
+
+        if let Some(staged) = staged {
+            if let Err(error) = staged.commit() {
+                self.debug_logs.warn(
+                    "tasks.redownload",
+                    format!("重新下载已启动，但旧文件暂存目录清理失败：{}", error),
+                );
+            }
+        }
         self.debug_logs.info(
             "tasks.control",
-            format!(
-                "任务已重新下载，ID {}，GID {}，原本地文件已删除",
-                task_id, gid
-            ),
+            format!("任务已重新下载，ID {}，GID {}", task_id, gid),
         );
-        Ok(task)
+        Ok(active)
+    }
+
+    async fn rollback_redownload(
+        &self,
+        config: &Aria2Config,
+        snapshot: DownloadTask,
+        gid: String,
+        staged: Option<StagedTaskFiles>,
+        reason: String,
+    ) -> Result<DownloadTask, String> {
+        let remove_error = remove_task(config, &gid, Some(self.debug_logs)).await.err();
+        let restore_error = staged.and_then(|staged| staged.restore().err());
+        replace_task_snapshot(self.download_tasks, snapshot.clone())?;
+        let persist_error = query::sync_task_to_database(self, &snapshot).await.err();
+
+        let mut errors = vec![reason];
+        if let Some(error) = remove_error {
+            errors.push(format!("移除新 Aria2 任务失败：{}", error));
+        }
+        if let Some(error) = restore_error {
+            errors.push(format!("恢复原文件失败：{}", error));
+        }
+        if let Some(error) = persist_error {
+            errors.push(format!("恢复数据库任务状态失败：{}", error));
+        }
+        Err(errors.join("；"))
     }
 }

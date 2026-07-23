@@ -7,12 +7,12 @@ use crate::tasks::files::{
 };
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, delete_task_files, is_stale_aria2_gid_error,
-    mark_magnet_task_reparsing, mark_task_files_confirmed, mark_task_redownloaded,
-    mark_task_removed, mark_task_restored, mark_task_resumed, pause_task, prepare_task_with_logs,
-    prepare_torrent_task_with_logs, readd_task_to_aria2, remove_task, remove_task_record,
-    replace_task_snapshot, set_task_metadata_torrent_path, should_readd_task_after_resume_error,
-    store_created_task, store_created_task_with_id, sync_task_progress_after_pause_by_gid,
+    add_torrent_to_aria2, add_uri_to_aria2, is_stale_aria2_gid_error, mark_magnet_task_reparsing,
+    mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
+    mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
+    readd_task_to_aria2, remove_task, remove_task_record, replace_task_snapshot,
+    set_task_metadata_torrent_path, should_readd_task_after_resume_error, store_created_task,
+    store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
     validate_task_files, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,

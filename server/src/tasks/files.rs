@@ -1,9 +1,154 @@
 use crate::tasks::{is_pending_magnet_metadata_task, DownloadTask, PreparedDownloadTask};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const RESTORE_METADATA_ROOT: &str = "task-metadata";
 const RESTORE_TORRENT_FILE: &str = "source.torrent";
+const REDOWNLOAD_BACKUP_PREFIX: &str = ".motrix-redownload-backup";
+
+pub(crate) struct StagedTaskFiles {
+    backup_dir: PathBuf,
+    entries: Vec<(PathBuf, PathBuf)>,
+}
+
+impl StagedTaskFiles {
+    pub(crate) fn commit(self) -> Result<(), String> {
+        fs::remove_dir_all(&self.backup_dir).map_err(|error| {
+            format!(
+                "清理重新下载暂存文件失败：{}（{}）",
+                self.backup_dir.display(),
+                error
+            )
+        })
+    }
+
+    pub(crate) fn restore(self) -> Result<(), String> {
+        for (original, staged) in self.entries.iter().rev() {
+            if original.exists() {
+                let removable_empty_dir = original.is_dir()
+                    && fs::read_dir(original)
+                        .map(|mut entries| entries.next().is_none())
+                        .unwrap_or(false);
+                if removable_empty_dir {
+                    fs::remove_dir(original).map_err(|error| {
+                        format!(
+                            "清理重新下载创建的空目录失败：{}（{}）",
+                            original.display(),
+                            error
+                        )
+                    })?;
+                } else {
+                    return Err(format!(
+                        "恢复重新下载文件失败，目标路径已存在：{}",
+                        original.display()
+                    ));
+                }
+            }
+            fs::rename(staged, original).map_err(|error| {
+                format!(
+                    "恢复重新下载文件失败：{} -> {}（{}）",
+                    staged.display(),
+                    original.display(),
+                    error
+                )
+            })?;
+        }
+        fs::remove_dir_all(&self.backup_dir).map_err(|error| {
+            format!(
+                "清理重新下载恢复目录失败：{}（{}）",
+                self.backup_dir.display(),
+                error
+            )
+        })
+    }
+}
+
+pub(crate) fn stage_task_files(task: &DownloadTask) -> Result<Option<StagedTaskFiles>, String> {
+    validate_task_files(task)?;
+    let lower_url = task.url.to_ascii_lowercase();
+    if lower_url.starts_with("torrent:") || lower_url.starts_with("magnet:?") {
+        let Some(task_dir) = resolve_bt_task_dir(task, lower_url.starts_with("magnet:?"))? else {
+            return Ok(None);
+        };
+        let parent = task_dir.parent().map(Path::to_path_buf);
+        return stage_paths(task.id, parent.as_deref(), vec![task_dir]);
+    }
+
+    let Some(file_path) = task
+        .file_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    stage_paths(
+        task.id,
+        Path::new(file_path).parent(),
+        delete_file_candidates(Path::new(file_path)),
+    )
+}
+
+fn stage_paths(
+    task_id: u64,
+    parent: Option<&Path>,
+    paths: Vec<PathBuf>,
+) -> Result<Option<StagedTaskFiles>, String> {
+    let Some(parent) = parent else {
+        return Err("重新下载文件缺少父目录".to_string());
+    };
+    let existing = paths
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect::<Vec<_>>();
+    if existing.is_empty() {
+        return Ok(None);
+    }
+
+    let backup_dir = parent.join(format!(
+        "{}-{}-{}",
+        REDOWNLOAD_BACKUP_PREFIX,
+        task_id,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default()
+    ));
+    fs::create_dir(&backup_dir).map_err(|error| {
+        format!(
+            "创建重新下载暂存目录失败：{}（{}）",
+            backup_dir.display(),
+            error
+        )
+    })?;
+
+    let mut entries = Vec::with_capacity(existing.len());
+    for original in existing {
+        let Some(name) = original.file_name() else {
+            let _ = fs::remove_dir_all(&backup_dir);
+            return Err(format!("重新下载文件路径无效：{}", original.display()));
+        };
+        let staged = backup_dir.join(name);
+        if let Err(error) = fs::rename(&original, &staged) {
+            for (original, staged) in entries.iter().rev() {
+                let _ = fs::rename(staged, original);
+            }
+            let _ = fs::remove_dir_all(&backup_dir);
+            return Err(format!(
+                "暂存重新下载文件失败：{} -> {}（{}）",
+                original.display(),
+                staged.display(),
+                error
+            ));
+        }
+        entries.push((original, staged));
+    }
+
+    Ok(Some(StagedTaskFiles {
+        backup_dir,
+        entries,
+    }))
+}
 
 pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
     delete_task_file(task)

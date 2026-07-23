@@ -336,6 +336,9 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }
+    if error.contains("已有操作正在进行") {
+        return ApiError::conflict("task_operation_conflict", error);
+    }
     // 当前 service 使用中文错误文本区分可修正请求；新增或调整领域错误时必须同步检查这里的 HTTP 分类。
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")

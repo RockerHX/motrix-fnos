@@ -232,6 +232,8 @@ Session 与 Cookie 约定：
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
+- `POST /api/tasks/:id/redownload` 只允许重新下载 `complete` 任务。服务端先按原来源创建暂停任务并持久化，再暂存旧文件；新任务恢复成功后才清理暂存文件。任一步失败会恢复旧任务和原文件。URL 使用 `addUri`，种子和已确认磁链使用保存的源 metadata 调用 `addTorrent`。
+- 同一任务已有重新下载操作时，重复请求返回 `409 Conflict`，错误码为 `task_operation_conflict`。
 - 恢复保留本地文件的任务时复用原保存目录和控制文件续传；删除过本地文件的任务重建为从头下载的暂停任务。
 - URL 任务使用原 URL 恢复；种子和已确认磁链优先使用应用私有目录保存的源种子 metadata。磁链缺少 metadata 时重新解析并再次要求确认文件；旧种子 metadata 已丢失时返回 `400 Bad Request` 并保持回收站状态。
 - `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix 数据库记录，不删除用户下载文件。

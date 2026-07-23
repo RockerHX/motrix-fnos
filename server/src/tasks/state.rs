@@ -8,16 +8,33 @@ use std::sync::{Mutex, MutexGuard};
 
 use super::current_timestamp_ms;
 use crate::tasks::files::delete_task_file;
+use std::collections::HashSet;
 
 pub struct TaskMemoryState {
     tasks: Mutex<Vec<DownloadTask>>,
+    active_operations: Mutex<HashSet<u64>>,
 }
 
 impl TaskMemoryState {
     pub fn new(tasks: Vec<DownloadTask>) -> Self {
         Self {
             tasks: Mutex::new(tasks),
+            active_operations: Mutex::new(HashSet::new()),
         }
+    }
+
+    pub fn begin_operation(&self, task_id: u64) -> Result<TaskOperationGuard<'_>, String> {
+        let mut operations = self
+            .active_operations
+            .lock()
+            .map_err(|_| "无法锁定任务操作状态".to_string())?;
+        if !operations.insert(task_id) {
+            return Err("该任务已有操作正在进行，请稍后重试".to_string());
+        }
+        Ok(TaskOperationGuard {
+            state: self,
+            task_id,
+        })
     }
 
     pub fn list(&self) -> Result<Vec<DownloadTask>, String> {
@@ -42,6 +59,19 @@ impl TaskMemoryState {
         self.tasks
             .lock()
             .map_err(|_| "无法写入下载任务列表".to_string())
+    }
+}
+
+pub struct TaskOperationGuard<'a> {
+    state: &'a TaskMemoryState,
+    task_id: u64,
+}
+
+impl Drop for TaskOperationGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut operations) = self.state.active_operations.lock() {
+            operations.remove(&self.task_id);
+        }
     }
 }
 

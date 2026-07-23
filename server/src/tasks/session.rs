@@ -1,9 +1,10 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::files::task_download_dir;
+use crate::tasks::files::{read_saved_torrent_metadata, task_download_dir};
 use crate::tasks::{
-    add_uri_to_aria2, should_force_pause_task_on_startup, CreateTaskAdvancedOptions, DownloadTask,
-    DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
+    add_torrent_to_aria2, add_uri_to_aria2, should_force_pause_task_on_startup,
+    CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
 };
 
 use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
@@ -247,7 +248,14 @@ pub(crate) async fn readd_download_task(
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
     };
-    add_uri_to_aria2(config, &prepared, debug_logs).await
+    match task.source_type {
+        DownloadTaskSourceType::Url => add_uri_to_aria2(config, &prepared, debug_logs).await,
+        DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
+            let torrent_data = read_saved_torrent_metadata(task)
+                .map_err(|error| format!("重新加入 BT 任务前无法读取源 metadata：{}", error))?;
+            add_torrent_to_aria2(config, &prepared, &torrent_data, debug_logs).await
+        }
+    }
 }
 
 async fn remove_download_result(

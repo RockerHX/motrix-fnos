@@ -450,7 +450,26 @@ fn mark_task_redownloaded_rejects_unfinished_task() {
 }
 
 #[test]
-fn delete_task_files_removes_completed_file_before_redownload() {
+fn task_operation_guard_rejects_parallel_operation_and_releases_on_drop() {
+    let tasks = TaskMemoryState::new(Vec::new());
+    let guard = tasks
+        .begin_operation(1)
+        .expect("first operation should lock");
+
+    let error = match tasks.begin_operation(1) {
+        Ok(_) => panic!("parallel operation should reject"),
+        Err(error) => error,
+    };
+    assert!(error.contains("已有操作"));
+
+    drop(guard);
+    tasks
+        .begin_operation(1)
+        .expect("operation should unlock after guard drop");
+}
+
+#[test]
+fn delete_task_files_removes_completed_file_and_control_file() {
     let save_dir = PathBuf::from(temp_download_dir("redownload-delete"));
     fs::create_dir_all(&save_dir).expect("save dir should be created");
     let file_path = save_dir.join("file.zip");
