@@ -14,43 +14,136 @@ impl<'a> TaskService<'a> {
             return Err("只有回收站任务可以恢复".to_string());
         }
 
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Restore,
+                "prepared",
+                task_operation_context(
+                    Some(snapshot.clone()),
+                    vec![task_download_dir(&snapshot).to_string()],
+                ),
+            )
+            .await?;
+
         let (gid, reparsing_base_dir) = match snapshot.source_type {
-            DownloadTaskSourceType::Url => (self.restore_url_task(config, &snapshot).await?, None),
+            DownloadTaskSourceType::Url => match self.restore_url_task(config, &snapshot).await {
+                Ok(gid) => (gid, None),
+                Err(error) => {
+                    self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
+                        .await;
+                    return Err(error);
+                }
+            },
             DownloadTaskSourceType::Torrent => {
-                (self.restore_bt_task(config, &snapshot).await?, None)
+                match self.restore_bt_task(config, &snapshot).await {
+                    Ok(gid) => (gid, None),
+                    Err(error) => {
+                        self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
+                            .await;
+                        return Err(error);
+                    }
+                }
             }
             DownloadTaskSourceType::Magnet
                 if snapshot.confirmation_required || snapshot.file_path.is_none() =>
             {
-                let (gid, base_save_dir) =
-                    self.restore_magnet_metadata_task(config, &snapshot).await?;
-                (gid, Some(base_save_dir))
+                match self.restore_magnet_metadata_task(config, &snapshot).await {
+                    Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
+                    Err(error) => {
+                        self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
+                            .await;
+                        return Err(error);
+                    }
+                }
             }
             DownloadTaskSourceType::Magnet => match read_saved_torrent_metadata(&snapshot) {
-                Ok(torrent_data) => (
-                    self.restore_bt_task_with_data(config, &snapshot, &torrent_data)
-                        .await?,
-                    None,
-                ),
-                Err(_) => {
-                    let (gid, base_save_dir) =
-                        self.restore_magnet_metadata_task(config, &snapshot).await?;
-                    (gid, Some(base_save_dir))
-                }
+                Ok(torrent_data) => match self
+                    .restore_bt_task_with_data(config, &snapshot, &torrent_data)
+                    .await
+                {
+                    Ok(gid) => (gid, None),
+                    Err(error) => {
+                        self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
+                            .await;
+                        return Err(error);
+                    }
+                },
+                Err(_) => match self.restore_magnet_metadata_task(config, &snapshot).await {
+                    Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
+                    Err(error) => {
+                        self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
+                            .await;
+                        return Err(error);
+                    }
+                },
             },
         };
 
-        let restored = if let Some(base_save_dir) = reparsing_base_dir {
-            mark_magnet_task_reparsing(self.download_tasks, task_id, gid.clone(), base_save_dir)?
-        } else {
-            mark_task_restored(self.download_tasks, task_id, gid.clone())?
-        };
-
-        if let Err(error) = query::sync_task_to_database(self, &restored).await {
+        if let Err(error) = self
+            .record_aria2_task_created(&mut operation, gid.clone())
+            .await
+        {
             let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
-            replace_task_snapshot(self.download_tasks, snapshot)?;
+            self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
+                .await;
             return Err(error);
         }
+
+        let restored = if let Some(base_save_dir) = reparsing_base_dir {
+            match mark_magnet_task_reparsing(
+                self.download_tasks,
+                task_id,
+                gid.clone(),
+                base_save_dir,
+            ) {
+                Ok(task) => task,
+                Err(error) => {
+                    let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                    return Err(self
+                        .rollback_task_operation_state(
+                            snapshot,
+                            &mut operation,
+                            "memory_state_failed",
+                            error,
+                        )
+                        .await);
+                }
+            }
+        } else {
+            match mark_task_restored(self.download_tasks, task_id, gid.clone()) {
+                Ok(task) => task,
+                Err(error) => {
+                    let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                    return Err(self
+                        .rollback_task_operation_state(
+                            snapshot,
+                            &mut operation,
+                            "memory_state_failed",
+                            error,
+                        )
+                        .await);
+                }
+            }
+        };
+
+        if let Err(error) = self
+            .persist_task_with_operation(&restored, &mut operation, "task_restored")
+            .await
+        {
+            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            return Err(self
+                .rollback_task_operation_state(
+                    snapshot,
+                    &mut operation,
+                    "task_persist_failed",
+                    error,
+                )
+                .await);
+        }
+
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
 
         self.debug_logs.info(
             "tasks.restore",

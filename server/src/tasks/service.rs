@@ -173,6 +173,31 @@ impl<'a> TaskService<'a> {
         }
     }
 
+    pub(super) async fn rollback_task_operation_state(
+        &self,
+        snapshot: DownloadTask,
+        operation: &mut TaskOperation,
+        phase: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> String {
+        let reason = reason.into();
+        let mut errors = vec![reason.clone()];
+        if let Err(error) = replace_task_snapshot(self.download_tasks, snapshot.clone()) {
+            errors.push(format!("恢复内存任务状态失败：{}", error));
+        }
+        operation.fail(phase, reason);
+        if let Err(error) = self
+            .repository
+            .persist_task_state_with_operation(&snapshot, operation)
+            .await
+        {
+            errors.push(format!("恢复数据库任务状态失败：{}", error));
+            self.fail_task_operation(operation, "rollback_persist_failed", errors.join("；"))
+                .await;
+        }
+        errors.join("；")
+    }
+
     pub async fn list_download_tasks(
         &self,
         config: &Aria2Config,

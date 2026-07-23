@@ -9,16 +9,71 @@ impl<'a> TaskService<'a> {
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
+        let snapshot = task_snapshot(self.download_tasks, task_id)?;
         let gid = task_gid(self.download_tasks, task_id)?;
-        pause_task(config, &gid, Some(self.debug_logs)).await?;
-        let task = sync_task_progress_after_pause_by_gid(
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Pause,
+                "prepared",
+                task_operation_context(Some(snapshot.clone()), Vec::new()),
+            )
+            .await?;
+        if let Err(error) = pause_task(config, &gid, Some(self.debug_logs)).await {
+            self.fail_task_operation(&mut operation, "aria2_pause_failed", &error)
+                .await;
+            return Err(error);
+        }
+        let mut pause_context = operation.context.clone();
+        pause_context
+            .completed_side_effects
+            .push("aria2_task_paused".to_string());
+        if let Err(error) = self
+            .update_task_operation(&mut operation, "aria2_paused", pause_context)
+            .await
+        {
+            let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+            return Err(self
+                .rollback_task_operation_state(
+                    snapshot,
+                    &mut operation,
+                    "aria2_record_failed",
+                    error,
+                )
+                .await);
+        }
+        let task = match sync_task_progress_after_pause_by_gid(
             self.download_tasks,
             config,
             &gid,
             Some(self.debug_logs),
         )
-        .await?;
-        query::sync_task_to_database(self, &task).await?;
+        .await
+        {
+            Ok(task) => task,
+            Err(error) => {
+                let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+                return Err(self
+                    .rollback_task_operation_state(snapshot, &mut operation, "sync_failed", error)
+                    .await);
+            }
+        };
+        if let Err(error) = self
+            .persist_task_with_operation(&task, &mut operation, "task_paused")
+            .await
+        {
+            let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+            return Err(self
+                .rollback_task_operation_state(
+                    snapshot,
+                    &mut operation,
+                    "task_persist_failed",
+                    error,
+                )
+                .await);
+        }
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
         self.debug_logs.info(
             "tasks.control",
             format!("任务已暂停，ID {}，GID {}", task_id, gid),
@@ -38,6 +93,15 @@ impl<'a> TaskService<'a> {
             return Err("请先确认要下载的文件".to_string());
         }
         let gid = task_gid(self.download_tasks, task_id)?;
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Resume,
+                "prepared",
+                task_operation_context(Some(task_before_resume.clone()), Vec::new()),
+            )
+            .await?;
+        let mut readded = false;
         let task = match unpause_task(config, &gid, Some(self.debug_logs)).await {
             Ok(_) => {
                 if let Err(error) = sync_task_progress_from_aria2_by_gid(
@@ -63,12 +127,82 @@ impl<'a> TaskService<'a> {
                     "tasks.restore",
                     format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
                 );
-                readd_task_to_aria2(self.download_tasks, config, task_id, Some(self.debug_logs))
-                    .await?
+                readded = true;
+                match readd_task_to_aria2(
+                    self.download_tasks,
+                    config,
+                    task_id,
+                    Some(self.debug_logs),
+                )
+                .await
+                {
+                    Ok(task) => task,
+                    Err(error) => {
+                        self.fail_task_operation(&mut operation, "aria2_readd_failed", &error)
+                            .await;
+                        return Err(error);
+                    }
+                }
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "aria2_resume_failed", &error)
+                    .await;
+                return Err(error);
+            }
         };
-        query::sync_task_to_database(self, &task).await?;
+        let mut resume_context = operation.context.clone();
+        if readded {
+            resume_context.new_gid = task.gid.clone();
+            resume_context
+                .completed_side_effects
+                .push("aria2_task_readded".to_string());
+        } else {
+            resume_context
+                .completed_side_effects
+                .push("aria2_task_resumed".to_string());
+        }
+        if let Err(error) = self
+            .update_task_operation(&mut operation, "aria2_resumed", resume_context)
+            .await
+        {
+            if readded {
+                if let Some(new_gid) = task.gid.as_deref() {
+                    let _ = remove_task(config, new_gid, Some(self.debug_logs)).await;
+                }
+            } else {
+                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+            }
+            return Err(self
+                .rollback_task_operation_state(
+                    task_before_resume,
+                    &mut operation,
+                    "aria2_record_failed",
+                    error,
+                )
+                .await);
+        }
+        if let Err(error) = self
+            .persist_task_with_operation(&task, &mut operation, "task_resumed")
+            .await
+        {
+            if readded {
+                if let Some(new_gid) = task.gid.as_deref() {
+                    let _ = remove_task(config, new_gid, Some(self.debug_logs)).await;
+                }
+            } else {
+                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+            }
+            return Err(self
+                .rollback_task_operation_state(
+                    task_before_resume,
+                    &mut operation,
+                    "task_persist_failed",
+                    error,
+                )
+                .await);
+        }
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
         self.debug_logs.info(
             "tasks.control",
             format!(

@@ -200,6 +200,77 @@ async fn pause_download_task_rejects_when_the_same_task_is_operating() {
 }
 
 #[tokio::test]
+async fn pause_and_resume_record_completed_operation_states() {
+    let mock = MockAria2Server::spawn_with_tell_status().await;
+    let save_dir = temp_dir("service-pause-resume-operation");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    let config = test_config(mock.addr.port(), "secret");
+
+    let paused = fixture
+        .service()
+        .pause_download_task(&config, 1)
+        .await
+        .expect("task should pause");
+    assert_eq!(paused.status, DownloadTaskStatus::Paused);
+    let resumed = fixture
+        .service()
+        .resume_download_task(&config, 1)
+        .await
+        .expect("task should resume");
+    assert_eq!(resumed.status, DownloadTaskStatus::Active);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 2);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Pause);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(operations[1].operation_type, TaskOperationType::Resume);
+    assert_eq!(operations[1].status, TaskOperationStatus::Completed);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn pause_persist_failure_restores_the_original_task_state() {
+    let mock = MockAria2Server::spawn_with_tell_status().await;
+    let save_dir = temp_dir("service-pause-persist-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    fixture.repository.fail_persist_on_call(1);
+
+    let error = fixture
+        .service()
+        .pause_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("persistence failure should roll back the pause");
+
+    assert!(error.contains("injected persist failure"));
+    let task = &fixture.tasks.list().expect("tasks should list")[0];
+    assert_eq!(task.status, DownloadTaskStatus::Active);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "task_persist_failed");
+
+    mock.abort();
+}
+
+#[tokio::test]
 async fn delete_download_task_marks_removed_and_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete");
@@ -418,6 +489,44 @@ async fn restore_removed_url_task_returns_paused_task() {
     assert_eq!(restored.completed_length, 0);
     assert!(!restored.files_deleted);
     assert_eq!(fixture.repository.persisted_tasks(), vec![restored]);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Restore);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(
+        operations[0].context.new_gid.as_deref(),
+        Some("gid-created")
+    );
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn restore_persist_failure_keeps_the_task_in_the_recycle_bin() {
+    let mock = MockAria2Server::spawn().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        temp_dir("restore-persist-failure").display().to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+    fixture.repository.fail_persist_on_call(1);
+
+    let error = fixture
+        .service()
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("persistence failure should restore the recycle-bin state");
+
+    assert!(error.contains("injected persist failure"));
+    let task = &fixture.tasks.list().expect("tasks should list")[0];
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert_eq!(task.gid.as_deref(), Some("old-gid"));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "task_persist_failed");
 
     mock.abort();
 }
@@ -935,6 +1044,11 @@ impl MockAria2Server {
         Self::spawn_with_router(app).await
     }
 
+    async fn spawn_with_tell_status() -> Self {
+        let app = Router::new().route("/jsonrpc", post(mock_aria2_rpc_with_tell_status));
+        Self::spawn_with_router(app).await
+    }
+
     async fn spawn_with_router(app: Router) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -965,6 +1079,10 @@ async fn mock_aria2_rpc_failing_unpause(Json(payload): Json<Value>) -> Json<Valu
     Json(mock_aria2_response(&payload))
 }
 
+async fn mock_aria2_rpc_with_tell_status(Json(payload): Json<Value>) -> Json<Value> {
+    Json(mock_aria2_response_with_tell_status(&payload))
+}
+
 fn mock_aria2_response(payload: &Value) -> Value {
     let method = payload
         .get("method")
@@ -986,6 +1104,33 @@ fn mock_aria2_response(payload: &Value) -> Value {
         }
         other => json!({ "error": { "message": format!("unexpected method: {other}") } }),
     }
+}
+
+fn mock_aria2_response_with_tell_status(payload: &Value) -> Value {
+    if payload.get("method").and_then(Value::as_str) == Some("aria2.tellStatus") {
+        let gid = payload
+            .get("params")
+            .and_then(Value::as_array)
+            .and_then(|params| {
+                params
+                    .iter()
+                    .find_map(|value| value.as_str().filter(|value| !value.starts_with("token:")))
+            })
+            .unwrap_or("gid-created");
+        return json!({
+            "result": {
+                "gid": gid,
+                "status": "paused",
+                "totalLength": "1024",
+                "completedLength": "256",
+                "downloadSpeed": "0",
+                "dir": "/downloads",
+                "files": []
+            }
+        });
+    }
+
+    mock_aria2_response(payload)
 }
 
 fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {
