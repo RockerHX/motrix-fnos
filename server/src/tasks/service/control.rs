@@ -113,7 +113,21 @@ impl<'a> TaskService<'a> {
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
         };
-        let gid = match snapshot.source_type {
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Redownload,
+                "prepared",
+                task_operation_context(
+                    Some(snapshot.clone()),
+                    vec![
+                        task_download_dir(&snapshot).to_string(),
+                        snapshot.file_path.clone().unwrap_or_default(),
+                    ],
+                ),
+            )
+            .await?;
+        let gid_result = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
                 add_torrent_to_aria2(
                     config,
@@ -123,40 +137,72 @@ impl<'a> TaskService<'a> {
                         .ok_or_else(|| "重新下载缺少源 metadata".to_string())?,
                     Some(self.debug_logs),
                 )
-                .await?
+                .await
             }
             DownloadTaskSourceType::Url => {
-                add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await?
+                add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await
             }
         };
+        let gid = match gid_result {
+            Ok(gid) => gid,
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = self
+            .record_aria2_task_created(&mut operation, gid.clone())
+            .await
+        {
+            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
+                .await;
+            return Err(error);
+        }
 
         let pending = match mark_task_redownloaded(self.download_tasks, task_id, gid.clone()) {
             Ok(task) => task,
             Err(error) => {
-                let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
-                return Err(error);
+                return self
+                    .rollback_redownload(config, snapshot, gid, None, &mut operation, error)
+                    .await;
             }
         };
-        if let Err(error) = query::sync_task_to_database(self, &pending).await {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
-            replace_task_snapshot(self.download_tasks, snapshot.clone())?;
-            let restore_error = query::sync_task_to_database(self, &snapshot).await.err();
-            return Err(match restore_error {
-                Some(restore_error) => {
-                    format!("{}；恢复数据库任务状态失败：{}", error, restore_error)
-                }
-                None => error,
-            });
+        if let Err(error) = self
+            .persist_task_with_operation(&pending, &mut operation, "new_task_persisted")
+            .await
+        {
+            return self
+                .rollback_redownload(config, snapshot, gid, None, &mut operation, error)
+                .await;
         }
 
         let staged = match stage_task_files(&snapshot) {
             Ok(staged) => staged,
             Err(error) => {
                 return self
-                    .rollback_redownload(config, snapshot, gid, None, error)
+                    .rollback_redownload(config, snapshot, gid, None, &mut operation, error)
                     .await;
             }
         };
+        if let Some(staged_files) = staged.as_ref() {
+            let mut context = operation.context.clone();
+            context
+                .critical_paths
+                .push(staged_files.backup_dir().display().to_string());
+            context
+                .completed_side_effects
+                .push("old_files_staged".to_string());
+            if let Err(error) = self
+                .update_task_operation(&mut operation, "files_staged", context)
+                .await
+            {
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                    .await;
+            }
+        }
 
         if matches!(
             snapshot.source_type,
@@ -169,6 +215,7 @@ impl<'a> TaskService<'a> {
                         snapshot,
                         gid,
                         staged,
+                        &mut operation,
                         format!("重建 BT 任务保存目录失败：{}", error),
                     )
                     .await;
@@ -177,7 +224,7 @@ impl<'a> TaskService<'a> {
 
         if let Err(error) = unpause_task(config, &gid, Some(self.debug_logs)).await {
             return self
-                .rollback_redownload(config, snapshot, gid, staged, error)
+                .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                 .await;
         }
 
@@ -186,25 +233,36 @@ impl<'a> TaskService<'a> {
             Err(error) => {
                 let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
                 return self
-                    .rollback_redownload(config, snapshot, gid, staged, error)
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                     .await;
             }
         };
-        if let Err(error) = query::sync_task_to_database(self, &active).await {
+        if let Err(error) = self
+            .persist_task_with_operation(&active, &mut operation, "task_resumed")
+            .await
+        {
             let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
             return self
-                .rollback_redownload(config, snapshot, gid, staged, error)
+                .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                 .await;
         }
 
         if let Some(staged) = staged {
-            if let Err(error) = staged.commit() {
-                self.debug_logs.warn(
-                    "tasks.redownload",
-                    format!("重新下载已启动，但旧文件暂存目录清理失败：{}", error),
-                );
+            match staged.commit() {
+                Ok(()) => operation
+                    .context
+                    .completed_side_effects
+                    .push("old_files_cleaned".to_string()),
+                Err(error) => {
+                    self.debug_logs.warn(
+                        "tasks.redownload",
+                        format!("重新下载已启动，但旧文件暂存目录清理失败：{}", error),
+                    );
+                }
             }
         }
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
         self.debug_logs.info(
             "tasks.control",
             format!("任务已重新下载，ID {}，GID {}", task_id, gid),
@@ -218,12 +276,18 @@ impl<'a> TaskService<'a> {
         snapshot: DownloadTask,
         gid: String,
         staged: Option<StagedTaskFiles>,
+        operation: &mut TaskOperation,
         reason: String,
     ) -> Result<DownloadTask, String> {
         let remove_error = remove_task(config, &gid, Some(self.debug_logs)).await.err();
         let restore_error = staged.and_then(|staged| staged.restore().err());
         replace_task_snapshot(self.download_tasks, snapshot.clone())?;
-        let persist_error = query::sync_task_to_database(self, &snapshot).await.err();
+        operation.fail("rolled_back", &reason);
+        let persist_error = self
+            .repository
+            .persist_task_state_with_operation(&snapshot, operation)
+            .await
+            .err();
 
         let mut errors = vec![reason];
         if let Some(error) = remove_error {
@@ -234,6 +298,8 @@ impl<'a> TaskService<'a> {
         }
         if let Some(error) = persist_error {
             errors.push(format!("恢复数据库任务状态失败：{}", error));
+            self.fail_task_operation(operation, "rollback_persist_failed", errors.join("；"))
+                .await;
         }
         Err(errors.join("；"))
     }

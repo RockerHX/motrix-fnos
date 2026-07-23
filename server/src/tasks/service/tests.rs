@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
-use crate::tasks::{DownloadTaskFile, TaskOperation};
+use crate::tasks::{DownloadTaskFile, TaskOperation, TaskOperationStatus, TaskOperationType};
 use axum::async_trait;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -67,8 +67,52 @@ async fn create_download_task_persists_with_fake_repository() {
     assert_eq!(task.id, 1);
     assert_eq!(task.gid.as_deref(), Some("gid-created"));
     assert_eq!(task.status, DownloadTaskStatus::Pending);
-    assert_eq!(fixture.repository.upserted_tasks().len(), 1);
+    assert_eq!(fixture.repository.persisted_tasks().len(), 1);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Create);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(
+        operations[0].context.new_gid.as_deref(),
+        Some("gid-created")
+    );
     assert_eq!(fixture.tasks.list().expect("tasks should list").len(), 1);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_persist_failure_marks_operation_failed_and_removes_memory_state() {
+    let mock = MockAria2Server::spawn().await;
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let save_dir = temp_dir("service-create-persist-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    fixture.repository.fail_persist_on_call(1);
+
+    let error = fixture
+        .service()
+        .create_download_task(
+            &test_config(mock.addr.port(), "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions::default(),
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect_err("persistence failure should reject creation");
+
+    assert!(error.contains("injected persist failure"));
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "task_persist_failed");
 
     mock.abort();
 }
@@ -115,7 +159,15 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
         std::fs::read(metadata_path).expect("restore metadata should read"),
         b"torrent-bytes"
     );
-    assert_eq!(fixture.repository.upserted_tasks().len(), 1);
+    assert_eq!(fixture.repository.persisted_tasks().len(), 1);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Create);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert!(operations[0]
+        .context
+        .completed_side_effects
+        .contains(&"restore_metadata_saved".to_string()));
 
     mock.abort();
 }
@@ -330,6 +382,14 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         .filter_map(Result::ok)
         .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("torrent")));
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Confirm);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(
+        operations[0].context.new_gid.as_deref(),
+        Some("gid-torrent")
+    );
 
     mock.abort();
 }
@@ -493,6 +553,18 @@ async fn redownload_stages_old_file_until_new_task_is_running() {
             .file_name()
             .to_string_lossy()
             .starts_with(".motrix-redownload-backup")));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Redownload);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(
+        operations[0].context.new_gid.as_deref(),
+        Some("gid-created")
+    );
+    assert!(operations[0]
+        .context
+        .completed_side_effects
+        .contains(&"old_files_cleaned".to_string()));
 
     mock.abort();
 }
@@ -525,6 +597,10 @@ async fn redownload_add_failure_keeps_old_file_and_task_snapshot() {
         fixture.tasks.list().expect("tasks should list")[0].status,
         DownloadTaskStatus::Complete
     );
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "aria2_failed");
 }
 
 #[tokio::test]
@@ -635,6 +711,10 @@ async fn redownload_final_persist_failure_restores_old_file_and_task_snapshot() 
     let task = &fixture.tasks.list().expect("tasks should list")[0];
     assert_eq!(task.status, DownloadTaskStatus::Complete);
     assert_eq!(task.gid.as_deref(), Some("old-gid"));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "rolled_back");
 
     mock.abort();
 }
@@ -721,6 +801,7 @@ struct FakeRepositoryState {
     upserted_tasks: Vec<DownloadTask>,
     persisted_tasks: Vec<DownloadTask>,
     persisted_task_batches: Vec<Vec<DownloadTask>>,
+    operations: Vec<TaskOperation>,
     deleted_task_ids: Vec<u64>,
     delete_result: bool,
     persist_calls: usize,
@@ -748,6 +829,14 @@ impl FakeTaskRepository {
             .lock()
             .expect("repository state should lock")
             .persisted_tasks
+            .clone()
+    }
+
+    fn operations(&self) -> Vec<TaskOperation> {
+        self.state
+            .lock()
+            .expect("repository state should lock")
+            .operations
             .clone()
     }
 
@@ -790,20 +879,33 @@ impl TaskRepository for Arc<FakeTaskRepository> {
         Ok(())
     }
 
-    async fn begin_operation(&self, _operation: &TaskOperation) -> Result<(), String> {
+    async fn begin_operation(&self, operation: &TaskOperation) -> Result<(), String> {
+        self.state
+            .lock()
+            .expect("repository state should lock")
+            .operations
+            .push(operation.clone());
         Ok(())
     }
 
-    async fn update_operation(&self, _operation: &TaskOperation) -> Result<(), String> {
+    async fn update_operation(&self, operation: &TaskOperation) -> Result<(), String> {
+        let mut state = self.state.lock().expect("repository state should lock");
+        let stored = state
+            .operations
+            .iter_mut()
+            .find(|stored| stored.id == operation.id)
+            .ok_or_else(|| format!("测试任务操作不存在：{}", operation.id))?;
+        *stored = operation.clone();
         Ok(())
     }
 
     async fn persist_task_state_with_operation(
         &self,
         task: &DownloadTask,
-        _operation: &TaskOperation,
+        operation: &TaskOperation,
     ) -> Result<(), String> {
-        self.persist_task_state(task).await
+        self.persist_task_state(task).await?;
+        self.update_operation(operation).await
     }
 
     async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String> {

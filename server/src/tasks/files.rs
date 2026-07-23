@@ -13,6 +13,10 @@ pub(crate) struct StagedTaskFiles {
 }
 
 impl StagedTaskFiles {
+    pub(crate) fn backup_dir(&self) -> &Path {
+        &self.backup_dir
+    }
+
     pub(crate) fn commit(self) -> Result<(), String> {
         fs::remove_dir_all(&self.backup_dir).map_err(|error| {
             format!(

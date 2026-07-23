@@ -5,24 +5,68 @@ pub(super) async fn create_magnet_download_task(
     config: &Aria2Config,
     task_id: u64,
     mut prepared: crate::tasks::PreparedDownloadTask,
+    operation: &mut TaskOperation,
 ) -> Result<DownloadTask, String> {
     let metadata_dir = magnet_metadata_task_dir(service.app_data_dir, task_id);
-    fs::create_dir_all(&metadata_dir).map_err(|error| {
-        format!(
+    if let Err(error) = fs::create_dir_all(&metadata_dir) {
+        let error = format!(
             "创建磁链 metadata 临时目录失败：{}（{}）",
             metadata_dir.display(),
             error
-        )
-    })?;
+        );
+        service
+            .fail_task_operation(operation, "metadata_dir_create_failed", &error)
+            .await;
+        return Err(error);
+    }
     prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
+    let mut context = operation.context.clone();
+    context
+        .completed_side_effects
+        .push("magnet_metadata_dir_created".to_string());
+    if let Err(error) = service
+        .update_task_operation(operation, "metadata_dir_created", context)
+        .await
+    {
+        let _ = fs::remove_dir_all(&metadata_dir);
+        service
+            .fail_task_operation(operation, "metadata_record_failed", &error)
+            .await;
+        return Err(error);
+    }
     let gid = match add_uri_to_aria2(config, &prepared, Some(service.debug_logs)).await {
         Ok(gid) => gid,
         Err(error) => {
             let _ = fs::remove_dir_all(&metadata_dir);
+            service
+                .fail_task_operation(operation, "aria2_failed", &error)
+                .await;
             return Err(error);
         }
     };
-    store_created_task_with_id(service.download_tasks, task_id, prepared, gid)
+    if let Err(error) = service
+        .record_aria2_task_created(operation, gid.clone())
+        .await
+    {
+        let _ = remove_task(config, &gid, Some(service.debug_logs)).await;
+        let _ = fs::remove_dir_all(&metadata_dir);
+        service
+            .fail_task_operation(operation, "aria2_record_failed", &error)
+            .await;
+        return Err(error);
+    }
+    match store_created_task_with_id(service.download_tasks, task_id, prepared, gid) {
+        Ok(task) => Ok(task),
+        Err(error) => {
+            let gid = operation.context.new_gid.as_deref().unwrap_or_default();
+            let _ = remove_task(config, gid, Some(service.debug_logs)).await;
+            let _ = fs::remove_dir_all(&metadata_dir);
+            service
+                .fail_task_operation(operation, "memory_state_failed", &error)
+                .await;
+            Err(error)
+        }
+    }
 }
 
 impl<'a> TaskService<'a> {
@@ -66,12 +110,58 @@ impl<'a> TaskService<'a> {
             return Err("选择的文件索引不在任务文件列表中".to_string());
         }
 
-        let torrent_data = read_saved_torrent_metadata(&task)?;
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Confirm,
+                "prepared",
+                task_operation_context(
+                    Some(task.clone()),
+                    vec![
+                        task.save_dir.clone(),
+                        magnet_metadata_task_dir(self.app_data_dir, task_id)
+                            .display()
+                            .to_string(),
+                    ],
+                ),
+            )
+            .await?;
+        let torrent_data = match read_saved_torrent_metadata(&task) {
+            Ok(data) => data,
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "metadata_read_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
         let restore_metadata_path =
-            save_restore_torrent_metadata(self.app_data_dir, task_id, &torrent_data)?;
+            match save_restore_torrent_metadata(self.app_data_dir, task_id, &torrent_data) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.fail_task_operation(&mut operation, "metadata_save_failed", &error)
+                        .await;
+                    return Err(error);
+                }
+            };
+        let mut metadata_context = operation.context.clone();
+        metadata_context
+            .critical_paths
+            .push(restore_metadata_path.display().to_string());
+        metadata_context
+            .completed_side_effects
+            .push("restore_metadata_saved".to_string());
+        if let Err(error) = self
+            .update_task_operation(&mut operation, "metadata_saved", metadata_context)
+            .await
+        {
+            remove_restore_metadata(self.app_data_dir, task_id);
+            self.fail_task_operation(&mut operation, "metadata_record_failed", &error)
+                .await;
+            return Err(error);
+        }
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
-        let prepared = prepare_bt_download_task_with_logs(
+        let prepared = match prepare_bt_download_task_with_logs(
             PrepareBtDownloadTaskRequest {
                 source_url: task.url.clone(),
                 display_name: task.file_name.clone(),
@@ -84,7 +174,14 @@ impl<'a> TaskService<'a> {
                 task_kind: "磁链",
             },
             Some(self.debug_logs),
-        )?;
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "prepare_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
         let gid =
             match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
                 .await
@@ -93,18 +190,40 @@ impl<'a> TaskService<'a> {
                 Err(error) => {
                     cleanup_empty_torrent_task_dir(&prepared);
                     remove_restore_metadata(self.app_data_dir, task_id);
+                    self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                        .await;
                     return Err(error);
                 }
             };
-        delete::remove_magnet_metadata_dir(self.app_data_dir, &task);
-        let mut task = mark_task_files_confirmed(
+        if let Err(error) = self
+            .record_aria2_task_created(&mut operation, gid.clone())
+            .await
+        {
+            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            cleanup_empty_torrent_task_dir(&prepared);
+            remove_restore_metadata(self.app_data_dir, task_id);
+            self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
+                .await;
+            return Err(error);
+        }
+        let mut confirmed_task = match mark_task_files_confirmed(
             self.download_tasks,
             task_id,
             gid.clone(),
             prepared.save_dir.clone(),
             &selected,
             restore_metadata_path.display().to_string(),
-        )?;
+        ) {
+            Ok(task) => task,
+            Err(error) => {
+                let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                cleanup_empty_torrent_task_dir(&prepared);
+                remove_restore_metadata(self.app_data_dir, task_id);
+                self.fail_task_operation(&mut operation, "memory_state_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
 
         match sync_task_progress_from_aria2_by_gid(
             self.download_tasks,
@@ -114,7 +233,7 @@ impl<'a> TaskService<'a> {
         )
         .await
         {
-            Ok(synced_task) => task = synced_task,
+            Ok(synced_task) => confirmed_task = synced_task,
             Err(error) => self.debug_logs.warn(
                 "tasks.control",
                 format!(
@@ -123,12 +242,30 @@ impl<'a> TaskService<'a> {
                 ),
             ),
         }
-        query::sync_task_to_database(self, &task).await?;
+        if let Err(error) = self
+            .persist_task_with_operation(&confirmed_task, &mut operation, "task_confirmed")
+            .await
+        {
+            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            cleanup_empty_torrent_task_dir(&prepared);
+            replace_task_snapshot(self.download_tasks, task.clone())?;
+            remove_restore_metadata(self.app_data_dir, task_id);
+            self.fail_task_operation(&mut operation, "task_persist_failed", &error)
+                .await;
+            return Err(error);
+        }
+        delete::remove_magnet_metadata_dir(self.app_data_dir, &task);
+        operation
+            .context
+            .completed_side_effects
+            .push("magnet_metadata_removed".to_string());
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
         self.debug_logs.info(
             "tasks.control",
             format!("任务文件已确认并开始下载，ID {}，GID {}", task_id, gid),
         );
-        Ok(task)
+        Ok(confirmed_task)
     }
 }
 

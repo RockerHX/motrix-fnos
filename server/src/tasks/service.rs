@@ -16,7 +16,7 @@ use crate::tasks::{
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
     validate_task_files, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, TaskMemoryState,
+    DownloadTaskStatus, TaskMemoryState, TaskOperation, TaskOperationContext, TaskOperationType,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -86,6 +86,93 @@ impl<'a> TaskService<'a> {
         self.runtime_guard.ensure_running()
     }
 
+    pub(super) async fn begin_task_operation(
+        &self,
+        task_id: u64,
+        operation_type: TaskOperationType,
+        phase: impl Into<String>,
+        context: TaskOperationContext,
+    ) -> Result<TaskOperation, String> {
+        let operation = TaskOperation::new(task_id, operation_type, phase, context);
+        self.repository.begin_operation(&operation).await?;
+        Ok(operation)
+    }
+
+    pub(super) async fn update_task_operation(
+        &self,
+        operation: &mut TaskOperation,
+        phase: impl Into<String>,
+        context: TaskOperationContext,
+    ) -> Result<(), String> {
+        operation.update_phase(phase, context);
+        self.repository.update_operation(operation).await
+    }
+
+    pub(super) async fn record_aria2_task_created(
+        &self,
+        operation: &mut TaskOperation,
+        gid: String,
+    ) -> Result<(), String> {
+        let mut context = operation.context.clone();
+        context.new_gid = Some(gid);
+        context
+            .completed_side_effects
+            .push("aria2_task_created".to_string());
+        self.update_task_operation(operation, "aria2_created", context)
+            .await
+    }
+
+    pub(super) async fn persist_task_with_operation(
+        &self,
+        task: &DownloadTask,
+        operation: &mut TaskOperation,
+        phase: impl Into<String>,
+    ) -> Result<(), String> {
+        let mut context = operation.context.clone();
+        context
+            .completed_side_effects
+            .push("task_state_persisted".to_string());
+        operation.update_phase(phase, context);
+        self.repository
+            .persist_task_state_with_operation(task, operation)
+            .await
+    }
+
+    pub(super) async fn fail_task_operation(
+        &self,
+        operation: &mut TaskOperation,
+        phase: impl Into<String>,
+        error: impl Into<String>,
+    ) {
+        operation.fail(phase, error);
+        if let Err(update_error) = self.repository.update_operation(operation).await {
+            self.debug_logs.error(
+                "tasks.operation",
+                format!(
+                    "记录失败任务操作失败，operationId {}：{}",
+                    operation.id, update_error
+                ),
+            );
+        }
+    }
+
+    pub(super) async fn complete_task_operation(
+        &self,
+        operation: &mut TaskOperation,
+        phase: impl Into<String>,
+    ) {
+        operation.complete(phase);
+        if let Err(error) = self.repository.update_operation(operation).await {
+            self.debug_logs.warn(
+                "tasks.operation",
+                format!(
+                    "任务已完成但操作记录未能标记完成，operationId {}：{}",
+                    operation.id, error
+                ),
+            );
+        }
+    }
+
     pub async fn list_download_tasks(
         &self,
         config: &Aria2Config,
@@ -95,6 +182,19 @@ impl<'a> TaskService<'a> {
 
     pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {
         query::list_removed_download_tasks(self)
+    }
+}
+
+pub(super) fn task_operation_context(
+    task_snapshot: Option<DownloadTask>,
+    critical_paths: Vec<String>,
+) -> TaskOperationContext {
+    TaskOperationContext {
+        old_gid: task_snapshot.as_ref().and_then(|task| task.gid.clone()),
+        new_gid: None,
+        critical_paths,
+        completed_side_effects: Vec::new(),
+        task_snapshot,
     }
 }
 
