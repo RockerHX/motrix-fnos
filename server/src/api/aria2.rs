@@ -54,7 +54,7 @@ async fn get_aria2_process_status(
 async fn get_aria2_rpc_status(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<crate::aria2::Aria2RpcStatus>, ApiError> {
-    let status = ping_rpc(&state.aria2_config(), None).await;
+    let status = ping_rpc(&state.aria2_rpc, &state.aria2_config(), None).await;
     emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
     Ok(Json(status))
 }

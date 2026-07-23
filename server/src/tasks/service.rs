@@ -1,3 +1,4 @@
+use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
@@ -60,6 +61,7 @@ pub struct TaskService<'a> {
     next_task_id: &'a AtomicU64,
     app_data_dir: &'a Path,
     debug_logs: &'a DebugLogStore,
+    aria2_rpc: &'a Aria2RpcClient,
     runtime_guard: RuntimeGuard<'a>,
 }
 
@@ -70,6 +72,7 @@ impl<'a> TaskService<'a> {
         next_task_id: &'a AtomicU64,
         app_data_dir: &'a Path,
         debug_logs: &'a DebugLogStore,
+        aria2_rpc: &'a Aria2RpcClient,
         runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
         Self {
@@ -78,6 +81,7 @@ impl<'a> TaskService<'a> {
             next_task_id,
             app_data_dir,
             debug_logs,
+            aria2_rpc,
             runtime_guard,
         }
     }

@@ -132,7 +132,7 @@ fn classify_settings_save_error(error: String) -> ApiError {
 
 async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {
     let aria2_config = state.aria2_config();
-    let status = ping_rpc(&aria2_config, None).await;
+    let status = ping_rpc(&state.aria2_rpc, &aria2_config, None).await;
     if !status.connected {
         state.core.debug_logs.warn(
             "settings",
@@ -149,8 +149,13 @@ async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig)
         config.download_limit,
         config.upload_limit,
     );
-    if let Err(error) =
-        apply_global_options(&aria2_config, &options, Some(&state.core.debug_logs)).await
+    if let Err(error) = apply_global_options(
+        &state.aria2_rpc,
+        &aria2_config,
+        &options,
+        Some(&state.core.debug_logs),
+    )
+    .await
     {
         state
             .core

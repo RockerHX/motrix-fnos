@@ -545,6 +545,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         }]),
         next_task_id: AtomicU64::new(1),
         debug_logs: DebugLogStore::default(),
+        aria2_rpc: crate::aria2::Aria2RpcClient::new(),
         shutdown: ShutdownState::new(),
         app_data_dir: fixture.app_data_dir.clone(),
     };
@@ -990,6 +991,7 @@ struct ServiceFixture {
     tasks: TaskMemoryState,
     next_task_id: AtomicU64,
     debug_logs: DebugLogStore,
+    aria2_rpc: crate::aria2::Aria2RpcClient,
     shutdown: ShutdownState,
     app_data_dir: PathBuf,
 }
@@ -1006,6 +1008,7 @@ impl ServiceFixture {
             tasks: TaskMemoryState::new(tasks),
             next_task_id: AtomicU64::new(1),
             debug_logs: DebugLogStore::default(),
+            aria2_rpc: crate::aria2::Aria2RpcClient::new(),
             shutdown,
             app_data_dir: temp_dir("service-app-data"),
         }
@@ -1018,6 +1021,7 @@ impl ServiceFixture {
             &self.next_task_id,
             &self.app_data_dir,
             &self.debug_logs,
+            &self.aria2_rpc,
             RuntimeGuard::new(&self.shutdown),
         )
     }

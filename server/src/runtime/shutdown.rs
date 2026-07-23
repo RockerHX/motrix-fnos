@@ -60,6 +60,7 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) {
     match refresh_tasks_from_aria2(
         &state.core.download_tasks,
         &state.runtime.app_data_dir,
+        &state.aria2_rpc,
         &config,
         Some(&state.core.debug_logs),
     )
@@ -126,7 +127,7 @@ async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) {
             break;
         }
 
-        match pause_task(&config, gid, Some(&state.core.debug_logs)).await {
+        match pause_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await {
             Ok(_) => rpc_paused_count += 1,
             Err(error) => state.core.debug_logs.warn(
                 "runtime.exit",
@@ -192,7 +193,7 @@ async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) {
     }
 
     let config = state.aria2_config();
-    match save_session(&config, Some(&state.core.debug_logs)).await {
+    match save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs)).await {
         Ok(()) => state
             .core
             .debug_logs

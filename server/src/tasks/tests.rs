@@ -726,7 +726,8 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
         ..test_config()
     };
 
-    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &config, None)
+    let client = crate::aria2::Aria2RpcClient::new();
+    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &client, &config, None)
         .await
         .expect("refresh should succeed");
 

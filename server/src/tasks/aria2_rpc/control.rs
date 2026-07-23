@@ -1,14 +1,17 @@
-use super::transport::{rpc_params, GidResponse};
+use super::transport::rpc_params;
+use crate::aria2::{Aria2RpcClient, Aria2RpcError};
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{log_error, log_info};
 
 pub async fn pause_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.pause",
@@ -20,11 +23,13 @@ pub async fn pause_task(
 }
 
 pub async fn unpause_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.unpause",
@@ -36,50 +41,36 @@ pub async fn unpause_task(
 }
 
 pub async fn change_task_options(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     options: serde_json::Map<String, serde_json::Value>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     let request_body = super::build_change_option_request(config, gid, options);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    match client
+        .request::<String>(config, &request_body)
         .await
+        .and_then(|response| response.into_optional_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = "更新任务选项失败：无法连接 Aria2 RPC".to_string();
-            log_error(debug_logs, "aria2.changeOption", &error);
-            return Err(error);
-        }
-    };
-
-    let rpc_response = match response.json::<GidResponse>().await {
-        Ok(response) => response,
+        Ok(Some(gid)) if !gid.trim().is_empty() => Ok(gid),
+        Ok(_) => Ok(gid.to_string()),
         Err(error) => {
-            let error = format!("更新任务选项失败，响应解析失败：{}", error);
+            let error = format!("更新任务选项失败：{}", error);
             log_error(debug_logs, "aria2.changeOption", &error);
-            return Err(error);
+            Err(error)
         }
-    };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("更新任务选项失败：{}", error.message);
-        log_error(debug_logs, "aria2.changeOption", &error);
-        return Err(error);
     }
-
-    Ok(rpc_response.result.unwrap_or_else(|| gid.to_string()))
 }
 
 pub async fn remove_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     match send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.remove",
@@ -100,6 +91,7 @@ pub async fn remove_task(
                 ),
             );
             send_gid_control_request(
+                client,
                 config,
                 gid,
                 "aria2.removeDownloadResult",
@@ -113,6 +105,7 @@ pub async fn remove_task(
 }
 
 pub(crate) async fn send_gid_control_request(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     method: &str,
@@ -127,39 +120,27 @@ pub(crate) async fn send_gid_control_request(
         format!("开始{}，GID {}", action_label, gid),
     );
     let request_body = super::build_gid_control_request(config, gid, method, request_id);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    let result_gid = match client
+        .request::<String>(config, &request_body)
         .await
+        .and_then(|response| response.into_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = format!("{}失败：无法连接 Aria2 RPC", action_label);
+        Ok(result_gid) if !result_gid.trim().is_empty() => result_gid,
+        Ok(_) => {
+            let error = format!("{}失败：响应缺少 GID", action_label);
             log_error(debug_logs, module, format!("GID {} {}", gid, error));
             return Err(error);
         }
-    };
-
-    let rpc_response = match response.json::<GidResponse>().await {
-        Ok(response) => response,
         Err(error) => {
-            let error = format!("{}失败，响应解析失败：{}", action_label, error);
+            let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
+                format!("{}失败：无法连接 Aria2 RPC", action_label)
+            } else {
+                format!("{}失败：{}", action_label, error)
+            };
             log_error(debug_logs, module, format!("GID {} {}", gid, error));
             return Err(error);
         }
     };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("{}失败：{}", action_label, error.message);
-        log_error(debug_logs, module, format!("GID {} {}", gid, error));
-        return Err(error);
-    }
-
-    let result_gid = rpc_response
-        .result
-        .filter(|gid| !gid.trim().is_empty())
-        .ok_or_else(|| format!("{}失败：响应缺少 GID", action_label))?;
     log_info(
         debug_logs,
         module,

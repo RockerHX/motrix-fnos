@@ -52,7 +52,9 @@ impl<'a> TaskService<'a> {
             .clone()
             .filter(|gid| !gid.trim().is_empty());
         if let Some(gid) = gid.as_deref() {
-            if let Err(error) = remove_task(config, gid, Some(self.debug_logs)).await {
+            if let Err(error) =
+                remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await
+            {
                 if is_stale_aria2_gid_error(&error) {
                     self.debug_logs.warn(
                         "tasks.control",

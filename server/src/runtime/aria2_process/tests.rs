@@ -2,6 +2,7 @@ use super::resolve::{platform_binary_name, repo_debug_binary_path, resolve_aria2
 use super::start::wait_for_rpc_ready;
 use super::*;
 use crate::app::{ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR};
+use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
 use axum::routing::post;
@@ -146,8 +147,9 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
     let mut config = sample_config();
     config.rpc_port = port;
     let store = DebugLogStore::default();
+    let client = Aria2RpcClient::new();
 
-    wait_for_rpc_ready(&config, &store, false)
+    wait_for_rpc_ready(&client, &config, &store, false)
         .await
         .expect("rpc should be ready");
     assert!(!store
@@ -155,7 +157,7 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
         .iter()
         .any(|entry| entry.message.contains("Aria2 RPC ready")));
 
-    wait_for_rpc_ready(&config, &store, true)
+    wait_for_rpc_ready(&client, &config, &store, true)
         .await
         .expect("rpc should be ready");
     assert!(store

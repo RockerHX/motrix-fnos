@@ -98,11 +98,10 @@ async fn inspect_referenced_gids(
         }
     };
 
-    let client = reqwest::Client::new();
     let mut presence = HashMap::new();
     for gid in gids {
         let result = crate::tasks::aria2_rpc::task_exists(
-            &client,
+            &state.aria2_rpc,
             &config,
             &gid,
             Some(&state.core.debug_logs),
@@ -120,7 +119,7 @@ async fn inspect_referenced_gids(
 
 async fn remove_unpersisted_aria2_task(state: &HttpAppState, gid: &str) -> Result<(), String> {
     let config = state.aria2_config();
-    remove_task(&config, gid, Some(&state.core.debug_logs))
+    remove_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs))
         .await
         .map(|_| ())
 }

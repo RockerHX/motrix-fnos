@@ -39,22 +39,25 @@ impl<'a> TaskService<'a> {
                 .await?
         } else {
             let source_type = prepared.source_type;
-            let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
-                Ok(gid) => gid,
-                Err(error) => {
-                    if source_type == DownloadTaskSourceType::Torrent {
-                        cleanup_empty_torrent_task_dir(&prepared);
+            let gid =
+                match add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs))
+                    .await
+                {
+                    Ok(gid) => gid,
+                    Err(error) => {
+                        if source_type == DownloadTaskSourceType::Torrent {
+                            cleanup_empty_torrent_task_dir(&prepared);
+                        }
+                        self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                            .await;
+                        return Err(error);
                     }
-                    self.fail_task_operation(&mut operation, "aria2_failed", &error)
-                        .await;
-                    return Err(error);
-                }
-            };
+                };
             if let Err(error) = self
                 .record_aria2_task_created(&mut operation, gid.clone())
                 .await
             {
-                let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                 if source_type == DownloadTaskSourceType::Torrent {
                     cleanup_empty_torrent_task_dir(&prepared);
                 }
@@ -66,7 +69,7 @@ impl<'a> TaskService<'a> {
                 Ok(task) => task,
                 Err(error) => {
                     let gid = operation.context.new_gid.as_deref().unwrap_or_default();
-                    let _ = remove_task(config, gid, Some(self.debug_logs)).await;
+                    let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
                     self.fail_task_operation(&mut operation, "memory_state_failed", &error)
                         .await;
                     return Err(error);
@@ -78,7 +81,7 @@ impl<'a> TaskService<'a> {
             .await
         {
             if let Some(gid) = task.gid.as_deref() {
-                let _ = remove_task(config, gid, Some(self.debug_logs)).await;
+                let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
             }
             let _ = remove_task_record(self.download_tasks, task_id);
             delete::remove_magnet_metadata_dir(self.app_data_dir, &task);
@@ -146,24 +149,29 @@ impl<'a> TaskService<'a> {
                 .await;
             return Err(error);
         }
-        let gid =
-            match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
-                .await
-            {
-                Ok(gid) => gid,
-                Err(error) => {
-                    cleanup_empty_torrent_task_dir(&prepared);
-                    remove_restore_metadata(self.app_data_dir, task_id);
-                    self.fail_task_operation(&mut operation, "aria2_failed", &error)
-                        .await;
-                    return Err(error);
-                }
-            };
+        let gid = match add_torrent_to_aria2(
+            self.aria2_rpc,
+            config,
+            &prepared,
+            &torrent_data,
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(gid) => gid,
+            Err(error) => {
+                cleanup_empty_torrent_task_dir(&prepared);
+                remove_restore_metadata(self.app_data_dir, task_id);
+                self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
         if let Err(error) = self
             .record_aria2_task_created(&mut operation, gid.clone())
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared);
             remove_restore_metadata(self.app_data_dir, task_id);
             self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
@@ -173,7 +181,7 @@ impl<'a> TaskService<'a> {
         if let Err(error) = store_created_task_with_id(self.download_tasks, task_id, prepared, gid)
         {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();
-            let _ = remove_task(config, gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared_for_cleanup);
             remove_restore_metadata(self.app_data_dir, task_id);
             self.fail_task_operation(&mut operation, "memory_state_failed", &error)
@@ -188,7 +196,7 @@ impl<'a> TaskService<'a> {
             Ok(task) => task,
             Err(error) => {
                 let gid = operation.context.new_gid.as_deref().unwrap_or_default();
-                let _ = remove_task(config, gid, Some(self.debug_logs)).await;
+                let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
                 let _ = remove_task_record(self.download_tasks, task_id);
                 cleanup_empty_torrent_task_dir(&prepared_for_cleanup);
                 remove_restore_metadata(self.app_data_dir, task_id);
@@ -202,7 +210,7 @@ impl<'a> TaskService<'a> {
             .await
         {
             if let Some(gid) = task.gid.as_deref() {
-                let _ = remove_task(config, gid, Some(self.debug_logs)).await;
+                let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
             }
             let _ = remove_task_record(self.download_tasks, task_id);
             cleanup_empty_torrent_task_dir(&prepared_for_cleanup);

@@ -1,3 +1,4 @@
+use crate::aria2::Aria2RpcClient;
 use crate::auth::{AuthRuntime, AuthService, ServerProcessLock};
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
@@ -139,6 +140,7 @@ pub struct HttpAppState {
     pub auth: AuthRuntime,
     pub runtime: ServerRuntimeConfig,
     pub base_aria2_config: Aria2Config,
+    pub aria2_rpc: Aria2RpcClient,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub runtime_events: RuntimeEventHub,
 }
@@ -157,6 +159,7 @@ impl HttpAppState {
             auth,
             runtime,
             base_aria2_config,
+            aria2_rpc: Aria2RpcClient::new(),
             aria2_process: Mutex::new(None),
             runtime_events: RuntimeEventHub::new(),
         }

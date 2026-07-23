@@ -1,8 +1,10 @@
 use super::*;
+use crate::aria2::Aria2RpcClient;
 
 pub async fn refresh_tasks_from_aria2(
     tasks: &TaskMemoryState,
     app_data_dir: &Path,
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
@@ -25,14 +27,13 @@ pub async fn refresh_tasks_from_aria2(
 
     // 远端 RPC 可能阻塞，必须基于快照完成查询，不能在 await 期间持有任务写锁。
     // 查询结果先收集为更新指令，最后一次性回写，避免半批任务已更新、半批仍是旧状态。
-    let client = reqwest::Client::new();
     let mut updates = Vec::new();
     for candidate in candidates {
         let Some(gid) = candidate.gid.clone() else {
             continue;
         };
         // session 恢复后旧 GID 可能已经失效：普通任务可按原配置重建，等待 metadata 的磁链任务则必须保留确认流程并报告错误。
-        match tell_status(&client, config, &gid, debug_logs).await {
+        match tell_status(client, config, &gid, debug_logs).await {
             Ok(status) if is_stale_aria2_gid_status(&status) => {
                 if is_pending_magnet_metadata_task(&candidate) {
                     updates.push(TaskRefreshUpdate::Status {
@@ -41,7 +42,7 @@ pub async fn refresh_tasks_from_aria2(
                     });
                     continue;
                 }
-                match readd_download_task(config, &candidate, debug_logs).await {
+                match readd_download_task(client, config, &candidate, debug_logs).await {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
                         old_gid: gid,
@@ -54,7 +55,7 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Ok(status) => {
-                match resolve_followed_metadata(&client, config, &gid, &status, debug_logs).await {
+                match resolve_followed_metadata(client, config, &gid, &status, debug_logs).await {
                     Some(Ok((followed_status, metadata_torrent_path))) => {
                         updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
                             old_gid: gid,
@@ -77,7 +78,7 @@ pub async fn refresh_tasks_from_aria2(
                     });
                     continue;
                 }
-                match readd_download_task(config, &candidate, debug_logs).await {
+                match readd_download_task(client, config, &candidate, debug_logs).await {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
                         old_gid: gid,
@@ -146,17 +147,18 @@ pub async fn refresh_tasks_from_aria2(
 }
 
 pub async fn sync_task_progress_from_aria2_by_gid(
+    client: &Aria2RpcClient,
     tasks: &TaskMemoryState,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    let client = reqwest::Client::new();
-    let status = tell_status(&client, config, gid, debug_logs).await?;
+    let status = tell_status(client, config, gid, debug_logs).await?;
     apply_aria2_status_by_gid(tasks, gid, &status)
 }
 
 pub async fn sync_task_progress_after_pause_by_gid(
+    client: &Aria2RpcClient,
     tasks: &TaskMemoryState,
     config: &Aria2Config,
     gid: &str,
@@ -165,14 +167,13 @@ pub async fn sync_task_progress_after_pause_by_gid(
     const MAX_ATTEMPTS: usize = 61;
     const RETRY_INTERVAL_MS: u64 = 500;
 
-    let client = reqwest::Client::new();
     let mut previous_completed = None;
     let mut latest_status = None;
     let mut settled = false;
 
     // Aria2 接受 pause 后仍可能短暂写入缓存；需要状态已暂停且连续两次进度不变，才能把最终进度持久化。
     for attempt in 0..MAX_ATTEMPTS {
-        let status = tell_status(&client, config, gid, debug_logs).await?;
+        let status = tell_status(client, config, gid, debug_logs).await?;
         let completed = parse_aria2_u64(&status.completed_length);
         let is_settled = pause_status_is_settled(&status, previous_completed);
         previous_completed = Some(completed);

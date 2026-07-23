@@ -35,6 +35,7 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
         &state.core.next_task_id,
         &state.core.app_data_dir,
         &state.core.debug_logs,
+        &state.aria2_rpc,
         RuntimeGuard::new(&state.core.shutdown),
     );
     service

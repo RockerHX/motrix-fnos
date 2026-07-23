@@ -19,7 +19,7 @@ impl<'a> TaskService<'a> {
                 task_operation_context(Some(snapshot.clone()), Vec::new()),
             )
             .await?;
-        if let Err(error) = pause_task(config, &gid, Some(self.debug_logs)).await {
+        if let Err(error) = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await {
             self.fail_task_operation(&mut operation, "aria2_pause_failed", &error)
                 .await;
             return Err(error);
@@ -32,7 +32,7 @@ impl<'a> TaskService<'a> {
             .update_task_operation(&mut operation, "aria2_paused", pause_context)
             .await
         {
-            let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return Err(self
                 .rollback_task_operation_state(
                     snapshot,
@@ -43,6 +43,7 @@ impl<'a> TaskService<'a> {
                 .await);
         }
         let task = match sync_task_progress_after_pause_by_gid(
+            self.aria2_rpc,
             self.download_tasks,
             config,
             &gid,
@@ -52,7 +53,7 @@ impl<'a> TaskService<'a> {
         {
             Ok(task) => task,
             Err(error) => {
-                let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                 return Err(self
                     .rollback_task_operation_state(snapshot, &mut operation, "sync_failed", error)
                     .await);
@@ -62,7 +63,7 @@ impl<'a> TaskService<'a> {
             .persist_task_with_operation(&task, &mut operation, "task_paused")
             .await
         {
-            let _ = unpause_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return Err(self
                 .rollback_task_operation_state(
                     snapshot,
@@ -102,9 +103,10 @@ impl<'a> TaskService<'a> {
             )
             .await?;
         let mut readded = false;
-        let task = match unpause_task(config, &gid, Some(self.debug_logs)).await {
+        let task = match unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await {
             Ok(_) => {
                 if let Err(error) = sync_task_progress_from_aria2_by_gid(
+                    self.aria2_rpc,
                     self.download_tasks,
                     config,
                     &gid,
@@ -129,6 +131,7 @@ impl<'a> TaskService<'a> {
                 );
                 readded = true;
                 match readd_task_to_aria2(
+                    self.aria2_rpc,
                     self.download_tasks,
                     config,
                     task_id,
@@ -167,10 +170,11 @@ impl<'a> TaskService<'a> {
         {
             if readded {
                 if let Some(new_gid) = task.gid.as_deref() {
-                    let _ = remove_task(config, new_gid, Some(self.debug_logs)).await;
+                    let _ =
+                        remove_task(self.aria2_rpc, config, new_gid, Some(self.debug_logs)).await;
                 }
             } else {
-                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             }
             return Err(self
                 .rollback_task_operation_state(
@@ -187,10 +191,11 @@ impl<'a> TaskService<'a> {
         {
             if readded {
                 if let Some(new_gid) = task.gid.as_deref() {
-                    let _ = remove_task(config, new_gid, Some(self.debug_logs)).await;
+                    let _ =
+                        remove_task(self.aria2_rpc, config, new_gid, Some(self.debug_logs)).await;
                 }
             } else {
-                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             }
             return Err(self
                 .rollback_task_operation_state(
@@ -264,6 +269,7 @@ impl<'a> TaskService<'a> {
         let gid_result = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
                 add_torrent_to_aria2(
+                    self.aria2_rpc,
                     config,
                     &prepared,
                     torrent_data
@@ -274,7 +280,7 @@ impl<'a> TaskService<'a> {
                 .await
             }
             DownloadTaskSourceType::Url => {
-                add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await
+                add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await
             }
         };
         let gid = match gid_result {
@@ -289,7 +295,7 @@ impl<'a> TaskService<'a> {
             .record_aria2_task_created(&mut operation, gid.clone())
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
                 .await;
             return Err(error);
@@ -356,7 +362,8 @@ impl<'a> TaskService<'a> {
             }
         }
 
-        if let Err(error) = unpause_task(config, &gid, Some(self.debug_logs)).await {
+        if let Err(error) = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await
+        {
             return self
                 .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                 .await;
@@ -365,7 +372,7 @@ impl<'a> TaskService<'a> {
         let active = match mark_task_resumed(self.download_tasks, task_id) {
             Ok(task) => task,
             Err(error) => {
-                let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                 return self
                     .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                     .await;
@@ -375,7 +382,7 @@ impl<'a> TaskService<'a> {
             .persist_task_with_operation(&active, &mut operation, "task_resumed")
             .await
         {
-            let _ = pause_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return self
                 .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                 .await;
@@ -413,7 +420,9 @@ impl<'a> TaskService<'a> {
         operation: &mut TaskOperation,
         reason: String,
     ) -> Result<DownloadTask, String> {
-        let remove_error = remove_task(config, &gid, Some(self.debug_logs)).await.err();
+        let remove_error = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs))
+            .await
+            .err();
         let restore_error = staged.and_then(|staged| staged.restore().err());
         replace_task_snapshot(self.download_tasks, snapshot.clone())?;
         operation.fail("rolled_back", &reason);

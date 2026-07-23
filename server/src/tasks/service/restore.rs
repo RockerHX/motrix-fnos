@@ -84,7 +84,7 @@ impl<'a> TaskService<'a> {
             .record_aria2_task_created(&mut operation, gid.clone())
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
                 .await;
             return Err(error);
@@ -99,7 +99,7 @@ impl<'a> TaskService<'a> {
             ) {
                 Ok(task) => task,
                 Err(error) => {
-                    let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                    let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                     return Err(self
                         .rollback_task_operation_state(
                             snapshot,
@@ -114,7 +114,7 @@ impl<'a> TaskService<'a> {
             match mark_task_restored(self.download_tasks, task_id, gid.clone()) {
                 Ok(task) => task,
                 Err(error) => {
-                    let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                    let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                     return Err(self
                         .rollback_task_operation_state(
                             snapshot,
@@ -131,7 +131,7 @@ impl<'a> TaskService<'a> {
             .persist_task_with_operation(&restored, &mut operation, "task_restored")
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return Err(self
                 .rollback_task_operation_state(
                     snapshot,
@@ -160,7 +160,7 @@ impl<'a> TaskService<'a> {
         fs::create_dir_all(&task.save_dir)
             .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task.save_dir, error))?;
         let prepared = restored_task_options(task, task.save_dir.clone());
-        add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await
+        add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await
     }
 
     async fn restore_bt_task(
@@ -200,7 +200,14 @@ impl<'a> TaskService<'a> {
                     .join(",")),
             );
         }
-        add_torrent_to_aria2(config, &prepared, torrent_data, Some(self.debug_logs)).await
+        add_torrent_to_aria2(
+            self.aria2_rpc,
+            config,
+            &prepared,
+            torrent_data,
+            Some(self.debug_logs),
+        )
+        .await
     }
 
     async fn restore_magnet_metadata_task(
@@ -228,7 +235,7 @@ impl<'a> TaskService<'a> {
         })?;
         let mut prepared = restored_task_options(task, base_save_dir.clone());
         prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
-        match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
+        match add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await {
             Ok(gid) => Ok((gid, base_save_dir)),
             Err(error) => {
                 let _ = fs::remove_dir_all(metadata_dir);

@@ -19,6 +19,7 @@ pub(super) async fn list_download_tasks(
     let tasks = refresh_tasks_from_aria2(
         service.download_tasks,
         service.app_data_dir,
+        service.aria2_rpc,
         config,
         Some(service.debug_logs),
     )

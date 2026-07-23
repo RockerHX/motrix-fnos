@@ -88,7 +88,7 @@ async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
     let config = ensure_aria2_ready(state)
         .await
         .map_err(RpcFault::server_error)?;
-    let status = crate::aria2::ping_rpc(&config, None).await;
+    let status = crate::aria2::ping_rpc(&state.aria2_rpc, &config, None).await;
     emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
     if !status.connected {
         return Err(RpcFault::server_error(status.message));

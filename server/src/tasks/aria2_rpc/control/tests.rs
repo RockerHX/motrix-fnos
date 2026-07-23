@@ -1,4 +1,5 @@
 use super::*;
+use crate::aria2::Aria2RpcClient;
 use axum::extract::{Json, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
@@ -13,6 +14,7 @@ async fn gid_control_rejects_empty_result() {
     let mock = MockRpcServer::spawn(vec![MockResponse::Json(json!({ "result": "" }))]).await;
 
     let error = send_gid_control_request(
+        &Aria2RpcClient::new(),
         &test_config(mock.port),
         "gid-1",
         "aria2.pause",
@@ -35,12 +37,22 @@ async fn gid_control_reports_rpc_and_parse_errors() {
     .await;
     let parse_mock = MockRpcServer::spawn(vec![MockResponse::Raw("{")]).await;
 
-    let rpc_error = pause_task(&test_config(rpc_mock.port), "gid-1", None)
-        .await
-        .expect_err("rpc error should fail");
-    let parse_error = pause_task(&test_config(parse_mock.port), "gid-1", None)
-        .await
-        .expect_err("invalid json should fail");
+    let rpc_error = pause_task(
+        &Aria2RpcClient::new(),
+        &test_config(rpc_mock.port),
+        "gid-1",
+        None,
+    )
+    .await
+    .expect_err("rpc error should fail");
+    let parse_error = pause_task(
+        &Aria2RpcClient::new(),
+        &test_config(parse_mock.port),
+        "gid-1",
+        None,
+    )
+    .await
+    .expect_err("invalid json should fail");
 
     assert!(rpc_error.contains("cannot pause"));
     assert!(parse_error.contains("响应解析失败"));
@@ -56,9 +68,14 @@ async fn remove_task_falls_back_to_remove_download_result() {
     ])
     .await;
 
-    let result = remove_task(&test_config(mock.port), "gid-1", None)
-        .await
-        .expect("fallback should succeed");
+    let result = remove_task(
+        &Aria2RpcClient::new(),
+        &test_config(mock.port),
+        "gid-1",
+        None,
+    )
+    .await
+    .expect("fallback should succeed");
 
     assert_eq!(result, "gid-1");
     assert_eq!(

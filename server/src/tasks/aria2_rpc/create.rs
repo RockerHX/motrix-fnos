@@ -1,4 +1,5 @@
-use super::transport::{rpc_params, AddUriResponse};
+use super::transport::rpc_params;
+use crate::aria2::{Aria2RpcClient, Aria2RpcError};
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{
@@ -18,6 +19,7 @@ const DEFAULT_BT_TRACKERS: &[&str] = &[
 ];
 
 pub async fn add_uri_to_aria2(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     task: &PreparedDownloadTask,
     debug_logs: Option<&DebugLogStore>,
@@ -32,39 +34,27 @@ pub async fn add_uri_to_aria2(
         ),
     );
     let request_body = super::build_add_uri_request(config, task);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    let gid = match client
+        .request::<String>(config, &request_body)
         .await
+        .and_then(|response| response.into_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string();
+        Ok(gid) if !gid.trim().is_empty() => gid,
+        Ok(_) => {
+            let error = "创建 Aria2 下载任务失败：响应缺少 GID".to_string();
             log_error(debug_logs, "aria2.addUri", &error);
             return Err(error);
         }
-    };
-
-    let rpc_response = match response.json::<AddUriResponse>().await {
-        Ok(response) => response,
         Err(error) => {
-            let error = format!("创建 Aria2 下载任务失败，响应解析失败：{}", error);
+            let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
+                "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string()
+            } else {
+                format!("创建下载任务失败：{}", error)
+            };
             log_error(debug_logs, "aria2.addUri", &error);
             return Err(error);
         }
     };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("创建 Aria2 下载任务失败：{}", error.message);
-        log_error(debug_logs, "aria2.addUri", &error);
-        return Err(error);
-    }
-
-    let gid = rpc_response
-        .result
-        .filter(|gid| !gid.trim().is_empty())
-        .ok_or_else(|| "创建 Aria2 下载任务失败：响应缺少 GID".to_string())?;
     log_info(
         debug_logs,
         "aria2.addUri",
@@ -74,6 +64,7 @@ pub async fn add_uri_to_aria2(
 }
 
 pub async fn add_torrent_to_aria2(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     task: &PreparedDownloadTask,
     torrent_data: &[u8],
@@ -88,39 +79,27 @@ pub async fn add_torrent_to_aria2(
         ),
     );
     let request_body = super::build_add_torrent_request(config, task, torrent_data);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    let gid = match client
+        .request::<String>(config, &request_body)
         .await
+        .and_then(|response| response.into_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = "创建种子任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string();
+        Ok(gid) if !gid.trim().is_empty() => gid,
+        Ok(_) => {
+            let error = "创建种子任务失败：响应缺少 GID".to_string();
             log_error(debug_logs, "aria2.addTorrent", &error);
             return Err(error);
         }
-    };
-
-    let rpc_response = match response.json::<AddUriResponse>().await {
-        Ok(response) => response,
         Err(error) => {
-            let error = format!("创建种子任务失败，响应解析失败：{}", error);
+            let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
+                "创建种子任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string()
+            } else {
+                format!("创建种子任务失败：{}", error)
+            };
             log_error(debug_logs, "aria2.addTorrent", &error);
             return Err(error);
         }
     };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("创建种子任务失败：{}", error.message);
-        log_error(debug_logs, "aria2.addTorrent", &error);
-        return Err(error);
-    }
-
-    let gid = rpc_response
-        .result
-        .filter(|gid| !gid.trim().is_empty())
-        .ok_or_else(|| "创建种子任务失败：响应缺少 GID".to_string())?;
     log_info(
         debug_logs,
         "aria2.addTorrent",

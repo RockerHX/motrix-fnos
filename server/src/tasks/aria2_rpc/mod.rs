@@ -12,4 +12,3 @@ pub(crate) use create::{build_add_torrent_request, build_add_uri_request};
 pub(crate) use query::{
     build_tell_many_request, build_tell_status_request, task_exists, tell_status,
 };
-pub(crate) use transport::TellManyResponse;

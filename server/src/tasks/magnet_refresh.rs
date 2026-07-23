@@ -1,7 +1,8 @@
 use super::*;
+use crate::aria2::Aria2RpcClient;
 
 pub(super) async fn resolve_followed_metadata(
-    client: &reqwest::Client,
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     metadata_gid: &str,
     metadata_status: &Aria2TaskStatus,
@@ -9,7 +10,7 @@ pub(super) async fn resolve_followed_metadata(
 ) -> Option<Result<(Aria2TaskStatus, String), String>> {
     // followedBy 指向 metadata 完成后生成的真实任务；先暂停并读取其状态，保存种子路径后再清理两个临时 GID。
     let followed_gid = followed_gid(metadata_status)?;
-    if let Err(error) = pause_task(config, &followed_gid, debug_logs).await {
+    if let Err(error) = pause_task(client, config, &followed_gid, debug_logs).await {
         log_info(
             debug_logs,
             "tasks.magnet",
@@ -39,8 +40,8 @@ pub(super) async fn resolve_followed_metadata(
         Err(error) => return Some(Err(error)),
     };
 
-    remove_temporary_magnet_gid(config, &followed_gid, debug_logs).await;
-    remove_temporary_magnet_gid(config, metadata_gid, debug_logs).await;
+    remove_temporary_magnet_gid(client, config, &followed_gid, debug_logs).await;
+    remove_temporary_magnet_gid(client, config, metadata_gid, debug_logs).await;
     log_info(
         debug_logs,
         "tasks.magnet",
@@ -68,11 +69,12 @@ pub(super) fn stale_magnet_metadata_status(
 }
 
 async fn remove_temporary_magnet_gid(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) {
-    if let Err(error) = remove_task(config, gid, debug_logs).await {
+    if let Err(error) = remove_task(client, config, gid, debug_logs).await {
         if is_stale_aria2_gid_error(&error) {
             log_info(
                 debug_logs,

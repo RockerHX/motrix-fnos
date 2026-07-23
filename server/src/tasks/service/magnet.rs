@@ -34,7 +34,14 @@ pub(super) async fn create_magnet_download_task(
             .await;
         return Err(error);
     }
-    let gid = match add_uri_to_aria2(config, &prepared, Some(service.debug_logs)).await {
+    let gid = match add_uri_to_aria2(
+        service.aria2_rpc,
+        config,
+        &prepared,
+        Some(service.debug_logs),
+    )
+    .await
+    {
         Ok(gid) => gid,
         Err(error) => {
             let _ = fs::remove_dir_all(&metadata_dir);
@@ -48,7 +55,7 @@ pub(super) async fn create_magnet_download_task(
         .record_aria2_task_created(operation, gid.clone())
         .await
     {
-        let _ = remove_task(config, &gid, Some(service.debug_logs)).await;
+        let _ = remove_task(service.aria2_rpc, config, &gid, Some(service.debug_logs)).await;
         let _ = fs::remove_dir_all(&metadata_dir);
         service
             .fail_task_operation(operation, "aria2_record_failed", &error)
@@ -59,7 +66,7 @@ pub(super) async fn create_magnet_download_task(
         Ok(task) => Ok(task),
         Err(error) => {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();
-            let _ = remove_task(config, gid, Some(service.debug_logs)).await;
+            let _ = remove_task(service.aria2_rpc, config, gid, Some(service.debug_logs)).await;
             let _ = fs::remove_dir_all(&metadata_dir);
             service
                 .fail_task_operation(operation, "memory_state_failed", &error)
@@ -182,24 +189,29 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
-        let gid =
-            match add_torrent_to_aria2(config, &prepared, &torrent_data, Some(self.debug_logs))
-                .await
-            {
-                Ok(gid) => gid,
-                Err(error) => {
-                    cleanup_empty_torrent_task_dir(&prepared);
-                    remove_restore_metadata(self.app_data_dir, task_id);
-                    self.fail_task_operation(&mut operation, "aria2_failed", &error)
-                        .await;
-                    return Err(error);
-                }
-            };
+        let gid = match add_torrent_to_aria2(
+            self.aria2_rpc,
+            config,
+            &prepared,
+            &torrent_data,
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(gid) => gid,
+            Err(error) => {
+                cleanup_empty_torrent_task_dir(&prepared);
+                remove_restore_metadata(self.app_data_dir, task_id);
+                self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
         if let Err(error) = self
             .record_aria2_task_created(&mut operation, gid.clone())
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared);
             remove_restore_metadata(self.app_data_dir, task_id);
             self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
@@ -216,7 +228,7 @@ impl<'a> TaskService<'a> {
         ) {
             Ok(task) => task,
             Err(error) => {
-                let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+                let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
                 cleanup_empty_torrent_task_dir(&prepared);
                 remove_restore_metadata(self.app_data_dir, task_id);
                 self.fail_task_operation(&mut operation, "memory_state_failed", &error)
@@ -226,6 +238,7 @@ impl<'a> TaskService<'a> {
         };
 
         match sync_task_progress_from_aria2_by_gid(
+            self.aria2_rpc,
             self.download_tasks,
             config,
             &gid,
@@ -246,7 +259,7 @@ impl<'a> TaskService<'a> {
             .persist_task_with_operation(&confirmed_task, &mut operation, "task_confirmed")
             .await
         {
-            let _ = remove_task(config, &gid, Some(self.debug_logs)).await;
+            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared);
             replace_task_snapshot(self.download_tasks, task.clone())?;
             remove_restore_metadata(self.app_data_dir, task_id);

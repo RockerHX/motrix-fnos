@@ -273,6 +273,7 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
         &state.core.next_task_id,
         &state.core.app_data_dir,
         &state.core.debug_logs,
+        &state.aria2_rpc,
         RuntimeGuard::new(&state.core.shutdown),
     )
 }

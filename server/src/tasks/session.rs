@@ -1,3 +1,4 @@
+use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::{read_saved_torrent_metadata, task_download_dir};
@@ -7,7 +8,7 @@ use crate::tasks::{
     DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
 };
 
-use super::aria2_rpc::{build_tell_many_request, send_gid_control_request, TellManyResponse};
+use super::aria2_rpc::{build_tell_many_request, send_gid_control_request};
 use super::{
     apply_aria2_status, apply_paused_state, apply_readded_gid, current_timestamp_ms, log_error,
     log_info, Aria2TaskStatus,
@@ -15,10 +16,11 @@ use super::{
 
 pub async fn sync_session_tasks_from_aria2(
     tasks: &TaskMemoryState,
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
-    let session_tasks = list_current_aria2_tasks(config, debug_logs).await?;
+    let session_tasks = list_current_aria2_tasks(client, config, debug_logs).await?;
     if session_tasks.is_empty() {
         log_info(debug_logs, "tasks.restore", "Aria2 session 未加载任何任务");
         return crate::tasks::list_tasks(tasks);
@@ -74,13 +76,13 @@ pub async fn sync_session_tasks_from_aria2(
 }
 
 async fn list_current_aria2_tasks(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<Aria2TaskStatus>, String> {
-    let client = reqwest::Client::new();
     let mut tasks = Vec::new();
     for method in ["aria2.tellActive", "aria2.tellWaiting", "aria2.tellStopped"] {
-        match tell_many_tasks(&client, config, method).await {
+        match tell_many_tasks(client, config, method).await {
             Ok(mut result) => tasks.append(&mut result),
             Err(error) => {
                 log_error(debug_logs, "tasks.restore", &error);
@@ -92,28 +94,17 @@ async fn list_current_aria2_tasks(
 }
 
 async fn tell_many_tasks(
-    client: &reqwest::Client,
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     method: &str,
 ) -> Result<Vec<Aria2TaskStatus>, String> {
     let request_body = build_tell_many_request(config, method);
-    let response = client
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    client
+        .request::<Vec<Aria2TaskStatus>>(config, &request_body)
         .await
-        .map_err(|error| format!("读取 Aria2 session 任务失败：无法连接 RPC（{}）", error))?;
-
-    let rpc_response = response
-        .json::<TellManyResponse>()
-        .await
-        .map_err(|error| format!("读取 Aria2 session 任务失败：响应解析失败（{}）", error))?;
-
-    if let Some(error) = rpc_response.error {
-        return Err(format!("读取 Aria2 session 任务失败：{}", error.message));
-    }
-
-    Ok(rpc_response.result.unwrap_or_default())
+        .and_then(|response| response.into_optional_result())
+        .map(|tasks| tasks.unwrap_or_default())
+        .map_err(|error| format!("读取 Aria2 session 任务失败：{}", error))
 }
 
 pub(crate) fn find_matching_sqlite_task(
@@ -191,6 +182,7 @@ fn normalize_path_for_match(path: &str) -> String {
 }
 
 pub async fn readd_task_to_aria2(
+    client: &Aria2RpcClient,
     tasks: &TaskMemoryState,
     config: &Aria2Config,
     task_id: u64,
@@ -198,7 +190,7 @@ pub async fn readd_task_to_aria2(
 ) -> Result<DownloadTask, String> {
     let task = crate::tasks::task_snapshot(tasks, task_id)?;
 
-    let new_gid = readd_download_task(config, &task, debug_logs).await?;
+    let new_gid = readd_download_task(client, config, &task, debug_logs).await?;
 
     tasks.with_tasks_mut(|guard| {
         let task = guard
@@ -211,6 +203,7 @@ pub async fn readd_task_to_aria2(
 }
 
 pub(crate) async fn readd_download_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     task: &DownloadTask,
     debug_logs: Option<&DebugLogStore>,
@@ -225,7 +218,7 @@ pub(crate) async fn readd_download_task(
         ),
     );
     if let Some(old_gid) = task.gid.as_deref() {
-        if let Err(error) = remove_download_result(config, old_gid, debug_logs).await {
+        if let Err(error) = remove_download_result(client, config, old_gid, debug_logs).await {
             log_info(
                 debug_logs,
                 "tasks.restore",
@@ -249,21 +242,25 @@ pub(crate) async fn readd_download_task(
         aria2_options: serde_json::Map::new(),
     };
     match task.source_type {
-        DownloadTaskSourceType::Url => add_uri_to_aria2(config, &prepared, debug_logs).await,
+        DownloadTaskSourceType::Url => {
+            add_uri_to_aria2(client, config, &prepared, debug_logs).await
+        }
         DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
             let torrent_data = read_saved_torrent_metadata(task)
                 .map_err(|error| format!("重新加入 BT 任务前无法读取源 metadata：{}", error))?;
-            add_torrent_to_aria2(config, &prepared, &torrent_data, debug_logs).await
+            add_torrent_to_aria2(client, config, &prepared, &torrent_data, debug_logs).await
         }
     }
 }
 
 async fn remove_download_result(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.removeDownloadResult",

@@ -118,7 +118,14 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
     }
 
     let config = state.aria2_config();
-    if let Err(error) = wait_for_rpc_ready(&config, &state.core.debug_logs, started_process).await {
+    if let Err(error) = wait_for_rpc_ready(
+        &state.aria2_rpc,
+        &config,
+        &state.core.debug_logs,
+        started_process,
+    )
+    .await
+    {
         let status = process_status(&state.aria2_process)?;
         if !status.running {
             state.clear_aria2_runtime();
@@ -137,6 +144,7 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
 }
 
 pub(crate) async fn wait_for_rpc_ready(
+    client: &crate::aria2::Aria2RpcClient,
     config: &Aria2Config,
     debug_logs: &DebugLogStore,
     log_success_to_debug: bool,
@@ -147,7 +155,7 @@ pub(crate) async fn wait_for_rpc_ready(
 
     let mut last_message = String::new();
     for attempt in 0..MAX_ATTEMPTS {
-        let status = ping_rpc(config, None).await;
+        let status = ping_rpc(client, config, None).await;
         if status.connected {
             let message = format!("Aria2 RPC ready，第 {} 次检查成功", attempt + 1);
             if log_success_to_debug {
