@@ -1,7 +1,23 @@
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
-use sqlx::{Decode, Row, Sqlite, SqlitePool, Type};
+use sqlx::{Decode, Row, Sqlite, SqlitePool, Transaction, Type};
 
 pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存下载任务事务失败：{}", error))?;
+    upsert_download_task_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存下载任务事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn upsert_download_task_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
     sqlx::query(
         r#"
         INSERT INTO download_tasks (
@@ -55,7 +71,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     .bind(if task.confirmation_required { 1_i64 } else { 0_i64 })
     .bind(u64_to_i64(task.created_at, "创建时间")?)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存下载任务失败：{}", error))?;
 
@@ -66,22 +82,35 @@ pub async fn persist_download_task_state(
     pool: &SqlitePool,
     task: &DownloadTask,
 ) -> Result<(), String> {
-    upsert_download_task(pool, task).await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动持久化任务状态事务失败：{}", error))?;
+    upsert_download_task_in_transaction(&mut transaction, task).await?;
 
     match task.status {
         DownloadTaskStatus::Complete
         | DownloadTaskStatus::Paused
         | DownloadTaskStatus::Error
         | DownloadTaskStatus::Removed => {
-            record_task_history(pool, task, task.error_message.as_deref()).await?;
+            record_task_history_in_transaction(
+                &mut transaction,
+                task,
+                task.error_message.as_deref(),
+            )
+            .await?;
         }
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
     }
 
     if task.status == DownloadTaskStatus::Error {
-        record_task_error(pool, task).await?;
+        record_task_error_in_transaction(&mut transaction, task).await?;
     }
 
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交持久化任务状态事务失败：{}", error))?;
     Ok(())
 }
 
@@ -125,28 +154,54 @@ pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
 
 pub async fn delete_download_task_record(pool: &SqlitePool, task_id: u64) -> Result<bool, String> {
     let task_id = u64_to_i64(task_id, "任务 ID")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动删除任务记录事务失败：{}", error))?;
 
     sqlx::query("DELETE FROM task_history WHERE task_id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|error| format!("删除任务历史失败：{}", error))?;
     sqlx::query("DELETE FROM task_errors WHERE task_id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|error| format!("删除任务错误记录失败：{}", error))?;
     let result = sqlx::query("DELETE FROM download_tasks WHERE id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut *transaction)
         .await
         .map_err(|error| format!("删除下载任务记录失败：{}", error))?;
+
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交删除任务记录事务失败：{}", error))?;
 
     Ok(result.rows_affected() > 0)
 }
 
 pub async fn record_task_history(
     pool: &SqlitePool,
+    task: &DownloadTask,
+    message: Option<&str>,
+) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存任务历史事务失败：{}", error))?;
+    record_task_history_in_transaction(&mut transaction, task, message).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存任务历史事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn record_task_history_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
     task: &DownloadTask,
     message: Option<&str>,
 ) -> Result<(), String> {
@@ -170,7 +225,7 @@ pub async fn record_task_history(
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(task.status.as_storage_value())
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存任务历史失败：{}", error))?;
 
@@ -178,6 +233,22 @@ pub async fn record_task_history(
 }
 
 pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存任务错误事务失败：{}", error))?;
+    record_task_error_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存任务错误事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn record_task_error_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
     let Some(message) = task
         .error_message
         .as_deref()
@@ -207,7 +278,7 @@ pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(&task.error_code)
     .bind(message)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存任务错误记录失败：{}", error))?;
 
