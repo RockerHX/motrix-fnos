@@ -121,6 +121,33 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
 }
 
 #[tokio::test]
+async fn pause_download_task_rejects_when_the_same_task_is_operating() {
+    let save_dir = temp_dir("service-operation-conflict");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    let _operation = fixture
+        .tasks
+        .begin_operation(1)
+        .expect("test operation should lock task");
+
+    let error = fixture
+        .service()
+        .pause_download_task(&test_config(6800, ""), 1)
+        .await
+        .expect_err("same task operation should reject before Aria2 call");
+
+    assert!(error.contains("已有操作正在进行"));
+    assert!(fixture.repository.persisted_tasks().is_empty());
+}
+
+#[tokio::test]
 async fn delete_download_task_marks_removed_and_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete");

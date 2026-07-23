@@ -3,9 +3,9 @@ use super::*;
 pub(super) async fn create_magnet_download_task(
     service: &TaskService<'_>,
     config: &Aria2Config,
+    task_id: u64,
     mut prepared: crate::tasks::PreparedDownloadTask,
 ) -> Result<DownloadTask, String> {
-    let task_id = service.next_task_id.fetch_add(1, Ordering::Relaxed);
     let metadata_dir = magnet_metadata_task_dir(service.app_data_dir, task_id);
     fs::create_dir_all(&metadata_dir).map_err(|error| {
         format!(
@@ -33,6 +33,7 @@ impl<'a> TaskService<'a> {
         selected_file_indexes: Vec<u32>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut selected = selected_file_indexes
             .into_iter()
             .filter(|index| *index > 0)

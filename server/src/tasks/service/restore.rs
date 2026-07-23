@@ -8,6 +8,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if snapshot.status != DownloadTaskStatus::Removed {
             return Err("只有回收站任务可以恢复".to_string());

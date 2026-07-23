@@ -11,7 +11,7 @@ use crate::tasks::{
     mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
     mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
     readd_task_to_aria2, remove_task, remove_task_record, replace_task_snapshot,
-    set_task_metadata_torrent_path, should_readd_task_after_resume_error, store_created_task,
+    set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
     validate_task_files, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,

@@ -462,7 +462,12 @@ fn task_operation_guard_rejects_parallel_operation_and_releases_on_drop() {
     };
     assert!(error.contains("已有操作"));
 
+    let different_task_guard = tasks
+        .begin_operation(2)
+        .expect("different task should lock independently");
+
     drop(guard);
+    drop(different_task_guard);
     tasks
         .begin_operation(1)
         .expect("operation should unlock after guard drop");

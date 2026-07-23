@@ -25,6 +25,13 @@ use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn task_operation_conflict_maps_to_conflict_response() {
+    let error = classify_task_error("该任务已有操作正在进行，请稍后重试".to_string());
+
+    assert_eq!(error.status(), StatusCode::CONFLICT);
+}
+
 #[tokio::test]
 async fn create_and_list_routes_work_with_ready_aria2() {
     let mock = MockAria2Server::spawn().await;

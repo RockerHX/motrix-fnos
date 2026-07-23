@@ -8,6 +8,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let gid = task_gid(self.download_tasks, task_id)?;
         pause_task(config, &gid, Some(self.debug_logs)).await?;
         let task = sync_task_progress_after_pause_by_gid(
@@ -31,6 +32,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
         if task_before_resume.confirmation_required {
             return Err("请先确认要下载的文件".to_string());

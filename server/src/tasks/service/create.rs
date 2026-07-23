@@ -16,8 +16,10 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
+        let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let task = if prepared.source_type == DownloadTaskSourceType::Magnet {
-            magnet::create_magnet_download_task(self, config, prepared).await?
+            magnet::create_magnet_download_task(self, config, task_id, prepared).await?
         } else {
             let gid = match add_uri_to_aria2(config, &prepared, Some(self.debug_logs)).await {
                 Ok(gid) => gid,
@@ -26,7 +28,7 @@ impl<'a> TaskService<'a> {
                     return Err(error);
                 }
             };
-            store_created_task(self.download_tasks, self.next_task_id, prepared, gid)?
+            store_created_task_with_id(self.download_tasks, task_id, prepared, gid)?
         };
         self.repository.upsert_task(&task).await?;
         self.debug_logs.info(
@@ -52,6 +54,7 @@ impl<'a> TaskService<'a> {
         let torrent_data = payload.torrent_data.clone();
         let prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
         let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let metadata_path =
             save_restore_torrent_metadata(self.app_data_dir, task_id, &torrent_data)?;
         let gid =

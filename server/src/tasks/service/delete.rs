@@ -8,6 +8,7 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut task_before_delete = task_snapshot(self.download_tasks, task_id)?;
         if matches!(
             task_before_delete.source_type,
@@ -70,6 +71,7 @@ impl<'a> TaskService<'a> {
 
     pub async fn permanently_delete_removed_task(&self, task_id: u64) -> Result<(), String> {
         self.ensure_not_exiting()?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
         let task = task_snapshot(self.download_tasks, task_id)?;
         if task.status != DownloadTaskStatus::Removed {
             return Err("只有已删除任务可以永久删除".to_string());
