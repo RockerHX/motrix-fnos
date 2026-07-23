@@ -9,6 +9,9 @@
   --app-color-card-overlay: rgba(255, 255, 255, 0.05);
   --app-color-card-overlay-subtle: rgba(255, 255, 255, 0.04);
   --app-color-border-subtle: rgba(255, 255, 255, 0.08);
+  --app-scrollbar-thumb: #748392;
+  --app-scrollbar-thumb-hover: #a3b1bf;
+  --app-scrollbar-track: #171b1a;
 
   --app-text-primary: #dce8e2;
   --app-text-secondary: #d7dfd8;
