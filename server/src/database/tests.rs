@@ -23,6 +23,7 @@ fn connect_database_creates_required_tables() {
                 "task_history",
                 "task_errors",
                 "web_auth_config",
+                "schema_migrations",
             ] {
                 let exists: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -202,7 +203,80 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     .expect("migrated source types should be readable");
             assert_eq!(source_types, ["url", "torrent", "magnet"]);
 
+            let migrations: Vec<(i64, String)> = sqlx::query_as(
+                "SELECT version, name FROM schema_migrations ORDER BY version",
+            )
+            .fetch_all(&database.pool)
+            .await
+            .expect("migration records should be readable");
+            assert_eq!(migrations, [(1, "legacy_download_tasks_baseline".to_string())]);
+
             database.pool.close().await;
+
+            let reopened = connect_database(path.clone())
+                .await
+                .expect("migrated database should reopen");
+            let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM schema_migrations")
+                .fetch_one(&reopened.pool)
+                .await
+                .expect("migration record count should be readable");
+            assert_eq!(migration_count, 1);
+            reopened.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn failed_migration_does_not_record_version_or_leave_partial_columns() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-failed-migrate-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_millis()
+            ));
+            let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                .expect("sqlite options should build")
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .expect("invalid legacy database should connect");
+            sqlx::query("CREATE TABLE download_tasks (id INTEGER PRIMARY KEY)")
+                .execute(&pool)
+                .await
+                .expect("invalid legacy table should create");
+            pool.close().await;
+
+            let error = connect_database(path.clone())
+                .await
+                .expect_err("migration should reject a table without url");
+            assert!(error.contains("legacy_download_tasks_baseline"));
+
+            let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                .expect("sqlite options should build");
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .expect("failed database should remain readable");
+            let migration_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM schema_migrations")
+                .fetch_one(&pool)
+                .await
+                .expect("migration table should exist");
+            let source_type_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = 'source_type'",
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("column lookup should succeed");
+            assert_eq!(migration_count, 0);
+            assert_eq!(source_type_count, 0);
+            pool.close().await;
             let _ = std::fs::remove_file(path);
         });
 }

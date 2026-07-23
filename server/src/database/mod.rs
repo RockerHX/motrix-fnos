@@ -1,5 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -52,11 +52,75 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
-    if download_tasks_column_count(pool, "source_type").await? == 0 {
+    for migration in SCHEMA_MIGRATIONS {
+        let mut transaction = pool
+            .begin()
+            .await
+            .map_err(|error| format!("启动 SQLite 迁移事务失败：{}", error))?;
+        let applied: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM schema_migrations WHERE version = ? LIMIT 1")
+                .bind(migration.version)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| format!("读取 SQLite 迁移记录失败：{}", error))?;
+
+        if applied.is_some() {
+            transaction
+                .commit()
+                .await
+                .map_err(|error| format!("提交 SQLite 迁移事务失败：{}", error))?;
+            continue;
+        }
+
+        apply_schema_migration(&mut transaction, migration)
+            .await
+            .map_err(|error| format!("执行 SQLite 迁移 {} 失败：{}", migration.name, error))?;
+        sqlx::query("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+            .bind(migration.version)
+            .bind(migration.name)
+            .bind(current_timestamp_ms())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| format!("记录 SQLite 迁移 {} 失败：{}", migration.name, error))?;
+        transaction
+            .commit()
+            .await
+            .map_err(|error| format!("提交 SQLite 迁移 {} 失败：{}", migration.name, error))?;
+    }
+
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct SchemaMigration {
+    version: i64,
+    name: &'static str,
+}
+
+// 新迁移只能追加到此列表末尾，已发布的版本号和执行内容不得修改。
+const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[SchemaMigration {
+    version: 1,
+    name: "legacy_download_tasks_baseline",
+}];
+
+async fn apply_schema_migration(
+    transaction: &mut Transaction<'_, Sqlite>,
+    migration: &SchemaMigration,
+) -> Result<(), String> {
+    match migration.version {
+        1 => migrate_legacy_download_tasks(transaction).await,
+        version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
+    }
+}
+
+async fn migrate_legacy_download_tasks(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    if download_tasks_column_count(transaction, "source_type").await? == 0 {
         sqlx::query(
             "ALTER TABLE download_tasks ADD COLUMN source_type TEXT NOT NULL DEFAULT 'url'",
         )
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("迁移下载任务来源字段失败：{}", error))?;
         sqlx::query(
@@ -69,74 +133,86 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
             END
             "#,
         )
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("回填下载任务来源字段失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "category").await? == 0 {
+    if download_tasks_column_count(transaction, "category").await? == 0 {
         sqlx::query("ALTER TABLE download_tasks ADD COLUMN category TEXT NOT NULL DEFAULT '默认'")
-            .execute(pool)
+            .execute(&mut **transaction)
             .await
             .map_err(|error| format!("迁移下载任务分类字段失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "confirmation_required").await? == 0 {
+    if download_tasks_column_count(transaction, "confirmation_required").await? == 0 {
         sqlx::query(
             "ALTER TABLE download_tasks ADD COLUMN confirmation_required INTEGER NOT NULL DEFAULT 0",
         )
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("迁移下载任务文件确认字段失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "metadata_torrent_path").await? == 0 {
+    if download_tasks_column_count(transaction, "metadata_torrent_path").await? == 0 {
         sqlx::query("ALTER TABLE download_tasks ADD COLUMN metadata_torrent_path TEXT")
-            .execute(pool)
+            .execute(&mut **transaction)
             .await
             .map_err(|error| format!("迁移磁链 metadata 路径字段失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "files_deleted").await? == 0 {
+    if download_tasks_column_count(transaction, "files_deleted").await? == 0 {
         sqlx::query(
             "ALTER TABLE download_tasks ADD COLUMN files_deleted INTEGER NOT NULL DEFAULT 0",
         )
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("迁移任务本地文件删除标记失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "selected_file_indexes").await? == 0 {
+    if download_tasks_column_count(transaction, "selected_file_indexes").await? == 0 {
         sqlx::query(
             "ALTER TABLE download_tasks ADD COLUMN selected_file_indexes TEXT NOT NULL DEFAULT '[]'",
         )
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("迁移任务文件选择字段失败：{}", error))?;
     }
 
-    if download_tasks_column_count(pool, "owned_task_dir").await? == 0 {
+    if download_tasks_column_count(transaction, "owned_task_dir").await? == 0 {
         sqlx::query("ALTER TABLE download_tasks ADD COLUMN owned_task_dir TEXT")
-            .execute(pool)
+            .execute(&mut **transaction)
             .await
             .map_err(|error| format!("迁移任务专属目录字段失败：{}", error))?;
     }
 
     // 旧版本创建的 UI 偏好表从未承载已上线功能，移除预留接口时同步清理遗留空表。
     sqlx::query("DROP TABLE IF EXISTS ui_preferences")
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("清理旧 UI 偏好表失败：{}", error))?;
 
     Ok(())
 }
 
-async fn download_tasks_column_count(pool: &SqlitePool, column: &str) -> Result<i64, String> {
+async fn download_tasks_column_count(
+    transaction: &mut Transaction<'_, Sqlite>,
+    column: &str,
+) -> Result<i64, String> {
     sqlx::query_scalar("SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?")
         .bind(column)
-        .fetch_one(pool)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(|error| format!("检查下载任务字段 {} 失败：{}", column, error))
+}
+
+fn current_timestamp_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(i64::MAX)
 }
 
 const SCHEMA_STATEMENTS: &[&str] = &[
@@ -197,6 +273,13 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         password_hash TEXT,
         password_updated_at INTEGER,
         auth_version INTEGER NOT NULL CHECK (auth_version > 0)
+    )
+    "#,
+    r#"
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at INTEGER NOT NULL
     )
     "#,
 ];
