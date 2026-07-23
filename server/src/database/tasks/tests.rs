@@ -1,5 +1,7 @@
 use super::*;
 use crate::database::connect_database;
+use crate::database::task_operations::begin_task_operation;
+use crate::tasks::{TaskOperationContext, TaskOperationType};
 
 #[test]
 fn repository_inserts_updates_and_lists_tasks() {
@@ -239,6 +241,112 @@ fn repository_deletes_task_record_history_and_errors() {
             assert!(tasks.is_empty());
             assert_eq!(history_count, 0);
             assert_eq!(error_count, 0);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_deletes_task_record_and_completes_operation_together() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-delete-record-operation-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let task = sample_task();
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("task should be inserted");
+            let mut operation = TaskOperation::with_id(
+                "delete-operation",
+                task.id,
+                TaskOperationType::PermanentDelete,
+                "prepared",
+                TaskOperationContext::default(),
+            );
+            begin_task_operation(&database.pool, &operation)
+                .await
+                .expect("operation should be inserted");
+            operation.complete("record_deleted");
+
+            let deleted =
+                delete_download_task_record_with_operation(&database.pool, task.id, &operation)
+                    .await
+                    .expect("task record and operation should update together");
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be read");
+            let operation_status: String = sqlx::query_scalar(
+                "SELECT status FROM task_operations WHERE id = 'delete-operation'",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("operation status should be read");
+
+            assert!(deleted);
+            assert_eq!(task_count, 0);
+            assert_eq!(operation_status, "completed");
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn delete_task_record_rolls_back_when_operation_completion_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-delete-record-operation-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let task = sample_task();
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("task should be inserted");
+            let mut operation = TaskOperation::with_id(
+                "failing-delete-operation",
+                task.id,
+                TaskOperationType::PermanentDelete,
+                "prepared",
+                TaskOperationContext::default(),
+            );
+            begin_task_operation(&database.pool, &operation)
+                .await
+                .expect("operation should be inserted");
+            operation.complete("record_deleted");
+            sqlx::query(
+                "CREATE TRIGGER fail_permanent_delete_operation BEFORE UPDATE ON task_operations WHEN NEW.id = 'failing-delete-operation' BEGIN SELECT RAISE(FAIL, 'forced operation completion failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+
+            let error = delete_download_task_record_with_operation(
+                &database.pool,
+                task.id,
+                &operation,
+            )
+            .await
+            .expect_err("operation completion failure should roll back deletion");
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be read");
+
+            assert!(error.contains("forced operation completion failure"));
+            assert_eq!(task_count, 1);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);

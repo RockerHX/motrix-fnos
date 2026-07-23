@@ -42,13 +42,6 @@ pub(super) async fn sync_tasks_to_database(
     service.repository.persist_task_states(tasks).await
 }
 
-pub(super) async fn sync_task_to_database(
-    service: &TaskService<'_>,
-    task: &DownloadTask,
-) -> Result<(), String> {
-    service.repository.persist_task_state(task).await
-}
-
 fn visible_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {
     tasks
         .into_iter()

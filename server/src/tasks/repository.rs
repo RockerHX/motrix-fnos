@@ -2,7 +2,7 @@ use crate::database::task_operations::{
     begin_task_operation, list_unfinished_task_operations, update_task_operation,
 };
 use crate::database::tasks::{
-    delete_download_task_record, persist_download_task_state,
+    delete_download_task_record_with_operation, persist_download_task_state,
     persist_download_task_state_with_operation, persist_download_task_states, upsert_download_task,
 };
 use crate::tasks::{DownloadTask, TaskOperation};
@@ -22,7 +22,11 @@ pub trait TaskRepository: Send + Sync {
         operation: &TaskOperation,
     ) -> Result<(), String>;
     async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String>;
-    async fn delete_task_record(&self, task_id: u64) -> Result<bool, String>;
+    async fn delete_task_record_with_operation(
+        &self,
+        task_id: u64,
+        operation: &TaskOperation,
+    ) -> Result<bool, String>;
 }
 
 #[derive(Clone, Copy)]
@@ -70,7 +74,11 @@ impl TaskRepository for SqliteTaskRepository<'_> {
         list_unfinished_task_operations(self.pool).await
     }
 
-    async fn delete_task_record(&self, task_id: u64) -> Result<bool, String> {
-        delete_download_task_record(self.pool, task_id).await
+    async fn delete_task_record_with_operation(
+        &self,
+        task_id: u64,
+        operation: &TaskOperation,
+    ) -> Result<bool, String> {
+        delete_download_task_record_with_operation(self.pool, task_id, operation).await
     }
 }

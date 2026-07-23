@@ -296,9 +296,125 @@ async fn delete_download_task_marks_removed_and_persists() {
     let persisted = fixture.repository.persisted_tasks();
     assert_eq!(persisted.len(), 1);
     assert_eq!(persisted[0].status, DownloadTaskStatus::Removed);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Delete);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
     let tasks = fixture.tasks.list().expect("tasks should list");
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].status, DownloadTaskStatus::Removed);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn delete_with_files_commits_staged_files_after_task_state_persists() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("service-delete-files");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"payload").expect("file should write");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+
+    let task = fixture
+        .service()
+        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .await
+        .expect("task and files should delete");
+
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert!(task.files_deleted);
+    assert!(!file_path.exists());
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert!(operations[0]
+        .context
+        .completed_side_effects
+        .contains(&"task_files_deleted".to_string()));
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn delete_with_files_aria2_failure_keeps_the_original_file() {
+    let save_dir = temp_dir("service-delete-files-aria2-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"payload").expect("file should write");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+
+    let error = fixture
+        .service()
+        .delete_download_task(&test_config(1, "secret"), 1, true)
+        .await
+        .expect_err("Aria2 failure should reject deletion before staging files");
+
+    assert!(error.contains("无法连接 Aria2 RPC"));
+    assert_eq!(
+        std::fs::read(&file_path).expect("file should remain"),
+        b"payload"
+    );
+    let task = &fixture.tasks.list().expect("tasks should list")[0];
+    assert_eq!(task.status, DownloadTaskStatus::Active);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "aria2_remove_failed");
+}
+
+#[tokio::test]
+async fn delete_with_files_persist_failure_restores_the_original_file() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("service-delete-files-persist-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"payload").expect("file should write");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    fixture.repository.fail_persist_on_call(1);
+
+    let error = fixture
+        .service()
+        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .await
+        .expect_err("persistence failure should restore staged files");
+
+    assert!(error.contains("injected persist failure"));
+    assert_eq!(
+        std::fs::read(&file_path).expect("file should restore"),
+        b"payload"
+    );
+    let task = &fixture.tasks.list().expect("tasks should list")[0];
+    assert_eq!(task.status, DownloadTaskStatus::Active);
+    assert_eq!(task.gid.as_deref(), Some("gid-1"));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::ManualReview);
+    assert_eq!(operations[0].phase, "task_remove_needs_reconcile");
 
     mock.abort();
 }
@@ -375,6 +491,13 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
     assert_eq!(fixture.repository.deleted_task_ids(), vec![1]);
     assert!(fixture.tasks.list().expect("tasks should list").is_empty());
     assert!(!metadata_path.exists());
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(
+        operations[0].operation_type,
+        TaskOperationType::PermanentDelete
+    );
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
 }
 
 #[tokio::test]
@@ -1021,9 +1144,19 @@ impl TaskRepository for Arc<FakeTaskRepository> {
         Ok(Vec::new())
     }
 
-    async fn delete_task_record(&self, task_id: u64) -> Result<bool, String> {
+    async fn delete_task_record_with_operation(
+        &self,
+        task_id: u64,
+        operation: &TaskOperation,
+    ) -> Result<bool, String> {
         let mut guard = self.state.lock().expect("repository state should lock");
         guard.deleted_task_ids.push(task_id);
+        let stored = guard
+            .operations
+            .iter_mut()
+            .find(|stored| stored.id == operation.id)
+            .ok_or_else(|| format!("测试任务操作不存在：{}", operation.id))?;
+        *stored = operation.clone();
         Ok(guard.delete_result || !guard.deleted_task_ids.is_empty())
     }
 }

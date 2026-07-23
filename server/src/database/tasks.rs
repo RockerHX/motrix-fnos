@@ -184,26 +184,60 @@ pub async fn delete_download_task_record(pool: &SqlitePool, task_id: u64) -> Res
         .await
         .map_err(|error| format!("启动删除任务记录事务失败：{}", error))?;
 
-    sqlx::query("DELETE FROM task_history WHERE task_id = ?")
-        .bind(task_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| format!("删除任务历史失败：{}", error))?;
-    sqlx::query("DELETE FROM task_errors WHERE task_id = ?")
-        .bind(task_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| format!("删除任务错误记录失败：{}", error))?;
-    let result = sqlx::query("DELETE FROM download_tasks WHERE id = ?")
-        .bind(task_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| format!("删除下载任务记录失败：{}", error))?;
+    let deleted = delete_download_task_record_in_transaction(&mut transaction, task_id).await?;
 
     transaction
         .commit()
         .await
         .map_err(|error| format!("提交删除任务记录事务失败：{}", error))?;
+
+    Ok(deleted)
+}
+
+pub async fn delete_download_task_record_with_operation(
+    pool: &SqlitePool,
+    task_id: u64,
+    operation: &TaskOperation,
+) -> Result<bool, String> {
+    let task_id = u64_to_i64(task_id, "任务 ID")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动删除任务记录事务失败：{}", error))?;
+
+    let deleted = delete_download_task_record_in_transaction(&mut transaction, task_id).await?;
+    if !deleted {
+        return Ok(false);
+    }
+    update_task_operation_in_transaction(&mut transaction, operation).await?;
+
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交删除任务记录事务失败：{}", error))?;
+
+    Ok(deleted)
+}
+
+async fn delete_download_task_record_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task_id: i64,
+) -> Result<bool, String> {
+    sqlx::query("DELETE FROM task_history WHERE task_id = ?")
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("删除任务历史失败：{}", error))?;
+    sqlx::query("DELETE FROM task_errors WHERE task_id = ?")
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("删除任务错误记录失败：{}", error))?;
+    let result = sqlx::query("DELETE FROM download_tasks WHERE id = ?")
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("删除下载任务记录失败：{}", error))?;
 
     Ok(result.rows_affected() > 0)
 }
