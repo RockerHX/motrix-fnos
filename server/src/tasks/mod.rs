@@ -2,6 +2,7 @@ pub mod aria2_rpc;
 pub mod files;
 mod magnet_refresh;
 pub mod model;
+pub mod operation;
 pub mod options;
 pub mod prepare;
 pub mod progress;
@@ -28,6 +29,7 @@ pub use model::{
     DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStartMode,
     DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
+pub use operation::{TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType};
 pub use options::{sanitize_aria2_options, sanitize_create_task_options};
 pub use prepare::{
     default_download_dir_string, prepare_task, prepare_task_with_logs,

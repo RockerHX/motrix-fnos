@@ -24,6 +24,7 @@ fn connect_database_creates_required_tables() {
                 "task_errors",
                 "web_auth_config",
                 "schema_migrations",
+                "task_operations",
             ] {
                 let exists: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -209,7 +210,13 @@ fn connect_database_migrates_existing_download_tasks_category() {
             .fetch_all(&database.pool)
             .await
             .expect("migration records should be readable");
-            assert_eq!(migrations, [(1, "legacy_download_tasks_baseline".to_string())]);
+            assert_eq!(
+                migrations,
+                [
+                    (1, "legacy_download_tasks_baseline".to_string()),
+                    (2, "task_operations".to_string()),
+                ]
+            );
 
             database.pool.close().await;
 
@@ -220,7 +227,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .fetch_one(&reopened.pool)
                 .await
                 .expect("migration record count should be readable");
-            assert_eq!(migration_count, 1);
+            assert_eq!(migration_count, 2);
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);
         });

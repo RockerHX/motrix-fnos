@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 pub mod settings;
+pub mod task_operations;
 pub mod tasks;
 pub(crate) mod web_auth;
 
@@ -98,10 +99,16 @@ struct SchemaMigration {
 }
 
 // 新迁移只能追加到此列表末尾，已发布的版本号和执行内容不得修改。
-const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[SchemaMigration {
-    version: 1,
-    name: "legacy_download_tasks_baseline",
-}];
+const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
+    SchemaMigration {
+        version: 1,
+        name: "legacy_download_tasks_baseline",
+    },
+    SchemaMigration {
+        version: 2,
+        name: "task_operations",
+    },
+];
 
 async fn apply_schema_migration(
     transaction: &mut Transaction<'_, Sqlite>,
@@ -109,8 +116,21 @@ async fn apply_schema_migration(
 ) -> Result<(), String> {
     match migration.version {
         1 => migrate_legacy_download_tasks(transaction).await,
+        2 => create_task_operations_schema(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn create_task_operations_schema(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    for statement in TASK_OPERATIONS_SCHEMA_STATEMENTS {
+        sqlx::query(statement)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("创建任务操作数据表失败：{}", error))?;
+    }
+    Ok(())
 }
 
 async fn migrate_legacy_download_tasks(
@@ -281,6 +301,28 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         name TEXT NOT NULL,
         applied_at INTEGER NOT NULL
     )
+    "#,
+    TASK_OPERATIONS_SCHEMA_STATEMENTS[0],
+    TASK_OPERATIONS_SCHEMA_STATEMENTS[1],
+];
+
+const TASK_OPERATIONS_SCHEMA_STATEMENTS: &[&str] = &[
+    r#"
+    CREATE TABLE IF NOT EXISTS task_operations (
+        id TEXT PRIMARY KEY,
+        task_id INTEGER NOT NULL,
+        operation_type TEXT NOT NULL,
+        phase TEXT NOT NULL,
+        context_json TEXT NOT NULL,
+        error_message TEXT,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS idx_task_operations_unfinished
+    ON task_operations (status, updated_at)
     "#,
 ];
 

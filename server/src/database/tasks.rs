@@ -1,4 +1,7 @@
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
+use crate::{
+    database::task_operations::update_task_operation_in_transaction, tasks::TaskOperation,
+};
 use sqlx::{Decode, Row, Sqlite, SqlitePool, Transaction, Type};
 
 pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
@@ -86,31 +89,53 @@ pub async fn persist_download_task_state(
         .begin()
         .await
         .map_err(|error| format!("启动持久化任务状态事务失败：{}", error))?;
-    upsert_download_task_in_transaction(&mut transaction, task).await?;
+    persist_download_task_state_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交持久化任务状态事务失败：{}", error))?;
+    Ok(())
+}
+
+pub async fn persist_download_task_state_with_operation(
+    pool: &SqlitePool,
+    task: &DownloadTask,
+    operation: &TaskOperation,
+) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动持久化任务操作事务失败：{}", error))?;
+    persist_download_task_state_in_transaction(&mut transaction, task).await?;
+    update_task_operation_in_transaction(&mut transaction, operation).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交持久化任务操作事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn persist_download_task_state_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
+    upsert_download_task_in_transaction(transaction, task).await?;
 
     match task.status {
         DownloadTaskStatus::Complete
         | DownloadTaskStatus::Paused
         | DownloadTaskStatus::Error
         | DownloadTaskStatus::Removed => {
-            record_task_history_in_transaction(
-                &mut transaction,
-                task,
-                task.error_message.as_deref(),
-            )
-            .await?;
+            record_task_history_in_transaction(transaction, task, task.error_message.as_deref())
+                .await?;
         }
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
     }
 
     if task.status == DownloadTaskStatus::Error {
-        record_task_error_in_transaction(&mut transaction, task).await?;
+        record_task_error_in_transaction(transaction, task).await?;
     }
 
-    transaction
-        .commit()
-        .await
-        .map_err(|error| format!("提交持久化任务状态事务失败：{}", error))?;
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
-use crate::tasks::DownloadTaskFile;
+use crate::tasks::{DownloadTaskFile, TaskOperation};
 use axum::async_trait;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -761,6 +761,26 @@ impl TaskRepository for Arc<FakeTaskRepository> {
             .persisted_task_batches
             .push(tasks.to_vec());
         Ok(())
+    }
+
+    async fn begin_operation(&self, _operation: &TaskOperation) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn update_operation(&self, _operation: &TaskOperation) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn persist_task_state_with_operation(
+        &self,
+        task: &DownloadTask,
+        _operation: &TaskOperation,
+    ) -> Result<(), String> {
+        self.persist_task_state(task).await
+    }
+
+    async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String> {
+        Ok(Vec::new())
     }
 
     async fn delete_task_record(&self, task_id: u64) -> Result<bool, String> {
