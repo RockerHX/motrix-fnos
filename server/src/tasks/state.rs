@@ -77,7 +77,9 @@ pub fn store_created_task_with_id(
         id: task_id,
         source_type: prepared.source_type,
         file_name: prepared.file_name,
-        save_dir: prepared.save_dir,
+        save_dir: prepared.save_dir.clone(),
+        owned_task_dir: (prepared.source_type == DownloadTaskSourceType::Torrent)
+            .then_some(prepared.save_dir),
         category: prepared.category,
         url: prepared.url,
         gid: Some(gid),
@@ -131,7 +133,7 @@ pub(crate) fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
     task.error_code = None;
     task.error_message = None;
     task.file_path = Some(
-        Path::new(&task.save_dir)
+        Path::new(task.owned_task_dir.as_deref().unwrap_or(&task.save_dir))
             .join(&task.file_name)
             .display()
             .to_string(),
@@ -238,7 +240,8 @@ pub fn mark_task_files_confirmed(
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         task.gid = Some(gid);
-        task.save_dir = save_dir;
+        task.save_dir = save_dir.clone();
+        task.owned_task_dir = Some(save_dir);
         task.confirmation_required = false;
         task.status = DownloadTaskStatus::Active;
         task.download_speed = 0;
@@ -334,6 +337,7 @@ pub fn mark_magnet_task_reparsing(
         }
         task.gid = Some(gid);
         task.save_dir = base_save_dir;
+        task.owned_task_dir = None;
         task.status = DownloadTaskStatus::Pending;
         task.total_length = 0;
         task.completed_length = 0;
@@ -381,7 +385,7 @@ pub fn mark_task_redownloaded(
         task.error_message = None;
         task.confirmation_required = false;
         task.file_path = Some(
-            Path::new(&task.save_dir)
+            Path::new(task.owned_task_dir.as_deref().unwrap_or(&task.save_dir))
                 .join(&task.file_name)
                 .display()
                 .to_string(),

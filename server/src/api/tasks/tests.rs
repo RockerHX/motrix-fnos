@@ -812,6 +812,7 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: format!("archive-{id}.zip"),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some(format!("gid-{id}")),
         status,

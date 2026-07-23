@@ -91,9 +91,10 @@ impl<'a> TaskService<'a> {
         task: &DownloadTask,
         torrent_data: &[u8],
     ) -> Result<String, String> {
-        fs::create_dir_all(&task.save_dir)
-            .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task.save_dir, error))?;
-        let mut prepared = restored_task_options(task, task.save_dir.clone());
+        let task_dir = task_download_dir(task).to_string();
+        fs::create_dir_all(&task_dir)
+            .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task_dir, error))?;
+        let mut prepared = restored_task_options(task, task_dir);
         if !task.selected_file_indexes.is_empty() {
             prepared.aria2_options.insert(
                 "select-file".to_string(),
@@ -114,7 +115,7 @@ impl<'a> TaskService<'a> {
         task: &DownloadTask,
     ) -> Result<(String, String), String> {
         let base_save_dir = if task.file_path.is_some() {
-            Path::new(&task.save_dir)
+            Path::new(task_download_dir(task))
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
                 .unwrap_or_else(|| Path::new(&task.save_dir))

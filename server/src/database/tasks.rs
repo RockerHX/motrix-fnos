@@ -5,16 +5,17 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     sqlx::query(
         r#"
         INSERT INTO download_tasks (
-            id, url, source_type, file_name, save_dir, category, gid, status, total_length, completed_length,
+            id, url, source_type, file_name, save_dir, owned_task_dir, category, gid, status, total_length, completed_length,
             download_speed, error_code, error_message, file_path, metadata_torrent_path, files_deleted,
             selected_file_indexes, confirmation_required, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
             source_type = excluded.source_type,
             file_name = excluded.file_name,
             save_dir = excluded.save_dir,
+            owned_task_dir = excluded.owned_task_dir,
             category = excluded.category,
             gid = excluded.gid,
             status = excluded.status,
@@ -36,6 +37,7 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     .bind(task.source_type.as_storage_value())
     .bind(&task.file_name)
     .bind(&task.save_dir)
+    .bind(&task.owned_task_dir)
     .bind(&task.category)
     .bind(&task.gid)
     .bind(task.status.as_storage_value())
@@ -97,7 +99,7 @@ pub async fn persist_download_task_states(
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
     let rows = sqlx::query(
         r#"
-        SELECT id, url, source_type, file_name, save_dir, gid, status, total_length, completed_length,
+        SELECT id, url, source_type, file_name, save_dir, owned_task_dir, gid, status, total_length, completed_length,
                category, download_speed, error_code, error_message, file_path,
                metadata_torrent_path, files_deleted, selected_file_indexes, confirmation_required,
                created_at, updated_at
@@ -221,6 +223,7 @@ fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
         source_type: DownloadTaskSourceType::from_storage_value(&source_type),
         file_name: get(&row, "file_name")?,
         save_dir: get(&row, "save_dir")?,
+        owned_task_dir: get(&row, "owned_task_dir")?,
         category: get(&row, "category")?,
         gid: get(&row, "gid")?,
         status: DownloadTaskStatus::from_storage_value(&status),

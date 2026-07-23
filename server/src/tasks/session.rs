@@ -1,5 +1,6 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::tasks::files::task_download_dir;
 use crate::tasks::{
     add_uri_to_aria2, should_force_pause_task_on_startup, CreateTaskAdvancedOptions, DownloadTask,
     DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
@@ -162,7 +163,11 @@ fn session_task_location_matches(task: &DownloadTask, session_task: &Aria2TaskSt
         .dir
         .as_deref()
         .filter(|dir| !dir.trim().is_empty())
-        .map(|dir| normalize_path_for_match(dir) == normalize_path_for_match(&task.save_dir))
+        .map(|dir| {
+            normalize_path_for_match(dir) == normalize_path_for_match(&task.save_dir)
+                || normalize_path_for_match(dir)
+                    == normalize_path_for_match(task_download_dir(task))
+        })
         .unwrap_or(false);
 
     let file_matches = session_task.files.as_ref().is_some_and(|files| {
@@ -234,7 +239,7 @@ pub(crate) async fn readd_download_task(
         url: task.url.clone(),
         file_name: task.file_name.clone(),
         output_file_name: Some(task.file_name.clone()),
-        save_dir: task.save_dir.clone(),
+        save_dir: task_download_dir(task).to_string(),
         aria2_save_dir: None,
         category: task.category.clone(),
         source_type: task.source_type,

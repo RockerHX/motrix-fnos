@@ -30,6 +30,10 @@ impl<'a> TaskService<'a> {
                 ),
             }
         }
+        if delete_files {
+            // 先完成只读路径校验，避免 Aria2 已移除后才发现本地目录不允许删除。
+            validate_task_files(&task_before_delete)?;
+        }
         let gid = task_before_delete
             .gid
             .clone()

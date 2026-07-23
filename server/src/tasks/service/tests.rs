@@ -106,6 +106,7 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
         .file_name()
         .and_then(|value| value.to_str())
         .is_some_and(|value| value.starts_with("example")));
+    assert_eq!(task.owned_task_dir.as_deref(), Some(task.save_dir.as_str()));
     let metadata_path = task
         .metadata_torrent_path
         .as_deref()
@@ -164,6 +165,7 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "磁力链接任务".to_string(),
             save_dir: save_dir.display().to_string(),
+            owned_task_dir: None,
             category: "默认".to_string(),
             gid: Some("gid-1".to_string()),
             status: DownloadTaskStatus::Pending,
@@ -243,6 +245,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "archlinux.iso".to_string(),
             save_dir: base_save_dir.display().to_string(),
+            owned_task_dir: None,
             category: "默认".to_string(),
             gid: None,
             status: DownloadTaskStatus::Pending,
@@ -291,6 +294,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
     );
     assert_eq!(task.selected_file_indexes, [1]);
     let final_task_dir = PathBuf::from(&task.save_dir);
+    assert_eq!(task.owned_task_dir.as_deref(), Some(task.save_dir.as_str()));
     assert!(final_task_dir.is_dir());
     assert_eq!(final_task_dir.file_name().unwrap(), "archlinux");
     assert_eq!(task.file_name, "archlinux.iso");
@@ -614,6 +618,7 @@ pub(super) fn sample_task(
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: save_dir.clone(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some(gid.to_string()),
         status,

@@ -266,6 +266,7 @@ Session 与 Cookie 约定：
 - `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速；`advancedOptions.proxy` 映射 `all-proxy`。
 - `saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
 - 当 `sourceType=magnet` 时，请求中的 `saveDir` 表示授权父目录；成功创建后返回的 `DownloadTask.saveDir` 是后端创建的任务专属子目录。
+- BT 任务返回的 `ownedTaskDir` 是后端创建并持久化的外层任务目录；它独立于会随种子 metadata 更新的 `fileName`，仅用于任务恢复和安全删除。普通 URL 任务为 `null`。
 - `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
 - 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
 
@@ -278,6 +279,7 @@ Session 与 Cookie 约定：
   "sourceType": "url",
   "fileName": "file.zip",
   "saveDir": "/vol1/downloads",
+  "ownedTaskDir": null,
   "category": "默认",
   "gid": "abc123",
   "status": "pending",

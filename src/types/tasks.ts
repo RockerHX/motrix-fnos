@@ -15,6 +15,8 @@ export interface DownloadTask {
   sourceType?: DownloadTaskSourceType;
   fileName: string;
   saveDir: string;
+  /** App-owned outer directory for BT tasks; older servers may omit it. */
+  ownedTaskDir?: string | null;
   category: string;
   gid?: string | null;
   status: DownloadTaskStatus;

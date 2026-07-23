@@ -94,7 +94,7 @@ impl<'a> TaskService<'a> {
             url: task.url.clone(),
             file_name: task.file_name.clone(),
             output_file_name: Some(task.file_name.clone()),
-            save_dir: task.save_dir.clone(),
+            save_dir: task_download_dir(&task).to_string(),
             aria2_save_dir: None,
             category: task.category.clone(),
             source_type: task.source_type,

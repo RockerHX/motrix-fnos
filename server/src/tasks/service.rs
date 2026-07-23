@@ -3,7 +3,7 @@ use crate::debug_logs::DebugLogStore;
 use crate::state::ShutdownState;
 use crate::tasks::files::{
     archive_task_torrent_metadata, cleanup_empty_torrent_task_dir, read_saved_torrent_metadata,
-    remove_restore_metadata, save_restore_torrent_metadata,
+    remove_restore_metadata, save_restore_torrent_metadata, task_download_dir,
 };
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
@@ -14,9 +14,9 @@ use crate::tasks::{
     replace_task_snapshot, set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task, store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
-    TaskMemoryState,
+    validate_task_files, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, TaskMemoryState,
 };
 use std::fs;
 use std::path::{Path, PathBuf};

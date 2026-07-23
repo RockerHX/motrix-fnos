@@ -310,6 +310,7 @@ fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("gid-9".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -348,6 +349,7 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("gid-10".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -461,6 +463,52 @@ async fn run_cli_rejects_unknown_commands() {
     assert_eq!(error, "用法：motrix-fnos-server [reset-web-auth]");
 }
 
+#[test]
+fn migrate_legacy_owned_task_dirs_uses_authorized_parent_without_trusting_root() {
+    let base_dir = std::env::temp_dir().join(format!("motrix-fnos-owned-dir-migrate-{}", now_ms()));
+    let task_dir = base_dir.join("torrent-file-name");
+    std::fs::create_dir_all(&task_dir).expect("legacy task dir should create");
+
+    let mut task = sample_task();
+    task.source_type = crate::tasks::DownloadTaskSourceType::Torrent;
+    task.url = "torrent:source.torrent".to_string();
+    task.file_name = "torrent-inner-root".to_string();
+    task.save_dir = task_dir.display().to_string();
+    task.file_path = Some(
+        task_dir
+            .join("torrent-inner-root/file.bin")
+            .display()
+            .to_string(),
+    );
+    task.owned_task_dir = None;
+
+    let mut pending_magnet = task.clone();
+    pending_magnet.id = 8;
+    pending_magnet.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+    pending_magnet.url = "magnet:?xt=urn:btih:test".to_string();
+    pending_magnet.save_dir = base_dir.display().to_string();
+    pending_magnet.file_path = None;
+    pending_magnet.metadata_torrent_path = None;
+    pending_magnet.confirmation_required = false;
+
+    let mut tasks = vec![task, pending_magnet];
+    migrate_legacy_owned_task_dirs(&mut tasks, &[base_dir.display().to_string()]);
+
+    assert_eq!(
+        tasks[0].owned_task_dir.as_deref(),
+        Some(
+            task_dir
+                .canonicalize()
+                .expect("task dir should canonicalize")
+                .to_str()
+                .expect("task dir should be utf-8"),
+        )
+    );
+    assert!(tasks[1].owned_task_dir.is_none());
+
+    let _ = std::fs::remove_dir_all(base_dir);
+}
+
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,
@@ -468,6 +516,7 @@ fn sample_task() -> DownloadTask {
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("gid-7".to_string()),
         status: DownloadTaskStatus::Paused,

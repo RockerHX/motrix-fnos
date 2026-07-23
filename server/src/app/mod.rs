@@ -7,6 +7,7 @@ use crate::database::{
 };
 use crate::runtime::ManagedAria2Process;
 use crate::state::{Aria2RuntimeInfo, ServerState};
+use crate::storage::load_accessible_paths;
 use crate::tasks::DownloadTask;
 use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use serde::Serialize;
@@ -227,6 +228,8 @@ pub async fn bootstrap_http_app_state(
 ) -> Result<Arc<HttpAppState>, String> {
     let database = connect_database(runtime.database_path.clone()).await?;
     let mut restored_tasks = list_download_tasks(&database.pool).await?;
+    let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
+    migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
     // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
     reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
     persist_download_task_states(&database.pool, &restored_tasks).await?;
@@ -236,6 +239,58 @@ pub async fn bootstrap_http_app_state(
     let state = ServerState::new(database, restored_tasks, next_task_id);
 
     Ok(Arc::new(HttpAppState::new(state, runtime.clone())))
+}
+
+fn migrate_legacy_owned_task_dirs(tasks: &mut [DownloadTask], accessible_paths: &[String]) {
+    let accessible_roots = accessible_paths
+        .iter()
+        .filter_map(|path| Path::new(path).canonicalize().ok())
+        .collect::<Vec<_>>();
+
+    if accessible_roots.is_empty() {
+        return;
+    }
+
+    for task in tasks.iter_mut() {
+        let has_owned_task_dir = task
+            .owned_task_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .is_some();
+        if has_owned_task_dir || !should_migrate_legacy_owned_task_dir(task) {
+            continue;
+        }
+
+        let candidate = Path::new(&task.save_dir);
+        if let Ok(metadata) = fs::symlink_metadata(candidate) {
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                continue;
+            }
+        }
+
+        let Some(parent) = candidate.parent().and_then(|path| path.canonicalize().ok()) else {
+            continue;
+        };
+        if accessible_roots.iter().any(|root| root == &parent) {
+            task.owned_task_dir = Some(
+                candidate
+                    .canonicalize()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|_| candidate.display().to_string()),
+            );
+        }
+    }
+}
+
+fn should_migrate_legacy_owned_task_dir(task: &DownloadTask) -> bool {
+    if task.source_type == crate::tasks::DownloadTaskSourceType::Torrent {
+        return true;
+    }
+
+    task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
+        && !task.confirmation_required
+        && (task.metadata_torrent_path.is_some() || task.file_path.is_some())
 }
 
 fn reconcile_magnet_metadata_dirs(

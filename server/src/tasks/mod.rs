@@ -20,7 +20,7 @@ pub use aria2_rpc::{
     add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task, remove_task,
     unpause_task,
 };
-pub use files::delete_task_files;
+pub use files::{delete_task_files, validate_task_files};
 use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};
 pub use model::{
     is_pending_magnet_metadata_task, should_force_pause_task_on_startup, should_pause_task_on_exit,

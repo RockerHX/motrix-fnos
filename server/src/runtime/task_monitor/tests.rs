@@ -50,6 +50,7 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
         save_dir: temp_dir("monitor-downloads").display().to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("gid-1".to_string()),
         status,

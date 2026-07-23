@@ -115,6 +115,13 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
         .map_err(|error| format!("迁移任务文件选择字段失败：{}", error))?;
     }
 
+    if download_tasks_column_count(pool, "owned_task_dir").await? == 0 {
+        sqlx::query("ALTER TABLE download_tasks ADD COLUMN owned_task_dir TEXT")
+            .execute(pool)
+            .await
+            .map_err(|error| format!("迁移任务专属目录字段失败：{}", error))?;
+    }
+
     // 旧版本创建的 UI 偏好表从未承载已上线功能，移除预留接口时同步清理遗留空表。
     sqlx::query("DROP TABLE IF EXISTS ui_preferences")
         .execute(pool)
@@ -140,6 +147,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         source_type TEXT NOT NULL DEFAULT 'url',
         file_name TEXT NOT NULL,
         save_dir TEXT NOT NULL,
+        owned_task_dir TEXT,
         category TEXT NOT NULL DEFAULT '默认',
         gid TEXT,
         status TEXT NOT NULL,

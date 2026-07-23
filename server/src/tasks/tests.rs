@@ -49,6 +49,7 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir,
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Active,
@@ -618,6 +619,7 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("metadata-gid".to_string()),
         status: DownloadTaskStatus::Error,
@@ -676,6 +678,7 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("metadata-gid".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -756,6 +759,81 @@ fn mark_task_removed_deletes_torrent_task_dir() {
     assert_eq!(task.status, DownloadTaskStatus::Removed);
     assert!(!task_dir.exists());
     assert!(base_dir.exists());
+}
+
+#[test]
+fn delete_task_files_uses_owned_bt_dir_when_display_name_differs() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-owned-bt-dir"));
+    let owned_dir = base_dir.join("角头：斗阵欸.1080p.HD国语中字");
+    let nested_dir = owned_dir.join("角头：斗阵欸.6v电影 地址发布页");
+    fs::create_dir_all(&nested_dir).expect("nested BT directory should be created");
+    fs::write(nested_dir.join("movie.mkv"), b"movie").expect("downloaded file should be written");
+    fs::write(owned_dir.join("source.torrent"), b"torrent").expect("torrent should be written");
+    fs::write(
+        owned_dir.join("角头：斗阵欸.6v电影 地址发布页.aria2"),
+        b"control",
+    )
+    .expect("aria2 control file should be written");
+
+    let mut task = sample_task(
+        Some(nested_dir.join("movie.mkv").display().to_string()),
+        owned_dir.display().to_string(),
+    );
+    task.url = "torrent:source.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "角头：斗阵欸.6v电影 地址发布页".to_string();
+    task.owned_task_dir = Some(owned_dir.display().to_string());
+
+    delete_task_files(&task).expect("owned BT directory should delete");
+
+    assert!(!owned_dir.exists());
+    assert!(base_dir.exists());
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn delete_pending_magnet_does_not_delete_authorized_root() {
+    let save_dir = PathBuf::from(temp_download_dir("delete-pending-magnet"));
+    fs::create_dir_all(&save_dir).expect("save directory should be created");
+    fs::write(save_dir.join("keep.txt"), b"keep").expect("root file should be written");
+    let mut task = sample_task(None, save_dir.display().to_string());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "磁力链接任务".to_string();
+    task.file_path = None;
+    task.metadata_torrent_path = None;
+    task.confirmation_required = false;
+    task.owned_task_dir = None;
+
+    delete_task_files(&task).expect("pending magnet should not delete base directory");
+
+    assert!(save_dir.join("keep.txt").exists());
+    let _ = fs::remove_dir_all(save_dir);
+}
+
+#[test]
+fn delete_unconfirmed_magnet_does_not_delete_authorized_root_when_names_match() {
+    let save_dir = PathBuf::from(temp_download_dir("delete-unconfirmed-magnet"));
+    fs::create_dir_all(&save_dir).expect("save directory should be created");
+    fs::write(save_dir.join("keep.txt"), b"keep").expect("root file should be written");
+    let root_name = save_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("save directory should have a name")
+        .to_string();
+    let mut task = sample_task(None, save_dir.display().to_string());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = root_name;
+    task.file_path = None;
+    task.metadata_torrent_path = Some("/private/task-metadata/source.torrent".to_string());
+    task.confirmation_required = true;
+    task.owned_task_dir = None;
+
+    delete_task_files(&task).expect("unconfirmed magnet should not delete base directory");
+
+    assert!(save_dir.join("keep.txt").exists());
+    let _ = fs::remove_dir_all(save_dir);
 }
 
 #[cfg(unix)]
@@ -876,6 +954,7 @@ fn apply_aria2_status_updates_progress_fields() {
         source_type: DownloadTaskSourceType::Url,
         file_name: "download".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -1179,6 +1258,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,

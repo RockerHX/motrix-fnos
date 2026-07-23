@@ -87,6 +87,8 @@ pub struct DownloadTask {
     pub source_type: DownloadTaskSourceType,
     pub file_name: String,
     pub save_dir: String,
+    /// 应用为 BT 任务创建并拥有的外层目录；与可变化的任务显示名无关。
+    pub owned_task_dir: Option<String>,
     pub category: String,
     pub gid: Option<String>,
     pub status: DownloadTaskStatus,

@@ -12,6 +12,7 @@ fn repository_inserts_updates_and_lists_tasks() {
                 .await
                 .expect("database should connect");
             let mut task = sample_task();
+            task.owned_task_dir = Some("/downloads/task-1".to_string());
             task.files_deleted = true;
             task.selected_file_indexes = vec![1, 3];
 
@@ -35,6 +36,10 @@ fn repository_inserts_updates_and_lists_tasks() {
             assert_eq!(tasks[0].status, DownloadTaskStatus::Paused);
             assert_eq!(tasks[0].source_type, DownloadTaskSourceType::Url);
             assert!(tasks[0].files_deleted);
+            assert_eq!(
+                tasks[0].owned_task_dir.as_deref(),
+                Some("/downloads/task-1")
+            );
             assert_eq!(tasks[0].selected_file_indexes, [1, 3]);
             assert_eq!(max_id, task.id);
 
@@ -144,6 +149,7 @@ fn sample_task() -> DownloadTask {
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Active,
