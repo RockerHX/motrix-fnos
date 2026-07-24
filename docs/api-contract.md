@@ -11,6 +11,8 @@
 | `MOTRIX_FNOS_JSONRPC_ADDR` | JSON-RPC 专用监听地址 | `127.0.0.1:17081` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
+| `MOTRIX_TRUSTED_PROXY_IPS` | 可信反向代理的直接对端 IP，逗号分隔 | 空，不读取代理来源 Header |
+| `MOTRIX_WEB_COOKIE_SECURE` | 是否为 Web Session Cookie 添加 `Secure` | `false` |
 
 FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录，并写入 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`。后端以该文件为主，文件不存在时才回退读取当前进程环境变量。
 
@@ -102,7 +104,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 - `setup` 必须在数据库事务中确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict`。
 - `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
-- 登录限速不得信任未经独立验证的 `X-Forwarded-For`。
+- 登录限速默认使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
 
 `PUT /api/auth/password` 请求：
 
@@ -129,7 +131,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 Session 与 Cookie 约定：
 
 - 密码使用 Argon2id 和随机 salt 保存不可逆哈希；Session ID 使用密码学安全随机源生成，仅在服务端内存保存。
-- Cookie 名固定为 `motrix_web_session`，只保存不透明 Session ID，并设置 `HttpOnly`、`SameSite=Strict`、`Path=/` 和固定最长有效期；请求确实通过 HTTPS 到达 server 时增加 `Secure`，不得仅信任客户端可伪造的代理 Header。
+- Cookie 名固定为 `motrix_web_session`，只保存不透明 Session ID，并设置 `HttpOnly`、`SameSite=Strict`、`Path=/` 和固定最长有效期；`MOTRIX_WEB_COOKIE_SECURE=false` 时不带 `Secure`，显式设为 `true` 时登录、密码变更、退出清除等 Cookie 都带 `Secure`。server 不根据客户端可伪造的代理 Header 自动切换该属性。
 - Session 同时受固定最长有效期和空闲超时限制；server 重启后允许全部失效，不提供永久 Session。
 - `POST`、`PUT`、`PATCH`、`DELETE` 等管理写操作必须校验与当前访问上下文绑定的 `X-CSRF-Token`，缺失或错误时返回结构化 `403 Forbidden`。
 - `/api/events` 必须校验 Session 或已关闭保护的匿名访问上下文；失效时返回 `401`，前端停止无限重连并回到登录页。

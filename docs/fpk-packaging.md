@@ -88,6 +88,8 @@ FPK 启动脚本必须向同一个 Rust server 注入两个地址：
 | --- | --- | --- |
 | `MOTRIX_FNOS_HTTP_ADDR` | `0.0.0.0:17080` | manifest、桌面入口和 `MotrixFNOS.sc` 只映射该管理端口 |
 | `MOTRIX_FNOS_JSONRPC_ADDR` | `127.0.0.1:17081` | 仅 NAS 本机反向代理可访问，不进入任何 fnOS 端口声明 |
+| `MOTRIX_TRUSTED_PROXY_IPS` | 空 | 仅填写直接连接到管理 listener 的可信代理 IP；未配置时忽略 `X-Forwarded-For` |
+| `MOTRIX_WEB_COOKIE_SECURE` | `false` | HTTPS 终止代理场景显式设为 `true`；直接 HTTP 场景保持 `false` |
 
 固定规则：
 
@@ -96,6 +98,8 @@ FPK 启动脚本必须向同一个 Rust server 注入两个地址：
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
 - FPK 日志可以记录两个监听地址，但不得记录 Web 密码、Session、CSRF、JSON-RPC Token 或 Aria2 secret。
+- 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。
+- 反向代理终止 HTTPS 时必须同时确认代理地址已加入 `MOTRIX_TRUSTED_PROXY_IPS`，并显式设置 `MOTRIX_WEB_COOKIE_SECURE=true`。该开关不会验证代理是否真的使用 HTTPS。
 
 设备架构必须匹配：
 
