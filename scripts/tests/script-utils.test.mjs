@@ -16,8 +16,10 @@ import {
   sha256,
   upsertManifestField,
   validateFpkAppIdentity,
+  validateFpkArtifactName,
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
+  validateFpkRuntimeDataEntries,
   validateChangelogBody,
   validatePortEntry,
 } from '../script-utils.mjs';
@@ -332,6 +334,15 @@ test('FPK manifest 字段转换保持对齐并支持删除', () => {
 test('构建目标映射到对应 fnOS 平台', () => {
   assert.equal(platformForTarget('x86_64-unknown-linux-gnu'), 'x86');
   assert.equal(platformForTarget('aarch64-unknown-linux-gnu'), 'arm');
+});
+
+test('双架构 FPK 产物名和运行时数据目录通过验收', () => {
+  assert.doesNotThrow(() => validateFpkArtifactName('motrix_1.8.1_x86.fpk', '1.8.1', 'x86'));
+  assert.doesNotThrow(() => validateFpkArtifactName('motrix_1.8.1_arm.fpk', '1.8.1', 'arm'));
+  assert.throws(() => validateFpkArtifactName('motrix_1.8.1_x86_64.fpk', '1.8.1', 'x86'), /产物名必须为/);
+  assert.doesNotThrow(() => validateFpkRuntimeDataEntries([]));
+  assert.doesNotThrow(() => validateFpkRuntimeDataEntries(['.gitkeep']));
+  assert.throws(() => validateFpkRuntimeDataEntries(['database.sqlite', 'logs']), /运行时残留/);
 });
 
 test('Aria2 checksum 解析忽略无效行并统一哈希大小写', () => {

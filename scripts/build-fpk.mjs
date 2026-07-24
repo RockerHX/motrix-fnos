@@ -11,8 +11,10 @@ import {
   resolveFpkEntryId,
   upsertManifestField,
   validateFpkAppIdentity,
+  validateFpkArtifactName,
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
+  validateFpkRuntimeDataEntries,
 } from './script-utils.mjs';
 
 const repoRoot = process.cwd();
@@ -176,6 +178,12 @@ function preflightStageDir(dir, platform, servicePort) {
 
   validateJsonFile(path.join(dir, 'wizard', 'install'), '安装向导');
   validateJsonFile(path.join(dir, 'wizard', 'uninstall'), '卸载向导');
+  try {
+    validateFpkRuntimeDataEntries(readdirSync(path.join(dir, 'app', 'data')));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`FPK 预检失败，${message}`);
+  }
   validateFnosIcon(path.join(dir, 'ICON.PNG'), 256, '包图标 ICON.PNG');
   validateFnosIcon(path.join(dir, 'ICON_256.PNG'), 256, '包图标 ICON_256.PNG');
   validateFnosIcon(path.join(dir, 'app', 'ui', 'images', 'icon_64.png'), 256, '入口图标 icon_64.png');
@@ -323,6 +331,7 @@ function moveOutputFile(dir) {
     resetDir(outputDir);
   }
   const target = path.join(outputDir, `${manifest.appname}_${manifest.version}_${platform}.fpk`);
+  validateFpkArtifactName(path.basename(target), manifest.version, platform);
   copyFileSync(source, target);
   console.log(`FPK 已输出到 ${target}`);
 }

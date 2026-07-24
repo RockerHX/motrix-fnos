@@ -249,6 +249,8 @@ rtk file packaging/fnos/.stage/x86/app/bin/motrix-fnos-server packaging/fnos/.st
 
 预期 `17081` 不出现在任何平台端口声明中，只出现在生命周期脚本的回环监听默认值中；两个 staged `app/data/` 目录均为空。
 
+预组装还会拒绝非空的 `app/data/` 和不符合 `motrix_<version>_x86.fpk` / `motrix_<version>_arm.fpk` 的产物名，避免本机 SQLite、日志、PID 或架构错误的 FPK 进入发布目录。
+
 完整构建后可在临时目录解包，不要直接修改产物：
 
 ```bash

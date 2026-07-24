@@ -103,6 +103,22 @@ export function platformForTarget(target) {
   return target === 'aarch64-unknown-linux-gnu' ? 'arm' : 'x86';
 }
 
+export function validateFpkArtifactName(fileName, version, platform) {
+  const expected = `motrix_${version}_${platform}.fpk`;
+  if (fileName !== expected) {
+    throw new Error(`FPK 产物名必须为 ${expected}，实际为 ${fileName}`);
+  }
+  return true;
+}
+
+export function validateFpkRuntimeDataEntries(entries) {
+  const leftovers = entries.filter((entry) => entry !== '.gitkeep');
+  if (leftovers.length > 0) {
+    throw new Error(`FPK app/data 不得包含运行时残留：${leftovers.join(', ')}`);
+  }
+  return true;
+}
+
 export function upsertManifestField(content, key, value) {
   const line = `${key.padEnd(22, ' ')}= ${value}`;
   const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, 'm');
