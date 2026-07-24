@@ -2,6 +2,7 @@ use super::*;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
+use crate::runtime::broadcast_tasks_snapshot;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -27,6 +28,7 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(sample_task()))
         .expect("tasks should lock");
+    broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
     let app = Router::new().nest("/api", routes()).with_state(state);
 
     let response = app
@@ -41,15 +43,65 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let mut body = response.into_body();
+    let text = next_sse_frame(&mut body).await;
+    assert!(text.contains("event: tasks.snapshot"));
+    assert!(text.contains("\"archive.zip\""));
+    assert!(text.contains("\"revision\":1"));
+}
+
+#[tokio::test]
+async fn sse_route_resyncs_with_current_snapshot_after_lag() {
+    let app_data_dir = temp_dir("events-lagged-state");
+    let runtime = ServerRuntimeConfig {
+        database_path: app_data_dir.join("motrix-fnos.sqlite"),
+        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+        app_data_dir: app_data_dir.clone(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        aria2_path: None,
+    };
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task()))
+        .expect("tasks should lock");
+    let app = Router::new()
+        .nest("/api", routes())
+        .with_state(state.clone());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/events")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    let mut body = response.into_body();
+    assert!(next_sse_frame(&mut body).await.contains("\"revision\":0"));
+
+    for _ in 0..40 {
+        broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
+    }
+
+    let resync = next_sse_frame(&mut body).await;
+    assert!(resync.contains("event: tasks.snapshot"));
+    assert!(resync.contains("\"archive.zip\""));
+    assert!(resync.contains("\"revision\":40"));
+}
+
+async fn next_sse_frame(body: &mut Body) -> String {
     let frame = body
         .frame()
         .await
-        .expect("first frame should exist")
-        .expect("first frame should be ok");
-    let bytes = frame.into_data().expect("frame should contain data");
-    let text = String::from_utf8_lossy(&bytes);
-    assert!(text.contains("event: tasks.snapshot"));
-    assert!(text.contains("\"archive.zip\""));
+        .expect("SSE frame should exist")
+        .expect("SSE frame should be ok");
+    let bytes = frame.into_data().expect("SSE frame should contain data");
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn sample_task() -> DownloadTask {

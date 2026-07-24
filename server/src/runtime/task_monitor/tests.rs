@@ -33,11 +33,44 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
     let event = receiver.recv().await.expect("event should be broadcast");
     match event {
         RuntimeEvent::TasksSnapshot(payload) => {
+            assert_eq!(payload.revision, 1);
             assert_eq!(payload.tasks.len(), 1);
             assert_eq!(payload.tasks[0].status, DownloadTaskStatus::Complete);
         }
         RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
     }
+
+    cleanup_state(&state);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn task_snapshot_revisions_strictly_increase() {
+    let mock = MockAria2Server::spawn("complete").await;
+    let state = ready_state(&mock).await;
+    let mut receiver = state.runtime_events.subscribe();
+
+    broadcast_tasks_snapshot(&state).expect("first snapshot should broadcast");
+    broadcast_tasks_snapshot(&state).expect("second snapshot should broadcast");
+
+    let first_revision = match receiver
+        .recv()
+        .await
+        .expect("first event should be broadcast")
+    {
+        RuntimeEvent::TasksSnapshot(payload) => payload.revision,
+        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+    };
+    let second_revision = match receiver
+        .recv()
+        .await
+        .expect("second event should be broadcast")
+    {
+        RuntimeEvent::TasksSnapshot(payload) => payload.revision,
+        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+    };
+    assert_eq!(first_revision, 1);
+    assert_eq!(second_revision, 2);
 
     cleanup_state(&state);
     mock.abort();

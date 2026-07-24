@@ -97,6 +97,7 @@ pub struct RuntimeExitingPayload {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TasksSnapshotPayload {
+    pub revision: u64,
     pub tasks: Vec<DownloadTask>,
 }
 
@@ -144,6 +145,7 @@ pub struct HttpAppState {
     pub aria2_rpc: Aria2RpcClient,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub runtime_events: RuntimeEventHub,
+    pub(crate) tasks_snapshot_revision: Mutex<u64>,
     listeners_ready: AtomicBool,
 }
 
@@ -164,6 +166,7 @@ impl HttpAppState {
             aria2_rpc: Aria2RpcClient::new(),
             aria2_process: Mutex::new(None),
             runtime_events: RuntimeEventHub::new(),
+            tasks_snapshot_revision: Mutex::new(0),
             listeners_ready: AtomicBool::new(false),
         }
     }

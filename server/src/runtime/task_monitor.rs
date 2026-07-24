@@ -69,11 +69,7 @@ pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String>
     persist_download_task_states(&state.core.database.pool, &tasks).await?;
     let next_tasks = visible_tasks(tasks);
     if next_tasks != previous_tasks {
-        let _ = state
-            .runtime_events
-            .send(RuntimeEvent::TasksSnapshot(TasksSnapshotPayload {
-                tasks: next_tasks,
-            }))?;
+        broadcast_tasks_snapshot(state)?;
     }
     Ok(())
 }
@@ -82,12 +78,36 @@ pub fn visible_tasks_snapshot(state: &HttpAppState) -> Result<Vec<DownloadTask>,
     crate::tasks::list_tasks(&state.core.download_tasks).map(visible_tasks)
 }
 
+pub(crate) fn current_tasks_snapshot(state: &HttpAppState) -> Result<TasksSnapshotPayload, String> {
+    tasks_snapshot(state, false)
+}
+
 pub fn broadcast_tasks_snapshot(state: &HttpAppState) -> Result<(), String> {
-    let tasks = visible_tasks_snapshot(state)?;
+    let snapshot = tasks_snapshot(state, true)?;
     let _ = state
         .runtime_events
-        .send(RuntimeEvent::TasksSnapshot(TasksSnapshotPayload { tasks }))?;
+        .send(RuntimeEvent::TasksSnapshot(snapshot))?;
     Ok(())
+}
+
+fn tasks_snapshot(
+    state: &HttpAppState,
+    advance_revision: bool,
+) -> Result<TasksSnapshotPayload, String> {
+    let mut revision = state
+        .tasks_snapshot_revision
+        .lock()
+        .map_err(|_| "无法读取任务快照版本".to_string())?;
+    let tasks = visible_tasks_snapshot(state)?;
+    if advance_revision {
+        *revision = revision
+            .checked_add(1)
+            .ok_or_else(|| "任务快照版本已耗尽".to_string())?;
+    }
+    Ok(TasksSnapshotPayload {
+        revision: *revision,
+        tasks,
+    })
 }
 
 fn should_monitor_task(task: &DownloadTask) -> bool {

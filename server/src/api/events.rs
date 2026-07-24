@@ -1,5 +1,5 @@
 use crate::app::{HttpAppState, RuntimeEvent};
-use crate::runtime::visible_tasks_snapshot;
+use crate::runtime::current_tasks_snapshot;
 use axum::extract::State;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
@@ -15,11 +15,13 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
 
 async fn stream_events(State(state): State<Arc<HttpAppState>>) -> impl IntoResponse {
     let mut receiver = state.runtime_events.subscribe();
-    let initial_event = RuntimeEvent::TasksSnapshot(crate::app::TasksSnapshotPayload {
-        tasks: visible_tasks_snapshot(&state).unwrap_or_default(),
-    });
+    let initial_event =
+        current_tasks_snapshot(&state).unwrap_or_else(|_| crate::app::TasksSnapshotPayload {
+            revision: 0,
+            tasks: Vec::new(),
+        });
     let stream = async_stream::stream! {
-        if let Some(event) = runtime_event_to_sse(initial_event) {
+        if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(initial_event)) {
             yield Ok::<Event, Infallible>(event);
         }
 
@@ -35,6 +37,11 @@ async fn stream_events(State(state): State<Arc<HttpAppState>>) -> impl IntoRespo
                         "runtime.events",
                         format!("SSE 事件流检测到丢帧，已跳过 {} 条事件", skipped),
                     );
+                    if let Ok(snapshot) = current_tasks_snapshot(&state) {
+                        if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(snapshot)) {
+                            yield Ok::<Event, Infallible>(event);
+                        }
+                    }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
