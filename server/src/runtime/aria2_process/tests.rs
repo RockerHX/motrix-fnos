@@ -184,6 +184,7 @@ fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
     }
 }
 

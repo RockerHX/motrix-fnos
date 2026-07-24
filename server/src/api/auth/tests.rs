@@ -115,6 +115,80 @@ async fn auth_api_supports_setup_logout_password_and_protection_lifecycle() {
 }
 
 #[tokio::test]
+async fn secure_cookie_setting_applies_to_login_password_change_and_logout() {
+    let state = test_state_with_cookie_secure("secure-cookie", true).await;
+    let router = routes().with_state(state);
+
+    let setup = send(
+        &router,
+        "POST",
+        "/auth/setup",
+        Some(json!({ "password": "correct horse battery" })),
+        None,
+        None,
+    )
+    .await;
+    let setup_cookie_header = setup
+        .headers()
+        .get(SET_COOKIE)
+        .expect("setup cookie should exist")
+        .to_str()
+        .expect("setup cookie should be text")
+        .to_string();
+    assert!(setup_cookie_header.contains("Secure"));
+    let setup_cookie = response_cookie(&setup);
+    let setup_csrf = json_body(setup).await["csrfToken"]
+        .as_str()
+        .expect("setup csrf should exist")
+        .to_string();
+
+    let changed = send(
+        &router,
+        "PUT",
+        "/auth/password",
+        Some(json!({
+            "currentPassword": "correct horse battery",
+            "newPassword": "replacement password"
+        })),
+        Some(&setup_cookie),
+        Some(&setup_csrf),
+    )
+    .await;
+    assert_eq!(changed.status(), StatusCode::OK);
+    let changed_cookie_header = changed
+        .headers()
+        .get(SET_COOKIE)
+        .expect("changed cookie should exist")
+        .to_str()
+        .expect("changed cookie should be text");
+    assert!(changed_cookie_header.contains("Secure"));
+    let changed_cookie = response_cookie(&changed);
+    let changed_csrf = json_body(changed).await["csrfToken"]
+        .as_str()
+        .expect("changed csrf should exist")
+        .to_string();
+
+    let logout = send(
+        &router,
+        "POST",
+        "/auth/logout",
+        None,
+        Some(&changed_cookie),
+        Some(&changed_csrf),
+    )
+    .await;
+    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
+    let logout_cookie_header = logout
+        .headers()
+        .get(SET_COOKIE)
+        .expect("logout cookie should exist")
+        .to_str()
+        .expect("logout cookie should be text");
+    assert!(logout_cookie_header.contains("Secure"));
+    assert!(logout_cookie_header.contains("Max-Age=0"));
+}
+
+#[tokio::test]
 async fn login_uses_generic_errors_and_rate_limit() {
     let state = test_state("rate-limit").await;
     let router = routes().with_state(state);
@@ -332,6 +406,10 @@ async fn json_body(response: Response) -> Value {
 }
 
 async fn test_state(label: &str) -> Arc<HttpAppState> {
+    test_state_with_cookie_secure(label, false).await
+}
+
+async fn test_state_with_cookie_secure(label: &str, web_cookie_secure: bool) -> Arc<HttpAppState> {
     let app_data_dir = temp_dir(label);
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
@@ -341,6 +419,7 @@ async fn test_state(label: &str) -> Arc<HttpAppState> {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure,
     };
     bootstrap_http_app_state(&runtime)
         .await

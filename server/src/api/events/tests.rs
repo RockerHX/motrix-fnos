@@ -20,6 +20,7 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await
@@ -61,6 +62,7 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await

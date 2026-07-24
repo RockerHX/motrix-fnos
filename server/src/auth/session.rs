@@ -169,12 +169,18 @@ impl Default for SessionStore {
     }
 }
 
-pub fn session_cookie(session_id: &str) -> String {
-    format!("{SESSION_COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200")
+pub fn session_cookie(session_id: &str, secure: bool) -> String {
+    let secure_attribute = secure.then_some("; Secure").unwrap_or_default();
+    format!(
+        "{SESSION_COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200{secure_attribute}"
+    )
 }
 
-pub fn clear_session_cookie() -> String {
-    format!("{SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+pub fn clear_session_cookie(secure: bool) -> String {
+    let secure_attribute = secure.then_some("; Secure").unwrap_or_default();
+    format!(
+        "{SESSION_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{secure_attribute}"
+    )
 }
 
 fn is_expired(session: &Session, now: u64) -> bool {

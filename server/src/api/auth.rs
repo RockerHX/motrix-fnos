@@ -122,15 +122,15 @@ async fn status(
 ) -> Result<Response, ApiError> {
     let auth_state = load_auth_state(&state).await?;
     if auth_state.setup_required {
-        return auth_status_response(&auth_state, None, None);
+        return auth_status_response(&auth_state, None, None, state.runtime.web_cookie_secure);
     }
 
     let existing = validated_session(&state, &headers, &auth_state)?;
     if auth_state.enabled {
-        return auth_status_response(&auth_state, existing, None);
+        return auth_status_response(&auth_state, existing, None, state.runtime.web_cookie_secure);
     }
     if existing.is_some() {
-        return auth_status_response(&auth_state, existing, None);
+        return auth_status_response(&auth_state, existing, None, state.runtime.web_cookie_secure);
     }
 
     let session = state
@@ -138,7 +138,12 @@ async fn status(
         .sessions
         .create(SessionKind::AnonymousManagement, auth_state.auth_version)
         .map_err(session_error)?;
-    auth_status_response(&auth_state, None, Some(session))
+    auth_status_response(
+        &auth_state,
+        None,
+        Some(session),
+        state.runtime.web_cookie_secure,
+    )
 }
 
 async fn setup(
@@ -169,7 +174,12 @@ async fn setup(
         .core
         .debug_logs
         .info("auth.setup", "Web 管理密码初始化成功");
-    auth_status_response(&auth_state, None, Some(session))
+    auth_status_response(
+        &auth_state,
+        None,
+        Some(session),
+        state.runtime.web_cookie_secure,
+    )
 }
 
 async fn login(
@@ -215,7 +225,12 @@ async fn login(
         .create(SessionKind::Admin, auth_state.auth_version)
         .map_err(session_error)?;
     state.core.debug_logs.info("auth.login", "Web 管理登录成功");
-    auth_status_response(&auth_state, None, Some(session))
+    auth_status_response(
+        &auth_state,
+        None,
+        Some(session),
+        state.runtime.web_cookie_secure,
+    )
 }
 
 async fn logout(
@@ -235,7 +250,7 @@ async fn logout(
         .info("auth.logout", "Web 管理会话已退出");
     response_with_cookie(
         StatusCode::NO_CONTENT.into_response(),
-        clear_session_cookie(),
+        clear_session_cookie(state.runtime.web_cookie_secure),
     )
 }
 
@@ -293,7 +308,12 @@ fn replace_admin_session(
         .create(SessionKind::Admin, auth_state.auth_version)
         .map_err(session_error)?;
     state.core.debug_logs.info(log_module, log_message);
-    auth_status_response(auth_state, None, Some(session))
+    auth_status_response(
+        auth_state,
+        None,
+        Some(session),
+        state.runtime.web_cookie_secure,
+    )
 }
 
 async fn load_auth_state(state: &HttpAppState) -> Result<AuthState, ApiError> {
@@ -474,6 +494,7 @@ fn auth_status_response(
     auth_state: &AuthState,
     existing: Option<ValidatedSession>,
     created: Option<CreatedSession>,
+    secure_cookie: bool,
 ) -> Result<Response, ApiError> {
     let authenticated = created
         .as_ref()
@@ -496,7 +517,7 @@ fn auth_status_response(
     })
     .into_response();
     match created {
-        Some(session) => response_with_cookie(response, session_cookie(&session.id)),
+        Some(session) => response_with_cookie(response, session_cookie(&session.id, secure_cookie)),
         None => Ok(response),
     }
 }

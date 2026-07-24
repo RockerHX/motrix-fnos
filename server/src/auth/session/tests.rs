@@ -20,14 +20,16 @@ fn creates_unique_high_entropy_sessions_and_expected_cookies() {
         32
     );
 
-    let cookie = session_cookie(&first.id);
+    let cookie = session_cookie(&first.id, false);
     assert!(cookie.starts_with("motrix_web_session="));
     assert!(cookie.contains("HttpOnly"));
     assert!(cookie.contains("SameSite=Strict"));
     assert!(cookie.contains("Path=/"));
     assert!(cookie.contains("Max-Age=43200"));
     assert!(!cookie.contains("Secure"));
-    assert!(clear_session_cookie().contains("Max-Age=0"));
+    assert!(clear_session_cookie(false).contains("Max-Age=0"));
+    assert!(session_cookie(&first.id, true).contains("; Secure"));
+    assert!(clear_session_cookie(true).contains("; Secure"));
 }
 
 #[test]

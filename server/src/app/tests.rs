@@ -23,6 +23,7 @@ fn runtime_config_uses_explicit_env_values() {
     std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
     std::env::set_var(TRUSTED_PROXY_IPS_ENV, "192.0.2.10, ::1, 192.0.2.10");
+    std::env::set_var(WEB_COOKIE_SECURE_ENV, "true");
 
     let config = ServerRuntimeConfig::from_env().expect("config should load");
 
@@ -49,6 +50,7 @@ fn runtime_config_uses_explicit_env_values() {
                 .expect("proxy should parse"),
         ]
     );
+    assert!(config.web_cookie_secure);
 
     std::env::remove_var(APP_DATA_DIR_ENV);
     std::env::remove_var(HTTP_ADDR_ENV);
@@ -56,6 +58,7 @@ fn runtime_config_uses_explicit_env_values() {
     std::env::remove_var(ARIA2_PATH_ENV);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
     std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
+    std::env::remove_var(WEB_COOKIE_SECURE_ENV);
 }
 
 #[test]
@@ -66,11 +69,13 @@ fn runtime_config_uses_default_listener_addresses() {
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(JSONRPC_ADDR_ENV);
     std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
+    std::env::remove_var(WEB_COOKIE_SECURE_ENV);
 
     let config = ServerRuntimeConfig::from_env().expect("config should load");
 
     assert_eq!(config.http_addr.to_string(), DEFAULT_HTTP_ADDR);
     assert_eq!(config.jsonrpc_addr.to_string(), DEFAULT_JSONRPC_ADDR);
+    assert!(!config.web_cookie_secure);
 
     std::env::remove_var(APP_DATA_DIR_ENV);
 }
@@ -114,6 +119,17 @@ fn runtime_config_rejects_invalid_trusted_proxy_addresses() {
 }
 
 #[test]
+fn runtime_config_rejects_invalid_cookie_secure_value() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    std::env::set_var(WEB_COOKIE_SECURE_ENV, "maybe");
+
+    let error = ServerRuntimeConfig::from_env().expect_err("cookie setting should be rejected");
+
+    assert!(error.contains("解析布尔配置失败"));
+    std::env::remove_var(WEB_COOKIE_SECURE_ENV);
+}
+
+#[test]
 fn bootstrap_http_app_state_restores_database_state() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
@@ -128,6 +144,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 aria2_path: None,
                 trusted_proxy_ips: Vec::new(),
+                web_cookie_secure: false,
             };
 
             let database = connect_database(runtime.database_path.clone())
@@ -168,6 +185,7 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
     };
     let database = tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
@@ -602,6 +620,7 @@ fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRu
         jsonrpc_addr,
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
     }
 }
 
