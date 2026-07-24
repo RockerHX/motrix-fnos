@@ -110,6 +110,10 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 2,
         name: "task_operations",
     },
+    SchemaMigration {
+        version: 3,
+        name: "task_query_indexes",
+    },
 ];
 
 async fn apply_schema_migration(
@@ -119,8 +123,21 @@ async fn apply_schema_migration(
     match migration.version {
         1 => migrate_legacy_download_tasks(transaction).await,
         2 => create_task_operations_schema(transaction).await,
+        3 => create_task_query_indexes(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn create_task_query_indexes(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    for statement in TASK_QUERY_INDEX_STATEMENTS {
+        sqlx::query(statement)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("创建任务查询索引失败：{}", error))?;
+    }
+    Ok(())
 }
 
 async fn create_task_operations_schema(
@@ -325,6 +342,25 @@ const TASK_OPERATIONS_SCHEMA_STATEMENTS: &[&str] = &[
     r#"
     CREATE INDEX IF NOT EXISTS idx_task_operations_unfinished
     ON task_operations (status, updated_at)
+    "#,
+];
+
+const TASK_QUERY_INDEX_STATEMENTS: &[&str] = &[
+    r#"
+    CREATE INDEX IF NOT EXISTS idx_download_tasks_status_updated_at
+    ON download_tasks (status, updated_at)
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS idx_task_history_task_created_at
+    ON task_history (task_id, created_at DESC, id DESC)
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS idx_task_errors_task_created_at
+    ON task_errors (task_id, created_at DESC, id DESC)
+    "#,
+    r#"
+    CREATE INDEX IF NOT EXISTS idx_task_operations_unfinished_created_at
+    ON task_operations (status, created_at, id)
     "#,
 ];
 

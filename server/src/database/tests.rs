@@ -36,6 +36,8 @@ fn connect_database_creates_required_tables() {
                 assert_eq!(exists, 1, "{table} should exist");
             }
 
+            assert_task_query_indexes(&database.pool).await;
+
             let ui_preferences_exists: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'ui_preferences'",
             )
@@ -253,6 +255,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 [
                     (1, "legacy_download_tasks_baseline".to_string()),
                     (2, "task_operations".to_string()),
+                    (3, "task_query_indexes".to_string()),
                 ]
             );
 
@@ -265,10 +268,29 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .fetch_one(&reopened.pool)
                 .await
                 .expect("migration record count should be readable");
-            assert_eq!(migration_count, 2);
+            assert_eq!(migration_count, 3);
+            assert_task_query_indexes(&reopened.pool).await;
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);
         });
+}
+
+async fn assert_task_query_indexes(pool: &sqlx::SqlitePool) {
+    for index in [
+        "idx_download_tasks_status_updated_at",
+        "idx_task_history_task_created_at",
+        "idx_task_errors_task_created_at",
+        "idx_task_operations_unfinished_created_at",
+    ] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?",
+        )
+        .bind(index)
+        .fetch_one(pool)
+        .await
+        .expect("index lookup should succeed");
+        assert_eq!(count, 1, "{index} should exist exactly once");
+    }
 }
 
 #[test]
