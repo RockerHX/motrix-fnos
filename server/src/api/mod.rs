@@ -12,6 +12,7 @@ mod tasks;
 
 use crate::app::HttpAppState;
 use axum::body::Body;
+use axum::extract::DefaultBodyLimit;
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
@@ -19,7 +20,43 @@ use axum::response::Response;
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::ServeDir;
+use tower_http::timeout::TimeoutLayer;
+
+const API_BODY_LIMIT: usize = 1024 * 1024;
+const TORRENT_UPLOAD_BODY_LIMIT: usize = 12 * 1024 * 1024;
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const MANAGEMENT_HTTP_CONCURRENCY_LIMIT: usize = 64;
+const TORRENT_UPLOAD_CONCURRENCY_LIMIT: usize = 8;
+pub(super) const JSONRPC_HTTP_CONCURRENCY_LIMIT: usize = 32;
+
+#[derive(Clone, Copy)]
+pub(super) struct HttpResourceLimits {
+    pub(super) body_limit: usize,
+    pub(super) concurrency_limit: usize,
+    pub(super) timeout: Duration,
+}
+
+const MANAGEMENT_HTTP_LIMITS: HttpResourceLimits = HttpResourceLimits {
+    body_limit: API_BODY_LIMIT,
+    concurrency_limit: MANAGEMENT_HTTP_CONCURRENCY_LIMIT,
+    timeout: HTTP_REQUEST_TIMEOUT,
+};
+
+const TORRENT_UPLOAD_LIMITS: HttpResourceLimits = HttpResourceLimits {
+    body_limit: TORRENT_UPLOAD_BODY_LIMIT,
+    concurrency_limit: TORRENT_UPLOAD_CONCURRENCY_LIMIT,
+    timeout: HTTP_REQUEST_TIMEOUT,
+};
+
+pub(super) const JSONRPC_HTTP_LIMITS: HttpResourceLimits = HttpResourceLimits {
+    body_limit: API_BODY_LIMIT,
+    concurrency_limit: JSONRPC_HTTP_CONCURRENCY_LIMIT,
+    timeout: HTTP_REQUEST_TIMEOUT,
+};
 
 pub fn management_router(state: Arc<HttpAppState>) -> Router {
     management_router_with_static_dir(state, static_assets_dir())
@@ -41,6 +78,13 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
             state.clone(),
             auth::management_auth,
         ));
+    let torrent_upload_routes = with_http_resource_limits(
+        tasks::torrent_routes().route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::management_auth,
+        )),
+        TORRENT_UPLOAD_LIMITS,
+    );
     let event_routes = events::routes().route_layer(middleware::from_fn_with_state(
         state.clone(),
         auth::event_auth,
@@ -53,19 +97,40 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
         state.clone(),
         auth::admin_auth,
     ));
-    let api_routes = Router::new()
-        .merge(auth::public_routes())
-        .merge(session_auth_routes)
-        .merge(admin_auth_routes)
-        .merge(management_routes)
-        .merge(event_routes)
-        .fallback(api_not_found);
+    let api_routes = with_http_resource_limits(
+        Router::new()
+            .merge(auth::public_routes())
+            .merge(session_auth_routes)
+            .merge(admin_auth_routes)
+            .merge(management_routes),
+        MANAGEMENT_HTTP_LIMITS,
+    )
+    .merge(torrent_upload_routes)
+    .merge(event_routes)
+    .fallback(api_not_found);
 
     Router::new()
         .nest("/api", api_routes)
         .fallback_service(ServeDir::new(static_dir))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
+}
+
+pub(super) fn with_http_resource_limits<S>(
+    router: Router<S>,
+    limits: HttpResourceLimits,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    router
+        .layer(DefaultBodyLimit::max(limits.body_limit))
+        .layer(RequestBodyLimitLayer::new(limits.body_limit))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            limits.timeout,
+        ))
+        .layer(ConcurrencyLimitLayer::new(limits.concurrency_limit))
 }
 
 async fn api_not_found() -> StatusCode {

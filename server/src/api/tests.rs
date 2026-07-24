@@ -11,10 +11,13 @@ use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
 use axum::body::to_bytes;
+use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::StatusCode;
+use axum::routing::get;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -98,6 +101,126 @@ async fn management_router_returns_404_for_unknown_paths_without_cors() {
         .headers()
         .get("access-control-allow-origin")
         .is_none());
+}
+
+#[tokio::test]
+async fn management_api_enforces_one_mebibyte_body_limit() {
+    let state = test_state(None).await;
+    let save_dir = state.runtime.app_data_dir.display().to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&json!({ "paths": [save_dir] }))
+            .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+    let app = management_router(state.clone());
+
+    for (size, expected_status) in [
+        (API_BODY_LIMIT, StatusCode::OK),
+        (API_BODY_LIMIT + 1, StatusCode::PAYLOAD_TOO_LARGE),
+    ] {
+        let payload =
+            padded_settings_payload(&state.runtime.app_data_dir.display().to_string(), size);
+        serde_json::from_slice::<AppConfig>(&payload).expect("settings payload should deserialize");
+        let mut request =
+            authorized_request(&state, "PUT", "/api/settings", Body::from(payload.clone())).await;
+        request.headers_mut().insert(
+            CONTENT_LENGTH,
+            payload
+                .len()
+                .to_string()
+                .parse()
+                .expect("content length should parse"),
+        );
+
+        let response = app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("response should succeed");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should read");
+        assert_eq!(
+            status,
+            expected_status,
+            "body size: {size}, response: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
+}
+
+#[tokio::test]
+async fn torrent_upload_keeps_file_and_total_body_limits_separate() {
+    let state = test_state(None).await;
+    let app = management_router(state.clone());
+    let oversized_file = vec![b'x'; 10 * 1024 * 1024 + 1];
+    let (content_type, body) = torrent_multipart_body(&oversized_file);
+    let response = app
+        .clone()
+        .oneshot(authorized_multipart_request(&state, content_type, body).await)
+        .await
+        .expect("response should succeed");
+    let error = response_json::<ErrorResponse>(response, StatusCode::BAD_REQUEST).await;
+    assert_eq!(error.code, "torrent_too_large");
+
+    let total_body = vec![b'x'; TORRENT_UPLOAD_BODY_LIMIT + 1];
+    let response = app
+        .clone()
+        .oneshot(
+            authorized_multipart_request(
+                &state,
+                "multipart/form-data; boundary=motrix-fnos-test-boundary".to_string(),
+                total_body,
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    let response = app
+        .oneshot(
+            authorized_multipart_request(
+                &state,
+                "multipart/form-data".to_string(),
+                b"invalid multipart body".to_vec(),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn limited_http_routes_timeout_slow_requests() {
+    let app = with_http_resource_limits(
+        Router::new().route(
+            "/slow",
+            get(|| async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                StatusCode::OK
+            }),
+        ),
+        HttpResourceLimits {
+            body_limit: API_BODY_LIMIT,
+            concurrency_limit: 1,
+            timeout: Duration::from_millis(1),
+        },
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/slow")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
 }
 
 #[tokio::test]
@@ -823,6 +946,65 @@ async fn authorized_request(
         .header("x-csrf-token", session.csrf_token)
         .body(body)
         .expect("request should build")
+}
+
+async fn authorized_multipart_request(
+    state: &HttpAppState,
+    content_type: String,
+    body: Vec<u8>,
+) -> Request<Body> {
+    let body_length = body.len();
+    let mut request =
+        authorized_request(state, "POST", "/api/tasks/torrent", Body::from(body)).await;
+    request.headers_mut().insert(
+        CONTENT_TYPE,
+        content_type.parse().expect("content type should parse"),
+    );
+    request.headers_mut().insert(
+        CONTENT_LENGTH,
+        body_length
+            .to_string()
+            .parse()
+            .expect("content length should parse"),
+    );
+    request
+}
+
+fn padded_settings_payload(download_dir: &str, size: usize) -> Vec<u8> {
+    let mut payload = json!({
+        "defaultDownloadDir": download_dir,
+        "maxConcurrentDownloads": 1,
+        "downloadLimit": 0,
+        "uploadLimit": 0,
+        "language": "zh-CN",
+        "padding": ""
+    });
+    let base_size = serde_json::to_vec(&payload)
+        .expect("settings payload should serialize")
+        .len();
+    payload["padding"] = json!("x".repeat(size - base_size));
+    let payload = serde_json::to_vec(&payload).expect("settings payload should serialize");
+    assert_eq!(payload.len(), size);
+    payload
+}
+
+fn torrent_multipart_body(data: &[u8]) -> (String, Vec<u8>) {
+    let boundary = "motrix-fnos-test-boundary";
+    let mut body = Vec::new();
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"torrent\"; filename=\"example.torrent\"\r\nContent-Type: application/x-bittorrent\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    body.extend_from_slice(data);
+    body.extend_from_slice(
+        format!(
+            "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"request\"\r\nContent-Type: application/json\r\n\r\n{{\"saveDir\":\"/tmp\"}}\r\n--{boundary}--\r\n"
+        )
+        .as_bytes(),
+    );
+    (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
 fn temp_dir(label: &str) -> PathBuf {

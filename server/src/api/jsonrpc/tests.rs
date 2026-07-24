@@ -6,10 +6,20 @@ use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
 use crate::settings::service::save_json_rpc_token;
+use axum::body::Body;
+use axum::http::header::CONTENT_LENGTH;
+use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
+use tokio::time::timeout;
+use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -47,6 +57,46 @@ fn validate_add_uri_token_accepts_matching_token() {
         &json!(["token:secret", ["https://example.com/file.zip"]]),
     )
     .expect("matching token should pass");
+}
+
+#[tokio::test]
+async fn jsonrpc_http_enforces_one_mebibyte_body_limit() {
+    let state = test_state().await;
+    let app = super::super::jsonrpc_router(state);
+
+    for (size, expected_status) in [
+        (super::super::API_BODY_LIMIT, StatusCode::OK),
+        (
+            super::super::API_BODY_LIMIT + 1,
+            StatusCode::PAYLOAD_TOO_LARGE,
+        ),
+    ] {
+        let body = padded_jsonrpc_payload(size);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/jsonrpc")
+                    .header("content-type", "application/json")
+                    .header(CONTENT_LENGTH, body.len())
+                    .body(Body::from(body))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), expected_status, "body size: {size}");
+    }
+}
+
+#[tokio::test]
+async fn jsonrpc_websocket_rejects_oversized_frames_and_messages() {
+    let oversized_frame = vec![b'x'; super::JSONRPC_WEBSOCKET_MESSAGE_LIMIT + 1];
+    assert_websocket_frames_rejected(vec![(true, 0x1, oversized_frame)]).await;
+
+    let fragment = vec![b'x'; super::JSONRPC_WEBSOCKET_MESSAGE_LIMIT / 2 + 1];
+    assert_websocket_frames_rejected(vec![(false, 0x1, fragment.clone()), (true, 0x0, fragment)])
+        .await;
 }
 
 #[tokio::test]
@@ -236,6 +286,121 @@ async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
     save_json_rpc_token(&state.core.database.pool, token)
         .await
         .expect("JSON-RPC token should save");
+}
+
+fn padded_jsonrpc_payload(size: usize) -> Vec<u8> {
+    let mut payload = json!({
+        "jsonrpc": "2.0",
+        "id": "version",
+        "method": "aria2.getVersion",
+        "params": [],
+        "padding": ""
+    });
+    let base_size = serde_json::to_vec(&payload)
+        .expect("JSON-RPC payload should serialize")
+        .len();
+    payload["padding"] = json!("x".repeat(size - base_size));
+    let payload = serde_json::to_vec(&payload).expect("JSON-RPC payload should serialize");
+    assert_eq!(payload.len(), size);
+    payload
+}
+
+async fn assert_websocket_frames_rejected(frames: Vec<(bool, u8, Vec<u8>)>) {
+    let state = test_state().await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr = listener.local_addr().expect("listener should have address");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, super::super::jsonrpc_router(state))
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .expect("server should stop cleanly");
+    });
+
+    let mut socket = connect_websocket(addr).await;
+    for (fin, opcode, payload) in frames {
+        write_masked_websocket_frame(&mut socket, fin, opcode, &payload).await;
+    }
+    assert_websocket_closed(&mut socket).await;
+    drop(socket);
+
+    shutdown_tx.send(()).expect("server should accept shutdown");
+    server.await.expect("server task should join");
+}
+
+async fn connect_websocket(addr: SocketAddr) -> TcpStream {
+    let mut socket = TcpStream::connect(addr)
+        .await
+        .expect("websocket client should connect");
+    socket
+        .write_all(
+            b"GET /jsonrpc HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: jsonrpc\r\n\r\n",
+        )
+        .await
+        .expect("websocket handshake should write");
+
+    let mut response = Vec::new();
+    loop {
+        let mut buffer = [0_u8; 512];
+        let read = timeout(Duration::from_secs(1), socket.read(&mut buffer))
+            .await
+            .expect("websocket handshake should respond")
+            .expect("websocket handshake should read");
+        assert!(read > 0, "websocket handshake closed unexpectedly");
+        response.extend_from_slice(&buffer[..read]);
+        if response.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    assert!(
+        response.starts_with(b"HTTP/1.1 101"),
+        "unexpected handshake: {}",
+        String::from_utf8_lossy(&response)
+    );
+    socket
+}
+
+async fn write_masked_websocket_frame(
+    socket: &mut TcpStream,
+    fin: bool,
+    opcode: u8,
+    payload: &[u8],
+) {
+    let mut frame = Vec::with_capacity(payload.len() + 14);
+    frame.push(if fin { 0x80 | opcode } else { opcode });
+    match payload.len() {
+        0..=125 => frame.push(0x80 | payload.len() as u8),
+        126..=65535 => {
+            frame.push(0x80 | 126);
+            frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        }
+        _ => {
+            frame.push(0x80 | 127);
+            frame.extend_from_slice(&(payload.len() as u64).to_be_bytes());
+        }
+    }
+    let mask = [0x12, 0x34, 0x56, 0x78];
+    frame.extend_from_slice(&mask);
+    for (index, byte) in payload.iter().enumerate() {
+        frame.push(byte ^ mask[index % mask.len()]);
+    }
+    socket
+        .write_all(&frame)
+        .await
+        .expect("websocket frame should write");
+}
+
+async fn assert_websocket_closed(socket: &mut TcpStream) {
+    let mut response = [0_u8; 2];
+    match timeout(Duration::from_secs(1), socket.read(&mut response)).await {
+        Ok(Ok(0)) | Ok(Err(_)) => {}
+        Ok(Ok(_)) => assert_eq!(response[0] & 0x0f, 0x08, "server should close websocket"),
+        Err(_) => panic!("server should reject oversized websocket payload"),
+    }
 }
 
 fn temp_dir(label: &str) -> PathBuf {

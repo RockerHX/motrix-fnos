@@ -27,7 +27,6 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/batch", post(create_batch_tasks))
-        .route("/tasks/torrent", post(create_torrent_task))
         .route("/tasks/:id/confirm", post(confirm_task_files))
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
@@ -35,6 +34,10 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks/:id/restore", post(restore_task))
         .route("/tasks/:id/permanent", delete(permanently_delete_task))
         .route("/tasks/:id", delete(delete_task))
+}
+
+pub fn torrent_routes() -> Router<Arc<HttpAppState>> {
+    Router::new().route("/tasks/torrent", post(create_torrent_task))
 }
 
 async fn list_tasks(

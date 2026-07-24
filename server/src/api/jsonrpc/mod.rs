@@ -16,13 +16,22 @@ use serde_json::Value;
 use std::sync::Arc;
 use types::rpc_error;
 
+const JSONRPC_WEBSOCKET_MESSAGE_LIMIT: usize = 256 * 1024;
+const JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE: usize = 128 * 1024;
+const JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE: usize =
+    JSONRPC_WEBSOCKET_MESSAGE_LIMIT + JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE;
+
 pub fn routes() -> Router<Arc<HttpAppState>> {
-    Router::new().route(
+    let http_routes = super::with_http_resource_limits(
+        Router::new().route("/jsonrpc", post(handle_http_jsonrpc)),
+        super::JSONRPC_HTTP_LIMITS,
+    );
+    let websocket_routes = Router::new().route(
         "/jsonrpc",
-        post(handle_http_jsonrpc)
-            .get(handle_ws_jsonrpc)
-            .options(handle_jsonrpc_options),
-    )
+        axum::routing::get(handle_ws_jsonrpc).options(handle_jsonrpc_options),
+    );
+
+    http_routes.merge(websocket_routes)
 }
 
 async fn handle_http_jsonrpc(State(state): State<Arc<HttpAppState>>, body: Bytes) -> Response {
@@ -44,6 +53,10 @@ async fn handle_ws_jsonrpc(
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.protocols(["jsonrpc"])
+        .max_frame_size(JSONRPC_WEBSOCKET_MESSAGE_LIMIT)
+        .max_message_size(JSONRPC_WEBSOCKET_MESSAGE_LIMIT)
+        .write_buffer_size(JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE)
+        .max_write_buffer_size(JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE)
         .on_upgrade(move |socket| handle_jsonrpc_socket(socket, state))
 }
 

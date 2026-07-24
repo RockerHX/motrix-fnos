@@ -672,7 +672,9 @@ async fn create_route_rejects_unauthorized_save_dir() {
 }
 
 fn test_router(state: Arc<HttpAppState>) -> Router {
-    Router::new().nest("/api", routes()).with_state(state)
+    Router::new()
+        .nest("/api", routes().merge(torrent_routes()))
+        .with_state(state)
 }
 
 async fn test_state() -> Arc<HttpAppState> {
