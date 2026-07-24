@@ -9,7 +9,7 @@ use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use process_lock::ServerProcessLock;
-pub use rate_limit::{LoginRateLimitError, LoginRateLimiter};
+pub use rate_limit::{LoginRateLimitError, LoginRateLimiter, UNKNOWN_LOGIN_SOURCE};
 pub use session::{
     clear_session_cookie, session_cookie, CreatedSession, SessionError, SessionKind, SessionStore,
     ValidatedSession, SESSION_COOKIE_NAME,

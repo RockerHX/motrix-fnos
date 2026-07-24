@@ -3,10 +3,10 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::auth::{
     clear_session_cookie, session_cookie, AuthError, AuthState, CreatedSession, SessionKind,
-    ValidatedSession, SESSION_COOKIE_NAME,
+    ValidatedSession, SESSION_COOKIE_NAME, UNKNOWN_LOGIN_SOURCE,
 };
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::header::{COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::Next;
@@ -14,6 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
@@ -142,8 +143,10 @@ async fn status(
 
 async fn setup(
     State(state): State<Arc<HttpAppState>>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     ApiJson(payload): ApiJson<PasswordRequest>,
 ) -> Result<Response, ApiError> {
+    let source = login_source(connect_info);
     let auth_state = state
         .auth
         .service
@@ -153,7 +156,7 @@ async fn setup(
     state
         .auth
         .login_limiter
-        .record_success()
+        .record_success(&source)
         .map_err(|_| auth_internal())?;
     state.auth.sessions.revoke_all().map_err(session_error)?;
     let session = state
@@ -170,12 +173,14 @@ async fn setup(
 
 async fn login(
     State(state): State<Arc<HttpAppState>>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
     ApiJson(payload): ApiJson<PasswordRequest>,
 ) -> Result<Response, ApiError> {
+    let source = login_source(connect_info);
     if let Some(seconds) = state
         .auth
         .login_limiter
-        .retry_after_seconds()
+        .retry_after_seconds(&source)
         .map_err(|_| auth_internal())?
     {
         return Err(rate_limited(seconds));
@@ -188,7 +193,7 @@ async fn login(
             if let Some(seconds) = state
                 .auth
                 .login_limiter
-                .record_failure()
+                .record_failure(&source)
                 .map_err(|_| auth_internal())?
             {
                 return Err(rate_limited(seconds));
@@ -200,7 +205,7 @@ async fn login(
     state
         .auth
         .login_limiter
-        .record_success()
+        .record_success(&source)
         .map_err(|_| auth_internal())?;
     let session = state
         .auth
@@ -431,6 +436,12 @@ fn session_id(headers: &HeaderMap) -> Option<&str> {
         .split(';')
         .filter_map(|cookie| cookie.trim().split_once('='))
         .find_map(|(name, value)| (name == SESSION_COOKIE_NAME).then_some(value))
+}
+
+fn login_source(connect_info: Option<ConnectInfo<SocketAddr>>) -> String {
+    connect_info
+        .map(|ConnectInfo(address)| address.ip().to_string())
+        .unwrap_or_else(|| UNKNOWN_LOGIN_SOURCE.to_string())
 }
 
 fn auth_status_response(
