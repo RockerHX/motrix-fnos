@@ -81,6 +81,7 @@ unset NEW_TOKEN
 | 日期 | Project | Design System | Screen | Device / Theme / Model | 结论 | 下一步 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-07-12 | `12532013896287027839` | `8ace4efa961f4329bab2bb1785f81a8c` | `00b1a34fda9743a4b3142cc162b2697a` -> `9574780452be42299394530e3de43115` -> `5e3caaf9fd4243bf9fe8ae85556cd35f`（待复核母版） | `DESKTOP` / dark / `GEMINI_3_1_PRO` | 需要调整：新 revision 已持久化为独立截图与 HTML，Naive UI 组件映射可行；母版生成早于 logo 蓝色主题迁移，需按最新 DESIGN.md 复核品牌色 | 先完成蓝色主题复核或修订，再等待用户批准；不生成其他页面 |
+| 2026-07-24 | 未执行新的 MCP/Figma 调用 | 既有 asset 与 screen ID 保持不变 | 既有 `DESKTOP` / dark 母版 | 本地文档复核 | 待批准：当前 `DESIGN.md` 已完成 logo 蓝色主题迁移，但没有新的截图/HTML 证据或用户明确批准的 Figma frame；本轮不把母版标记为接受 | 取得用户批准前不生成其他页面、不改交互、不安装 UI 运行时依赖；批准后再单独制定实施计划 |
 
 ## 8. 新对话启动提示词
 
