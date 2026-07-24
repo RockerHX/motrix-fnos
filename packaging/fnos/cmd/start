@@ -13,8 +13,13 @@ require_file "${ARIA2_BIN}" "Aria2 sidecar"
 
 existing_pid=$(read_pid || true)
 if [ -n "${existing_pid}" ] && is_running_pid "${existing_pid}"; then
-  echo "motrix-fnos-server 已在运行，PID ${existing_pid}"
-  exit 0
+  if wait_for_server_ready "${existing_pid}"; then
+    echo "motrix-fnos-server 已在运行且服务就绪，PID ${existing_pid}"
+    exit 0
+  fi
+  log_msg "motrix-fnos-server 进程存在但服务未就绪，PID ${existing_pid}，就绪接口 $(readiness_url || true) 未返回 HTTP 200"
+  echo "motrix-fnos-server 进程存在但服务未就绪，PID ${existing_pid}" >&2
+  exit 1
 fi
 
 log_msg "准备启动 motrix-fnos-server，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}，数据目录 ${APP_DATA_DIR}"
@@ -28,16 +33,16 @@ if ! write_pid_record "${pid}"; then
   exit 1
 fi
 
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if is_running_pid "${pid}"; then
-    log_msg "motrix-fnos-server 启动成功，PID ${pid}，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}"
-    echo "motrix-fnos-server 启动成功，PID ${pid}"
-    exit 0
-  fi
-  sleep 1
-done
+if wait_for_server_ready "${pid}"; then
+  log_msg "motrix-fnos-server 启动成功且服务就绪，PID ${pid}，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}"
+  echo "motrix-fnos-server 启动成功且服务就绪，PID ${pid}"
+  exit 0
+fi
 
+if is_running_pid "${pid}"; then
+  kill "${pid}" 2>/dev/null || true
+fi
 remove_pid_record
-log_msg "motrix-fnos-server 启动失败，请检查日志：${SERVER_LOG}"
-echo "motrix-fnos-server 启动失败，请检查日志：${SERVER_LOG}" >&2
+log_msg "motrix-fnos-server 启动失败，就绪接口 $(readiness_url || true) 未在 ${READINESS_ATTEMPTS} 次检查内返回 HTTP 200，请检查日志：${SERVER_LOG}"
+echo "motrix-fnos-server 启动失败，服务未就绪，请检查日志：${SERVER_LOG}" >&2
 exit 1

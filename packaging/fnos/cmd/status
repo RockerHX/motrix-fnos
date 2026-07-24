@@ -10,9 +10,14 @@ clear_stale_pid
 
 pid=$(read_pid || true)
 if [ -n "${pid}" ] && is_running_pid "${pid}"; then
-  log_msg "查询运行状态：运行中，PID ${pid}，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}"
-  echo "motrix-fnos-server 运行中，PID ${pid}"
-  exit 0
+  if readiness_request; then
+    log_msg "查询运行状态：运行中且服务就绪，PID ${pid}，管理监听 ${HTTP_ADDR}，JSON-RPC 监听 ${JSONRPC_ADDR}"
+    echo "motrix-fnos-server 运行中且服务就绪，PID ${pid}"
+    exit 0
+  fi
+  log_msg "查询运行状态：进程运行但服务未就绪，PID ${pid}，就绪接口 $(readiness_url || true) 未返回 HTTP 200"
+  echo "motrix-fnos-server 进程运行但服务未就绪，PID ${pid}" >&2
+  exit 1
 fi
 
 remove_pid_record

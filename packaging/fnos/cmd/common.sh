@@ -20,6 +20,11 @@ ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}
 PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
+READINESS_ATTEMPTS=${MOTRIX_FNOS_READINESS_ATTEMPTS:-10}
+READINESS_RETRY_SECONDS=${MOTRIX_FNOS_READINESS_RETRY_SECONDS:-1}
+READINESS_REQUEST_TIMEOUT_SECONDS=${MOTRIX_FNOS_READINESS_REQUEST_TIMEOUT_SECONDS:-2}
+CURL_BIN=${MOTRIX_FNOS_CURL_BIN:-curl}
+WGET_BIN=${MOTRIX_FNOS_WGET_BIN:-wget}
 
 prepare_runtime_dirs() {
   mkdir -p "${APP_DATA_DIR}" "${RUNTIME_DIR}" "${LOG_DIR}"
@@ -91,6 +96,70 @@ is_running_pid() {
     actual_start_time=$(process_start_time "${pid}") || return 1
     [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
   fi
+}
+
+readiness_url() {
+  readiness_host=${HTTP_ADDR%:*}
+  readiness_port=${HTTP_ADDR##*:}
+  case "${readiness_port}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+
+  case "${readiness_host}" in
+    0.0.0.0) readiness_host="127.0.0.1" ;;
+    '[::]') readiness_host="[::1]" ;;
+  esac
+
+  printf 'http://%s:%s/api/app/ready\n' "${readiness_host}" "${readiness_port}"
+}
+
+readiness_request() {
+  readiness_endpoint=$(readiness_url) || return 1
+
+  if command -v "${CURL_BIN}" >/dev/null 2>&1; then
+    readiness_status=$("${CURL_BIN}" \
+      --silent \
+      --output /dev/null \
+      --write-out '%{http_code}' \
+      --connect-timeout "${READINESS_REQUEST_TIMEOUT_SECONDS}" \
+      --max-time "${READINESS_REQUEST_TIMEOUT_SECONDS}" \
+      "${readiness_endpoint}" 2>/dev/null || true)
+    [ "${readiness_status}" = "200" ]
+    return
+  fi
+
+  if command -v "${WGET_BIN}" >/dev/null 2>&1; then
+    readiness_response=$("${WGET_BIN}" \
+      -S \
+      -T "${READINESS_REQUEST_TIMEOUT_SECONDS}" \
+      -O /dev/null \
+      "${readiness_endpoint}" 2>&1 || true)
+    printf '%s\n' "${readiness_response}" | awk '
+      /^[[:space:]]*HTTP\/[0-9.]+ [0-9][0-9][0-9]/ { status = $2 }
+      END { exit status == 200 ? 0 : 1 }
+    '
+    return
+  fi
+
+  return 127
+}
+
+wait_for_server_ready() {
+  pid="$1"
+  attempt=1
+  while [ "${attempt}" -le "${READINESS_ATTEMPTS}" ]; do
+    if ! is_running_pid "${pid}"; then
+      return 1
+    fi
+    if readiness_request; then
+      return 0
+    fi
+    if [ "${attempt}" -lt "${READINESS_ATTEMPTS}" ]; then
+      sleep "${READINESS_RETRY_SECONDS}"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
 }
 
 clear_stale_pid() {
