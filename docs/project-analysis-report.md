@@ -1,75 +1,56 @@
 # Motrix fnOS 项目分析报告
 
-> 状态：当前代码复核报告
+> 报告类型：当前代码基线的精简决策版
 > 复核日期：2026-07-24
-> 代码基线：当前工作区（基于 `29c6014`）
-> 项目版本：`1.8.0`
-> 复核方式：静态代码与配置审计、CodeGraph 调用链分析、本地自动化验证
-> 架构与实施规则：以 `docs/architecture.md`、`docs/api-contract.md` 和 `docs/development-plan.md` 为准
+> 分析基线：`35b3a8e`
+> 项目版本：`1.8.1`
+> 分析范围：`server/`、`src/`、`packaging/fnos/`、`scripts/`、`.github/workflows/` 与关键维护文档
+> 分析方式：静态代码审阅、配置和脚本检查、现有自动化测试；fnOS 实机项目另列为待完成证据
 
-## 1. 执行摘要
+## 1. 结论摘要
 
-Motrix fnOS 当前的总体架构合理，不需要更换主技术栈。项目使用 Rust server 统一承载 Web UI、管理 API、SSE 和回环 JSON-RPC，使用 Aria2 Next 执行下载，使用 SQLite 保存长期状态，前端由 Vue 3、Pinia 和 Naive UI 组成。
+Motrix fnOS 当前采用单 FPK、单 Rust server、Aria2 sidecar、SQLite 和 Vue Web UI 的架构。管理面与 JSON-RPC 面分开监听，长期数据由 SQLite 和 Aria2 session 保存，前端通过 HTTP API 和 SSE 工作。当前没有需要更换主技术栈或拆成微服务的问题。
 
-当前最重要的问题不是架构选型，而是取得外部故障和 fnOS 生命周期的发布证据。一次任务操作可能同时修改四类状态：
+当前决策结论：
 
-1. Aria2 外部下载引擎；
-2. Rust 进程中的运行时内存；
-3. SQLite 持久数据库；
-4. 用户下载文件。
-
-SQLite 事务只能覆盖数据库，不能把外部下载引擎和用户文件纳入同一事务。当前代码已通过持久操作记录、任务级互斥、补偿和启动对账处理这些边界；无法安全判断外部副作用时，会保留用户文件并标记为人工处理。
-
-F-01“重新下载先删除用户文件”已经修复。当前流程先锁定任务，按 URL、种子或磁链来源创建暂停的新 Aria2 任务并持久化新 GID，再将旧文件移动到同一文件系统的临时目录；新任务恢复成功后才清理暂存文件。创建、暂存或恢复失败时，会移除新 GID 并恢复旧任务快照和原文件。
-
-### 1.1 综合评价
-
-| 维度 | 评价 | 当前结论 |
+| 优先级 | 结论 | 下一步 |
 | --- | --- | --- |
-| 总体架构 | 良好 | 分层和运行拓扑清晰，无需更换 Rust、Vue、SQLite 或 Aria2 |
-| 用户文件安全 | 良好 | 重新下载已改为暂停创建、文件暂存和失败回滚 |
-| 后端一致性 | 本地整改完成 | 已有版本化迁移、操作记录、补偿、启动对账和任务级互斥；仍需真实故障注入证据 |
-| 安全基础 | 良好 | 双凭据、CSRF、Argon2id、路径校验和双监听器边界已经建立 |
-| 数据库治理 | 基础可用 | 已有版本化迁移和业务写入事务；索引、备份、保留策略和健康检查仍不足 |
-| 前端架构 | 良好 | feature/store/service 分层清楚，HTTP/SSE 乱序已有取消、代次和 revision 防护 |
-| fnOS/FPK | 基础扎实 | 应用身份、产物和 readiness 脚本较完整，最终安全性仍需实机验证 |
-| 测试与 CI | 良好 | 自动化覆盖较多，故障注入、浏览器端到端和实机测试是主要缺口 |
+| P0 | 重新下载已不再先删除用户文件；URL、种子和磁链按来源创建新任务，失败会回滚 | 保留现有回滚测试，发布前补真实设备证据 |
+| P1 | 操作记录、迁移、任务互斥、补偿、RPC 超时、资源限制、readiness、SSE 重同步和前端竞态已在代码中完成 | 需要进程崩溃、断电、磁盘异常和网络半断等外部故障证据 |
+| P2 | 数据库维护、登录部署规则、日志治理、CI/供应链和 FPK 预检已完成；前端安全补丁没有明确收益，未强行升级 | fnOS 安装生命周期、代理链路和 UI 设计批准仍是发布边界 |
 
-### 1.2 优先级
+本报告把四类状态用直白的话区分：外部下载引擎、运行时内存、持久数据库、用户文件。SQLite 事务只能保护数据库；跨越 Aria2 和文件系统的动作依靠持久操作记录、补偿和启动对账收敛，不能声称是一个跨系统事务。
 
-| 优先级 | 目标 |
+## 2. 验证基线
+
+### 2.1 本地验证结果
+
+以下结果针对分析基线重新执行；测试数量是当前代码的数量，不引用历史版本数字。
+
+| 命令 | 结果 |
 | --- | --- |
-| P0 | 已完成：重新下载不再在新任务可靠建立前删除用户文件 |
-| P1 | 本地代码整改完成；发布前补齐外部故障、浏览器端到端和 fnOS 实机证据 |
-| P2 | 完善数据库、安全部署、日志、供应链、UI 和 fnOS 实机治理 |
-
-## 2. 复核范围与验证结果
-
-### 2.1 覆盖范围
-
-本次复核覆盖：
-
-- `server/`：Rust、Tokio、Axum、SQLx、SQLite、Aria2 RPC 与进程管理；
-- `src/`：Vue 3、TypeScript、Pinia、Naive UI、HTTP 与 SSE；
-- `packaging/fnos/`：FPK manifest、权限、生命周期脚本和应用入口；
-- `scripts/` 与 `.github/workflows/`：版本、构建、验证和发布流程；
-- `docs/`：架构、API 契约、开发计划、设计和 FPK 规则。
-
-本次没有执行真实 fnOS 安装、升级、回滚、卸载、设备重启、FN Connect 远程访问、Lucky 反向代理或双架构 FPK 实机安装。相关结论均标记为“待实机验证”。
-
-### 2.2 本地验证
-
-在代码基线 `29c6014` 上重新执行：
-
-| 验证项 | 结果 |
-| --- | --- |
-| `pnpm run version:check` | 通过，四个版本源一致为 `1.8.0` |
-| `pnpm run test:scripts` | 25 项通过 |
-| Rust 测试 | 249 项通过 |
+| `pnpm run version:check` | 通过，版本源统一为 `1.8.1` |
+| `pnpm run test:scripts` | 35 项通过 |
+| `RUSTFLAGS='-D warnings' cargo test --manifest-path server/Cargo.toml` | 278 项通过（Rust 库 275 项，数据库 CLI 集成 3 项） |
 | `pnpm run typecheck` | 通过 |
-| `pnpm run test:unit` | 80 个测试文件、309 项测试通过 |
+| `pnpm run test:unit` | 80 个测试文件、309 项通过 |
+| `pnpm run verify:pre-commit` | 通过，包含上面的快速验证和 FPK 脚本检查 |
+| `pnpm run audit:deps` | 通过；`cargo-audit 0.22.2` 与 `pnpm audit --prod` 均未发现高危或严重漏洞 |
+| `pnpm run verify` | 通过，包含 Rust 编译和 Web UI 生产构建 |
+| `pnpm run build:fpk:prepare` | 通过，x86_64 与 aarch64 双架构 stage 和预检完成，未调用 fnpack |
+| `git diff --check` | 通过 |
 
-这些结果证明当前正常路径和大量边界场景具有回归保护，但不能代替磁盘满、SQLite 只读、Aria2 无响应、进程崩溃、断电和 fnOS 生命周期实机测试。
+这两项只能证明本地构建和双架构预组装，不等同于 fnOS 实机通过。
+
+### 2.2 尚未执行的验证
+
+本轮没有真实执行 fnOS 安装、同身份升级、停止/重启/卸载/回滚、FN Connect 远程访问、Lucky 或其他反向代理、真实 SSE/WebSocket 代理链路，也没有做断电、磁盘满、SQLite 只读或 Aria2 半断连接故障注入。相关结论保持“待实机验证”，不能写成发布通过。
+
+证据模板：
+
+- `docs/fnos-install-upgrade-acceptance.md`
+- `docs/fnos-lifecycle-acceptance.md`
+- `docs/fnos-connect-proxy-acceptance.md`
 
 ## 3. 当前架构
 
@@ -77,167 +58,129 @@ F-01“重新下载先删除用户文件”已经修复。当前流程先锁定�
 
 ```text
 fnOS FPK
-  ├─ cmd/start | stop | status
-  ├─ Rust server
-  │   ├─ 0.0.0.0:17080
-  │   │   └─ Web UI + 管理 API + SSE
-  │   ├─ 127.0.0.1:17081
-  │   │   └─ JSON-RPC HTTP/WebSocket
+  ├─ manifest / 权限 / 生命周期脚本 / Web 入口
+  ├─ Rust + Axum server
+  │   ├─ 管理 listener（默认 0.0.0.0:17080）
+  │   │   └─ Web UI、HTTP API、SSE
+  │   ├─ JSON-RPC listener（默认 127.0.0.1:17081）
+  │   │   └─ JSON-RPC HTTP、WebSocket、CORS 预检
   │   ├─ SQLite
   │   └─ Aria2 Next sidecar
   └─ Vue 3 + Pinia + Naive UI
 ```
 
-管理监听器和 JSON-RPC 监听器共享业务状态，但对外暴露范围不同。管理监听器承载完整应用；JSON-RPC 监听器只绑定回环地址，供本机反向代理按需暴露。
+两个 listener 共享任务、数据库、Aria2 运行态和退出信号，但对外边界不同：管理端口服务 Web UI 和管理 API，JSON-RPC 端口只在回环地址监听，外部代理必须明确指向它。
 
-### 3.2 任务数据流
+### 3.2 主要数据流
 
 ```text
-Vue component
+Vue 组件
   -> Pinia store
   -> feature service
-  -> HTTP API
-  -> Rust TaskService
-  -> Aria2 RPC / SQLite / filesystem
-  -> runtime monitor
-  -> SSE snapshot
+  -> 管理 HTTP API / SSE
+  -> Rust service
+  -> Aria2 RPC、SQLite、用户文件
+  -> 任务监控快照
+  -> SSE revision
   -> Pinia store
 ```
 
-前端和后端的领域划分基本符合架构文档。主要风险位于 `TaskService` 末端：一个业务操作需要协调多个不能参与同一数据库事务的状态所有者。
+四类状态的职责是：Aria2 执行下载，Rust 内存提供运行态，SQLite 保存任务和维护记录，文件系统保存用户数据。任务操作表 `task_operations` 记录不能放进 SQLite 事务的外部副作用和阶段。
 
-### 3.3 已经建立的能力
+### 3.3 已成立的架构优势
 
-#### 网络与认证边界
+- 管理面和 JSON-RPC 面分端口，JSON-RPC 默认只对本机开放。
+- Web Session/CSRF 与 JSON-RPC Token 分离；密码使用 Argon2id，Token 不返回给普通前端设置接口。
+- 任务、文件、Aria2、SQLite 和前端职责边界清楚，创建、控制、删除、恢复和重新下载共享任务级互斥。
+- 进程 PID 身份、启动时间、退出清理、Aria2 session 保存和双 listener 绑定均有实现与测试。
+- BT 任务使用任务专属目录和应用私有 metadata；`owned_task_dir` 让删除和恢复不依赖用户输入拼接路径。
+- 1.8.1 的 FPK 身份、桌面入口和产物命名统一为 `motrix` / `motrix.Application` / `motrix_<version>_<arch>.fpk`。
 
-- 管理面和 JSON-RPC 面使用不同监听器；
-- Web 管理密码与 JSON-RPC Token 相互独立；
-- 管理会话使用服务端 Session，写操作校验 CSRF Token；
-- 密码使用 Argon2id 和随机 salt 保存；
-- JSON-RPC secret 由服务端持有，不暴露给普通前端设置接口。
+## 4. 当前问题与证据
 
-#### 文件与任务安全
+### 4.1 P0：用户文件安全（F-01，已修复）
 
-- 下载目录需要通过 fnOS 授权路径校验；
-- 文件删除前会做 canonical path 和符号链接边界检查；
-- BT 任务使用应用创建的专属目录；
-- 当前版本增加 `owned_task_dir` 持久字段，并对符合条件的历史任务目录做保守迁移；
-- 回收站恢复会按 URL、种子和磁链来源选择正确的 Aria2 创建方式；
-- 种子恢复优先使用应用私有目录中保存的源 metadata。
-
-#### 生命周期与交付
-
-- fnOS 生命周期脚本联合核对 PID、可执行文件和进程启动时间；
-- 正常退出会同步任务、保存 Aria2 session 并停止受管 sidecar；
-- x86 和 ARM 使用独立 FPK 产物；
-- `manifest.appname`、桌面入口和 FN Connect 短域名所需身份已经统一；
-- Release 产物命名统一为 `motrix_<version>_<arch>.fpk`。
-
-#### P1 本地可靠性整改
-
-- SQLite 使用有序迁移注册表和 `schema_migrations` 记录已执行版本；
-- 任务及其操作记录在同一数据库边界内原子写入，`task_operations` 保存跨系统操作的阶段、关键 GID、路径和错误；
-- 同一任务的创建、控制、删除、恢复和重新下载使用共享互斥；启动时会对账未完成操作，对未知结果不盲目重试；
-- Aria2 RPC 使用可复用客户端、统一超时和错误分类；结果未知时交由操作记录对账；
-- 管理 API、上传和 JSON-RPC WebSocket 已有请求体、消息和慢请求资源边界；
-- `/api/app/ready` 同时确认进程、SQLite 和双监听器状态，fnOS 脚本据此判断服务启动；
-- SSE 快照包含单调递增 revision，发生 lag 时服务端发送完整快照；前端会取消过期请求并拒绝低版本事件。
-
-#### 前端与自动化
-
-- 页面、feature、store、service 和类型目录边界清楚；
-- 桌面、移动浏览器和 fnOS WebView 复用同一业务状态与 API；
-- 组件样式已迁移到同目录 scoped CSS；
-- UnoCSS 仅保留受控静态 utility 试点；
-- 品牌色已经统一为蓝色，语义状态色保持独立；
-- 版本、脚本、Rust、类型检查和前端单元测试均有自动化入口。
-
-## 4. 当前风险
-
-本节只保留对当前代码仍有决策价值的问题。编号沿用既有报告，便于后续提交和讨论关联。
-
-### 4.1 P0：重新下载文件安全（F-01，已修复）
-
-| 项目 | 结论 |
-| --- | --- |
-| 结论 | 已修复原文件先删除和 BT 错误使用 `addUri` 的问题 |
-| 证据 | `server/src/tasks/service/control.rs` 先创建暂停任务并持久化，再调用 `stage_task_files`；成功恢复任务后才提交暂存清理 |
-| 来源处理 | URL 使用 `addUri`；种子和已确认磁链读取保存的源 metadata 并使用 `addTorrent` |
-| 文件处理 | `server/src/tasks/files.rs` 把文件或完整 BT 专属目录原子移动到同一父目录下的隐藏暂存目录 |
-| 失败处理 | Aria2 创建失败时不移动文件；暂存或恢复失败时移除新 GID、恢复旧任务快照和原文件 |
-| 并发处理 | `TaskMemoryState` 对同一任务的重新下载操作加运行时互斥，重复请求会被拒绝 |
-
-新增测试覆盖 URL 正常重新下载、Aria2 创建失败、恢复下载失败回滚，以及种子任务使用私有 metadata 和 `addTorrent`。跨进程中断由 `task_operations` 和启动对账继续处理；无法安全判断时保留文件并转为人工处理。
-
-### 4.2 P1：可靠性与一致性（本地整改完成）
-
-P1 的代码整改已完成。它不是跨系统事务：数据库负责可靠记录，外部副作用通过阶段记录、补偿和启动对账收敛。外部结果不确定时，系统不会自动删除用户文件或重复创建下载任务。
-
-| 编号 | 结论 | 代码证据 | 发布前仍需验证 |
+| 结论 | 证据 | 影响 | 建议 |
 | --- | --- | --- | --- |
-| F-02 / F-03 | 已建立可恢复的任务操作生命周期 | `task_operations` 记录操作阶段和副作用；创建、控制、删除、恢复和重新下载接入操作记录、补偿和任务级互斥；启动时对账未完成记录 | 在崩溃、磁盘满、SQLite 只读和真实 Aria2 无响应下验证每个阶段 |
-| F-04 | 已建立版本化迁移和数据库原子边界 | `schema_migrations` 与有序迁移注册表替代散落的启动期变更；任务状态和关联操作在同一事务写入 | 在历史数据升级、并发写入和异常提交环境中验证恢复与回滚 |
-| F-05 | 已统一 Aria2 RPC 客户端和未知结果处理 | 复用 `Aria2RpcClient`，统一连接/请求超时、响应校验和错误分类；超时后记录为未知结果并对账 | 用真实网络断连和“服务端已执行、客户端超时”场景验证不会重复副作用 |
-| F-06 | 已建立 HTTP 和 WebSocket 资源边界 | 管理 API 与 RPC 请求体限制为 1 MiB，种子上传为 12 MiB 总请求和 10 MiB 文件，WebSocket 限制消息、写缓冲、有限请求超时和并发 | 在真实慢客户端、畸形 multipart 和超限 WebSocket 下观察内存与连接回收 |
-| F-07 | 启动状态已从进程存活升级为 readiness | `/api/app/ready` 检查退出状态、SQLite 和双 listener；`start`、`status` 同时校验 PID 身份和 readiness | 在 fnOS 验证 curl/wget 可用性、超时、升级、重启、卸载和降级提示 |
-| F-10 / F-11 | 已防止 SSE 与 HTTP 迟到状态覆盖 | 快照携带 revision，SSE lag 后发送完整快照；前端使用 `AbortController`、请求代次和 revision 过滤，并在重连后刷新 | 在浏览器断网、重连、慢响应和多标签页下做端到端验证 |
+| 重新下载不会在新任务可靠建立前删除旧文件 | `server/src/tasks/service/control.rs` 先创建暂停任务并持久化新 GID，再调用文件暂存；`server/src/tasks/files.rs` 将文件或 BT 专属目录移到同文件系统临时目录 | Aria2 拒绝、数据库失败、移动失败或恢复失败时，原任务快照和原文件可回滚 | 继续保留 `redownload_*` 测试；实机发布前验证权限撤销、只读目录和进程中断 |
+| BT 重新下载按来源使用 `addTorrent` | `server/src/tasks/service/control.rs`、私有 metadata 和 `owned_task_dir` 路径 | 不再把种子当 URL 发送，恢复可保留 BT 元数据 | 源 metadata 缺失时维持“拒绝恢复/人工处理”，不要静默创建错误任务 |
+| 同一任务不会同时执行冲突操作 | `TaskMemoryState` 任务锁覆盖重新下载及其他任务控制操作 | 重复提交得到冲突响应，不会并行移动同一份文件 | 保持服务端互斥，不能只依赖前端按钮禁用 |
 
-#### 剩余边界
+### 4.2 P1：可靠性与一致性（代码整改完成）
 
-- 本地单元和集成测试不能替代真实进程崩溃、断电、磁盘满、只读数据库和网络半断开的故障注入。
-- fnOS 安装、升级、回滚、卸载、设备重启、FN Connect 和反向代理仍必须在目标设备留存证据。
-- 浏览器 SSE 的长连接、断网重连与真实慢网络仍需端到端测试。
+| 结论 | 证据 | 影响 | 发布前建议 |
+| --- | --- | --- | --- |
+| 任务操作可记录、补偿和启动对账 | `server/src/database/task_operations.rs`、`server/src/runtime/task_operation_reconcile.rs`；记录阶段、GID、路径、外部副作用和错误 | 重启后能区分已持久化、未持久化和未知结果；无法安全判断时保留文件并转人工处理 | 用真实 Aria2 超时、服务崩溃和磁盘异常验证，不自动重复副作用 |
+| 数据库迁移有版本，相关任务写入有事务边界 | `server/src/database/mod.rs` 的 `schema_migrations` 和有序迁移；任务、历史、错误与操作记录在同一业务事务中提交 | 不再依赖散落启动逻辑，失败时不留下半成品关联记录 | 在复制的历史库上做升级、重复启动和异常回滚演练 |
+| Aria2 RPC 有统一客户端和未知结果分类 | `server/src/aria2/rpc.rs` 复用 `reqwest::Client`，统一连接/请求超时、响应校验和错误分类 | 断连或超时不会被误判为“肯定没执行”，也不会盲目重试创建 | 补“服务端已执行但客户端超时”和“请求未送达”两类设备/网络证据 |
+| HTTP、上传和 WebSocket 有资源边界 | 管理/JSON-RPC body 1 MiB，种子上传总请求 12 MiB、文件 10 MiB，WebSocket 消息与写缓冲有上限；有限请求才使用超时 | 降低慢请求和大帧占满进程内存的风险，SSE/WebSocket 长连接不会被通用超时误杀 | 在慢客户端、畸形 multipart、超大帧和连接并发下观察回收 |
+| 启动判断包含业务 readiness | `/api/app/ready` 检查退出状态、SQLite、管理 listener 和 RPC listener；`cmd/start`、`cmd/status` 同时核对 PID 身份和就绪状态 | 进程活着但端口或数据库未准备好时不会被误报为正常 | 在目标 fnOS 验证 curl/wget、超时、端口冲突和升级重启提示 |
+| SSE 和前端 HTTP 结果有版本/代次保护 | 任务快照带单调递增 `revision`；SSE lag 发送完整快照；前端使用 `AbortController`、请求代次和版本过滤 | 迟到 HTTP 或旧 SSE 不会覆盖新状态，重连后会刷新 | 在浏览器断网、重连、慢响应和多标签页做端到端验证 |
+
+P1 的边界很明确：数据库事务不包含 Aria2 和文件系统。代码采用“先记账、可补偿、启动对账、未知结果保守处理”，不是承诺跨系统原子提交。
 
 ### 4.3 P2：治理与平台验证
 
-| 编号 | 当前状态 | 后续工作 |
+#### 已完成的治理项
+
+| 领域 | 结论 | 代码/文档证据 | 影响 |
+| --- | --- | --- | --- |
+| 数据库参数和索引 | 已显式固定 SQLite WAL、busy timeout、同步级别和连接初始化；新增任务、历史、错误和未完成操作查询索引 | `server/src/database/mod.rs` 及新增迁移和测试 | 并发写入行为可重复，常用查询不依赖全表扫描 |
+| 数据库维护 | 提供 `database-check`、`database-backup <output>` 和 `database-cleanup-history <timestamp> [--apply]` 内部命令 | `server/src/app/mod.rs`、`server/tests/database_cli.rs` | 健康检查和一致快照不暴露新的管理 HTTP API；清理默认 dry-run，事务失败会回滚 |
+| 登录限速 | 失败桶按来源隔离，同时保留实例级总上限、来源数量上限和过期清理 | `server/src/auth/rate_limit.rs` 及测试 | 一个来源被锁定不会直接锁住所有来源；来源 Header 仍不能直接信任 |
+| 可信代理与 Cookie | `MOTRIX_TRUSTED_PROXY_IPS` 命中真实对端地址后才读取来源 Header；`MOTRIX_WEB_COOKIE_SECURE` 显式控制 Cookie `Secure`，默认关闭 | `docs/api-contract.md`、`docs/fpk-packaging.md`、认证测试 | 代理部署规则可配置；HTTPS 终止场景必须显式打开 Secure，直连 HTTP 不会被错误判定 |
+| 日志 | URL query/fragment、Token、密码、Session 和 CSRF 等敏感字段经过统一 redactor；响应带服务端 `X-Request-ID`；文件日志有大小上限和固定轮转数 | `server/src/debug_logs/`、`server/src/api/mod.rs`、`docs/fpk-packaging.md`、`docs/api-contract.md` | 调试和取证更容易关联，日志不会无限增长；集中收集和权限管理仍属运维责任 |
+| CI 与供应链 | Node/pnpm/Rust/target 固定；第三方 Action 使用 commit SHA；Rust/前端生产依赖审计；Release 生成双架构 SBOM、SHA256SUMS 和 provenance | `.node-version`、`rust-toolchain.toml`、`.github/workflows/`、`scripts/dependency-audit.mjs` | 构建输入和发布产物可追溯，高危/严重依赖漏洞阻断发布 |
+| FPK 预检 | x86_64/ARM64 产物名、manifest 身份、端口、回环 RPC 地址和运行时残留有自动检查 | `scripts/build-fpk.mjs`、`docs/fpk-packaging.md`、脚本测试 | 本地能提前发现包身份和架构错配，但不代替设备安装 |
+| 依赖版本 | Rust 仅将确认有收益的 `spin` 从 `0.9.8` 更新到 `0.9.9`；前端候选含大版本和普通补丁，当前审计无漏洞且无明确兼容收益，保持不变 | `server/Cargo.lock`、`pnpm-lock.yaml`、审计结果 | 避免无必要的大范围升级；后续按安全公告或兼容需求逐项处理 |
+
+#### 仍需处理的 P2 边界
+
+| 风险 | 当前影响 | 建议完成标准 |
 | --- | --- | --- |
-| F-08 / F-09 | SQLite 已使用 WAL，库默认 busy timeout 也存在；索引、历史保留、备份恢复和健康检查仍不足 | 固定连接参数，增加 `quick_check`、一致备份命令、容量策略和必要索引 |
-| F-12 | 登录失败限制是全局内存状态 | 先确定直连和反向代理部署模型，再设计不会被单一来源触发全体拒绝的限速键 |
-| F-13 | Session Cookie 使用 HttpOnly 和 SameSite Strict，但不带 `Secure` | 明确信任的 HTTPS 终止方式；不能直接信任客户端可伪造的代理 Header |
-| F-14 | 关键 URL query 和 RPC secret 已有局部脱敏，没有发现已证实的敏感信息泄漏 | 建立集中 redactor、correlation ID、日志轮转和敏感值回归测试 |
-| F-15 / F-16 | CI 和 Release 已覆盖主要验证与双架构产物，部分工具链和 Action 输入仍可能漂移 | 固定关键构建输入，增加漏洞扫描、SBOM、provenance 和 FPK 解包检查 |
-| F-17 | 样式外置、UnoCSS 试点和蓝色品牌迁移已完成；整体 UI 重设计尚未开始 | 继续遵守阶段 13 的设计稿批准门禁，不在分析报告中重复 UI 实施计划 |
-| F-18 | fnOS 生命周期脚本和应用身份已有自动化约束 | 在真实设备完成安装、升级、回滚、卸载、重启、FN Connect 和反向代理矩阵 |
-| F-19 | 依赖存在后续升级空间，但当前没有证据要求一次性升级 | 按安全和兼容窗口分批处理，不与 P0/P1 一致性整改混在同一提交 |
+| fnOS 实机证据 | 本地脚本不能证明安装、升级、重启、卸载、回滚和数据保留真实可用 | 在目标设备完成三个验收模板，保留版本、SHA-256、状态输出、日志和脱敏截图 |
+| 代理部署 | Cookie `Secure` 默认关闭；未配置可信代理时伪造的 `X-Forwarded-For` 会被忽略，但部署者仍可能配置错误 | 反向代理只指向 `127.0.0.1:17081` 的 JSON-RPC，HTTPS 终止时显式设 Secure，并通过伪造 Header 测试 |
+| 数据库运维 | 备份和清理命令已存在，但定期备份、保留期限、恢复演练和容量告警还没有统一运维安排 | 确定执行人、周期、备份位置、恢复校验和保留策略，不删除任务操作记录或用户文件 |
+| 日志运维 | 脱敏和轮转已实现，集中收集、权限、归档和关联 ID 的长期保存策略仍需落地 | 在运行维护文档中确定目录、保留数量、收集方式和取证时的脱敏要求 |
+| UI 设计门禁 | scoped CSS 外置、UnoCSS 试点和蓝色品牌迁移已完成；整体 UI 重设计尚未获得批准 | 用户批准 Figma frame 后再单独制定 UI 实施计划；此前不生成其他页面、不改交互、不安装运行时依赖 |
 
 ## 5. 整改路线
 
-| 顺序 | 工作 | 完成标准 |
+| 顺序 | 目标 | 完成标准 |
 | --- | --- | --- |
-| 1 | 安全重新下载 | 已完成：暂停创建、来源分流、文件暂存、失败补偿和任务级互斥 |
-| 2 | 持久 operation 和迁移基础 | 已完成：操作阶段可持久化，历史数据库可重复迁移，重启后可对账 |
-| 3 | 任务互斥和补偿 | 已完成：同一任务的控制、删除、恢复和重新下载串行，失败时优先保留用户文件 |
-| 4 | RPC 超时、资源限制和 readiness | 已完成：外部调用有 deadline，管理/RPC 入口有资源边界，启动状态可检查 |
-| 5 | SSE revision/resync 和前端竞态治理 | 已完成：丢帧、断线和迟到 HTTP 响应不会覆盖更新状态 |
-| 6 | 取得发布证据并推进长期治理 | 待完成：故障注入、fnOS 实机矩阵、浏览器端到端，以及数据库、日志、CI 和 UI 治理 |
+| 1 | 保持用户文件安全 | 重新下载先建立暂停任务，文件暂存后再恢复；任何未知结果保留文件 |
+| 2 | 保持本地状态可恢复 | 操作记录、版本化迁移、任务锁、补偿和启动对账持续覆盖所有任务动作 |
+| 3 | 完成发布证据 | 本地完整验证通过，并取得 fnOS 安装/升级、生命周期、FN Connect/代理的脱敏证据 |
+| 4 | 固化运维 | 运行数据库健康检查、备份、恢复、日志收集和依赖审计的周期与责任 |
+| 5 | 推进产品治理 | 取得 UI 母版批准后再实施视觉重设计；依赖只按安全或兼容收益逐项升级 |
 
-### 5.1 发布前验证重点
+## 6. 发布门槛
 
-- Aria2 明确失败、无响应和返回无法解析结果；
-- SQLite busy、只读、磁盘满和提交失败；
-- 进程在每个 operation 阶段退出并重启；
-- 同一任务的暂停、恢复、删除、确认和重新下载并发；
-- URL、种子、待确认磁链和已确认磁链分别恢复；
-- 文件授权撤销、符号链接替换、只读目录和暂存失败；
-- SSE lag、断线重连、事件乱序和 HTTP 迟到响应；
-- fnOS start、stop、status、设备重启和异常退出。
+### 本地门槛
 
-### 5.2 不建议的方向
+```text
+pnpm run version:check
+pnpm run test:scripts
+pnpm run typecheck
+pnpm run test:unit
+RUSTFLAGS='-D warnings' cargo test --manifest-path server/Cargo.toml
+pnpm run verify:pre-commit
+pnpm run verify
+pnpm run build:fpk:prepare
+git diff --check
+```
 
-- 不更换 Rust/Axum、Vue/Pinia、SQLite 或 Aria2；当前风险不是主技术选型导致；
-- 不引入微服务、消息队列或外部数据库；单机 FPK 内的持久 operation 足以解决主要问题；
-- 不把 Aria2 RPC 包进长时间 SQLite 事务；外部服务不能参与数据库原子提交；
-- 不只在前端隐藏危险操作；服务端必须同时拒绝；
-- 不依赖反向代理替应用承担全部请求限制或 HTTPS 判断；管理端口仍可能被直接访问；
-- 不因文件行数机械拆分组件或 state；重构应围绕职责和已批准设计；
-- 不把所有依赖一次升级到最新大版本；升级应与可靠性修复分开验证；
-- 不把本地测试结果当作 fnOS 实机安装、升级和卸载安全证据。
+本地通过只说明代码、脚本和预组装结果可重复，不说明 fnOS 入口、权限、代理或升级行为已经通过。
 
-## 6. 最终结论
+### 实机门槛
 
-Motrix fnOS 已经具备清晰的运行拓扑、合理的技术栈、较强的认证与路径安全基础，以及覆盖面较好的自动化测试。P0 用户文件安全和 P1 本地可靠性整改均已完成，当前代码适合继续在现有架构上演进，没有必要进行平台级重写。
+- 全新安装和从旧版同身份升级后，任务、设置、SQLite、Aria2 session 和首次登录/创建任务正常。
+- `start`、`status`、`stop`、设备重启、卸载和回滚不留下错误 PID、端口或 sidecar，也不误删用户文件。
+- FN Connect 短域名进入管理端口；Lucky/其他反向代理只进入回环 JSON-RPC 端口；SSE、WebSocket、Cookie 和请求关联 ID 符合配置。
+- 证据不记录密码、Session、CSRF、JSON-RPC Token 或完整私密 URL。
 
-重新下载的直接用户文件丢失风险已经通过暂停创建、来源分流、文件暂存和失败回滚解决。`owned_task_dir` 与私有源 metadata 为 BT 重新下载提供了可靠的目录和来源边界。
+## 7. 最终结论
 
-发布前的门槛是外部副作用故障测试和 fnOS 实机矩阵，而不是继续进行同类架构重写。取得这些证据后，再推进数据库、日志、CI、UI 和其他低优先级治理。
+以 `35b3a8e` 为基线的 1.8.1 代码已经解决重新下载文件丢失、任务操作不可追踪、数据库迁移分散、RPC 超时无分类、启动只看进程存活、SSE/HTTP 乱序覆盖以及主要治理缺口。当前架构清晰，继续在现有 Rust/Axum、SQLite、Aria2 和 Vue/Pinia 组合上演进即可。
+
+尚未闭环的事项集中在“证据和运维”而不是代码大改：目标 fnOS 设备的安装生命周期、真实代理链路、外部副作用故障演练、数据库恢复制度、日志集中治理和 UI 母版批准。没有这些证据时，报告只把本地自动化标为通过，不把平台发布标为完成。
