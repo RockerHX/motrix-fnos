@@ -15,11 +15,15 @@ export class ApiError extends Error {
   }
 }
 
-interface RequestOptions {
+export interface HttpRequestOptions {
+  handleUnauthorized?: boolean;
+  signal?: AbortSignal;
+}
+
+interface RequestOptions extends HttpRequestOptions {
   body?: unknown;
   rawBody?: BodyInit;
   headers?: HeadersInit;
-  handleUnauthorized?: boolean;
 }
 
 let csrfTokenProvider: (() => string | null) | null = null;
@@ -46,6 +50,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
       ...options.headers,
     },
     body: options.rawBody ?? (hasJsonBody ? JSON.stringify(options.body) : undefined),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 
   if (response.status === 204) {
@@ -91,22 +96,22 @@ function isApiErrorResponse(payload: unknown): payload is ApiErrorResponse {
   return typeof candidate.code === "string" && typeof candidate.message === "string";
 }
 
-export function httpGet<T>(path: string, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+export function httpGet<T>(path: string, options: HttpRequestOptions = {}) {
   return request<T>("GET", path, options);
 }
 
-export function httpPost<T>(path: string, body?: unknown, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+export function httpPost<T>(path: string, body?: unknown, options: HttpRequestOptions = {}) {
   return request<T>("POST", path, { body, ...options });
 }
 
-export function httpPostFormData<T>(path: string, formData: FormData) {
-  return request<T>("POST", path, { rawBody: formData });
+export function httpPostFormData<T>(path: string, formData: FormData, options: HttpRequestOptions = {}) {
+  return request<T>("POST", path, { rawBody: formData, ...options });
 }
 
-export function httpPut<T>(path: string, body: unknown, options: Pick<RequestOptions, "handleUnauthorized"> = {}) {
+export function httpPut<T>(path: string, body: unknown, options: HttpRequestOptions = {}) {
   return request<T>("PUT", path, { body, ...options });
 }
 
-export function httpDelete<T>(path: string) {
-  return request<T>("DELETE", path);
+export function httpDelete<T>(path: string, options: HttpRequestOptions = {}) {
+  return request<T>("DELETE", path, options);
 }

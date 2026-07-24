@@ -8,6 +8,7 @@ export interface RuntimeExitingPayload {
 }
 
 export interface TasksSnapshotPayload {
+  revision: number;
   tasks: DownloadTask[];
 }
 
@@ -15,6 +16,7 @@ let eventSource: EventSource | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempt = 0;
 let generation = 0;
+let hasOpenedConnection = false;
 let options: RuntimeEventOptions = defaultOptions();
 const RETRY_DELAYS_SECONDS = [1, 2, 4, 8, 16, 30];
 
@@ -30,6 +32,7 @@ export function initializeRuntimeEvents(nextOptions: RuntimeEventOptions = defau
   }
   clearRetryTimer();
   generation += 1;
+  hasOpenedConnection = false;
   return connect(generation);
 }
 
@@ -38,7 +41,13 @@ function connect(currentGeneration: number) {
   const taskStore = useTaskStore();
 
   source.addEventListener("open", () => {
+    if (source !== eventSource || currentGeneration !== generation) return;
     retryAttempt = 0;
+    const reconnected = hasOpenedConnection;
+    hasOpenedConnection = true;
+    if (reconnected && !taskStore.isRuntimeExiting) {
+      void taskStore.refreshTasks();
+    }
   });
 
   source.addEventListener("tasks.snapshot", (event) => {
@@ -69,6 +78,8 @@ export function disposeRuntimeEvents() {
   eventSource?.close();
   eventSource = null;
   retryAttempt = 0;
+  hasOpenedConnection = false;
+  useTaskStore().cancelRefreshRequests();
 }
 
 async function handleSourceError(source: EventSource, currentGeneration: number) {

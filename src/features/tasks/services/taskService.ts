@@ -34,11 +34,17 @@ export function createTorrentDownloadTask(payload: CreateTorrentDownloadTaskRequ
   return httpPostFormData<DownloadTask>("/api/tasks/torrent", formData);
 }
 
-export function listDownloadTasks(): Promise<DownloadTask[]> {
+export function listDownloadTasks(signal?: AbortSignal): Promise<DownloadTask[]> {
+  if (signal) {
+    return httpGet<DownloadTask[]>("/api/tasks", { signal });
+  }
   return httpGet<DownloadTask[]>("/api/tasks");
 }
 
-export function listRemovedDownloadTasks(): Promise<DownloadTask[]> {
+export function listRemovedDownloadTasks(signal?: AbortSignal): Promise<DownloadTask[]> {
+  if (signal) {
+    return httpGet<DownloadTask[]>("/api/tasks?status=removed", { signal });
+  }
   return httpGet<DownloadTask[]>("/api/tasks?status=removed");
 }
 

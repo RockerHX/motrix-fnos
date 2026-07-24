@@ -104,6 +104,41 @@ describe("taskStore refresh and operation state", () => {
     });
   });
 
+  it("cancels stale task and recycle-bin refreshes without applying late responses", async () => {
+    const store = useTaskStore();
+    const firstTasks = createDeferred<DownloadTask[]>();
+    const firstRemovedTasks = createDeferred<DownloadTask[]>();
+    const latestTasks = [createTask({ id: 10, status: "active" })];
+    const latestRemovedTasks = [createTask({ id: 11, status: "removed" })];
+    mockedListDownloadTasks
+      .mockReturnValueOnce(firstTasks.promise)
+      .mockResolvedValueOnce(latestTasks);
+    mockedListRemovedDownloadTasks
+      .mockReturnValueOnce(firstRemovedTasks.promise)
+      .mockResolvedValueOnce(latestRemovedTasks);
+
+    const firstTasksRefresh = store.refreshTasks();
+    const firstRemovedRefresh = store.refreshRemovedTasks();
+    const firstTasksSignal = mockedListDownloadTasks.mock.calls[0]?.[0];
+    const firstRemovedSignal = mockedListRemovedDownloadTasks.mock.calls[0]?.[0];
+    const latestTasksRefresh = store.refreshTasks();
+    const latestRemovedRefresh = store.refreshRemovedTasks();
+
+    expect(firstTasksSignal?.aborted).toBe(true);
+    expect(firstRemovedSignal?.aborted).toBe(true);
+    await latestTasksRefresh;
+    await latestRemovedRefresh;
+
+    firstTasks.resolve([createTask({ id: 12, status: "pending" })]);
+    firstRemovedTasks.resolve([createTask({ id: 13, status: "removed" })]);
+    await firstTasksRefresh;
+    await firstRemovedRefresh;
+
+    expect(store.tasks).toEqual(latestTasks);
+    expect(store.removedTasks).toEqual(latestRemovedTasks);
+    expect(store.isRefreshing).toBe(false);
+  });
+
   it("createTask toggles isCreating while request is in flight", async () => {
     const store = useTaskStore();
     const payload: CreateDownloadTaskRequest = {
@@ -312,6 +347,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(store.consumeTaskErrorMessages()).toEqual([]);
 
     store.applyTaskSnapshot({
+      revision: 1,
       tasks: [existingErrorTask, newErrorTask],
     });
 
@@ -325,7 +361,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     const store = useTaskStore();
     const snapshotTasks = [createTask({ id: 51, status: "complete" })];
 
-    store.applyTaskSnapshot({ tasks: snapshotTasks });
+    store.applyTaskSnapshot({ revision: 1, tasks: snapshotTasks });
 
     expect(store.tasks).toEqual(snapshotTasks);
   });
@@ -358,7 +394,7 @@ describe("taskStore snapshot and runtime exiting", () => {
     await expect(store.refreshTasks()).resolves.toEqual({ taskErrorMessages: [] });
     await expect(store.refreshRemovedTasks()).resolves.toEqual({ taskErrorMessages: [] });
 
-    store.applyTaskSnapshot({ tasks: nextTasks });
+    store.applyTaskSnapshot({ revision: 1, tasks: nextTasks });
 
     expect(mockedListDownloadTasks).not.toHaveBeenCalled();
     expect(mockedListRemovedDownloadTasks).not.toHaveBeenCalled();
@@ -394,6 +430,38 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(mockedPauseDownloadTask).not.toHaveBeenCalled();
     expect(mockedPermanentlyDeleteDownloadTask).not.toHaveBeenCalled();
     expect(mockedRestoreDownloadTask).not.toHaveBeenCalled();
+  });
+
+  it("ignores an older SSE snapshot and cancels an HTTP response superseded by a newer snapshot", async () => {
+    const store = useTaskStore();
+    const pendingTasks = createDeferred<DownloadTask[]>();
+    const currentSnapshot = [createTask({ id: 81, status: "active" })];
+    mockedListDownloadTasks.mockReturnValueOnce(pendingTasks.promise);
+
+    const refresh = store.refreshTasks();
+    const signal = mockedListDownloadTasks.mock.calls[0]?.[0];
+    store.applyTaskSnapshot({ revision: 5, tasks: currentSnapshot });
+    store.applyTaskSnapshot({ revision: 4, tasks: [createTask({ id: 82, status: "pending" })] });
+    pendingTasks.resolve([createTask({ id: 83, status: "complete" })]);
+    await refresh;
+
+    expect(signal?.aborted).toBe(true);
+    expect(store.tasks).toEqual(currentSnapshot);
+  });
+
+  it("clearing sensitive state aborts requests and ignores late responses", async () => {
+    const store = useTaskStore();
+    const pendingTasks = createDeferred<DownloadTask[]>();
+    mockedListDownloadTasks.mockReturnValueOnce(pendingTasks.promise);
+
+    const refresh = store.refreshTasks();
+    const signal = mockedListDownloadTasks.mock.calls[0]?.[0];
+    store.clearSensitiveState();
+    pendingTasks.resolve([createTask({ id: 91, status: "active" })]);
+    await refresh;
+
+    expect(signal?.aborted).toBe(true);
+    expect(store.tasks).toEqual([]);
   });
 });
 

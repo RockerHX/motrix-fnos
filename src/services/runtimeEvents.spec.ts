@@ -5,6 +5,8 @@ const mockTaskStore = {
   isRuntimeExiting: false,
   applyTaskSnapshot: vi.fn(),
   markRuntimeExiting: vi.fn(),
+  refreshTasks: vi.fn(),
+  cancelRefreshRequests: vi.fn(),
 };
 
 vi.mock("../features/tasks/stores/taskStore", () => ({
@@ -19,6 +21,8 @@ describe("runtimeEvents", () => {
     mockTaskStore.isRuntimeExiting = false;
     mockTaskStore.applyTaskSnapshot.mockReset();
     mockTaskStore.markRuntimeExiting.mockReset();
+    mockTaskStore.refreshTasks.mockReset();
+    mockTaskStore.cancelRefreshRequests.mockReset();
   });
 
   afterEach(() => {
@@ -48,12 +52,14 @@ describe("runtimeEvents", () => {
       "tasks.snapshot",
       new MessageEvent("tasks.snapshot", {
         data: JSON.stringify({
+          revision: 1,
           tasks: [{ id: 1 }],
         }),
       }),
     );
 
     expect(mockTaskStore.applyTaskSnapshot).toHaveBeenCalledWith({
+      revision: 1,
       tasks: [{ id: 1 }],
     });
   });
@@ -68,6 +74,7 @@ describe("runtimeEvents", () => {
       "tasks.snapshot",
       new MessageEvent("tasks.snapshot", {
         data: JSON.stringify({
+          revision: 1,
           tasks: [{ id: 2 }],
         }),
       }),
@@ -123,6 +130,7 @@ describe("runtimeEvents", () => {
 
     disposeRuntimeEvents();
     expect(firstInstance?.close).toHaveBeenCalledTimes(1);
+    expect(mockTaskStore.cancelRefreshRequests).toHaveBeenCalledOnce();
 
     const secondMock = createEventSourceMock();
     vi.stubGlobal("EventSource", secondMock.EventSourceMock);
@@ -199,6 +207,31 @@ describe("runtimeEvents", () => {
     expect(instances).toHaveLength(3);
     await vi.advanceTimersByTimeAsync(1);
     expect(instances).toHaveLength(4);
+  });
+
+  it("refreshes tasks after a reconnected source opens", async () => {
+    vi.useFakeTimers();
+    const { EventSourceMock, instances } = createEventSourceMock();
+    vi.stubGlobal("EventSource", EventSourceMock);
+    initializeRuntimeEvents({
+      checkAuth: vi.fn().mockResolvedValue({
+        setupRequired: false,
+        enabled: true,
+        authenticated: true,
+        csrfToken: "csrf",
+      }),
+      onUnauthorized: vi.fn(),
+    });
+
+    instances[0]?.emit("open", new Event("open"));
+    expect(mockTaskStore.refreshTasks).not.toHaveBeenCalled();
+
+    instances[0]?.emit("error", new Event("error"));
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(1_000);
+    instances[1]?.emit("open", new Event("open"));
+
+    expect(mockTaskStore.refreshTasks).toHaveBeenCalledOnce();
   });
 
   it("cancels retries and ignores a late auth probe after disposal", async () => {

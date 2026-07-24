@@ -49,6 +49,22 @@ describe("http client", () => {
     });
   });
 
+  it("forwards AbortSignal without changing requests that do not need cancellation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    await httpGet("/api/tasks", { signal: controller.signal });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {},
+      body: undefined,
+      signal: controller.signal,
+    });
+  });
+
   it("returns undefined for 204 responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
 
