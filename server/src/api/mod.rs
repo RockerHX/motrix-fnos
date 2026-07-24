@@ -19,6 +19,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::Router;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tower::limit::ConcurrencyLimitLayer;
@@ -32,6 +33,8 @@ const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MANAGEMENT_HTTP_CONCURRENCY_LIMIT: usize = 64;
 const TORRENT_UPLOAD_CONCURRENCY_LIMIT: usize = 8;
 pub(super) const JSONRPC_HTTP_CONCURRENCY_LIMIT: usize = 32;
+const REQUEST_ID_HEADER: &str = "x-request-id";
+static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy)]
 pub(super) struct HttpResourceLimits {
@@ -63,7 +66,10 @@ pub fn management_router(state: Arc<HttpAppState>) -> Router {
 }
 
 pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
-    Router::new().merge(jsonrpc::routes()).with_state(state)
+    Router::new()
+        .merge(jsonrpc::routes())
+        .layer(middleware::from_fn(request_context))
+        .with_state(state)
 }
 
 fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {
@@ -113,6 +119,7 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
     Router::new()
         .nest("/api", api_routes)
         .fallback_service(ServeDir::new(static_dir))
+        .layer(middleware::from_fn(request_context))
         .layer(middleware::from_fn(no_cache_headers))
         .with_state(state)
 }
@@ -148,6 +155,34 @@ async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {
     headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
     headers.insert(EXPIRES, HeaderValue::from_static("0"));
     response
+}
+
+async fn request_context(request: Request<Body>, next: Next) -> Response {
+    let request_id = new_request_id();
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let span = tracing::info_span!(
+        "http_request",
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+    );
+    let mut response = tracing::Instrument::instrument(next.run(request), span).await;
+    let header_value = HeaderValue::from_str(&request_id)
+        .expect("server-generated request ID should be a valid header value");
+    response
+        .headers_mut()
+        .insert(REQUEST_ID_HEADER, header_value);
+    response
+}
+
+fn new_request_id() -> String {
+    let sequence = REQUEST_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!("req-{timestamp:x}-{sequence:x}")
 }
 
 fn static_assets_dir() -> PathBuf {

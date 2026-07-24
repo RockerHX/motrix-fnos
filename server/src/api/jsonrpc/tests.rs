@@ -90,6 +90,33 @@ async fn jsonrpc_http_enforces_one_mebibyte_body_limit() {
 }
 
 #[tokio::test]
+async fn jsonrpc_requests_receive_server_request_ids() {
+    let state = test_state().await;
+    let app = super::super::jsonrpc_router(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jsonrpc")
+                .header("x-request-id", "client-supplied-id")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+
+    let request_id = response
+        .headers()
+        .get("x-request-id")
+        .expect("request ID should exist")
+        .to_str()
+        .expect("request ID should be text");
+    assert!(request_id.starts_with("req-"));
+    assert_ne!(request_id, "client-supplied-id");
+}
+
+#[tokio::test]
 async fn jsonrpc_websocket_rejects_oversized_frames_and_messages() {
     let oversized_frame = vec![b'x'; super::JSONRPC_WEBSOCKET_MESSAGE_LIMIT + 1];
     assert_websocket_frames_rejected(vec![(true, 0x1, oversized_frame)]).await;

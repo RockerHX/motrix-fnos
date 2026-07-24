@@ -7,6 +7,7 @@ use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
 use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
+use crate::auth::SessionKind;
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
@@ -62,6 +63,84 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
         .await
         .expect("response should succeed");
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn management_requests_receive_unique_server_request_ids() {
+    let state = test_state(None).await;
+    let app = management_router(state);
+
+    let request = || {
+        Request::builder()
+            .method("GET")
+            .uri("/api/app/ping")
+            .header("x-request-id", "client-supplied-id")
+            .body(Body::empty())
+            .expect("request should build")
+    };
+    let (first, second, third) = tokio::join!(
+        app.clone().oneshot(request()),
+        app.clone().oneshot(request()),
+        app.oneshot(request()),
+    );
+    let responses = [
+        first.expect("first response should succeed"),
+        second.expect("second response should succeed"),
+        third.expect("third response should succeed"),
+    ];
+    let ids = responses
+        .iter()
+        .map(|response| {
+            response
+                .headers()
+                .get("x-request-id")
+                .expect("request ID should exist")
+                .to_str()
+                .expect("request ID should be text")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert!(ids.iter().all(|id| id.starts_with("req-")));
+    assert!(ids.iter().all(|id| id != "client-supplied-id"));
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        3
+    );
+}
+
+#[tokio::test]
+async fn sse_requests_receive_server_request_ids() {
+    let state = test_state(None).await;
+    let auth_state = state
+        .auth
+        .service
+        .state()
+        .await
+        .expect("auth state should load");
+    let session = state
+        .auth
+        .sessions
+        .create(SessionKind::AnonymousManagement, auth_state.auth_version)
+        .expect("anonymous session should create");
+    let app = management_router(state);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/events")
+                .header("cookie", format!("motrix_web_session={}", session.id))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("req-")));
 }
 
 #[tokio::test]
