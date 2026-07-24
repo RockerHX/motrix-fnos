@@ -83,9 +83,7 @@ fn log_error(debug_logs: Option<&DebugLogStore>, module: &str, message: impl Int
     }
 }
 
-fn redact_url_for_log(url: &str) -> String {
-    url.split(['?', '#']).next().unwrap_or(url).to_string()
-}
+pub(crate) use crate::debug_logs::redact_url_for_log;
 
 #[cfg(test)]
 mod tests;

@@ -67,3 +67,43 @@ fn store_serializes_category_and_repeat_fields() {
     assert_eq!(value["repeatCount"], 1);
     assert!(value["lastTimestampMs"].as_u64().is_some());
 }
+
+#[test]
+fn redactor_removes_sensitive_url_parts_and_fields() {
+    let message = concat!(
+        "GET https://example.com/file.zip?token=url-secret&name=visible#fragment ",
+        "password=pass phrase, rpc_secret:rpc-secret ",
+        "Authorization: Bearer bearer-secret ",
+        "Cookie: motrix_web_session=session-secret; X-CSRF-Token=csrf-secret"
+    );
+
+    let redacted = redact_log_message(message);
+
+    assert!(redacted.contains("https://example.com/file.zip"));
+    assert!(redacted.contains("[REDACTED]"));
+    for secret in [
+        "url-secret",
+        "pass phrase",
+        "rpc-secret",
+        "bearer-secret",
+        "session-secret",
+        "csrf-secret",
+    ] {
+        assert!(!redacted.contains(secret), "secret leaked: {secret}");
+    }
+}
+
+#[test]
+fn debug_log_store_redacts_before_persisting() {
+    let store = DebugLogStore::new(2);
+
+    store.error(
+        "api.test",
+        "请求失败，url=https://example.com/?secret=url-secret token=rpc-secret",
+    );
+
+    let entry = store.list().pop().expect("entry should exist");
+    assert!(!entry.message.contains("url-secret"));
+    assert!(!entry.message.contains("rpc-secret"));
+    assert!(entry.message.contains("[REDACTED]"));
+}

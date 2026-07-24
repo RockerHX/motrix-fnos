@@ -2,6 +2,7 @@ use super::ensure_aria2_ready;
 use crate::app::HttpAppState;
 use crate::database::task_operations::{list_unfinished_task_operations, update_task_operation};
 use crate::database::tasks::persist_download_task_state_with_operation;
+use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::tasks::{
     find_aria2_task_for_request, remove_task, task_exists, DownloadTask, DownloadTaskStatus,
     TaskOperation, TaskOperationStatus, TaskOperationType,
@@ -299,7 +300,7 @@ async fn apply_reconcile_action(
         ReconcileAction::Complete(message) => {
             operation.complete("startup_reconciled");
             update_task_operation(pool, operation).await?;
-            tracing::info!(module = "runtime.operation_reconcile", "{}", message);
+            emit_file_log(DebugLogLevel::Info, "runtime.operation_reconcile", &message);
         }
         ReconcileAction::Fail(message) => {
             operation.fail("startup_rolled_back", message);
