@@ -218,6 +218,7 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
     let listeners = bind_http_listeners(&runtime)
         .await
         .expect("listeners should bind");
+    state.mark_listeners_ready();
     let management_addr = listeners
         .management
         .local_addr()
@@ -249,6 +250,12 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
         .send()
         .await
         .expect("management auth status should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    let response = client
+        .get(format!("http://{management_addr}/api/app/ready"))
+        .send()
+        .await
+        .expect("management readiness should respond");
     assert_eq!(response.status(), reqwest::StatusCode::OK);
     let response = client
         .get(format!("http://{jsonrpc_addr}/api/app/ping"))

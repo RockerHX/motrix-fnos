@@ -100,6 +100,7 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
     let api_routes = with_http_resource_limits(
         Router::new()
             .merge(auth::public_routes())
+            .merge(app::readiness_routes())
             .merge(session_auth_routes)
             .merge(admin_auth_routes)
             .merge(management_routes),

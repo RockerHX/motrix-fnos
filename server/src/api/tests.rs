@@ -1,5 +1,5 @@
 use super::*;
-use crate::api::app::{AppInfo, BackendPing};
+use crate::api::app::{AppInfo, AppReadiness, BackendPing};
 use crate::api::error::ErrorResponse;
 use crate::api::settings::JsonRpcTokenStatus;
 use crate::api::storage::AccessiblePathsResponse;
@@ -101,6 +101,74 @@ async fn management_router_returns_404_for_unknown_paths_without_cors() {
         .headers()
         .get("access-control-allow-origin")
         .is_none());
+}
+
+#[tokio::test]
+async fn readiness_route_requires_bound_listeners_and_healthy_runtime() {
+    let state = test_state(None).await;
+    let app = management_router(state.clone());
+
+    let unavailable = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/app/ready")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+    assert_eq!(unavailable.code, "app_not_ready");
+
+    state.mark_listeners_ready();
+    let readiness = response_json::<AppReadiness>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/app/ready")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(readiness.ready);
+
+    state.core.database.pool.close().await;
+    let unavailable = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/app/ready")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+    assert_eq!(unavailable.code, "database_not_ready");
+
+    state.request_shutdown("测试服务退出");
+    let unavailable = response_json::<ErrorResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/app/ready")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+    assert_eq!(unavailable.code, "app_not_ready");
 }
 
 #[tokio::test]

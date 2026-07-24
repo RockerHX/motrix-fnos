@@ -17,6 +17,7 @@ use std::fs;
 use std::future::{Future, IntoFuture};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch};
@@ -143,6 +144,7 @@ pub struct HttpAppState {
     pub aria2_rpc: Aria2RpcClient,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub runtime_events: RuntimeEventHub,
+    listeners_ready: AtomicBool,
 }
 
 impl HttpAppState {
@@ -162,6 +164,7 @@ impl HttpAppState {
             aria2_rpc: Aria2RpcClient::new(),
             aria2_process: Mutex::new(None),
             runtime_events: RuntimeEventHub::new(),
+            listeners_ready: AtomicBool::new(false),
         }
     }
 
@@ -207,6 +210,14 @@ impl HttpAppState {
         self.core.load_saved_aria2_runtime()
     }
 
+    pub fn mark_listeners_ready(&self) {
+        self.listeners_ready.store(true, Ordering::Release);
+    }
+
+    pub fn is_ready(&self) -> bool {
+        self.listeners_ready.load(Ordering::Acquire) && !self.core.shutdown.is_exiting()
+    }
+
     pub fn request_shutdown(&self, reason: impl Into<String>) {
         let reason = reason.into();
         if !self.core.shutdown.begin_shutdown() {
@@ -215,6 +226,8 @@ impl HttpAppState {
                 .info("runtime.exit", "服务退出流程已在执行，忽略重复退出请求");
             return;
         }
+
+        self.listeners_ready.store(false, Ordering::Release);
 
         self.core.debug_logs.info("runtime.exit", &reason);
         let _ = self
@@ -404,6 +417,7 @@ pub async fn run_server() -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let state = bootstrap_http_app_state(&runtime).await?;
     let listeners = bind_http_listeners(&runtime).await?;
+    state.mark_listeners_ready();
     crate::runtime::spawn_task_monitor(state.clone());
 
     state.core.debug_logs.info(

@@ -45,6 +45,10 @@ impl ApiError {
         error
     }
 
+    pub fn service_unavailable(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, code, message)
+    }
+
     pub fn internal(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)
     }
