@@ -69,6 +69,44 @@ fn connect_database_creates_required_tables() {
 }
 
 #[test]
+fn connect_database_configures_sqlite_runtime_pragmas() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-pragmas-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let busy_timeout: i64 = sqlx::query_scalar("PRAGMA busy_timeout")
+                .fetch_one(&database.pool)
+                .await
+                .expect("busy timeout pragma should be readable");
+            let journal_mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+                .fetch_one(&database.pool)
+                .await
+                .expect("journal mode pragma should be readable");
+            let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+                .fetch_one(&database.pool)
+                .await
+                .expect("synchronous pragma should be readable");
+
+            assert_eq!(busy_timeout, 5_000);
+            assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+            assert_eq!(synchronous, 1);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
 fn connect_database_removes_legacy_ui_preferences_table() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")

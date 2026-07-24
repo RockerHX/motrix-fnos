@@ -2,6 +2,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::time::Duration;
 
 pub mod settings;
 pub mod task_operations;
@@ -26,7 +27,8 @@ pub async fn connect_database(path: PathBuf) -> Result<AppDatabase, String> {
         .map_err(|error| format!("创建 SQLite 连接配置失败：{}", error))?
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
-        .synchronous(SqliteSynchronous::Normal);
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5));
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
