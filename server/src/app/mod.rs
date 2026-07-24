@@ -3,6 +3,7 @@ use crate::auth::{AuthRuntime, AuthService, ServerProcessLock};
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     backup_database, check_integrity, connect_database,
+    maintenance::cleanup_history,
     tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
@@ -448,9 +449,16 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
         [command, output] if command == "database-backup" => database_backup(output).await,
+        [command, before] if command == "database-cleanup-history" => {
+            database_cleanup_history(before, false).await
+        }
+        [command, before, flag]
+            if command == "database-cleanup-history" && flag == "--apply" =>
+        {
+            database_cleanup_history(before, true).await
+        }
         _ => Err(
-            "用法：motrix-fnos-server [reset-web-auth|database-check|database-backup <output>]"
-                .to_string(),
+            "用法：motrix-fnos-server [reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }
@@ -469,6 +477,30 @@ async fn database_backup(output: &str) -> Result<(), String> {
     let output = PathBuf::from(output);
     backup_database(runtime.database_path, output.clone()).await?;
     println!("数据库备份已生成：{}", output.display());
+    Ok(())
+}
+
+async fn database_cleanup_history(before: &str, apply: bool) -> Result<(), String> {
+    let before = before
+        .parse::<i64>()
+        .map_err(|error| format!("清理时间必须是毫秒时间戳：{}", error))?;
+    let runtime = ServerRuntimeConfig::from_env()?;
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let database = connect_database(runtime.database_path).await?;
+    let report = cleanup_history(&database.pool, before, apply).await;
+    database.pool.close().await;
+    let report = report?;
+    if report.applied {
+        println!(
+            "历史记录清理完成：删除历史 {} 条，删除错误 {} 条",
+            report.history_count, report.error_count
+        );
+    } else {
+        println!(
+            "历史记录清理预览：可删除历史 {} 条，错误 {} 条；追加 --apply 才会删除",
+            report.history_count, report.error_count
+        );
+    }
     Ok(())
 }
 

@@ -90,3 +90,61 @@ fn database_backup_binary_creates_snapshot() {
 
     let _ = std::fs::remove_dir_all(app_data_dir);
 }
+
+#[test]
+fn database_cleanup_history_binary_defaults_to_dry_run() {
+    let app_data_dir = temp_app_data_dir("database-cleanup-cli");
+    std::fs::create_dir_all(&app_data_dir).expect("app data directory should create");
+    let database_path = app_data_dir.join("motrix-fnos.sqlite");
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should create");
+    runtime.block_on(async {
+        let database = connect_database(database_path.clone())
+            .await
+            .expect("database should connect");
+        sqlx::query(
+            "INSERT INTO task_history (task_id, status, message, created_at) VALUES (1, 'complete', 'old', 100), (1, 'paused', 'boundary', 200)",
+        )
+        .execute(&database.pool)
+        .await
+        .expect("history rows should insert");
+        sqlx::query(
+            "INSERT INTO task_errors (task_id, error_code, error_message, created_at) VALUES (1, 'old', 'old', 100), (1, 'boundary', 'boundary', 200)",
+        )
+        .execute(&database.pool)
+        .await
+        .expect("error rows should insert");
+        database.pool.close().await;
+    });
+
+    let binary = env!("CARGO_BIN_EXE_motrix-fnos-server");
+    let preview = Command::new(binary)
+        .args(["database-cleanup-history", "200"])
+        .env("MOTRIX_FNOS_APP_DATA_DIR", &app_data_dir)
+        .output()
+        .expect("cleanup preview should execute");
+    assert!(preview.status.success());
+    assert!(String::from_utf8_lossy(&preview.stdout).contains("预览"));
+
+    let apply = Command::new(binary)
+        .args(["database-cleanup-history", "200", "--apply"])
+        .env("MOTRIX_FNOS_APP_DATA_DIR", &app_data_dir)
+        .output()
+        .expect("cleanup apply should execute");
+    assert!(apply.status.success());
+    assert!(String::from_utf8_lossy(&apply.stdout).contains("清理完成"));
+
+    let database = runtime.block_on(async {
+        connect_database(database_path.clone())
+            .await
+            .expect("database should reconnect")
+    });
+    let history_count: i64 = runtime.block_on(async {
+        sqlx::query_scalar("SELECT COUNT(*) FROM task_history")
+            .fetch_one(&database.pool)
+            .await
+            .expect("history count should read")
+    });
+    assert_eq!(history_count, 1);
+    runtime.block_on(database.pool.close());
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}

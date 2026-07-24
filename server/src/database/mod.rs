@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
+pub mod maintenance;
 pub mod settings;
 pub mod task_operations;
 pub mod tasks;
