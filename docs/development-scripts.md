@@ -7,6 +7,8 @@
 固定规则：
 
 - 在仓库根目录执行命令，先运行 `pnpm install` 安装依赖。
+- Node.js 版本以仓库根目录 `.node-version` 为准，pnpm 版本以 `package.json` 的 `packageManager` 为准；CI 使用锁定版本和 `pnpm install --frozen-lockfile`。
+- Rust 版本以 `rust-toolchain.toml` 为准；FPK 交叉构建 target 固定为 `x86_64-unknown-linux-gnu` 和 `aarch64-unknown-linux-gnu`。
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
