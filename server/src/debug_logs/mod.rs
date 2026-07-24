@@ -1,13 +1,22 @@
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::EnvFilter;
 
 pub const DEFAULT_DEBUG_LOG_CAPACITY: usize = 500;
 pub const LOG_FILTER_ENV: &str = "MOTRIX_FNOS_LOG";
+pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
+pub const DEFAULT_FILE_LOG_MAX_BYTES: u64 = 10 * 1024 * 1024;
+pub const DEFAULT_FILE_LOG_RETENTION: usize = 3;
 const DEFAULT_LOG_FILTER: &str = "info";
+const LOG_DIRECTORY_NAME: &str = "logs";
+const LOG_FILE_NAME: &str = "server.log";
 const REDACTED_VALUE: &str = "[REDACTED]";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,10 +62,164 @@ pub struct DebugLogStore {
 pub fn init_tracing() {
     let filter = std::env::var(LOG_FILTER_ENV).unwrap_or_else(|_| DEFAULT_LOG_FILTER.to_string());
     let filter = EnvFilter::try_new(filter).unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
+    let app_data_dir = std::env::var_os(APP_DATA_DIR_ENV).map(PathBuf::from);
+
+    if let Some(app_data_dir) = app_data_dir {
+        let log_path = app_data_dir.join(LOG_DIRECTORY_NAME).join(LOG_FILE_NAME);
+        match RollingFileMakeWriter::new(
+            &log_path,
+            DEFAULT_FILE_LOG_MAX_BYTES,
+            DEFAULT_FILE_LOG_RETENTION,
+        ) {
+            Ok(writer) => {
+                let _ = tracing_subscriber::fmt()
+                    .with_env_filter(filter)
+                    .with_target(false)
+                    .with_ansi(false)
+                    .with_writer(writer)
+                    .try_init();
+                return;
+            }
+            Err(error) => {
+                eprintln!("无法初始化轮转日志文件 {}：{}", log_path.display(), error);
+            }
+        }
+    }
+
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
         .try_init();
+}
+
+#[derive(Clone, Debug)]
+pub struct RollingFileMakeWriter {
+    inner: Arc<Mutex<RollingFile>>,
+}
+
+impl RollingFileMakeWriter {
+    pub fn new(
+        path: impl Into<PathBuf>,
+        max_bytes: u64,
+        retained_files: usize,
+    ) -> io::Result<Self> {
+        if max_bytes == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "日志文件大小上限必须大于 0",
+            ));
+        }
+        if retained_files == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "日志轮转至少需要保留一个历史文件",
+            ));
+        }
+
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let current_size = file.metadata()?.len();
+
+        Ok(Self {
+            inner: Arc::new(Mutex::new(RollingFile {
+                path,
+                file,
+                current_size,
+                max_bytes,
+                retained_files,
+            })),
+        })
+    }
+}
+
+impl<'a> MakeWriter<'a> for RollingFileMakeWriter {
+    type Writer = RollingFileGuard;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        RollingFileGuard {
+            inner: Arc::clone(&self.inner),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RollingFileGuard {
+    inner: Arc<Mutex<RollingFile>>,
+}
+
+impl Write for RollingFileGuard {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let mut rolling_file = self
+            .inner
+            .lock()
+            .map_err(|_| io::Error::other("日志文件锁已损坏"))?;
+        rolling_file.write(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let mut rolling_file = self
+            .inner
+            .lock()
+            .map_err(|_| io::Error::other("日志文件锁已损坏"))?;
+        rolling_file.file.flush()
+    }
+}
+
+#[derive(Debug)]
+struct RollingFile {
+    path: PathBuf,
+    file: File,
+    current_size: u64,
+    max_bytes: u64,
+    retained_files: usize,
+}
+
+impl RollingFile {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.current_size > 0
+            && self.current_size.saturating_add(buffer.len() as u64) > self.max_bytes
+        {
+            self.rotate()?;
+        }
+
+        let written = self.file.write(buffer)?;
+        self.current_size = self.current_size.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn rotate(&mut self) -> io::Result<()> {
+        self.file.flush()?;
+        for index in (1..=self.retained_files).rev() {
+            let source = self.backup_path(index);
+            if !source.exists() {
+                continue;
+            }
+            if index == self.retained_files {
+                fs::remove_file(source)?;
+            } else {
+                fs::rename(&source, self.backup_path(index + 1))?;
+            }
+        }
+
+        fs::rename(&self.path, self.backup_path(1))?;
+        self.file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&self.path)?;
+        self.current_size = 0;
+        Ok(())
+    }
+
+    fn backup_path(&self, index: usize) -> PathBuf {
+        PathBuf::from(format!("{}.{}", self.path.display(), index))
+    }
 }
 
 impl Default for DebugLogStore {

@@ -16,6 +16,7 @@ LOG_DIR="${PKG_VAR}/logs"
 PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
 PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
 SERVER_LOG="${LOG_DIR}/server.log"
+LIFECYCLE_LOG="${LOG_DIR}/lifecycle.log"
 ACCESSIBLE_PATHS_FILE="${PKG_VAR}/accessible-paths.json"
 HTTP_ADDR=${MOTRIX_FNOS_HTTP_ADDR:-"0.0.0.0:${SERVICE_PORT}"}
 JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}
@@ -187,7 +188,7 @@ require_file() {
 
 log_msg() {
   mkdir -p "${LOG_DIR}"
-  printf "%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" >> "${SERVER_LOG}"
+  printf "%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" "$1" >> "${LIFECYCLE_LOG}"
 }
 
 json_escape() {
