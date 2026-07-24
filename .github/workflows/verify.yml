@@ -48,5 +48,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Rust dependency auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit production dependencies
+        run: pnpm run audit:deps
+
       - name: Run verification
         run: pnpm run verify

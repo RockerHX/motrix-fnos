@@ -100,6 +100,10 @@
 
 发布前完整验证。在快速验证基础上增加 Rust 编译和 Web UI 生产构建。该命令仍不代替 `build:fpk`、解包检查或 fnOS 实机验证。
 
+### `pnpm run audit:deps`
+
+使用锁定的 `server/Cargo.lock` 和 `pnpm-lock.yaml` 检查 Rust 与前端生产依赖。运行前需要安装固定版本的 `cargo-audit 0.22.2`；高危和严重漏洞返回失败，中低危打印报告但不阻断，审计工具缺失或无法解析结果时返回失败。该命令不会自动升级依赖。
+
 两个验证命令结束时默认删除 `server/target/` 下的 incremental 缓存，以控制磁盘占用。临时需要保留时使用：
 
 ```bash

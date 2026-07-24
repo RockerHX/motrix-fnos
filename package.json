@@ -21,6 +21,7 @@
     "release:notes": "node scripts/release-notes.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
+    "audit:deps": "node scripts/dependency-audit.mjs",
     "prepare": "git config core.hooksPath .githooks || true",
     "hooks:install": "git config core.hooksPath .githooks",
     "build:server:linux:x64": "node scripts/build-server-linux.mjs",
