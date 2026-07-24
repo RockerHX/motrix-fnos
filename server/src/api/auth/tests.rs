@@ -4,8 +4,9 @@ use crate::app::{
 };
 use axum::body::{to_bytes, Body};
 use axum::extract::ConnectInfo;
-use axum::http::Request;
+use axum::http::{HeaderMap, HeaderValue, Request};
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tower::ServiceExt;
@@ -221,6 +222,46 @@ async fn login_rate_limit_isolated_by_connect_source() {
     assert_eq!(other_source_again.status(), StatusCode::UNAUTHORIZED);
 }
 
+#[test]
+fn login_source_trusts_forwarded_for_only_from_configured_proxy() {
+    let forwarded = |value: &'static str| {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static(value));
+        headers
+    };
+    let proxy: SocketAddr = "192.0.2.10:1000".parse().expect("proxy should parse");
+    let other_proxy: SocketAddr = "192.0.2.11:1000".parse().expect("proxy should parse");
+
+    assert_eq!(
+        login_source(
+            Some(ConnectInfo(proxy)),
+            &forwarded("198.51.100.20, 192.0.2.10"),
+            &[proxy.ip()],
+        ),
+        "198.51.100.20"
+    );
+    assert_eq!(
+        login_source(
+            Some(ConnectInfo(proxy)),
+            &forwarded("not-an-ip, 198.51.100.21"),
+            &[proxy.ip()],
+        ),
+        "198.51.100.21"
+    );
+    assert_eq!(
+        login_source(
+            Some(ConnectInfo(other_proxy)),
+            &forwarded("198.51.100.22"),
+            &[proxy.ip()],
+        ),
+        "192.0.2.11"
+    );
+    assert_eq!(
+        login_source(None, &forwarded("198.51.100.23"), &[proxy.ip()]),
+        UNKNOWN_LOGIN_SOURCE
+    );
+}
+
 async fn send(
     router: &Router,
     method: &str,
@@ -299,6 +340,7 @@ async fn test_state(label: &str) -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
     };
     bootstrap_http_app_state(&runtime)
         .await

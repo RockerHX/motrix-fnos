@@ -16,6 +16,7 @@ use serde::Serialize;
 use std::env;
 use std::fs;
 use std::future::{Future, IntoFuture};
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,6 +28,7 @@ pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
 pub const JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_JSONRPC_ADDR";
 pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
+pub const TRUSTED_PROXY_IPS_ENV: &str = "MOTRIX_TRUSTED_PROXY_IPS";
 pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
 pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
@@ -40,6 +42,7 @@ pub struct ServerRuntimeConfig {
     pub jsonrpc_addr: SocketAddr,
     pub aria2_path: Option<PathBuf>,
     pub accessible_paths_path: PathBuf,
+    pub trusted_proxy_ips: Vec<IpAddr>,
 }
 
 impl ServerRuntimeConfig {
@@ -77,6 +80,7 @@ impl ServerRuntimeConfig {
             .filter(|value| !value.trim().is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME));
+        let trusted_proxy_ips = parse_trusted_proxy_ips()?;
         Ok(Self {
             app_data_dir,
             database_path,
@@ -84,6 +88,7 @@ impl ServerRuntimeConfig {
             jsonrpc_addr,
             aria2_path,
             accessible_paths_path,
+            trusted_proxy_ips,
         })
     }
 }
@@ -562,7 +567,8 @@ where
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let management_server = axum::serve(
         listeners.management,
-        crate::api::management_router(state.clone()),
+        crate::api::management_router(state.clone())
+            .into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
     .into_future();
@@ -664,6 +670,24 @@ async fn wait_for_shutdown_signal() -> Result<String, String> {
         .await
         .map(|()| "收到停止信号".to_string())
         .map_err(|error| format!("等待停止信号失败：{}", error))
+}
+
+fn parse_trusted_proxy_ips() -> Result<Vec<IpAddr>, String> {
+    let value = env::var(TRUSTED_PROXY_IPS_ENV).unwrap_or_default();
+    let mut addresses = Vec::new();
+    for item in value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        let address = item
+            .parse::<IpAddr>()
+            .map_err(|error| format!("解析可信代理地址失败：{}（{}）", item, error))?;
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+    Ok(addresses)
 }
 
 fn default_local_app_data_dir() -> PathBuf {

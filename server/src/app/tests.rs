@@ -22,6 +22,7 @@ fn runtime_config_uses_explicit_env_values() {
     std::env::set_var(JSONRPC_ADDR_ENV, "127.1.2.3:18081");
     std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
+    std::env::set_var(TRUSTED_PROXY_IPS_ENV, "192.0.2.10, ::1, 192.0.2.10");
 
     let config = ServerRuntimeConfig::from_env().expect("config should load");
 
@@ -37,12 +38,24 @@ fn runtime_config_uses_explicit_env_values() {
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
     assert_eq!(config.jsonrpc_addr.to_string(), "127.1.2.3:18081");
     assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
+    assert_eq!(
+        config.trusted_proxy_ips,
+        vec![
+            "192.0.2.10"
+                .parse::<std::net::IpAddr>()
+                .expect("proxy should parse"),
+            "::1"
+                .parse::<std::net::IpAddr>()
+                .expect("proxy should parse"),
+        ]
+    );
 
     std::env::remove_var(APP_DATA_DIR_ENV);
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(JSONRPC_ADDR_ENV);
     std::env::remove_var(ARIA2_PATH_ENV);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
+    std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
 }
 
 #[test]
@@ -52,6 +65,7 @@ fn runtime_config_uses_default_listener_addresses() {
     std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(JSONRPC_ADDR_ENV);
+    std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
 
     let config = ServerRuntimeConfig::from_env().expect("config should load");
 
@@ -89,6 +103,17 @@ fn runtime_config_accepts_ipv4_and_ipv6_loopback_jsonrpc_addresses() {
 }
 
 #[test]
+fn runtime_config_rejects_invalid_trusted_proxy_addresses() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    std::env::set_var(TRUSTED_PROXY_IPS_ENV, "192.0.2.10,not-an-ip");
+
+    let error = ServerRuntimeConfig::from_env().expect_err("proxy address should be rejected");
+
+    assert!(error.contains("解析可信代理地址失败"));
+    std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
+}
+
+#[test]
 fn bootstrap_http_app_state_restores_database_state() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
@@ -102,6 +127,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 aria2_path: None,
+                trusted_proxy_ips: Vec::new(),
             };
 
             let database = connect_database(runtime.database_path.clone())
@@ -141,6 +167,7 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
     };
     let database = tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
@@ -574,6 +601,7 @@ fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRu
         http_addr,
         jsonrpc_addr,
         aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
     }
 }
 

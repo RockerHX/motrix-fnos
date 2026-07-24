@@ -936,6 +936,7 @@ async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: aria2_path.map(PathBuf::from),
+        trusted_proxy_ips: Vec::new(),
     };
 
     bootstrap_http_app_state(&runtime)

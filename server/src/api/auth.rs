@@ -14,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
@@ -144,9 +144,10 @@ async fn status(
 async fn setup(
     State(state): State<Arc<HttpAppState>>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
+    headers: HeaderMap,
     ApiJson(payload): ApiJson<PasswordRequest>,
 ) -> Result<Response, ApiError> {
-    let source = login_source(connect_info);
+    let source = login_source(connect_info, &headers, &state.runtime.trusted_proxy_ips);
     let auth_state = state
         .auth
         .service
@@ -174,9 +175,10 @@ async fn setup(
 async fn login(
     State(state): State<Arc<HttpAppState>>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
+    headers: HeaderMap,
     ApiJson(payload): ApiJson<PasswordRequest>,
 ) -> Result<Response, ApiError> {
-    let source = login_source(connect_info);
+    let source = login_source(connect_info, &headers, &state.runtime.trusted_proxy_ips);
     if let Some(seconds) = state
         .auth
         .login_limiter
@@ -438,10 +440,34 @@ fn session_id(headers: &HeaderMap) -> Option<&str> {
         .find_map(|(name, value)| (name == SESSION_COOKIE_NAME).then_some(value))
 }
 
-fn login_source(connect_info: Option<ConnectInfo<SocketAddr>>) -> String {
-    connect_info
-        .map(|ConnectInfo(address)| address.ip().to_string())
-        .unwrap_or_else(|| UNKNOWN_LOGIN_SOURCE.to_string())
+fn login_source(
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+    headers: &HeaderMap,
+    trusted_proxy_ips: &[IpAddr],
+) -> String {
+    let Some(ConnectInfo(address)) = connect_info else {
+        return UNKNOWN_LOGIN_SOURCE.to_string();
+    };
+
+    if trusted_proxy_ips.contains(&address.ip()) {
+        if let Some(forwarded_ip) = headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(first_forwarded_ip)
+        {
+            return forwarded_ip.to_string();
+        }
+    }
+
+    address.ip().to_string()
+}
+
+fn first_forwarded_ip(value: &str) -> Option<IpAddr> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .find_map(|item| item.parse::<IpAddr>().ok())
 }
 
 fn auth_status_response(
