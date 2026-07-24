@@ -402,7 +402,8 @@ Release FPK
   -> 更新 Cargo.lock
   -> 跑完整 `pnpm run verify`
   -> x86 / ARM FPK 构建
-  -> 校验产物并生成 SHA256SUMS.txt
+  -> 校验产物、生成双架构 SPDX SBOM 和 SHA256SUMS.txt
+  -> 对 FPK、SBOM 和 SHA256SUMS.txt 生成 provenance/attestation
   -> 提交 `chore: 发布 x.y.z 版本` 到 main
   -> 创建 `v<x.y.z>` tag
   -> 创建或更新 GitHub Release
@@ -425,6 +426,8 @@ packaging/fnos/app/ui/config
 
 - `motrix_<version>_x86.fpk`
 - `motrix_<version>_arm.fpk`
+- `motrix_<version>_x86.fpk.spdx.json`
+- `motrix_<version>_arm.fpk.spdx.json`
 - `SHA256SUMS.txt`
 
 `Release FPK` 在同一个 workflow 内完成验证、构建、提交、打 tag 和上传 Release，不依赖 PR 自动批准、自动合并，也不依赖 `GITHUB_TOKEN` 推送 tag 后再触发另一个 workflow。

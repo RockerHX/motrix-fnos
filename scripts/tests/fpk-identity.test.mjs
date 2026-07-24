@@ -18,5 +18,7 @@ test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   );
   assert.match(releaseWorkflow, /motrix_\$\{VERSION\}_x86\.fpk/);
   assert.match(releaseWorkflow, /motrix_\$\{VERSION\}_arm\.fpk/);
+  assert.match(releaseWorkflow, /generate-fpk-sbom\.mjs/);
+  assert.match(releaseWorkflow, /attest-build-provenance@[0-9a-f]{40}/);
   assert.doesNotMatch(releaseWorkflow, /motrix\.fnos_\$\{VERSION\}/);
 });
