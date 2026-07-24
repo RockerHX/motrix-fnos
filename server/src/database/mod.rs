@@ -1,6 +1,6 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{Sqlite, SqlitePool, Transaction};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -39,6 +39,63 @@ pub async fn check_integrity(path: PathBuf) -> Result<(), String> {
     } else {
         Err(format!("SQLite 完整性检查失败：{}", result))
     }
+}
+
+pub async fn backup_database(source: PathBuf, output: PathBuf) -> Result<(), String> {
+    let output = normalize_backup_output(&source, &output)?;
+    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", source.display()))
+        .map_err(|error| format!("创建 SQLite 备份配置失败：{}", error))?
+        .create_if_missing(false)
+        .busy_timeout(Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .map_err(|error| format!("打开 SQLite 数据库失败：{}（{}）", source.display(), error))?;
+
+    let output_string = output.to_string_lossy().into_owned();
+    let vacuum_result = sqlx::query("VACUUM INTO ?")
+        .bind(output_string)
+        .execute(&pool)
+        .await;
+    pool.close().await;
+
+    if let Err(error) = vacuum_result {
+        let _ = std::fs::remove_file(&output);
+        return Err(format!("生成 SQLite 备份失败：{}", error));
+    }
+
+    if let Err(error) = validate_backup(&output).await {
+        let _ = std::fs::remove_file(&output);
+        return Err(format!("备份完整性校验失败：{}", error));
+    }
+
+    Ok(())
+}
+
+fn normalize_backup_output(source: &Path, output: &Path) -> Result<PathBuf, String> {
+    let source = std::fs::canonicalize(source)
+        .map_err(|error| format!("读取源数据库路径失败：{}（{}）", source.display(), error))?;
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let parent = std::fs::canonicalize(parent)
+        .map_err(|error| format!("读取备份目标目录失败：{}（{}）", parent.display(), error))?;
+    let file_name = output
+        .file_name()
+        .ok_or_else(|| "备份目标必须包含文件名".to_string())?;
+    let output = parent.join(file_name);
+
+    if source == output {
+        return Err("备份目标不能覆盖当前数据库".to_string());
+    }
+    if output.exists() {
+        return Err(format!("备份目标已存在：{}", output.display()));
+    }
+
+    Ok(output)
+}
+
+async fn validate_backup(path: &Path) -> Result<(), String> {
+    check_integrity(path.to_path_buf()).await
 }
 
 pub async fn connect_database(path: PathBuf) -> Result<AppDatabase, String> {

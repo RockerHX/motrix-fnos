@@ -57,3 +57,36 @@ fn database_check_binary_uses_success_and_failure_exit_codes() {
 
     let _ = std::fs::remove_dir_all(app_data_dir);
 }
+
+#[test]
+fn database_backup_binary_creates_snapshot() {
+    let app_data_dir = temp_app_data_dir("database-backup-cli");
+    std::fs::create_dir_all(&app_data_dir).expect("app data directory should create");
+    let database_path = app_data_dir.join("motrix-fnos.sqlite");
+    let output_path = app_data_dir.join("backup.sqlite");
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime should create");
+    runtime.block_on(async {
+        let database = connect_database(database_path.clone())
+            .await
+            .expect("database should connect");
+        database.pool.close().await;
+    });
+
+    let binary = env!("CARGO_BIN_EXE_motrix-fnos-server");
+    let result = Command::new(binary)
+        .args([
+            "database-backup",
+            output_path.to_str().expect("path should be utf8"),
+        ])
+        .env("MOTRIX_FNOS_APP_DATA_DIR", &app_data_dir)
+        .output()
+        .expect("database-backup should execute");
+    assert!(
+        result.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(output_path.is_file());
+
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}

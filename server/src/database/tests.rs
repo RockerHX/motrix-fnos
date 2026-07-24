@@ -1,6 +1,154 @@
 use super::*;
 
 #[test]
+fn backup_database_creates_a_valid_consistent_snapshot() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let source = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-backup-source-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let output = source.with_file_name("motrix-fnos-db-backup-output.sqlite");
+            let database = connect_database(source.clone())
+                .await
+                .expect("source database should connect");
+            sqlx::query(
+                "INSERT INTO app_config (key, value, updated_at) VALUES ('backup-test', 'saved', 1)",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("source value should insert");
+            database.pool.close().await;
+
+            backup_database(source.clone(), output.clone())
+                .await
+                .expect("backup should complete");
+            check_integrity(output.clone())
+                .await
+                .expect("backup should pass integrity check");
+            let backup = connect_database(output.clone())
+                .await
+                .expect("backup database should open");
+            let value: String =
+                sqlx::query_scalar("SELECT value FROM app_config WHERE key = 'backup-test'")
+                    .fetch_one(&backup.pool)
+                    .await
+                    .expect("backup value should be readable");
+            assert_eq!(value, "saved");
+            backup.pool.close().await;
+
+            let _ = std::fs::remove_file(source);
+            let _ = std::fs::remove_file(output);
+        });
+}
+
+#[test]
+fn backup_database_handles_writes_during_snapshot() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let source = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-backup-write-source-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let output = source.with_file_name("motrix-fnos-db-backup-write-output.sqlite");
+            let database = connect_database(source.clone())
+                .await
+                .expect("source database should connect");
+            let writer_pool = database.pool.clone();
+            let writer = tokio::spawn(async move {
+                for index in 0..100_i64 {
+                    sqlx::query("INSERT INTO app_config (key, value, updated_at) VALUES (?, ?, ?)")
+                        .bind(format!("backup-write-{index}"))
+                        .bind("saved")
+                        .bind(index)
+                        .execute(&writer_pool)
+                        .await
+                        .expect("concurrent write should succeed");
+                    tokio::task::yield_now().await;
+                }
+            });
+
+            backup_database(source.clone(), output.clone())
+                .await
+                .expect("backup should complete during writes");
+            writer.await.expect("writer should complete");
+            check_integrity(output.clone())
+                .await
+                .expect("concurrent backup should pass integrity check");
+            database.pool.close().await;
+
+            let _ = std::fs::remove_file(source);
+            let _ = std::fs::remove_file(output);
+        });
+}
+
+#[test]
+fn backup_database_rejects_source_or_invalid_target_paths() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let source = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-backup-target-source-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let database = connect_database(source.clone())
+                .await
+                .expect("source database should connect");
+            database.pool.close().await;
+
+            let same_path = backup_database(source.clone(), source.clone())
+                .await
+                .expect_err("source path should not be used as backup target");
+            assert!(same_path.contains("不能覆盖当前数据库"));
+
+            let missing_parent = source
+                .parent()
+                .expect("source parent should exist")
+                .join("missing-backup-parent")
+                .join("backup.sqlite");
+            let invalid_parent = backup_database(source.clone(), missing_parent)
+                .await
+                .expect_err("missing target parent should fail");
+            assert!(invalid_parent.contains("备份目标目录"));
+
+            let _ = std::fs::remove_file(source);
+        });
+}
+
+#[test]
+fn validate_backup_rejects_corrupted_output() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-backup-invalid-output-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            std::fs::write(&path, b"invalid backup").expect("invalid backup should write");
+
+            let error = validate_backup(&path)
+                .await
+                .expect_err("corrupted backup should fail validation");
+            assert!(error.contains("执行 SQLite 完整性检查失败"));
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
 fn check_integrity_accepts_valid_database() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
