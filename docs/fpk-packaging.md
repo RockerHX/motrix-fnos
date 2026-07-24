@@ -311,14 +311,15 @@ rtk packaging/fnos/cmd/stop
 
 常看两个位置：
 
-- 日志：`packaging/fnos/app/data/logs/server.log`
+- Rust 业务日志：`packaging/fnos/app/data/logs/server.log`，单文件上限 10 MiB，保留当前文件和最多 3 个轮转文件（`.1`～`.3`）。
+- 生命周期日志：`packaging/fnos/app/data/logs/lifecycle.log`，记录启动脚本和进程标准输出，单文件默认上限 1 MiB，保留最多 3 个轮转文件。
 - PID：`packaging/fnos/app/data/run/motrix-fnos-server.pid`
 - 进程启动时间：`packaging/fnos/app/data/run/motrix-fnos-server.starttime`，与 `/proc/<pid>/exe` 一起用于防止 PID 复用误判。
 
 ## 最小排障
 
 - 安装失败：先检查包架构是否与设备一致
-- 启动失败：先看 `server.log`
+- 启动失败：先看 `lifecycle.log`，再看 `server.log`；两者都只保留有限数量的历史文件。
 - Web UI 打不开：先看 `cmd/status` 和浏览器请求地址。桌面入口应打开 `http://<设备>:<service_port>/?v=<version>`；同时确认 staged `app/ui/config` 不含 `gatewayPrefix` 或 `gatewaySocket`，Rust server 的同一端口能返回根 HTML 与 `/api/app/ping`。
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志
 - 同一 `motrix` 身份升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
@@ -357,9 +358,9 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 场景 | 操作 | 预期结果 | 重点观察 |
 | --- | --- | --- | --- |
 | 安装 | 安装匹配架构的 `.fpk` | 应用中心安装成功 | 安装界面报错、`TRIM_TEMP_LOGFILE`、应用中心任务日志 |
-| 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`server.log`、监听端口 |
+| 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`lifecycle.log`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
-| 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`server.log`、配置保存日志 |
+| 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
 | 同身份升级 | 从旧版 `motrix` 升级到新版 `motrix` | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
 | 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081` 监听进程 |
 | 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |

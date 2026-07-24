@@ -446,7 +446,8 @@ Session 与 Cookie 约定：
 约定：
 
 - `category` 可为 `app`、`task`、`aria2`、`settings`、`storage`、`api`、`runtime`。
-- 应用内调试日志面向用户排障，默认只保留关键生命周期、用户操作、警告和错误；高频健康检查等详细运行轨迹进入 `app/data/logs/server.log`。
+- 应用内调试日志面向用户排障，默认只保留关键生命周期、用户操作、警告和错误；高频健康检查等详细运行轨迹进入 `app/data/logs/server.log`。该文件单文件上限为 10 MiB，保留当前文件和最多 3 个历史文件；fnOS 生命周期脚本和进程标准输出进入同目录的 `lifecycle.log`，默认单文件上限为 1 MiB，也保留最多 3 个历史文件。
+- 文件日志和内存调试日志共用敏感字段脱敏规则：URL 的 query/fragment、Token、密码、Session、CSRF、Cookie、Authorization 和 RPC secret 不写入日志。排障时可用响应头 `X-Request-ID` 将管理 API、SSE 和 JSON-RPC 请求与日志关联。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
 
 ### 4.7 存储目录
