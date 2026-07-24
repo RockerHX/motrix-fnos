@@ -85,10 +85,21 @@ pub struct TaskOperationContext {
     pub old_gid: Option<String>,
     pub new_gid: Option<String>,
     #[serde(default)]
+    pub aria2_request: Option<Aria2TaskRequest>,
+    #[serde(default)]
     pub critical_paths: Vec<String>,
     #[serde(default)]
     pub completed_side_effects: Vec<String>,
     pub task_snapshot: Option<DownloadTask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Aria2TaskRequest {
+    pub request_id: String,
+    pub source_url: String,
+    pub save_dir: String,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

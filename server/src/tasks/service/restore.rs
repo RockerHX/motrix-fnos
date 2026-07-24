@@ -27,18 +27,30 @@ impl<'a> TaskService<'a> {
             .await?;
 
         let (gid, reparsing_base_dir) = match snapshot.source_type {
-            DownloadTaskSourceType::Url => match self.restore_url_task(config, &snapshot).await {
+            DownloadTaskSourceType::Url => match self
+                .restore_url_task(config, &snapshot, &mut operation)
+                .await
+            {
                 Ok(gid) => (gid, None),
                 Err(error) => {
+                    if self.has_unknown_aria2_outcome(&operation) {
+                        return Err(error);
+                    }
                     self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
                         .await;
                     return Err(error);
                 }
             },
             DownloadTaskSourceType::Torrent => {
-                match self.restore_bt_task(config, &snapshot).await {
+                match self
+                    .restore_bt_task(config, &snapshot, &mut operation)
+                    .await
+                {
                     Ok(gid) => (gid, None),
                     Err(error) => {
+                        if self.has_unknown_aria2_outcome(&operation) {
+                            return Err(error);
+                        }
                         self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
                             .await;
                         return Err(error);
@@ -48,9 +60,15 @@ impl<'a> TaskService<'a> {
             DownloadTaskSourceType::Magnet
                 if snapshot.confirmation_required || snapshot.file_path.is_none() =>
             {
-                match self.restore_magnet_metadata_task(config, &snapshot).await {
+                match self
+                    .restore_magnet_metadata_task(config, &snapshot, &mut operation)
+                    .await
+                {
                     Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
                     Err(error) => {
+                        if self.has_unknown_aria2_outcome(&operation) {
+                            return Err(error);
+                        }
                         self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
                             .await;
                         return Err(error);
@@ -59,19 +77,28 @@ impl<'a> TaskService<'a> {
             }
             DownloadTaskSourceType::Magnet => match read_saved_torrent_metadata(&snapshot) {
                 Ok(torrent_data) => match self
-                    .restore_bt_task_with_data(config, &snapshot, &torrent_data)
+                    .restore_bt_task_with_data(config, &snapshot, &torrent_data, &mut operation)
                     .await
                 {
                     Ok(gid) => (gid, None),
                     Err(error) => {
+                        if self.has_unknown_aria2_outcome(&operation) {
+                            return Err(error);
+                        }
                         self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
                             .await;
                         return Err(error);
                     }
                 },
-                Err(_) => match self.restore_magnet_metadata_task(config, &snapshot).await {
+                Err(_) => match self
+                    .restore_magnet_metadata_task(config, &snapshot, &mut operation)
+                    .await
+                {
                     Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
                     Err(error) => {
+                        if self.has_unknown_aria2_outcome(&operation) {
+                            return Err(error);
+                        }
                         self.fail_task_operation(&mut operation, "aria2_restore_failed", &error)
                             .await;
                         return Err(error);
@@ -156,17 +183,20 @@ impl<'a> TaskService<'a> {
         &self,
         config: &Aria2Config,
         task: &DownloadTask,
+        operation: &mut TaskOperation,
     ) -> Result<String, String> {
         fs::create_dir_all(&task.save_dir)
             .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task.save_dir, error))?;
         let prepared = restored_task_options(task, task.save_dir.clone());
-        add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await
+        self.add_uri_for_task_operation(config, operation, &prepared)
+            .await
     }
 
     async fn restore_bt_task(
         &self,
         config: &Aria2Config,
         task: &DownloadTask,
+        operation: &mut TaskOperation,
     ) -> Result<String, String> {
         let torrent_data = read_saved_torrent_metadata(task).map_err(|error| {
             if task.source_type == DownloadTaskSourceType::Torrent {
@@ -175,7 +205,7 @@ impl<'a> TaskService<'a> {
                 error
             }
         })?;
-        self.restore_bt_task_with_data(config, task, &torrent_data)
+        self.restore_bt_task_with_data(config, task, &torrent_data, operation)
             .await
     }
 
@@ -184,6 +214,7 @@ impl<'a> TaskService<'a> {
         config: &Aria2Config,
         task: &DownloadTask,
         torrent_data: &[u8],
+        operation: &mut TaskOperation,
     ) -> Result<String, String> {
         let task_dir = task_download_dir(task).to_string();
         fs::create_dir_all(&task_dir)
@@ -200,20 +231,15 @@ impl<'a> TaskService<'a> {
                     .join(",")),
             );
         }
-        add_torrent_to_aria2(
-            self.aria2_rpc,
-            config,
-            &prepared,
-            torrent_data,
-            Some(self.debug_logs),
-        )
-        .await
+        self.add_torrent_for_task_operation(config, operation, &prepared, torrent_data)
+            .await
     }
 
     async fn restore_magnet_metadata_task(
         &self,
         config: &Aria2Config,
         task: &DownloadTask,
+        operation: &mut TaskOperation,
     ) -> Result<(String, String), String> {
         let base_save_dir = if task.file_path.is_some() {
             Path::new(task_download_dir(task))
@@ -235,9 +261,15 @@ impl<'a> TaskService<'a> {
         })?;
         let mut prepared = restored_task_options(task, base_save_dir.clone());
         prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
-        match add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await {
+        match self
+            .add_uri_for_task_operation(config, operation, &prepared)
+            .await
+        {
             Ok(gid) => Ok((gid, base_save_dir)),
             Err(error) => {
+                if self.has_unknown_aria2_outcome(operation) {
+                    return Err(error);
+                }
                 let _ = fs::remove_dir_all(metadata_dir);
                 Err(error)
             }

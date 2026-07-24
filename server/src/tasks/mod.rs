@@ -16,10 +16,13 @@ mod status;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::find_single_torrent_file;
+pub(crate) use aria2_rpc::is_aria2_outcome_unknown_error;
+pub(crate) use aria2_rpc::task_exists;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
-    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task, remove_task,
-    unpause_task,
+    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task,
+    pause_task_with_request_id, remove_task, remove_task_with_request_id, unpause_task,
+    unpause_task_with_request_id, Aria2TaskCreationError,
 };
 pub use files::{delete_task_files, validate_task_files};
 use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};
@@ -29,7 +32,9 @@ pub use model::{
     DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStartMode,
     DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
 };
-pub use operation::{TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType};
+pub use operation::{
+    Aria2TaskRequest, TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType,
+};
 pub use options::{sanitize_aria2_options, sanitize_create_task_options};
 pub use prepare::{
     default_download_dir_string, prepare_task, prepare_task_with_logs,
@@ -44,6 +49,7 @@ pub use refresh::{
     is_stale_aria2_gid_error, refresh_tasks_from_aria2, should_readd_task_after_resume_error,
     sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid,
 };
+pub(crate) use session::find_aria2_task_for_request;
 use session::readd_download_task;
 pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};

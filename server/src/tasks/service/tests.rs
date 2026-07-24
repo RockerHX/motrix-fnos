@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[tokio::test]
 async fn create_download_task_rejects_when_runtime_is_exiting() {
@@ -79,6 +80,97 @@ async fn create_download_task_persists_with_fake_repository() {
     assert_eq!(fixture.tasks.list().expect("tasks should list").len(), 1);
 
     mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_recovers_when_aria2_created_task_before_timeout() {
+    let mock = TimeoutAfterAddAria2Server::spawn().await;
+    let mut fixture = ServiceFixture::new(Vec::new(), false);
+    fixture.aria2_rpc = crate::aria2::Aria2RpcClient::with_timeouts(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+    );
+    let save_dir = temp_dir("service-create-timeout-reconcile");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+
+    let task = fixture
+        .service()
+        .create_download_task(
+            &test_config(mock.addr.port(), "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions::default(),
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect("outcome reconciliation should recover the created task");
+
+    assert_eq!(task.gid.as_deref(), Some("gid-timeout"));
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(
+        operations[0]
+            .context
+            .aria2_request
+            .as_ref()
+            .map(|request| request.request_id.as_str()),
+        Some(operations[0].id.as_str())
+    );
+    assert_eq!(
+        mock.add_request_ids().first().map(String::as_str),
+        Some(operations[0].id.as_str())
+    );
+    assert_eq!(
+        operations[0]
+            .context
+            .completed_side_effects
+            .iter()
+            .filter(|effect| effect.as_str() == "aria2_task_created")
+            .count(),
+        1
+    );
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_marks_failed_when_aria2_request_is_not_delivered() {
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let save_dir = temp_dir("service-create-not-delivered");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+
+    let error = fixture
+        .service()
+        .create_download_task(
+            &test_config(1, "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions::default(),
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect_err("connection failure should reject task creation");
+
+    assert!(error.contains("无法连接 Aria2 RPC"));
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "aria2_failed");
+    assert!(operations[0].context.aria2_request.is_some());
 }
 
 #[tokio::test]
@@ -1168,6 +1260,124 @@ impl TaskRepository for Arc<FakeTaskRepository> {
 struct MockAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
+}
+
+struct TimeoutAfterAddAria2Server {
+    addr: SocketAddr,
+    handle: tokio::task::JoinHandle<()>,
+    add_request_ids: Arc<Mutex<Vec<String>>>,
+}
+
+impl TimeoutAfterAddAria2Server {
+    async fn spawn() -> Self {
+        let add_request_ids = Arc::new(Mutex::new(Vec::new()));
+        let task = Arc::new(Mutex::new(None));
+        let request_ids = add_request_ids.clone();
+        let task_state = task.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let request_ids = request_ids.clone();
+                let task_state = task_state.clone();
+                async move {
+                    let method = payload
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if method == "aria2.addUri" {
+                        let request_id = payload
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string();
+                        request_ids
+                            .lock()
+                            .expect("request IDs should lock")
+                            .push(request_id);
+                        let params = payload
+                            .get("params")
+                            .and_then(Value::as_array)
+                            .expect("addUri params should be present");
+                        let url = params
+                            .iter()
+                            .find_map(Value::as_array)
+                            .and_then(|urls| urls.first())
+                            .and_then(Value::as_str)
+                            .expect("URL should be present")
+                            .to_string();
+                        let save_dir = params
+                            .iter()
+                            .find_map(Value::as_object)
+                            .and_then(|options| options.get("dir"))
+                            .and_then(Value::as_str)
+                            .expect("save dir should be present")
+                            .to_string();
+                        *task_state.lock().expect("task state should lock") = Some((url, save_dir));
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        return Json(json!({ "result": "gid-timeout" }));
+                    }
+
+                    if matches!(
+                        method,
+                        "aria2.tellActive" | "aria2.tellWaiting" | "aria2.tellStopped"
+                    ) {
+                        let result = if method == "aria2.tellActive" {
+                            task_state
+                                .lock()
+                                .expect("task state should lock")
+                                .as_ref()
+                                .map(|(url, save_dir)| {
+                                    vec![json!({
+                                        "gid": "gid-timeout",
+                                        "status": "waiting",
+                                        "totalLength": "0",
+                                        "completedLength": "0",
+                                        "downloadSpeed": "0",
+                                        "dir": save_dir,
+                                        "files": [{
+                                            "index": "1",
+                                            "path": format!("{save_dir}/archive.zip"),
+                                            "uris": [{ "uri": url }]
+                                        }]
+                                    })]
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        return Json(json!({ "result": result }));
+                    }
+
+                    Json(json!({ "error": { "message": format!("unexpected method: {method}") } }))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock server should serve");
+        });
+        Self {
+            addr,
+            handle,
+            add_request_ids,
+        }
+    }
+
+    fn add_request_ids(&self) -> Vec<String> {
+        self.add_request_ids
+            .lock()
+            .expect("request IDs should lock")
+            .clone()
+    }
+
+    fn abort(self) {
+        self.handle.abort();
+    }
 }
 
 impl MockAria2Server {

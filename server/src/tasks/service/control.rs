@@ -19,7 +19,21 @@ impl<'a> TaskService<'a> {
                 task_operation_context(Some(snapshot.clone()), Vec::new()),
             )
             .await?;
-        if let Err(error) = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await {
+        let request_id = operation.id.clone();
+        if let Err(error) = pause_task_with_request_id(
+            self.aria2_rpc,
+            config,
+            &gid,
+            Some(&request_id),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            if is_aria2_outcome_unknown_error(&error) {
+                self.record_unknown_aria2_outcome(&mut operation, error.clone())
+                    .await?;
+                return Err(error);
+            }
             self.fail_task_operation(&mut operation, "aria2_pause_failed", &error)
                 .await;
             return Err(error);
@@ -103,7 +117,16 @@ impl<'a> TaskService<'a> {
             )
             .await?;
         let mut readded = false;
-        let task = match unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await {
+        let request_id = operation.id.clone();
+        let task = match unpause_task_with_request_id(
+            self.aria2_rpc,
+            config,
+            &gid,
+            Some(&request_id),
+            Some(self.debug_logs),
+        )
+        .await
+        {
             Ok(_) => {
                 if let Err(error) = sync_task_progress_from_aria2_by_gid(
                     self.aria2_rpc,
@@ -123,6 +146,11 @@ impl<'a> TaskService<'a> {
                     );
                 }
                 mark_task_resumed(self.download_tasks, task_id)?
+            }
+            Err(error) if is_aria2_outcome_unknown_error(&error) => {
+                self.record_unknown_aria2_outcome(&mut operation, error.clone())
+                    .await?;
+                return Err(error);
             }
             Err(error) if should_readd_task_after_resume_error(&task_before_resume, &error) => {
                 self.debug_logs.warn(
@@ -268,24 +296,27 @@ impl<'a> TaskService<'a> {
             .await?;
         let gid_result = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
-                add_torrent_to_aria2(
-                    self.aria2_rpc,
+                self.add_torrent_for_task_operation(
                     config,
+                    &mut operation,
                     &prepared,
                     torrent_data
                         .as_deref()
                         .ok_or_else(|| "重新下载缺少源 metadata".to_string())?,
-                    Some(self.debug_logs),
                 )
                 .await
             }
             DownloadTaskSourceType::Url => {
-                add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs)).await
+                self.add_uri_for_task_operation(config, &mut operation, &prepared)
+                    .await
             }
         };
         let gid = match gid_result {
             Ok(gid) => gid,
             Err(error) => {
+                if self.has_unknown_aria2_outcome(&operation) {
+                    return Err(error);
+                }
                 self.fail_task_operation(&mut operation, "aria2_failed", &error)
                     .await;
                 return Err(error);
@@ -362,8 +393,21 @@ impl<'a> TaskService<'a> {
             }
         }
 
-        if let Err(error) = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await
+        let request_id = operation.id.clone();
+        if let Err(error) = unpause_task_with_request_id(
+            self.aria2_rpc,
+            config,
+            &gid,
+            Some(&request_id),
+            Some(self.debug_logs),
+        )
+        .await
         {
+            if is_aria2_outcome_unknown_error(&error) {
+                self.record_unknown_aria2_outcome(&mut operation, error.clone())
+                    .await?;
+                return Err(error);
+            }
             return self
                 .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                 .await;

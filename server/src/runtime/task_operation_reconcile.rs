@@ -3,8 +3,8 @@ use crate::app::HttpAppState;
 use crate::database::task_operations::{list_unfinished_task_operations, update_task_operation};
 use crate::database::tasks::persist_download_task_state_with_operation;
 use crate::tasks::{
-    remove_task, DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationStatus,
-    TaskOperationType,
+    find_aria2_task_for_request, remove_task, task_exists, DownloadTask, DownloadTaskStatus,
+    TaskOperation, TaskOperationStatus, TaskOperationType,
 };
 use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,7 +38,12 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
             continue;
         }
 
-        let action = decide_reconcile_action(&operation, &tasks, &gid_presence);
+        let action =
+            if operation.phase == "aria2_outcome_unknown" && operation.context.new_gid.is_none() {
+                reconcile_unknown_aria2_request(state, &mut operation, &tasks).await
+            } else {
+                decide_reconcile_action(&operation, &tasks, &gid_presence)
+            };
         let action = match action {
             ReconcileAction::RemoveUnpersistedAria2Task(gid) => {
                 match remove_unpersisted_aria2_task(state, &gid).await {
@@ -68,6 +73,85 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
         .download_tasks
         .with_tasks_mut(|stored| *stored = tasks)?;
     Ok(())
+}
+
+async fn reconcile_unknown_aria2_request(
+    state: &HttpAppState,
+    operation: &mut TaskOperation,
+    tasks: &[DownloadTask],
+) -> ReconcileAction {
+    let Some(request) = operation.context.aria2_request.as_ref() else {
+        return ReconcileAction::ManualReview(
+            "服务重启时缺少 Aria2 请求匹配信息，已保留用户文件，需要人工处理".to_string(),
+        );
+    };
+    let config = match ensure_aria2_ready(state).await {
+        Ok(config) => config,
+        Err(error) => {
+            return ReconcileAction::ManualReview(format!(
+                "服务重启时无法连接 Aria2 核对未知请求结果：{}；已保留用户文件",
+                error
+            ));
+        }
+    };
+    let mut excluded_gids = tasks
+        .iter()
+        .filter_map(|task| task.gid.clone())
+        .collect::<BTreeSet<_>>();
+    if let Some(old_gid) = operation.context.old_gid.as_ref() {
+        excluded_gids.insert(old_gid.clone());
+    }
+    let gid = match find_aria2_task_for_request(
+        &state.aria2_rpc,
+        &config,
+        request,
+        &excluded_gids,
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        Ok(Some(gid)) => gid,
+        Ok(None) => {
+            return ReconcileAction::ManualReview(
+                "服务重启时未能唯一确认 Aria2 请求结果，未自动重试或删除用户文件，需要人工处理"
+                    .to_string(),
+            );
+        }
+        Err(error) => {
+            return ReconcileAction::ManualReview(format!(
+                "服务重启时查询 Aria2 未知请求结果失败：{}；已保留用户文件",
+                error
+            ));
+        }
+    };
+
+    let mut context = operation.context.clone();
+    context.new_gid = Some(gid.clone());
+    context
+        .completed_side_effects
+        .push("aria2_unknown_outcome_confirmed".to_string());
+    operation.update_phase("aria2_outcome_confirmed", context);
+    if let Err(error) = update_task_operation(&state.core.database.pool, operation).await {
+        return ReconcileAction::ManualReview(format!(
+            "服务重启时已确认 Aria2 请求结果，但无法记录 GID：{}；已保留用户文件",
+            error
+        ));
+    }
+
+    let presence = match task_exists(
+        &state.aria2_rpc,
+        &config,
+        &gid,
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        Ok(true) => Aria2TaskPresence::Present,
+        Ok(false) => Aria2TaskPresence::Missing,
+        Err(error) => Aria2TaskPresence::Unknown(error),
+    };
+    let gid_presence = HashMap::from([(gid, presence)]);
+    decide_reconcile_action(operation, tasks, &gid_presence)
 }
 
 async fn inspect_referenced_gids(

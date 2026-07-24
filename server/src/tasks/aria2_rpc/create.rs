@@ -18,12 +18,41 @@ const DEFAULT_BT_TRACKERS: &[&str] = &[
     "udp://open.demonii.com:1337/announce",
 ];
 
+#[derive(Debug)]
+pub enum Aria2TaskCreationError {
+    OutcomeUnknown(String),
+    Failed(String),
+}
+
+impl Aria2TaskCreationError {
+    pub fn is_outcome_unknown(&self) -> bool {
+        matches!(self, Self::OutcomeUnknown(_))
+    }
+}
+
+impl std::fmt::Display for Aria2TaskCreationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutcomeUnknown(message) | Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for Aria2TaskCreationError {}
+
+impl From<Aria2TaskCreationError> for String {
+    fn from(error: Aria2TaskCreationError) -> Self {
+        error.to_string()
+    }
+}
+
 pub async fn add_uri_to_aria2(
     client: &Aria2RpcClient,
     config: &Aria2Config,
     task: &PreparedDownloadTask,
+    request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
-) -> Result<String, String> {
+) -> Result<String, Aria2TaskCreationError> {
     log_info(
         debug_logs,
         "aria2.addUri",
@@ -33,7 +62,11 @@ pub async fn add_uri_to_aria2(
             task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)
         ),
     );
-    let request_body = super::build_add_uri_request(config, task);
+    let request_body = super::build_add_uri_request_with_id(
+        config,
+        task,
+        request_id.unwrap_or("motrix-fnos-add-uri"),
+    );
     let gid = match client
         .request::<String>(config, &request_body)
         .await
@@ -43,16 +76,21 @@ pub async fn add_uri_to_aria2(
         Ok(_) => {
             let error = "创建 Aria2 下载任务失败：响应缺少 GID".to_string();
             log_error(debug_logs, "aria2.addUri", &error);
-            return Err(error);
+            return Err(Aria2TaskCreationError::Failed(error));
         }
         Err(error) => {
+            let is_outcome_unknown = matches!(&error, Aria2RpcError::OutcomeUnknown(_));
             let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
                 "创建下载任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string()
             } else {
                 format!("创建下载任务失败：{}", error)
             };
             log_error(debug_logs, "aria2.addUri", &error);
-            return Err(error);
+            return Err(if is_outcome_unknown {
+                Aria2TaskCreationError::OutcomeUnknown(error)
+            } else {
+                Aria2TaskCreationError::Failed(error)
+            });
         }
     };
     log_info(
@@ -68,8 +106,9 @@ pub async fn add_torrent_to_aria2(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
     torrent_data: &[u8],
+    request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
-) -> Result<String, String> {
+) -> Result<String, Aria2TaskCreationError> {
     log_info(
         debug_logs,
         "aria2.addTorrent",
@@ -78,7 +117,12 @@ pub async fn add_torrent_to_aria2(
             task.file_name, task.save_dir
         ),
     );
-    let request_body = super::build_add_torrent_request(config, task, torrent_data);
+    let request_body = super::build_add_torrent_request_with_id(
+        config,
+        task,
+        torrent_data,
+        request_id.unwrap_or("motrix-fnos-add-torrent"),
+    );
     let gid = match client
         .request::<String>(config, &request_body)
         .await
@@ -88,16 +132,21 @@ pub async fn add_torrent_to_aria2(
         Ok(_) => {
             let error = "创建种子任务失败：响应缺少 GID".to_string();
             log_error(debug_logs, "aria2.addTorrent", &error);
-            return Err(error);
+            return Err(Aria2TaskCreationError::Failed(error));
         }
         Err(error) => {
+            let is_outcome_unknown = matches!(&error, Aria2RpcError::OutcomeUnknown(_));
             let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
                 "创建种子任务失败：无法连接 Aria2 RPC，请确认引擎已启动".to_string()
             } else {
                 format!("创建种子任务失败：{}", error)
             };
             log_error(debug_logs, "aria2.addTorrent", &error);
-            return Err(error);
+            return Err(if is_outcome_unknown {
+                Aria2TaskCreationError::OutcomeUnknown(error)
+            } else {
+                Aria2TaskCreationError::Failed(error)
+            });
         }
     };
     log_info(
@@ -108,9 +157,18 @@ pub async fn add_torrent_to_aria2(
     Ok(gid)
 }
 
+#[cfg(test)]
 pub(crate) fn build_add_uri_request(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
+) -> serde_json::Value {
+    build_add_uri_request_with_id(config, task, "motrix-fnos-add-uri")
+}
+
+pub(crate) fn build_add_uri_request_with_id(
+    config: &Aria2Config,
+    task: &PreparedDownloadTask,
+    request_id: &str,
 ) -> serde_json::Value {
     let mut params = rpc_params(config);
 
@@ -141,7 +199,7 @@ pub(crate) fn build_add_uri_request(
 
     serde_json::json!({
         "jsonrpc": "2.0",
-        "id": "motrix-fnos-add-uri",
+        "id": request_id,
         "method": "aria2.addUri",
         "params": params,
     })
@@ -170,10 +228,20 @@ fn apply_default_bt_seed_behavior(options: &mut serde_json::Map<String, serde_js
         .or_insert_with(|| serde_json::json!("0"));
 }
 
+#[cfg(test)]
 pub(crate) fn build_add_torrent_request(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
     torrent_data: &[u8],
+) -> serde_json::Value {
+    build_add_torrent_request_with_id(config, task, torrent_data, "motrix-fnos-add-torrent")
+}
+
+pub(crate) fn build_add_torrent_request_with_id(
+    config: &Aria2Config,
+    task: &PreparedDownloadTask,
+    torrent_data: &[u8],
+    request_id: &str,
 ) -> serde_json::Value {
     let mut params = rpc_params(config);
 
@@ -198,7 +266,7 @@ pub(crate) fn build_add_torrent_request(
 
     serde_json::json!({
         "jsonrpc": "2.0",
-        "id": "motrix-fnos-add-torrent",
+        "id": request_id,
         "method": "aria2.addTorrent",
         "params": params,
     })

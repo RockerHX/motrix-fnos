@@ -39,20 +39,23 @@ impl<'a> TaskService<'a> {
                 .await?
         } else {
             let source_type = prepared.source_type;
-            let gid =
-                match add_uri_to_aria2(self.aria2_rpc, config, &prepared, Some(self.debug_logs))
-                    .await
-                {
-                    Ok(gid) => gid,
-                    Err(error) => {
-                        if source_type == DownloadTaskSourceType::Torrent {
-                            cleanup_empty_torrent_task_dir(&prepared);
-                        }
-                        self.fail_task_operation(&mut operation, "aria2_failed", &error)
-                            .await;
+            let gid = match self
+                .add_uri_for_task_operation(config, &mut operation, &prepared)
+                .await
+            {
+                Ok(gid) => gid,
+                Err(error) => {
+                    if self.has_unknown_aria2_outcome(&operation) {
                         return Err(error);
                     }
-                };
+                    if source_type == DownloadTaskSourceType::Torrent {
+                        cleanup_empty_torrent_task_dir(&prepared);
+                    }
+                    self.fail_task_operation(&mut operation, "aria2_failed", &error)
+                        .await;
+                    return Err(error);
+                }
+            };
             if let Err(error) = self
                 .record_aria2_task_created(&mut operation, gid.clone())
                 .await
@@ -149,17 +152,15 @@ impl<'a> TaskService<'a> {
                 .await;
             return Err(error);
         }
-        let gid = match add_torrent_to_aria2(
-            self.aria2_rpc,
-            config,
-            &prepared,
-            &torrent_data,
-            Some(self.debug_logs),
-        )
-        .await
+        let gid = match self
+            .add_torrent_for_task_operation(config, &mut operation, &prepared, &torrent_data)
+            .await
         {
             Ok(gid) => gid,
             Err(error) => {
+                if self.has_unknown_aria2_outcome(&operation) {
+                    return Err(error);
+                }
                 cleanup_empty_torrent_task_dir(&prepared);
                 remove_restore_metadata(self.app_data_dir, task_id);
                 self.fail_task_operation(&mut operation, "aria2_failed", &error)

@@ -52,9 +52,21 @@ impl<'a> TaskService<'a> {
             .clone()
             .filter(|gid| !gid.trim().is_empty());
         if let Some(gid) = gid.as_deref() {
-            if let Err(error) =
-                remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await
+            let request_id = operation.id.clone();
+            if let Err(error) = remove_task_with_request_id(
+                self.aria2_rpc,
+                config,
+                gid,
+                Some(&request_id),
+                Some(self.debug_logs),
+            )
+            .await
             {
+                if is_aria2_outcome_unknown_error(&error) {
+                    self.record_unknown_aria2_outcome(&mut operation, error.clone())
+                        .await?;
+                    return Err(error);
+                }
                 if is_stale_aria2_gid_error(&error) {
                     self.debug_logs.warn(
                         "tasks.control",

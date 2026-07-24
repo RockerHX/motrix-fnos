@@ -18,6 +18,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
             let context = TaskOperationContext {
                 old_gid: Some("old-gid".to_string()),
                 new_gid: None,
+                aria2_request: None,
                 critical_paths: vec!["/downloads/archive.zip".to_string()],
                 completed_side_effects: vec!["old_task_paused".to_string()],
                 task_snapshot: None,
@@ -43,6 +44,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                 TaskOperationContext {
                     old_gid: Some("old-gid".to_string()),
                     new_gid: Some("new-gid".to_string()),
+                    aria2_request: None,
                     critical_paths: vec!["/downloads/archive.zip".to_string()],
                     completed_side_effects: vec![
                         "old_task_paused".to_string(),

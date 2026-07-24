@@ -3,7 +3,7 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::{read_saved_torrent_metadata, task_download_dir};
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, should_force_pause_task_on_startup,
+    add_torrent_to_aria2, add_uri_to_aria2, should_force_pause_task_on_startup, Aria2TaskRequest,
     CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
     DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
 };
@@ -13,6 +13,7 @@ use super::{
     apply_aria2_status, apply_paused_state, apply_readded_gid, current_timestamp_ms, log_error,
     log_info, Aria2TaskStatus,
 };
+use std::collections::BTreeSet;
 
 pub async fn sync_session_tasks_from_aria2(
     tasks: &TaskMemoryState,
@@ -91,6 +92,47 @@ async fn list_current_aria2_tasks(
         }
     }
     Ok(tasks)
+}
+
+pub(crate) async fn find_aria2_task_for_request(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    request: &Aria2TaskRequest,
+    excluded_gids: &BTreeSet<String>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Option<String>, String> {
+    let session_tasks = list_current_aria2_tasks(client, config, debug_logs).await?;
+    let candidates = matching_aria2_task_gids(&session_tasks, request, excluded_gids);
+
+    if candidates.len() == 1 {
+        return Ok(candidates.into_iter().next());
+    }
+
+    if candidates.len() > 1 {
+        log_info(
+            debug_logs,
+            "tasks.operation",
+            format!(
+                "Aria2 请求对账匹配到多个任务，operationId {}，不自动选择",
+                request.request_id
+            ),
+        );
+    }
+    Ok(None)
+}
+
+pub(crate) fn matching_aria2_task_gids(
+    session_tasks: &[Aria2TaskStatus],
+    request: &Aria2TaskRequest,
+    excluded_gids: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    session_tasks
+        .iter()
+        .filter(|task| session_task_matches_aria2_request(task, request))
+        .filter_map(|task| task.gid.as_deref())
+        .filter(|gid| !gid.trim().is_empty() && !excluded_gids.contains(*gid))
+        .map(str::to_string)
+        .collect()
 }
 
 async fn tell_many_tasks(
@@ -177,6 +219,36 @@ fn session_task_location_matches(task: &DownloadTask, session_task: &Aria2TaskSt
     dir_matches || file_matches
 }
 
+fn session_task_matches_aria2_request(
+    session_task: &Aria2TaskStatus,
+    request: &Aria2TaskRequest,
+) -> bool {
+    let dir_matches = session_task
+        .dir
+        .as_deref()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(|dir| normalize_path_for_match(dir) == normalize_path_for_match(&request.save_dir))
+        .unwrap_or(false);
+    if !dir_matches {
+        return false;
+    }
+
+    if request.source_url.starts_with("torrent:") {
+        return session_task.bittorrent.is_some();
+    }
+
+    let url_matches = session_task_urls(session_task)
+        .iter()
+        .any(|url| url == &request.source_url);
+    let file_name_matches = session_task.files.as_ref().is_some_and(|files| {
+        files.iter().any(|file| {
+            normalize_path_for_match(&file.path).rsplit('/').next()
+                == Some(request.file_name.as_str())
+        })
+    });
+    url_matches && file_name_matches
+}
+
 fn normalize_path_for_match(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_string()
 }
@@ -243,12 +315,16 @@ pub(crate) async fn readd_download_task(
     };
     match task.source_type {
         DownloadTaskSourceType::Url => {
-            add_uri_to_aria2(client, config, &prepared, debug_logs).await
+            add_uri_to_aria2(client, config, &prepared, None, debug_logs)
+                .await
+                .map_err(String::from)
         }
         DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
             let torrent_data = read_saved_torrent_metadata(task)
                 .map_err(|error| format!("重新加入 BT 任务前无法读取源 metadata：{}", error))?;
-            add_torrent_to_aria2(client, config, &prepared, &torrent_data, debug_logs).await
+            add_torrent_to_aria2(client, config, &prepared, &torrent_data, None, debug_logs)
+                .await
+                .map_err(String::from)
         }
     }
 }

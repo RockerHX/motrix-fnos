@@ -34,16 +34,15 @@ pub(super) async fn create_magnet_download_task(
             .await;
         return Err(error);
     }
-    let gid = match add_uri_to_aria2(
-        service.aria2_rpc,
-        config,
-        &prepared,
-        Some(service.debug_logs),
-    )
-    .await
+    let gid = match service
+        .add_uri_for_task_operation(config, operation, &prepared)
+        .await
     {
         Ok(gid) => gid,
         Err(error) => {
+            if service.has_unknown_aria2_outcome(operation) {
+                return Err(error);
+            }
             let _ = fs::remove_dir_all(&metadata_dir);
             service
                 .fail_task_operation(operation, "aria2_failed", &error)
@@ -189,17 +188,15 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
-        let gid = match add_torrent_to_aria2(
-            self.aria2_rpc,
-            config,
-            &prepared,
-            &torrent_data,
-            Some(self.debug_logs),
-        )
-        .await
+        let gid = match self
+            .add_torrent_for_task_operation(config, &mut operation, &prepared, &torrent_data)
+            .await
         {
             Ok(gid) => gid,
             Err(error) => {
+                if self.has_unknown_aria2_outcome(&operation) {
+                    return Err(error);
+                }
                 cleanup_empty_torrent_task_dir(&prepared);
                 remove_restore_metadata(self.app_data_dir, task_id);
                 self.fail_task_operation(&mut operation, "aria2_failed", &error)

@@ -8,17 +8,21 @@ use crate::tasks::files::{
 };
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, is_stale_aria2_gid_error, mark_magnet_task_reparsing,
+    add_torrent_to_aria2, add_uri_to_aria2, find_aria2_task_for_request,
+    is_aria2_outcome_unknown_error, is_stale_aria2_gid_error, mark_magnet_task_reparsing,
     mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
-    mark_task_resumed, pause_task, prepare_task_with_logs, prepare_torrent_task_with_logs,
-    readd_task_to_aria2, remove_task, remove_task_record, replace_task_snapshot,
-    set_task_metadata_torrent_path, should_readd_task_after_resume_error,
-    store_created_task_with_id, sync_task_progress_after_pause_by_gid,
-    sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
-    validate_task_files, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    mark_task_resumed, pause_task, pause_task_with_request_id, prepare_task_with_logs,
+    prepare_torrent_task_with_logs, readd_task_to_aria2, remove_task, remove_task_record,
+    remove_task_with_request_id, replace_task_snapshot, set_task_metadata_torrent_path,
+    should_readd_task_after_resume_error, store_created_task_with_id,
+    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid, task_gid,
+    task_snapshot, unpause_task, unpause_task_with_request_id, validate_task_files,
+    Aria2TaskCreationError, Aria2TaskRequest, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, TaskMemoryState, TaskOperation, TaskOperationContext, TaskOperationType,
+    DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState, TaskOperation, TaskOperationContext,
+    TaskOperationType,
 };
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -126,6 +130,147 @@ impl<'a> TaskService<'a> {
             .await
     }
 
+    async fn prepare_aria2_task_request(
+        &self,
+        operation: &mut TaskOperation,
+        task: &PreparedDownloadTask,
+    ) -> Result<(), String> {
+        let mut context = operation.context.clone();
+        context.aria2_request = Some(Aria2TaskRequest {
+            request_id: operation.id.clone(),
+            source_url: task.url.clone(),
+            save_dir: task
+                .aria2_save_dir
+                .clone()
+                .unwrap_or_else(|| task.save_dir.clone()),
+            file_name: task.file_name.clone(),
+        });
+        self.update_task_operation(operation, "aria2_request_prepared", context)
+            .await
+    }
+
+    pub(super) async fn add_uri_for_task_operation(
+        &self,
+        config: &Aria2Config,
+        operation: &mut TaskOperation,
+        task: &PreparedDownloadTask,
+    ) -> Result<String, String> {
+        self.prepare_aria2_task_request(operation, task).await?;
+        let request_id = operation.id.clone();
+        match add_uri_to_aria2(
+            self.aria2_rpc,
+            config,
+            task,
+            Some(&request_id),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(gid) => Ok(gid),
+            Err(error) if error.is_outcome_unknown() => {
+                self.reconcile_unknown_aria2_task_creation(config, operation, error)
+                    .await
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    pub(super) async fn add_torrent_for_task_operation(
+        &self,
+        config: &Aria2Config,
+        operation: &mut TaskOperation,
+        task: &PreparedDownloadTask,
+        torrent_data: &[u8],
+    ) -> Result<String, String> {
+        self.prepare_aria2_task_request(operation, task).await?;
+        let request_id = operation.id.clone();
+        match add_torrent_to_aria2(
+            self.aria2_rpc,
+            config,
+            task,
+            torrent_data,
+            Some(&request_id),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(gid) => Ok(gid),
+            Err(error) if error.is_outcome_unknown() => {
+                self.reconcile_unknown_aria2_task_creation(config, operation, error)
+                    .await
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    async fn reconcile_unknown_aria2_task_creation(
+        &self,
+        config: &Aria2Config,
+        operation: &mut TaskOperation,
+        error: Aria2TaskCreationError,
+    ) -> Result<String, String> {
+        let Some(request) = operation.context.aria2_request.as_ref() else {
+            return Err(error.to_string());
+        };
+        let mut excluded_gids = match self.download_tasks.list() {
+            Ok(tasks) => tasks
+                .into_iter()
+                .filter_map(|task| task.gid)
+                .collect::<BTreeSet<_>>(),
+            Err(list_error) => {
+                let message = format!("{}；读取现有任务以核对未知结果失败：{}", error, list_error);
+                self.record_unknown_aria2_outcome(operation, message.clone())
+                    .await?;
+                return Err(message);
+            }
+        };
+        if let Some(old_gid) = operation.context.old_gid.as_ref() {
+            excluded_gids.insert(old_gid.clone());
+        }
+        match find_aria2_task_for_request(
+            self.aria2_rpc,
+            config,
+            request,
+            &excluded_gids,
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            // 调用方会将确认的 GID 与后续任务状态在同一条既有流程中持久化，
+            // 此处只返回对账结果，避免重复记录 `aria2_task_created` 副作用。
+            Ok(Some(gid)) => Ok(gid),
+            Ok(None) => {
+                self.record_unknown_aria2_outcome(operation, error.to_string())
+                    .await?;
+                Err(error.to_string())
+            }
+            Err(reconcile_error) => {
+                let message = format!("{}；即时对账失败：{}", error, reconcile_error);
+                self.record_unknown_aria2_outcome(operation, message.clone())
+                    .await?;
+                Err(message)
+            }
+        }
+    }
+
+    pub(super) async fn record_unknown_aria2_outcome(
+        &self,
+        operation: &mut TaskOperation,
+        error: String,
+    ) -> Result<(), String> {
+        let mut context = operation.context.clone();
+        context
+            .completed_side_effects
+            .push("aria2_request_outcome_unknown".to_string());
+        operation.error_message = Some(error);
+        self.update_task_operation(operation, "aria2_outcome_unknown", context)
+            .await
+    }
+
+    pub(super) fn has_unknown_aria2_outcome(&self, operation: &TaskOperation) -> bool {
+        operation.phase == "aria2_outcome_unknown"
+    }
+
     pub(super) async fn persist_task_with_operation(
         &self,
         task: &DownloadTask,
@@ -221,6 +366,7 @@ pub(super) fn task_operation_context(
     TaskOperationContext {
         old_gid: task_snapshot.as_ref().and_then(|task| task.gid.clone()),
         new_gid: None,
+        aria2_request: None,
         critical_paths,
         completed_side_effects: Vec::new(),
         task_snapshot,

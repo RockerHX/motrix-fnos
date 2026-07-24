@@ -10,9 +10,10 @@ use crate::tasks::aria2_rpc::{
 use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
 use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
-use crate::tasks::session::find_matching_sqlite_task;
+use crate::tasks::session::{find_matching_sqlite_task, matching_aria2_task_gids};
 use axum::{extract::Json, routing::post, Router};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
@@ -1715,6 +1716,47 @@ fn readded_gid_updates_task_without_clearing_progress() {
     assert!(task.error_message.is_none());
     let expected_file_path = Path::new(&save_dir).join("file.zip").display().to_string();
     assert_eq!(task.file_path.as_deref(), Some(expected_file_path.as_str()));
+}
+
+#[test]
+fn unknown_aria2_request_matching_excludes_known_gids() {
+    let request = Aria2TaskRequest {
+        request_id: "operation-1".to_string(),
+        source_url: "https://example.com/file.zip".to_string(),
+        save_dir: "/downloads".to_string(),
+        file_name: "file.zip".to_string(),
+    };
+    let session_tasks: Vec<Aria2TaskStatus> = [
+        ("known-gid", "file.zip"),
+        ("different-file-gid", "other.zip"),
+        ("new-gid", "file.zip"),
+    ]
+    .into_iter()
+    .map(|(gid, file_name)| {
+        serde_json::from_value(json!({
+            "gid": gid,
+            "status": "waiting",
+            "totalLength": "0",
+            "completedLength": "0",
+            "downloadSpeed": "0",
+            "dir": "/downloads",
+            "files": [{
+                "index": "1",
+                "path": format!("/downloads/{file_name}"),
+                "uris": [{ "uri": "https://example.com/file.zip" }]
+            }]
+        }))
+        .expect("Aria2 task should deserialize")
+    })
+    .collect();
+
+    let candidates = matching_aria2_task_gids(
+        &session_tasks,
+        &request,
+        &BTreeSet::from(["known-gid".to_string()]),
+    );
+
+    assert_eq!(candidates, BTreeSet::from(["new-gid".to_string()]));
 }
 
 struct MockStaleAria2Server {

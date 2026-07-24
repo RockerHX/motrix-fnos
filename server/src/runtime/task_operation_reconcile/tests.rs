@@ -153,6 +153,7 @@ fn operation(
         TaskOperationContext {
             old_gid: old_gid.map(str::to_string),
             new_gid: new_gid.map(str::to_string),
+            aria2_request: None,
             critical_paths: Vec::new(),
             completed_side_effects: completed_side_effects
                 .into_iter()

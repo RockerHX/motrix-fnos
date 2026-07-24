@@ -10,12 +10,22 @@ pub async fn pause_task(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    pause_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn pause_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
     send_gid_control_request(
         client,
         config,
         gid,
         "aria2.pause",
-        "motrix-fnos-pause",
+        request_id.unwrap_or("motrix-fnos-pause"),
         "暂停任务",
         debug_logs,
     )
@@ -28,12 +38,22 @@ pub async fn unpause_task(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    unpause_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn unpause_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
     send_gid_control_request(
         client,
         config,
         gid,
         "aria2.unpause",
-        "motrix-fnos-unpause",
+        request_id.unwrap_or("motrix-fnos-unpause"),
         "恢复任务",
         debug_logs,
     )
@@ -69,18 +89,30 @@ pub async fn remove_task(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    remove_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn remove_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    let request_id = request_id.unwrap_or("motrix-fnos-remove");
     match send_gid_control_request(
         client,
         config,
         gid,
         "aria2.remove",
-        "motrix-fnos-remove",
+        request_id,
         "删除任务",
         debug_logs,
     )
     .await
     {
         Ok(result_gid) => Ok(result_gid),
+        Err(error) if is_aria2_outcome_unknown_error(&error) => Err(error),
         Err(error) => {
             log_info(
                 debug_logs,
@@ -90,18 +122,23 @@ pub async fn remove_task(
                     gid, error
                 ),
             );
+            let result_request_id = format!("{request_id}:remove-result");
             send_gid_control_request(
                 client,
                 config,
                 gid,
                 "aria2.removeDownloadResult",
-                "motrix-fnos-remove-result",
+                &result_request_id,
                 "删除任务结果",
                 debug_logs,
             )
             .await
         }
     }
+}
+
+pub(crate) fn is_aria2_outcome_unknown_error(error: &str) -> bool {
+    error.contains("Aria2 RPC 结果未知")
 }
 
 pub(crate) async fn send_gid_control_request(
