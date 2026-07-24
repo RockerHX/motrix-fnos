@@ -467,7 +467,10 @@ async fn run_cli_rejects_unknown_commands() {
     let error = run_cli(&["unknown".to_string()])
         .await
         .expect_err("unknown command should fail");
-    assert_eq!(error, "用法：motrix-fnos-server [reset-web-auth]");
+    assert_eq!(
+        error,
+        "用法：motrix-fnos-server [reset-web-auth|database-check]"
+    );
 }
 
 #[test]

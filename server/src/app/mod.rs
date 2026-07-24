@@ -2,7 +2,7 @@ use crate::aria2::Aria2RpcClient;
 use crate::auth::{AuthRuntime, AuthService, ServerProcessLock};
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
-    connect_database,
+    check_integrity, connect_database,
     tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
@@ -446,8 +446,17 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
     match args {
         [] => run_server().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
-        _ => Err("用法：motrix-fnos-server [reset-web-auth]".to_string()),
+        [command] if command == "database-check" => database_check().await,
+        _ => Err("用法：motrix-fnos-server [reset-web-auth|database-check]".to_string()),
     }
+}
+
+async fn database_check() -> Result<(), String> {
+    let runtime = ServerRuntimeConfig::from_env()?;
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    check_integrity(runtime.database_path.clone()).await?;
+    println!("数据库完整性检查通过：{}", runtime.database_path.display());
+    Ok(())
 }
 
 async fn reset_web_auth() -> Result<(), String> {

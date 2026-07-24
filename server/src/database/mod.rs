@@ -17,6 +17,30 @@ pub struct AppDatabase {
     pub path: PathBuf,
 }
 
+pub async fn check_integrity(path: PathBuf) -> Result<(), String> {
+    let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+        .map_err(|error| format!("创建 SQLite 完整性检查配置失败：{}", error))?
+        .read_only(true)
+        .busy_timeout(Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .map_err(|error| format!("打开 SQLite 数据库失败：{}（{}）", path.display(), error))?;
+
+    let result: String = sqlx::query_scalar("PRAGMA quick_check")
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| format!("执行 SQLite 完整性检查失败：{}", error))?;
+    pool.close().await;
+
+    if result.eq_ignore_ascii_case("ok") {
+        Ok(())
+    } else {
+        Err(format!("SQLite 完整性检查失败：{}", result))
+    }
+}
+
 pub async fn connect_database(path: PathBuf) -> Result<AppDatabase, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)

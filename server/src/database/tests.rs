@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn check_integrity_accepts_valid_database() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-check-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            database.pool.close().await;
+
+            check_integrity(path.clone())
+                .await
+                .expect("valid database should pass integrity check");
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn check_integrity_rejects_corrupted_database() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-check-corrupt-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            std::fs::write(&path, b"not a sqlite database").expect("corrupted file should write");
+
+            let error = check_integrity(path.clone())
+                .await
+                .expect_err("corrupted database should fail integrity check");
+            assert!(error.contains("执行 SQLite 完整性检查失败"));
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
 fn connect_database_creates_required_tables() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
