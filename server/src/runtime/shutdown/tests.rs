@@ -90,6 +90,72 @@ async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
     mock.abort();
 }
 
+#[tokio::test]
+async fn shutdown_wins_over_auto_stop_and_keeps_pause_semantics() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
+        .expect("tasks should lock");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    state.request_shutdown("退出与自动停止竞态测试");
+    let auto_state = state.clone();
+    let auto_stop = tokio::spawn(async move { crate::runtime::auto_stop_aria2(&auto_state).await });
+    run_shutdown_cleanup(&state).await;
+    let auto_stop_result = auto_stop.await.expect("auto stop should not panic");
+
+    let tasks = list_tasks(&state.core.download_tasks).expect("tasks should list");
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Paused);
+    assert_eq!(mock.pause_calls(), 1);
+    assert_eq!(mock.save_session_calls(), 1);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellStatus".to_string(),
+            "aria2.pause".to_string(),
+            "aria2.saveSession".to_string(),
+        ]
+    );
+    assert!(auto_stop_result
+        .expect_err("auto stop should yield to application exit")
+        .contains("服务正在退出"));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    mock.abort();
+}
+
+#[tokio::test]
+async fn auto_stop_preserves_runtime_when_session_save_fails() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    mock.fail_session();
+
+    let error = crate::runtime::auto_stop_aria2(&state)
+        .await
+        .expect_err("session failure should reject auto stop");
+
+    assert!(error.contains("保存 Aria2 session 失败"));
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some());
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
+    mock.abort();
+}
+
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,

@@ -108,6 +108,10 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                 ),
             ));
         }
+
+        if state.aria2_lifecycle.snapshot()?.phase == crate::runtime::Aria2LifecyclePhase::Ready {
+            return Ok(state.aria2_config());
+        }
     }
 
     if let Err(error) = state

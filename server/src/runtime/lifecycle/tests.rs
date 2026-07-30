@@ -3,11 +3,11 @@ use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use std::sync::Arc;
 
 #[test]
-fn default_snapshot_keeps_auto_stop_disabled_until_recovery_gate() {
+fn default_snapshot_enables_auto_stop_after_recovery_gate() {
     let snapshot = Aria2LifecycleSnapshot::default();
 
     assert_eq!(snapshot.phase, Aria2LifecyclePhase::Stopped);
-    assert!(!snapshot.auto_stop_enabled);
+    assert!(snapshot.auto_stop_enabled);
     assert!(!snapshot.can_auto_stop());
 }
 
@@ -133,11 +133,11 @@ fn recovery_gate_is_not_inferred_from_ready_phase() {
 }
 
 #[test]
-fn coordinator_policy_keeps_recovery_gate_disabled_with_fixed_timeouts() {
+fn coordinator_policy_enables_auto_stop_with_fixed_timeouts() {
     let coordinator = Aria2LifecycleCoordinator::default();
     let policy = coordinator.policy();
 
-    assert!(!policy.auto_stop_enabled);
+    assert!(policy.auto_stop_enabled);
     assert_eq!(policy.idle_debounce, Duration::from_secs(30));
     assert_eq!(policy.rpc_ready_timeout, Duration::from_secs(3));
     assert_eq!(policy.session_timeout, Duration::from_secs(15));

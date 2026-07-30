@@ -143,7 +143,7 @@ impl Aria2LifecycleSnapshot {
 
 impl Default for Aria2LifecycleSnapshot {
     fn default() -> Self {
-        Self::new(false)
+        Self::new(true)
     }
 }
 
@@ -160,7 +160,7 @@ pub struct Aria2LifecyclePolicy {
 impl Default for Aria2LifecyclePolicy {
     fn default() -> Self {
         Self {
-            auto_stop_enabled: false,
+            auto_stop_enabled: true,
             idle_debounce: Duration::from_secs(30),
             rpc_ready_timeout: Duration::from_secs(3),
             session_timeout: Duration::from_secs(15),

@@ -5,7 +5,7 @@ use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::runtime::{stop_process, ManagedAria2Process};
+use crate::runtime::{auto_stop_aria2, start_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_LENGTH;
@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Notify};
 use tokio::time::timeout;
 use tower::ServiceExt;
 
@@ -264,6 +264,307 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     state.clear_aria2_runtime();
     server.abort();
     let _ = server.await;
+}
+
+#[tokio::test]
+async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
+    let rpc_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock RPC listener should bind");
+    let rpc_port = rpc_listener
+        .local_addr()
+        .expect("mock RPC address should exist")
+        .port();
+    let rpc_server = tokio::spawn(async move {
+        axum::serve(
+            rpc_listener,
+            axum::Router::new().route("/jsonrpc", axum::routing::post(protocol_regression_rpc)),
+        )
+        .await
+        .expect("mock RPC server should serve");
+    });
+
+    let state = test_state().await;
+    let save_dir = state.runtime.app_data_dir.join("protocol-downloads");
+    std::fs::create_dir_all(&save_dir).expect("protocol save directory should create");
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&json!({
+            "paths": [save_dir.display().to_string()]
+        }))
+        .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+    write_json_rpc_token(&state, "secret").await;
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+        ));
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, rpc_port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let http_response = super::super::jsonrpc_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jsonrpc")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": "http-add-uri",
+                        "method": "aria2.addUri",
+                        "params": [
+                            "token:secret",
+                            ["https://example.com/http.zip"],
+                            { "dir": save_dir, "out": "http.zip" }
+                        ]
+                    })
+                    .to_string(),
+                ))
+                .expect("HTTP request should build"),
+        )
+        .await
+        .expect("HTTP response should succeed");
+    assert_eq!(http_response.status(), StatusCode::OK);
+    let http_payload: Value = serde_json::from_slice(
+        &to_bytes(http_response.into_body(), usize::MAX)
+            .await
+            .expect("HTTP body should read"),
+    )
+    .expect("HTTP payload should parse");
+    assert_eq!(http_payload["result"], "gid-protocol");
+
+    let multicall_payload = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall-add-uri",
+            "method": "system.multicall",
+            "params": [
+                "token:secret",
+                [{
+                    "methodName": "aria2.addUri",
+                    "params": [
+                        "token:secret",
+                        ["https://example.com/multicall.zip"],
+                        { "dir": save_dir, "out": "multicall.zip" }
+                    ]
+                }]
+            ]
+        }),
+    )
+    .await;
+    assert_eq!(multicall_payload["result"][0][0], "gid-protocol");
+
+    let websocket_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("WebSocket listener should bind");
+    let websocket_addr = websocket_listener
+        .local_addr()
+        .expect("WebSocket address should exist");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let websocket_state = state.clone();
+    let websocket_server = tokio::spawn(async move {
+        axum::serve(
+            websocket_listener,
+            super::super::jsonrpc_router(websocket_state),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
+        .await
+        .expect("WebSocket server should stop cleanly");
+    });
+
+    let mut socket = connect_websocket(websocket_addr).await;
+    write_masked_websocket_frame(
+        &mut socket,
+        true,
+        0x1,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "websocket-add-uri",
+            "method": "aria2.addUri",
+            "params": [
+                "token:secret",
+                ["https://example.com/websocket.zip"],
+                { "dir": save_dir, "out": "websocket.zip" }
+            ]
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .await;
+    let websocket_payload: Value =
+        serde_json::from_str(&read_websocket_text_frame(&mut socket).await)
+            .expect("WebSocket payload should parse");
+    assert_eq!(websocket_payload["result"], "gid-protocol");
+    drop(socket);
+
+    shutdown_tx
+        .send(())
+        .expect("WebSocket server should accept shutdown");
+    websocket_server
+        .await
+        .expect("WebSocket server task should join");
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    state.core.database.pool.close().await;
+    rpc_server.abort();
+    let _ = rpc_server.await;
+    let _ = std::fs::remove_dir_all(&state.runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn lifecycle_operations_race_without_duplicate_external_task() {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock RPC listener should bind");
+    let rpc_port = listener
+        .local_addr()
+        .expect("mock RPC address should exist")
+        .port();
+    let rpc_state = Arc::new(LifecycleRaceRpcState {
+        add_uri_started: Notify::new(),
+        release_add_uri: Notify::new(),
+    });
+    let rpc_server = tokio::spawn({
+        let rpc_state = Arc::clone(&rpc_state);
+        async move {
+            axum::serve(
+                listener,
+                axum::Router::new()
+                    .route("/jsonrpc", axum::routing::post(lifecycle_race_rpc))
+                    .with_state(rpc_state),
+            )
+            .await
+            .expect("mock RPC server should serve");
+        }
+    });
+
+    let state = test_state().await;
+    let save_dir = state.runtime.app_data_dir.join("race-downloads");
+    std::fs::create_dir_all(&save_dir).expect("race save directory should create");
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&json!({
+            "paths": [save_dir.display().to_string()]
+        }))
+        .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+    write_json_rpc_token(&state, "secret").await;
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+        ));
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, rpc_port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let add_uri_state = state.clone();
+    let add_uri = tokio::spawn(async move {
+        execute_method(
+            &add_uri_state,
+            "aria2.addUri",
+            &json!([
+                "token:secret",
+                ["https://example.com/race.zip"],
+                {
+                    "dir": save_dir.display().to_string(),
+                    "out": "race.zip"
+                }
+            ]),
+        )
+        .await
+    });
+    timeout(Duration::from_secs(2), rpc_state.add_uri_started.notified())
+        .await
+        .expect("external addUri should reach RPC server");
+
+    let start_state = state.clone();
+    let start = tokio::spawn(async move { start_aria2(&start_state).await });
+    let stop_state = state.clone();
+    let stop = tokio::spawn(async move { stop_aria2(&stop_state).await });
+    let auto_stop_state = state.clone();
+    let auto_stop = tokio::spawn(async move { auto_stop_aria2(&auto_stop_state).await });
+
+    let start_result = start.await.expect("manual start should not panic");
+    let stop_result = stop.await.expect("manual stop should not panic");
+    let auto_stop_result = auto_stop.await.expect("auto stop should not panic");
+    rpc_state.release_add_uri.notify_one();
+    let add_uri_result = add_uri.await.expect("external addUri should not panic");
+
+    let task_snapshot = state.core.download_tasks.list().expect("tasks should list");
+    let manual_stop_with_task = stop_aria2(&state).await;
+    let process_still_owned = state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some();
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    state.core.database.pool.close().await;
+    rpc_server.abort();
+    let _ = rpc_server.await;
+    let _ = std::fs::remove_dir_all(&state.runtime.app_data_dir);
+
+    let start_status = start_result.expect("manual start should succeed");
+    assert_eq!(start_status.pid, Some(pid));
+    let stop_error = stop_result.expect_err("manual stop should reject in-flight addUri");
+    assert!(stop_error.contains("在途 RPC 请求"));
+    let auto_stop_error = auto_stop_result.expect_err("auto stop should reject in-flight addUri");
+    assert!(auto_stop_error.contains("在途生命周期操作"));
+    assert_eq!(
+        add_uri_result.expect("external addUri should succeed"),
+        "gid-race"
+    );
+    assert_eq!(task_snapshot.len(), 1);
+    assert_eq!(task_snapshot[0].gid.as_deref(), Some("gid-race"));
+    assert!(process_still_owned);
+    let task_stop_error =
+        manual_stop_with_task.expect_err("manual stop should reject an active task");
+    assert!(task_stop_error.contains("活动、在途操作或人工处理状态"));
 }
 
 #[tokio::test]
@@ -521,6 +822,41 @@ async fn test_state() -> Arc<HttpAppState> {
     bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap")
+}
+
+struct LifecycleRaceRpcState {
+    add_uri_started: Notify,
+    release_add_uri: Notify,
+}
+
+async fn lifecycle_race_rpc(
+    axum::extract::State(state): axum::extract::State<Arc<LifecycleRaceRpcState>>,
+    axum::Json(payload): axum::Json<Value>,
+) -> axum::Json<Value> {
+    match payload.get("method").and_then(Value::as_str) {
+        Some("aria2.getVersion") => axum::Json(json!({
+            "result": { "version": "2.4.9" }
+        })),
+        Some("aria2.addUri") => {
+            state.add_uri_started.notify_one();
+            state.release_add_uri.notified().await;
+            axum::Json(json!({ "result": "gid-race" }))
+        }
+        _ => axum::Json(json!({ "result": "ok" })),
+    }
+}
+
+async fn protocol_regression_rpc(axum::Json(payload): axum::Json<Value>) -> axum::Json<Value> {
+    match payload.get("method").and_then(Value::as_str) {
+        Some("aria2.addUri") => axum::Json(json!({ "result": "gid-protocol" })),
+        Some("aria2.getVersion") => axum::Json(json!({
+            "result": { "version": "2.4.9" }
+        })),
+        Some(method) => axum::Json(json!({
+            "error": { "message": format!("unexpected method: {method}") }
+        })),
+        None => axum::Json(json!({ "error": { "message": "missing method" } })),
+    }
 }
 
 async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {

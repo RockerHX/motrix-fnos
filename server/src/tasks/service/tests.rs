@@ -1116,6 +1116,99 @@ async fn redownload_torrent_uses_add_torrent_and_preserves_metadata_source() {
     mock.abort();
 }
 
+#[tokio::test]
+async fn task_lifecycle_regression_preserves_operation_boundaries() {
+    let save_dir = temp_dir("lifecycle-regression");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let config = test_config(mock.addr.port(), "secret");
+
+    let created = fixture
+        .service()
+        .create_download_task(
+            &config,
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions::default(),
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect("task should create");
+    assert_eq!(created.status, DownloadTaskStatus::Pending);
+    assert_eq!(created.gid.as_deref(), Some("gid-created"));
+
+    let paused = fixture
+        .service()
+        .pause_download_task(&config, created.id)
+        .await
+        .expect("task should pause");
+    assert_eq!(paused.status, DownloadTaskStatus::Paused);
+
+    let resumed = fixture
+        .service()
+        .resume_download_task(&config, created.id)
+        .await
+        .expect("task should resume");
+    assert_eq!(resumed.status, DownloadTaskStatus::Active);
+
+    let removed = fixture
+        .service()
+        .delete_download_task(&config, created.id, false)
+        .await
+        .expect("task should enter recycle bin");
+    assert_eq!(removed.status, DownloadTaskStatus::Removed);
+
+    let restored = fixture
+        .service()
+        .restore_removed_task(&config, created.id)
+        .await
+        .expect("task should restore paused");
+    assert_eq!(restored.status, DownloadTaskStatus::Paused);
+    assert_eq!(restored.gid.as_deref(), Some("gid-created"));
+
+    fixture
+        .service()
+        .delete_download_task(&config, created.id, false)
+        .await
+        .expect("restored task should enter recycle bin again");
+    fixture
+        .service()
+        .permanently_delete_removed_task(created.id)
+        .await
+        .expect("removed task should permanently delete");
+
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    assert_eq!(fixture.repository.deleted_task_ids(), vec![created.id]);
+    let operations = fixture.repository.operations();
+    assert_eq!(
+        operations
+            .iter()
+            .map(|operation| operation.operation_type)
+            .collect::<Vec<_>>(),
+        vec![
+            TaskOperationType::Create,
+            TaskOperationType::Pause,
+            TaskOperationType::Resume,
+            TaskOperationType::Delete,
+            TaskOperationType::Restore,
+            TaskOperationType::Delete,
+            TaskOperationType::PermanentDelete,
+        ]
+    );
+    assert!(operations
+        .iter()
+        .all(|operation| operation.status == TaskOperationStatus::Completed));
+
+    mock.abort();
+}
+
 struct ServiceFixture {
     repository: Arc<FakeTaskRepository>,
     tasks: TaskMemoryState,
@@ -1434,6 +1527,21 @@ impl MockAria2Server {
         Self::spawn_with_router(app).await
     }
 
+    async fn spawn_with_tell_status_dir(save_dir: String) -> Self {
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let save_dir = save_dir.clone();
+                async move {
+                    Json(mock_aria2_response_with_tell_status_dir(
+                        &payload, &save_dir,
+                    ))
+                }
+            }),
+        );
+        Self::spawn_with_router(app).await
+    }
+
     async fn spawn_with_router(app: Router) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -1492,6 +1600,10 @@ fn mock_aria2_response(payload: &Value) -> Value {
 }
 
 fn mock_aria2_response_with_tell_status(payload: &Value) -> Value {
+    mock_aria2_response_with_tell_status_dir(payload, "/downloads")
+}
+
+fn mock_aria2_response_with_tell_status_dir(payload: &Value, save_dir: &str) -> Value {
     if payload.get("method").and_then(Value::as_str) == Some("aria2.tellStatus") {
         let gid = payload
             .get("params")
@@ -1509,7 +1621,7 @@ fn mock_aria2_response_with_tell_status(payload: &Value) -> Value {
                 "totalLength": "1024",
                 "completedLength": "256",
                 "downloadSpeed": "0",
-                "dir": "/downloads",
+                "dir": save_dir,
                 "files": []
             }
         });

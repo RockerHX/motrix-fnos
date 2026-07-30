@@ -68,6 +68,9 @@ pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Stri
             snapshot.in_flight_requests
         ));
     }
+    if !current_activity_snapshot(state)?.is_idle() {
+        return Err("Aria2 仍有活动、在途操作或人工处理状态，暂不能停止".to_string());
+    }
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)?;
@@ -95,6 +98,9 @@ pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Stri
 
 pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
     let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    if state.core.shutdown.is_exiting() {
+        return Err("服务正在退出，跳过 Aria2 自动停止".to_string());
+    }
     ensure_auto_stop_idle(state)?;
 
     if state.aria2_runtime_snapshot().is_none() {

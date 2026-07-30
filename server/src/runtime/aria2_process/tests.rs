@@ -1,7 +1,9 @@
 use super::resolve::{platform_binary_name, repo_debug_binary_path, resolve_aria2_binary_with};
 use super::start::wait_for_rpc_ready;
 use super::*;
-use crate::app::{ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR};
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
@@ -10,7 +12,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[test]
@@ -164,6 +166,165 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
         .list()
         .iter()
         .any(|entry| entry.module == "aria2.rpc" && entry.message.contains("Aria2 RPC ready")));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn concurrent_start_requests_share_one_process_config_and_rpc_ready() {
+    let temp_dir = temp_dir("concurrent-start");
+    std::fs::create_dir_all(&temp_dir).expect("test directory should create");
+    let aria2_path = temp_dir.join("fake-aria2");
+    std::fs::write(
+        &aria2_path,
+        r##"#!/usr/bin/env python3
+import json
+import pathlib
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+root = pathlib.Path(__file__).parent
+process_count = root / "process-count.txt"
+rpc_count = root / "rpc-count.txt"
+process_count.open("a", encoding="utf-8").write("started\n")
+
+port = next(
+    int(argument.split("=", 1)[1])
+    for argument in sys.argv[1:]
+    if argument.startswith("--rpc-listen-port=")
+)
+
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length))
+        with rpc_count.open("a", encoding="utf-8") as output:
+            output.write(payload.get("method", "") + "\n")
+        body = json.dumps({
+            "jsonrpc": "2.0",
+            "id": payload.get("id"),
+            "result": {"version": "2.4.9"},
+        }).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+"##,
+    )
+    .expect("fake Aria2 script should write");
+    let mut permissions = std::fs::metadata(&aria2_path)
+        .expect("fake Aria2 script metadata should load")
+        .permissions();
+    use std::os::unix::fs::PermissionsExt;
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&aria2_path, permissions)
+        .expect("fake Aria2 script should be executable");
+
+    let runtime = ServerRuntimeConfig {
+        database_path: temp_dir.join("motrix-fnos.db"),
+        accessible_paths_path: temp_dir.join("accessible-paths.json"),
+        app_data_dir: temp_dir.clone(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        aria2_path: Some(aria2_path),
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+    let mut state = crate::app::bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    let state_mut = Arc::get_mut(&mut state).expect("state should be uniquely owned");
+    state_mut.base_aria2_config.rpc_host = "127.0.0.1".to_string();
+    state_mut.base_aria2_config.rpc_port = 6800;
+    state_mut.base_aria2_config.rpc_secret.clear();
+    state_mut.base_aria2_config.session_path = None;
+    state_mut.base_aria2_config.log_path = None;
+
+    let requests = (0..8)
+        .map(|_| {
+            let state = Arc::clone(&state);
+            tokio::spawn(async move { ensure_aria2_ready(&state).await })
+        })
+        .collect::<Vec<_>>();
+    let mut results = Vec::with_capacity(requests.len());
+    for request in requests {
+        results.push(request.await.expect("start request should not panic"));
+    }
+
+    let stop_result = stop_process(&state.aria2_process, &state.core.debug_logs);
+    state.clear_aria2_runtime();
+
+    let process_count = std::fs::read_to_string(temp_dir.join("process-count.txt"))
+        .expect("process count should be recorded");
+    let rpc_methods = std::fs::read_to_string(temp_dir.join("rpc-count.txt"))
+        .expect("RPC count should be recorded");
+    std::fs::remove_dir_all(&temp_dir).expect("test directory should remove");
+
+    stop_result.expect("Aria2 process should stop");
+    let configs = results
+        .into_iter()
+        .map(|result| result.expect("concurrent start should succeed"))
+        .collect::<Vec<_>>();
+    let first = configs
+        .first()
+        .expect("at least one start result should exist");
+    assert!(configs.iter().all(|config| {
+        config.rpc_host == first.rpc_host
+            && config.rpc_port == first.rpc_port
+            && config.rpc_secret == first.rpc_secret
+            && config.session_path == first.session_path
+            && config.log_path == first.log_path
+    }));
+    assert_eq!(process_count.lines().count(), 1);
+    assert_eq!(
+        rpc_methods.lines().collect::<Vec<_>>(),
+        ["aria2.getVersion"]
+    );
+}
+
+#[tokio::test]
+async fn start_failure_keeps_stopped_runtime_state() {
+    let temp_dir = temp_dir("start-failure");
+    let runtime = ServerRuntimeConfig {
+        database_path: temp_dir.join("motrix-fnos.db"),
+        accessible_paths_path: temp_dir.join("accessible-paths.json"),
+        app_data_dir: temp_dir.clone(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        aria2_path: Some(temp_dir.join("missing-aria2")),
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+
+    let error = start_aria2(&state)
+        .await
+        .expect_err("missing Aria2 binary should reject startup");
+
+    assert!(error.contains("路径不存在或不是文件"));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    assert_eq!(
+        state
+            .aria2_lifecycle
+            .snapshot()
+            .expect("lifecycle snapshot should load")
+            .phase,
+        crate::runtime::Aria2LifecyclePhase::Faulted
+    );
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(temp_dir);
 }
 
 async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {
