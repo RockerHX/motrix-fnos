@@ -1,4 +1,5 @@
 pub mod aria2_process;
+pub mod lifecycle;
 pub mod shutdown;
 pub mod task_monitor;
 mod task_operation_reconcile;

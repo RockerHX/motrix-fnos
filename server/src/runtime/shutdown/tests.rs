@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 #[tokio::test]
@@ -42,6 +42,14 @@ async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_ar
 
     assert_eq!(mock.pause_calls(), 1);
     assert_eq!(mock.save_session_calls(), 1);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellStatus".to_string(),
+            "aria2.pause".to_string(),
+            "aria2.saveSession".to_string(),
+        ]
+    );
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(!state.core.aria2_runtime_path.exists());
     assert!(state
@@ -50,6 +58,35 @@ async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_ar
         .expect("process lock should succeed")
         .is_none());
 
+    mock.abort();
+}
+
+#[tokio::test]
+async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    mock.fail_session();
+
+    std::thread::scope(|scope| {
+        let process = &state.aria2_process;
+        let handle = scope.spawn(move || {
+            let _guard = process.lock().expect("process lock should succeed");
+            panic!("force stop failure after poisoning process lock");
+        });
+        assert!(handle.join().is_err());
+    });
+
+    state.request_shutdown("测试 session 与停止失败");
+    run_shutdown_cleanup(&state).await;
+
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state.core.aria2_runtime_path.is_file());
+    assert_eq!(mock.save_session_calls(), 1);
+
+    state.aria2_process.clear_poison();
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
     mock.abort();
 }
 
@@ -183,6 +220,14 @@ impl MockAria2Server {
         self.state.save_session_calls.load(Ordering::SeqCst)
     }
 
+    fn calls(&self) -> Vec<String> {
+        self.state.calls.lock().expect("calls should lock").clone()
+    }
+
+    fn fail_session(&self) {
+        self.state.fail_save_session.store(true, Ordering::SeqCst);
+    }
+
     fn abort(self) {
         self.handle.abort();
     }
@@ -190,8 +235,10 @@ impl MockAria2Server {
 
 struct MockAria2State {
     tasks: Mutex<HashMap<String, MockTask>>,
+    calls: Mutex<Vec<String>>,
     pause_calls: AtomicU64,
     save_session_calls: AtomicU64,
+    fail_save_session: AtomicBool,
 }
 
 impl Default for MockAria2State {
@@ -207,8 +254,10 @@ impl Default for MockAria2State {
         );
         Self {
             tasks: Mutex::new(tasks),
+            calls: Mutex::new(Vec::new()),
             pause_calls: AtomicU64::new(0),
             save_session_calls: AtomicU64::new(0),
+            fail_save_session: AtomicBool::new(false),
         }
     }
 }
@@ -228,6 +277,11 @@ async fn mock_aria2_rpc(
         .get("method")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    state
+        .calls
+        .lock()
+        .expect("calls should lock")
+        .push(method.to_string());
     let params = payload
         .get("params")
         .and_then(Value::as_array)
@@ -269,7 +323,16 @@ async fn mock_aria2_rpc(
         }
         "aria2.saveSession" => {
             state.save_session_calls.fetch_add(1, Ordering::SeqCst);
-            json!({ "result": "OK" })
+            if state.fail_save_session.load(Ordering::SeqCst) {
+                json!({
+                    "error": {
+                        "code": 1,
+                        "message": "forced session save failure"
+                    }
+                })
+            } else {
+                json!({ "result": "OK" })
+            }
         }
         _ => json!({ "result": "ok" }),
     })
