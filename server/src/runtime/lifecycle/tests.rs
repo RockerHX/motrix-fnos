@@ -55,3 +55,15 @@ fn only_ready_idle_enabled_snapshot_can_auto_stop() {
 
     assert!(snapshot.can_auto_stop());
 }
+
+#[test]
+fn recovery_gate_is_not_inferred_from_ready_phase() {
+    let snapshot = Aria2LifecycleSnapshot {
+        phase: Aria2LifecyclePhase::Ready,
+        activity: Aria2ActivitySnapshot::default(),
+        auto_stop_enabled: false,
+        consecutive_failures: 0,
+    };
+
+    assert!(!snapshot.can_auto_stop());
+}

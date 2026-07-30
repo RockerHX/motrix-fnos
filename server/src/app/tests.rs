@@ -1,8 +1,11 @@
 use super::*;
+use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
 use crate::database::tasks::list_download_tasks;
 use crate::database::tasks::upsert_download_task;
 use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::tasks::{
+    DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationContext, TaskOperationType,
+};
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 
@@ -172,6 +175,105 @@ fn bootstrap_http_app_state_restores_database_state() {
             let _ = std::fs::remove_file(&runtime.database_path);
             let _ = std::fs::remove_dir_all(&runtime.app_data_dir);
         });
+}
+
+#[tokio::test]
+async fn bootstrap_reconciles_prepared_operation_without_starting_aria2() {
+    let app_data_dir =
+        std::env::temp_dir().join(format!("motrix-fnos-bootstrap-prepared-{}", now_ms()));
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().expect("address should parse"),
+        "127.0.0.1:0".parse().expect("address should parse"),
+    );
+    let runtime = ServerRuntimeConfig {
+        app_data_dir: app_data_dir.clone(),
+        database_path: app_data_dir.join(DATABASE_FILE_NAME),
+        accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        ..runtime
+    };
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .expect("database should connect");
+    let task = sample_task();
+    upsert_download_task(&database.pool, &task)
+        .await
+        .expect("task should persist");
+    let operation = TaskOperation::with_id(
+        "bootstrap-prepared-operation",
+        task.id,
+        TaskOperationType::Create,
+        "prepared",
+        TaskOperationContext::default(),
+    );
+    begin_task_operation(&database.pool, &operation)
+        .await
+        .expect("operation should persist");
+    database.pool.close().await;
+
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("prepared operation should reconcile");
+
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .expect("unfinished operations should list")
+        .is_empty());
+
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2() {
+    let app_data_dir =
+        std::env::temp_dir().join(format!("motrix-fnos-bootstrap-manual-{}", now_ms()));
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().expect("address should parse"),
+        "127.0.0.1:0".parse().expect("address should parse"),
+    );
+    let runtime = ServerRuntimeConfig {
+        app_data_dir: app_data_dir.clone(),
+        database_path: app_data_dir.join(DATABASE_FILE_NAME),
+        accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        ..runtime
+    };
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .expect("database should connect");
+    let task = sample_task();
+    upsert_download_task(&database.pool, &task)
+        .await
+        .expect("task should persist");
+    let mut operation = TaskOperation::with_id(
+        "bootstrap-manual-review-operation",
+        task.id,
+        TaskOperationType::Redownload,
+        "files_staged",
+        TaskOperationContext::default(),
+    );
+    operation.require_manual_review("startup_manual_review", "用户文件需要人工确认");
+    begin_task_operation(&database.pool, &operation)
+        .await
+        .expect("manual review operation should persist");
+    database.pool.close().await;
+
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("manual review should survive restart");
+
+    assert!(state.aria2_runtime_snapshot().is_none());
+    let unfinished = list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .expect("unfinished operations should list");
+    assert_eq!(unfinished.len(), 1);
+    assert_eq!(
+        unfinished[0].status,
+        crate::tasks::TaskOperationStatus::ManualReview
+    );
+
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(runtime.app_data_dir);
 }
 
 #[test]
@@ -427,6 +529,54 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
     assert_eq!(
         tasks[0].error_message.as_deref(),
         Some("磁链 metadata 临时目录丢失，请重新添加磁链")
+    );
+
+    let _ = std::fs::remove_dir_all(&app_data_dir);
+}
+
+#[test]
+fn reconcile_missing_magnet_metadata_preserves_user_download_files() {
+    let app_data_dir =
+        std::env::temp_dir().join(format!("motrix-fnos-reconcile-file-{}", now_ms()));
+    let download_dir = app_data_dir.join("downloads");
+    let download_file = download_dir.join("user-file.bin");
+    std::fs::create_dir_all(&download_dir).expect("download dir should create");
+    std::fs::write(&download_file, b"user data").expect("user file should write");
+    std::fs::create_dir_all(app_data_dir.join("magnet-metadata"))
+        .expect("metadata root should create");
+    let mut tasks = vec![DownloadTask {
+        id: 11,
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
+        file_name: "磁力链接任务".to_string(),
+        save_dir: download_dir.display().to_string(),
+        owned_task_dir: None,
+        category: "默认".to_string(),
+        gid: Some("gid-11".to_string()),
+        status: DownloadTaskStatus::Pending,
+        total_length: 0,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: None,
+        file_path: None,
+        metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }];
+
+    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks)
+        .expect("reconcile should preserve the user file");
+
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Error);
+    assert!(download_file.is_file());
+    assert_eq!(
+        std::fs::read(&download_file).expect("user file should remain readable"),
+        b"user data"
     );
 
     let _ = std::fs::remove_dir_all(&app_data_dir);

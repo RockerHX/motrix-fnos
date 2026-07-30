@@ -164,6 +164,88 @@ fn task_state_and_operation_update_commit_or_rollback_together() {
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
+    });
+}
+
+#[test]
+fn task_and_operation_roll_back_together_when_task_history_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-history-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let mut operation = TaskOperation::with_id(
+                "operation-history-rollback",
+                4,
+                TaskOperationType::Pause,
+                "started",
+                TaskOperationContext::default(),
+            );
+            begin_task_operation(&database.pool, &operation)
+                .await
+                .expect("operation should begin");
+            operation.complete("task_persisted");
+
+            let mut task = sample_task(4);
+            task.status = DownloadTaskStatus::Error;
+            task.error_code = Some("3".to_string());
+            task.error_message = Some("forced history failure".to_string());
+            sqlx::query(
+                "CREATE TRIGGER fail_task_history BEFORE INSERT ON task_history BEGIN SELECT RAISE(FAIL, 'forced task history failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+
+            let error = persist_download_task_state_with_operation(
+                &database.pool,
+                &task,
+                &operation,
+            )
+            .await
+            .expect_err("task history failure should roll back the transaction");
+            assert!(
+                error.contains("forced task history failure"),
+                "unexpected persistence error: {error}"
+            );
+
+            let task_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM download_tasks WHERE id = 4",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("task count should be readable");
+            let history_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM task_history WHERE task_id = 4",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("history count should be readable");
+            let error_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM task_errors WHERE task_id = 4",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("error count should be readable");
+            let persisted_phase: String = sqlx::query_scalar(
+                "SELECT phase FROM task_operations WHERE id = 'operation-history-rollback'",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("operation phase should be readable");
+
+            assert_eq!(task_count, 0);
+            assert_eq!(history_count, 0);
+            assert_eq!(error_count, 0);
+            assert_eq!(persisted_phase, "started");
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
         });
 }
 

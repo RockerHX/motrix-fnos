@@ -76,6 +76,80 @@ async fn task_snapshot_revisions_strictly_increase() {
     mock.abort();
 }
 
+#[test]
+fn monitor_matrix_only_accepts_pending_or_active_tasks_with_a_gid() {
+    for status in [DownloadTaskStatus::Pending, DownloadTaskStatus::Active] {
+        let task = sample_task(status);
+        assert!(should_monitor_task(&task));
+
+        let mut task_without_gid = task.clone();
+        task_without_gid.gid = None;
+        assert!(!should_monitor_task(&task_without_gid));
+    }
+
+    for status in [
+        DownloadTaskStatus::Paused,
+        DownloadTaskStatus::Complete,
+        DownloadTaskStatus::Error,
+        DownloadTaskStatus::Removed,
+    ] {
+        let mut task = sample_task(status);
+        task.gid = Some("old-gid".to_string());
+        assert!(!should_monitor_task(&task));
+    }
+}
+
+#[tokio::test]
+async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
+    let app_data_dir = temp_dir("monitor-static-tasks");
+    let runtime = ServerRuntimeConfig {
+        database_path: app_data_dir.join("motrix-fnos.sqlite"),
+        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+        app_data_dir: app_data_dir.clone(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            for status in [
+                DownloadTaskStatus::Pending,
+                DownloadTaskStatus::Active,
+                DownloadTaskStatus::Paused,
+                DownloadTaskStatus::Complete,
+                DownloadTaskStatus::Error,
+            ] {
+                let mut task = sample_task(status);
+                task.id = tasks.len() as u64 + 1;
+                task.gid = None;
+                tasks.push(task);
+            }
+        })
+        .expect("tasks should lock");
+
+    monitor_tasks_once(&state)
+        .await
+        .expect("static task monitoring should be a no-op");
+
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}
+
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,

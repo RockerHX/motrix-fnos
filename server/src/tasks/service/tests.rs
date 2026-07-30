@@ -811,6 +811,44 @@ async fn restore_removed_torrent_without_metadata_keeps_removed_state() {
 }
 
 #[tokio::test]
+async fn restore_removed_torrent_without_metadata_preserves_user_files() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("restore-torrent-missing-file");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let user_file = save_dir.join("payload.bin");
+    std::fs::write(&user_file, b"payload").expect("user file should write");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        save_dir.display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.url = "torrent:missing.torrent".to_string();
+    task.file_path = Some(user_file.display().to_string());
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let error = fixture
+        .service()
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("missing torrent metadata should reject restore");
+
+    assert!(error.contains("缺少可恢复的源 metadata"));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Removed
+    );
+    assert!(user_file.is_file());
+    assert_eq!(
+        std::fs::read(&user_file).expect("user file should remain readable"),
+        b"payload"
+    );
+
+    mock.abort();
+}
+
+#[tokio::test]
 async fn restore_removed_magnet_without_metadata_restarts_parsing() {
     let mock = MockAria2Server::spawn().await;
     let task_dir = temp_dir("restore-magnet-missing").join("example");

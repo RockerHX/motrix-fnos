@@ -88,6 +88,27 @@ fn missing_persisted_gid_requires_manual_review() {
     ));
 }
 
+#[test]
+fn unknown_rpc_result_requires_manual_review_without_retry_or_delete() {
+    let operation = operation(
+        TaskOperationType::Create,
+        "task_persisted",
+        None,
+        Some("new-gid"),
+        vec!["task_state_persisted"],
+    );
+    let presence = HashMap::from([(
+        "new-gid".to_string(),
+        Aria2TaskPresence::Unknown("RPC 请求超时".to_string()),
+    )]);
+
+    assert_matches_manual(decide_reconcile_action(
+        &operation,
+        &[task_with_gid("new-gid")],
+        &presence,
+    ));
+}
+
 #[tokio::test]
 async fn manual_review_persists_visible_task_error_with_operation() {
     let path = temp_path("manual-review");
