@@ -553,6 +553,87 @@ async fn aria2_routes_return_status_payloads() {
 }
 
 #[tokio::test]
+async fn aria2_rpc_status_does_not_probe_stopped_or_unconfirmed_runtime() {
+    let requests = std::sync::Arc::new(AtomicU64::new(0));
+    let requests_for_handler = requests.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock addr should exist")
+        .port();
+    let handle = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(move || {
+                let requests = requests_for_handler.clone();
+                async move {
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(json!({ "result": { "version": "2.4.9" } }))
+                }
+            }),
+        );
+        axum::serve(listener, app)
+            .await
+            .expect("mock server should serve");
+    });
+
+    let mut state = test_state(None).await;
+    std::sync::Arc::get_mut(&mut state)
+        .expect("state should be uniquely owned")
+        .base_aria2_config
+        .rpc_port = port;
+    let app = management_router(state.clone());
+
+    let stopped = response_json::<Aria2RpcStatus>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/aria2/rpc")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(!stopped.connected);
+    assert_eq!(stopped.message, "Aria2 未运行");
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+
+    let config = crate::aria2::runtime_config(&state.base_aria2_config, port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            999_999,
+            &config,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+
+    let unconfirmed = response_json::<Aria2RpcStatus>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/aria2/rpc")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(!unconfirmed.connected);
+    assert_eq!(unconfirmed.message, "Aria2 运行态待确认");
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+    assert!(state.aria2_runtime_snapshot().is_some());
+
+    handle.abort();
+}
+
+#[tokio::test]
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();

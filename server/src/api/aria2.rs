@@ -40,9 +40,6 @@ async fn get_aria2_process_status(
 ) -> Result<Json<Aria2ProcessStatus>, ApiError> {
     let status = process_status(&state.aria2_process)
         .map_err(|error| ApiError::internal("aria2_process_status_failed", error))?;
-    if !status.running && status.pid.is_some() {
-        state.clear_aria2_runtime();
-    }
     emit_file_log(
         DebugLogLevel::Info,
         "aria2",
@@ -54,9 +51,29 @@ async fn get_aria2_process_status(
 async fn get_aria2_rpc_status(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<crate::aria2::Aria2RpcStatus>, ApiError> {
-    let status = ping_rpc(&state.aria2_rpc, &state.aria2_config(), None).await;
+    let process = process_status(&state.aria2_process)
+        .map_err(|error| ApiError::internal("aria2_process_status_failed", error))?;
+    let status = if !process.running {
+        if state.aria2_runtime_snapshot().is_some() {
+            disconnected_rpc_status("Aria2 运行态待确认")
+        } else {
+            disconnected_rpc_status("Aria2 未运行")
+        }
+    } else if state.aria2_runtime_snapshot().is_none() {
+        disconnected_rpc_status("Aria2 运行态未记录")
+    } else {
+        ping_rpc(&state.aria2_rpc, &state.aria2_config(), None).await
+    };
     emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
     Ok(Json(status))
+}
+
+fn disconnected_rpc_status(message: &str) -> crate::aria2::Aria2RpcStatus {
+    crate::aria2::Aria2RpcStatus {
+        connected: false,
+        version: None,
+        message: message.to_string(),
+    }
 }
 
 async fn start_aria2_process(
