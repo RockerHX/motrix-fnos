@@ -17,6 +17,8 @@ READY_STATUS_FILE="${TEST_ROOT}/ready-status"
 CURL_FIXTURE="${TEST_ROOT}/curl"
 WGET_FIXTURE="${TEST_ROOT}/wget"
 OUTPUT_FILE="${TEST_ROOT}/output"
+SNAPSHOT_BEFORE="${TEST_ROOT}/snapshot-before"
+SNAPSHOT_AFTER="${TEST_ROOT}/snapshot-after"
 mkdir -p "${TEST_ROOT}/data" "${PROC_FIXTURE}"
 : > "${SERVER_FIXTURE}"
 : > "${OTHER_FIXTURE}"
@@ -61,6 +63,50 @@ printf '%s\n' "$$ (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 424
 
 . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
 
+run_script() {
+  if "$@" > "${OUTPUT_FILE}" 2>&1; then
+    script_status=0
+  else
+    script_status=$?
+  fi
+}
+
+file_mtime() {
+  if stat -c '%Y' "$1" >/dev/null 2>&1; then
+    stat -c '%Y' "$1"
+  else
+    stat -f '%m' "$1"
+  fi
+}
+
+snapshot_data_tree() {
+  snapshot_file="$1"
+  : > "${snapshot_file}"
+  if [ ! -e "${TRIM_PKGVAR}" ]; then
+    printf 'absent\n' >> "${snapshot_file}"
+    return
+  fi
+
+  find "${TRIM_PKGVAR}" -print | LC_ALL=C sort | while IFS= read -r path; do
+    relative_path=${path#"${TRIM_PKGVAR}"}
+    if [ -f "${path}" ]; then
+      checksum=$(cksum < "${path}")
+      printf 'file|%s|%s|%s\n' "${relative_path}" "${checksum}" "$(file_mtime "${path}")"
+    elif [ -d "${path}" ]; then
+      printf 'dir|%s|%s\n' "${relative_path}" "$(file_mtime "${path}")"
+    elif [ -L "${path}" ]; then
+      printf 'link|%s|%s|%s\n' "${relative_path}" "$(readlink "${path}")" "$(file_mtime "${path}")"
+    fi
+  done >> "${snapshot_file}"
+}
+
+assert_status_keeps_data_tree_unchanged() {
+  snapshot_data_tree "${SNAPSHOT_BEFORE}"
+  "$@"
+  snapshot_data_tree "${SNAPSHOT_AFTER}"
+  cmp -s "${SNAPSHOT_BEFORE}" "${SNAPSHOT_AFTER}"
+}
+
 test "$(readiness_url)" = "http://127.0.0.1:17080/api/app/ready"
 (
   MOTRIX_FNOS_HTTP_ADDR="[::]:27080"
@@ -78,37 +124,45 @@ readiness_request
   readiness_request
 )
 
-run_script() {
-  if "$@" > "${OUTPUT_FILE}" 2>&1; then
-    script_status=0
-  else
-    script_status=$?
-  fi
-}
+test ! -e "${RUNTIME_DIR}"
+test ! -e "${LOG_DIR}"
+run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+test "${script_status}" -eq 3
+grep -q "未运行" "${OUTPUT_FILE}"
+test ! -e "${RUNTIME_DIR}"
+test ! -e "${LOG_DIR}"
 
 prepare_runtime_dirs
 write_pid_record "$$"
+printf '%s\n' "lifecycle baseline" > "${LIFECYCLE_LOG}"
+printf '%s\n' "server baseline" > "${SERVER_LOG}"
 
 run_script "$(dirname -- "$0")/../packaging/fnos/cmd/start"
 test "${script_status}" -eq 0
 grep -q "已在运行且服务就绪" "${OUTPUT_FILE}"
 
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
-test "${script_status}" -eq 0
+snapshot_data_tree "${SNAPSHOT_BEFORE}"
+for _ in 1 2 3; do
+  run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+  test "${script_status}" -eq 0
+done
+snapshot_data_tree "${SNAPSHOT_AFTER}"
+cmp -s "${SNAPSHOT_BEFORE}" "${SNAPSHOT_AFTER}"
 grep -q "运行中且服务就绪" "${OUTPUT_FILE}"
 
 printf '%s\n' "503" > "${READY_STATUS_FILE}"
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
 test "${script_status}" -eq 1
 grep -q "进程运行但服务未就绪" "${OUTPUT_FILE}"
 test ! -e "${ARIA2_CALLS}"
 
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
 test "${script_status}" -eq 3
 grep -q "未运行" "${OUTPUT_FILE}"
-test ! -e "${TRIM_PKGVAR}/run/motrix-fnos-server.pid"
+test -e "${PID_FILE}"
+test -e "${PID_START_FILE}"
 
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"

@@ -131,20 +131,6 @@ async fn readiness(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppRea
         ));
     }
 
-    sqlx::query_scalar::<_, i64>("SELECT 1")
-        .fetch_one(&state.core.database.pool)
-        .await
-        .map_err(|_| {
-            ApiError::service_unavailable("database_not_ready", "SQLite 数据库尚未就绪")
-        })?;
-
-    if !state.is_ready() {
-        return Err(ApiError::service_unavailable(
-            "app_not_ready",
-            "服务尚未就绪或正在退出",
-        ));
-    }
-
     Ok(Json(AppReadiness { ready: true }))
 }
 

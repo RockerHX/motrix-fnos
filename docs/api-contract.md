@@ -151,6 +151,7 @@ Session 与 Cookie 约定：
 | --- | --- | --- |
 | `GET` | `/api/app/info` | `AppInfo` |
 | `GET` | `/api/app/ping` | `BackendPing` |
+| `GET` | `/api/app/ready` | `AppReadiness` |
 | `GET` | `/api/app/update-check` | `AppUpdateCheck` |
 
 `AppInfo` 示例：
@@ -167,6 +168,20 @@ Session 与 Cookie 约定：
   "updateMode": "manual_fpk_or_app_center"
 }
 ```
+
+`AppReadiness` 就绪响应：
+
+```json
+{
+  "ready": true
+}
+```
+
+约定：
+
+- `/api/app/ready` 仅用于 Rust 服务生命周期探测，无需管理 Session。
+- 只有管理与 JSON-RPC listener 已绑定、启动门禁已经完成且服务未进入退出状态时返回 `200 OK`；其他状态返回 `503 Service Unavailable` 和 `app_not_ready`。
+- SQLite 初始化仍是 listener 标记就绪前的启动门禁，但 ready 请求本身只读取内存状态，不获取数据库连接、不执行 SQL、不写日志。
 
 `AppUpdateCheck` 示例：
 

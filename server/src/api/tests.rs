@@ -184,7 +184,7 @@ async fn management_router_returns_404_for_unknown_paths_without_cors() {
 }
 
 #[tokio::test]
-async fn readiness_route_requires_bound_listeners_and_healthy_runtime() {
+async fn readiness_route_uses_listener_and_shutdown_state_without_database_probe() {
     let state = test_state(None).await;
     let app = management_router(state.clone());
 
@@ -220,7 +220,7 @@ async fn readiness_route_requires_bound_listeners_and_healthy_runtime() {
     assert!(readiness.ready);
 
     state.core.database.pool.close().await;
-    let unavailable = response_json::<ErrorResponse>(
+    let readiness = response_json::<AppReadiness>(
         app.clone()
             .oneshot(
                 Request::builder()
@@ -230,10 +230,10 @@ async fn readiness_route_requires_bound_listeners_and_healthy_runtime() {
             )
             .await
             .expect("response should succeed"),
-        StatusCode::SERVICE_UNAVAILABLE,
+        StatusCode::OK,
     )
     .await;
-    assert_eq!(unavailable.code, "database_not_ready");
+    assert!(readiness.ready);
 
     state.request_shutdown("测试服务退出");
     let unavailable = response_json::<ErrorResponse>(

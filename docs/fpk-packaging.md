@@ -311,6 +311,10 @@ rtk packaging/fnos/cmd/status
 rtk packaging/fnos/cmd/stop
 ```
 
+`cmd/status` 是只读状态查询：服务就绪返回 `0`，进程存在但 ready 接口未返回 HTTP 200 时返回 `1`，未运行或 PID 身份不匹配时返回 `3`。稳定查询不创建运行目录、不轮转或追加日志，也不删除陈旧 PID；PID 清理由 `start`、`stop` 等明确生命周期动作负责。
+
+`/api/app/ready` 表示 Rust 管理与 JSON-RPC listener 已绑定、启动门禁已完成且服务未进入退出状态。SQLite 初始化仍由启动门禁保证，但每次 ready 请求不再执行实时数据库查询。
+
 常看两个位置：
 
 - Rust 业务日志：`packaging/fnos/app/data/logs/server.log`，单文件上限 10 MiB，保留当前文件和最多 3 个轮转文件（`.1`～`.3`）。
