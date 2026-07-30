@@ -5,7 +5,7 @@ mod stop;
 mod types;
 
 pub use resolve::resolve_aria2_binary;
-pub use start::{ensure_aria2_ready, start_aria2, start_process};
+pub use start::{ensure_aria2_ready, start_aria2, start_process, ReadyAria2};
 pub use status::process_status;
 pub(crate) use stop::current_activity_snapshot;
 pub(crate) use stop::stop_aria2_after_shutdown;

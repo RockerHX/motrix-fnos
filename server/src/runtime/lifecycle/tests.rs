@@ -211,6 +211,64 @@ fn stopping_phase_rejects_new_lifecycle_leases() {
     assert_eq!(error, "Aria2 正在停止，请稍后重试");
 }
 
+#[test]
+fn quiescing_activity_cancels_stop_before_atomic_transition() {
+    let coordinator = Arc::new(Aria2LifecycleCoordinator::default());
+    coordinator
+        .set_phase(Aria2LifecyclePhase::Ready)
+        .expect("phase should change");
+    let quiescing = coordinator
+        .begin_quiescing()
+        .expect("quiescing should begin");
+    let activity = coordinator
+        .acquire_activity()
+        .expect("quiescing should still accept new activity");
+
+    let error = match coordinator.acquire_stop_permit(quiescing) {
+        Ok(_) => panic!("active workflow should cancel stop transition"),
+        Err(error) => error,
+    };
+    assert!(error.contains("在途生命周期操作"));
+    assert_eq!(
+        coordinator.snapshot().expect("snapshot should load").phase,
+        Aria2LifecyclePhase::Ready
+    );
+    drop(activity);
+}
+
+#[test]
+fn stop_permit_atomically_rejects_new_work_until_completed() {
+    let coordinator = Arc::new(Aria2LifecycleCoordinator::default());
+    coordinator
+        .set_phase(Aria2LifecyclePhase::Ready)
+        .expect("phase should change");
+    let quiescing = coordinator
+        .begin_quiescing()
+        .expect("quiescing should begin");
+    let permit = coordinator
+        .acquire_stop_permit(quiescing)
+        .expect("idle coordinator should issue stop permit");
+
+    assert_eq!(
+        coordinator.snapshot().expect("snapshot should load").phase,
+        Aria2LifecyclePhase::Stopping
+    );
+    assert_eq!(
+        coordinator
+            .acquire_activity()
+            .err()
+            .expect("stopping should reject activity"),
+        "Aria2 正在停止，请稍后重试"
+    );
+    permit
+        .complete(Aria2LifecyclePhase::Stopped)
+        .expect("stop should complete");
+    assert_eq!(
+        coordinator.snapshot().expect("snapshot should load").phase,
+        Aria2LifecyclePhase::Stopped
+    );
+}
+
 #[tokio::test]
 async fn request_lifecycle_lock_times_out_with_retryable_error() {
     let coordinator = Aria2LifecycleCoordinator::new(Aria2LifecyclePolicy {
@@ -248,7 +306,7 @@ async fn coordinator_reports_requests_waiting_for_lifecycle_lock() {
         1
     );
     drop(operation);
-    let _ = waiting_request.await.expect("queued request should join");
+    waiting_request.await.expect("queued request should join");
     assert_eq!(
         coordinator
             .snapshot()

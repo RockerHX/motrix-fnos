@@ -9,8 +9,10 @@ use crate::aria2::{
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::{emit_file_log, DebugLogLevel, DebugLogStore};
+use crate::runtime::Aria2Lease;
 use crate::state::Aria2RuntimeInfo;
 use std::net::{TcpStream, ToSocketAddrs};
+use std::ops::Deref;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -81,12 +83,30 @@ pub fn start_process(
     })
 }
 
-pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, String> {
+pub struct ReadyAria2 {
+    config: Aria2Config,
+    _activity: Aria2Lease,
+}
+
+impl Deref for ReadyAria2 {
+    type Target = Aria2Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+
+pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<ReadyAria2, String> {
+    let activity = state.aria2_lifecycle.acquire_activity()?;
     let _operation = state
         .aria2_lifecycle
         .lock_lifecycle_operation_for_request()
         .await?;
-    ensure_aria2_ready_locked(state).await
+    let config = ensure_aria2_ready_locked(state).await?;
+    Ok(ReadyAria2 {
+        config,
+        _activity: activity,
+    })
 }
 
 async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, String> {
@@ -221,6 +241,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
 }
 
 pub async fn start_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
+    let _activity = state.aria2_lifecycle.acquire_activity()?;
     let _operation = state
         .aria2_lifecycle
         .lock_lifecycle_operation_for_request()

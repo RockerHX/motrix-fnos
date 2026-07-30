@@ -203,7 +203,7 @@ async fn inspect_referenced_gids(
 }
 
 async fn remove_unpersisted_aria2_task(state: &HttpAppState, gid: &str) -> Result<(), String> {
-    let config = state.aria2_config();
+    let config = ensure_aria2_ready(state).await?;
     remove_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs))
         .await
         .map(|_| ())

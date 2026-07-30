@@ -8,12 +8,12 @@ pub(crate) use aria2_process::current_activity_snapshot;
 pub use aria2_process::{
     auto_stop_aria2, ensure_aria2_ready, process_status, resolve_aria2_binary, start_aria2,
     start_process, stop_aria2, stop_process, stop_process_with_timeout, Aria2ProcessStatus,
-    Aria2StopError, ManagedAria2Process, ResolvedAria2Binary,
+    Aria2StopError, ManagedAria2Process, ReadyAria2, ResolvedAria2Binary,
 };
 pub use lifecycle::{
     Aria2ActivitySignals, Aria2ActivitySnapshot, Aria2Lease, Aria2LeaseKind,
     Aria2LifecycleCoordinator, Aria2LifecycleCoordinatorSnapshot, Aria2LifecyclePhase,
-    Aria2LifecyclePolicy, Aria2LifecycleSnapshot,
+    Aria2LifecyclePolicy, Aria2LifecycleSnapshot, Aria2QuiescingGuard, Aria2StopPermit,
 };
 pub use shutdown::run_shutdown_cleanup;
 pub(crate) use task_monitor::current_tasks_snapshot;

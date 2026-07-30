@@ -168,7 +168,7 @@ async fn manual_stop_rejects_bt_seeding_activity() {
         .await
         .expect_err("BT seeding should keep Aria2 running");
 
-    assert!(error.to_string().contains("活动、在途操作或人工处理状态"));
+    assert!(error.to_string().contains("活动或在途操作"));
     assert!(state.aria2_runtime_snapshot().is_some());
     assert!(state
         .aria2_process

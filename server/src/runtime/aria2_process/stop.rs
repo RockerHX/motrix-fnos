@@ -94,23 +94,17 @@ async fn stop_aria2_inner(
     save_session_before_stop: bool,
 ) -> Result<Aria2ProcessStatus, Aria2StopError> {
     let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
-    let snapshot = state
+    let quiescing = state
         .aria2_lifecycle
-        .snapshot()
-        .map_err(Aria2StopError::Failed)?;
-    if snapshot.in_flight_requests > 0 {
-        return Err(Aria2StopError::Busy(format!(
-            "Aria2 仍有 {} 个在途 RPC 请求，暂不能停止",
-            snapshot.in_flight_requests
-        )));
-    }
+        .begin_quiescing()
+        .map_err(Aria2StopError::Busy)?;
     if !current_activity_snapshot(state)
         .await
         .map_err(Aria2StopError::Failed)?
         .is_idle()
     {
         return Err(Aria2StopError::Busy(
-            "Aria2 仍有活动、在途操作或人工处理状态，暂不能停止".to_string(),
+            "Aria2 仍有活动或在途操作，暂不能停止".to_string(),
         ));
     }
     if save_session_before_stop && state.aria2_runtime_snapshot().is_some() {
@@ -121,10 +115,19 @@ async fn stop_aria2_inner(
                 Aria2StopError::Failed(format!("手动停止前保存 Aria2 session 失败：{}", error))
             })?;
     }
-    state
+    if !current_activity_snapshot(state)
+        .await
+        .map_err(Aria2StopError::Failed)?
+        .is_idle()
+    {
+        return Err(Aria2StopError::Busy(
+            "Aria2 仍有活动或在途操作，暂不能停止".to_string(),
+        ));
+    }
+    let permit = state
         .aria2_lifecycle
-        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)
-        .map_err(Aria2StopError::Failed)?;
+        .acquire_stop_permit(quiescing)
+        .map_err(Aria2StopError::Busy)?;
 
     match stop_process_with_timeout(
         &state.aria2_process,
@@ -133,16 +136,15 @@ async fn stop_aria2_inner(
     ) {
         Ok(status) => {
             state.clear_aria2_runtime();
-            state
-                .aria2_lifecycle
-                .set_phase(crate::runtime::Aria2LifecyclePhase::Stopped)
+            permit
+                .complete(Aria2LifecyclePhase::Stopped)
                 .map_err(Aria2StopError::Failed)?;
             Ok(status)
         }
         Err(error) => {
-            let _ = state
-                .aria2_lifecycle
-                .set_phase(crate::runtime::Aria2LifecyclePhase::Faulted);
+            permit
+                .complete(Aria2LifecyclePhase::Faulted)
+                .map_err(Aria2StopError::Failed)?;
             Err(Aria2StopError::Failed(error))
         }
     }
@@ -154,6 +156,7 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
         return Err("服务正在退出，跳过 Aria2 自动停止".to_string());
     }
     ensure_auto_stop_idle(state).await?;
+    let quiescing = state.aria2_lifecycle.begin_quiescing()?;
 
     if state.aria2_runtime_snapshot().is_none() {
         return Err("Aria2 运行态不存在，跳过自动停止".to_string());
@@ -170,9 +173,7 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
         .map_err(|error| format!("自动停止前保存 Aria2 session 失败：{}", error))?;
 
     ensure_auto_stop_idle(state).await?;
-    state
-        .aria2_lifecycle
-        .set_phase(Aria2LifecyclePhase::Stopping)?;
+    let permit = state.aria2_lifecycle.acquire_stop_permit(quiescing)?;
 
     match stop_process_with_timeout(
         &state.aria2_process,
@@ -181,15 +182,11 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
     ) {
         Ok(status) => {
             state.clear_aria2_runtime();
-            state
-                .aria2_lifecycle
-                .set_phase(Aria2LifecyclePhase::Stopped)?;
+            permit.complete(Aria2LifecyclePhase::Stopped)?;
             Ok(status)
         }
         Err(error) => {
-            let _ = state
-                .aria2_lifecycle
-                .set_phase(Aria2LifecyclePhase::Faulted);
+            permit.complete(Aria2LifecyclePhase::Faulted)?;
             Err(error)
         }
     }
@@ -199,7 +196,7 @@ async fn ensure_auto_stop_idle(state: &HttpAppState) -> Result<(), String> {
     let coordinator = state.aria2_lifecycle.snapshot()?;
     if !matches!(
         coordinator.phase,
-        Aria2LifecyclePhase::Ready | Aria2LifecyclePhase::Faulted
+        Aria2LifecyclePhase::Ready | Aria2LifecyclePhase::Quiescing | Aria2LifecyclePhase::Faulted
     ) {
         return Err(format!(
             "Aria2 当前处于 {:?} 阶段，暂不能自动停止",

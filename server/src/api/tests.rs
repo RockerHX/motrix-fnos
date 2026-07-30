@@ -653,7 +653,7 @@ async fn aria2_stop_returns_busy_conflict_for_active_task() {
     .await;
 
     assert_eq!(error.code, "aria2_busy");
-    assert!(error.message.contains("活动、在途操作或人工处理状态"));
+    assert!(error.message.contains("活动或在途操作"));
     assert!(state
         .aria2_process
         .lock()

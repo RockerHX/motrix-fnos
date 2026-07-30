@@ -3,15 +3,14 @@ use super::{
 };
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::config::aria2::Aria2Config;
-use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, ReadyAria2};
 use crate::tasks::service::TaskService;
 use crate::tasks::DownloadTask;
 
 pub(super) struct TaskMutationContext<'a> {
     pub(super) state: &'a HttpAppState,
     pub(super) service: TaskService<'a>,
-    pub(super) config: Aria2Config,
+    pub(super) config: ReadyAria2,
 }
 
 impl<'a> TaskMutationContext<'a> {

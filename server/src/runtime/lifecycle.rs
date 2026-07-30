@@ -5,19 +5,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Aria2LifecyclePhase {
+    #[default]
     Stopped,
     Starting,
     Ready,
+    Quiescing,
     Stopping,
     Faulted,
-}
-
-impl Default for Aria2LifecyclePhase {
-    fn default() -> Self {
-        Self::Stopped
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -191,6 +187,7 @@ pub struct Aria2LifecycleCoordinatorSnapshot {
 #[derive(Debug)]
 struct CoordinatorState {
     phase: Aria2LifecyclePhase,
+    quiescing_origin: Option<Aria2LifecyclePhase>,
     next_lease_id: u64,
     active_leases: usize,
     in_flight_requests: usize,
@@ -214,6 +211,7 @@ impl Aria2LifecycleCoordinator {
             policy,
             state: Mutex::new(CoordinatorState {
                 phase: Aria2LifecyclePhase::Stopped,
+                quiescing_origin: None,
                 next_lease_id: 0,
                 active_leases: 0,
                 in_flight_requests: 0,
@@ -252,6 +250,9 @@ impl Aria2LifecycleCoordinator {
             .state
             .lock()
             .map_err(|_| "无法记录 Aria2 排队请求".to_string())?;
+        if state.phase == Aria2LifecyclePhase::Stopping {
+            return Err("Aria2 正在停止，请稍后重试".to_string());
+        }
         state.queued_requests = state.queued_requests.saturating_add(1);
         Ok(QueuedRequestGuard { coordinator: self })
     }
@@ -284,9 +285,74 @@ impl Aria2LifecycleCoordinator {
             .lock()
             .map_err(|_| "无法更新 Aria2 生命周期阶段".to_string())?;
         state.phase = phase;
+        if phase != Aria2LifecyclePhase::Quiescing {
+            state.quiescing_origin = None;
+        }
         drop(state);
         self.changes.notify_waiters();
         Ok(())
+    }
+
+    pub fn begin_quiescing(self: &Arc<Self>) -> Result<Aria2QuiescingGuard, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "无法进入 Aria2 静默确认阶段".to_string())?;
+        if !matches!(
+            state.phase,
+            Aria2LifecyclePhase::Stopped
+                | Aria2LifecyclePhase::Ready
+                | Aria2LifecyclePhase::Faulted
+        ) {
+            return Err(format!("Aria2 当前处于 {:?} 阶段，暂不能停止", state.phase));
+        }
+        let origin = state.phase;
+        state.phase = Aria2LifecyclePhase::Quiescing;
+        state.quiescing_origin = Some(origin);
+        drop(state);
+        self.changes.notify_waiters();
+        Ok(Aria2QuiescingGuard {
+            coordinator: Arc::clone(self),
+            active: true,
+        })
+    }
+
+    pub fn acquire_stop_permit(
+        self: &Arc<Self>,
+        mut quiescing: Aria2QuiescingGuard,
+    ) -> Result<Aria2StopPermit, String> {
+        if !Arc::ptr_eq(self, &quiescing.coordinator) {
+            return Err("Aria2 停止许可与静默阶段不属于同一协调器".to_string());
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "无法签发 Aria2 停止许可".to_string())?;
+        if state.phase != Aria2LifecyclePhase::Quiescing {
+            return Err(format!(
+                "Aria2 当前处于 {:?} 阶段，无法签发停止许可",
+                state.phase
+            ));
+        }
+        if state.active_leases > 0 || state.in_flight_requests > 0 || state.queued_requests > 0 {
+            return Err(format!(
+                "Aria2 仍有在途生命周期操作（租约 {}，RPC {}，排队 {}），暂不能停止",
+                state.active_leases, state.in_flight_requests, state.queued_requests
+            ));
+        }
+        let fallback_phase = state
+            .quiescing_origin
+            .take()
+            .unwrap_or(Aria2LifecyclePhase::Faulted);
+        state.phase = Aria2LifecyclePhase::Stopping;
+        quiescing.active = false;
+        drop(state);
+        self.changes.notify_waiters();
+        Ok(Aria2StopPermit {
+            coordinator: Arc::clone(self),
+            fallback_phase,
+            completed: false,
+        })
     }
 
     pub fn acquire_activity(self: &Arc<Self>) -> Result<Aria2Lease, String> {
@@ -388,6 +454,81 @@ impl Default for Aria2LifecycleCoordinator {
 
 struct QueuedRequestGuard<'a> {
     coordinator: &'a Aria2LifecycleCoordinator,
+}
+
+pub struct Aria2QuiescingGuard {
+    coordinator: Arc<Aria2LifecycleCoordinator>,
+    active: bool,
+}
+
+impl Drop for Aria2QuiescingGuard {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let Ok(mut state) = self.coordinator.state.lock() else {
+            return;
+        };
+        if state.phase == Aria2LifecyclePhase::Quiescing {
+            state.phase = state
+                .quiescing_origin
+                .take()
+                .unwrap_or(Aria2LifecyclePhase::Faulted);
+        }
+        drop(state);
+        self.coordinator.changes.notify_waiters();
+    }
+}
+
+pub struct Aria2StopPermit {
+    coordinator: Arc<Aria2LifecycleCoordinator>,
+    fallback_phase: Aria2LifecyclePhase,
+    completed: bool,
+}
+
+impl Aria2StopPermit {
+    pub fn complete(mut self, phase: Aria2LifecyclePhase) -> Result<(), String> {
+        if !matches!(
+            phase,
+            Aria2LifecyclePhase::Stopped | Aria2LifecyclePhase::Faulted
+        ) {
+            return Err("Aria2 停止许可只能完成为 Stopped 或 Faulted".to_string());
+        }
+        let mut state = self
+            .coordinator
+            .state
+            .lock()
+            .map_err(|_| "无法完成 Aria2 停止许可".to_string())?;
+        if state.phase != Aria2LifecyclePhase::Stopping {
+            return Err(format!(
+                "Aria2 当前处于 {:?} 阶段，无法完成停止许可",
+                state.phase
+            ));
+        }
+        state.phase = phase;
+        state.quiescing_origin = None;
+        self.completed = true;
+        drop(state);
+        self.coordinator.changes.notify_waiters();
+        Ok(())
+    }
+}
+
+impl Drop for Aria2StopPermit {
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let Ok(mut state) = self.coordinator.state.lock() else {
+            return;
+        };
+        if state.phase == Aria2LifecyclePhase::Stopping {
+            state.phase = self.fallback_phase;
+        }
+        state.quiescing_origin = None;
+        drop(state);
+        self.coordinator.changes.notify_waiters();
+    }
 }
 
 impl Drop for QueuedRequestGuard<'_> {

@@ -131,6 +131,19 @@ fn classify_settings_save_error(error: String) -> ApiError {
 }
 
 async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {
+    let _activity = match state.aria2_lifecycle.acquire_activity() {
+        Ok(activity) => activity,
+        Err(error) => {
+            state.core.debug_logs.warn(
+                "settings",
+                format!(
+                    "Aria2 生命周期正在转换，下载配置将在下次启动后生效：{}",
+                    error
+                ),
+            );
+            return;
+        }
+    };
     let aria2_config = state.aria2_config();
     let status = ping_rpc(&state.aria2_rpc, &aria2_config, None).await;
     if !status.connected {

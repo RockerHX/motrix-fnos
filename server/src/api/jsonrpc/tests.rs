@@ -5,7 +5,7 @@ use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::runtime::{auto_stop_aria2, start_aria2, stop_aria2, stop_process, ManagedAria2Process};
+use crate::runtime::{auto_stop_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_LENGTH;
@@ -437,7 +437,7 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
 }
 
 #[tokio::test]
-async fn lifecycle_operations_race_without_duplicate_external_task() {
+async fn quiescing_auto_stop_yields_to_external_add_uri_workflow() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("mock RPC listener should bind");
@@ -448,6 +448,8 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
     let rpc_state = Arc::new(LifecycleRaceRpcState {
         add_uri_started: Notify::new(),
         release_add_uri: Notify::new(),
+        save_session_started: Notify::new(),
+        release_save_session: Notify::new(),
     });
     let rpc_server = tokio::spawn({
         let rpc_state = Arc::clone(&rpc_state);
@@ -501,6 +503,15 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
         .expect("lifecycle should be ready");
 
+    let auto_stop_state = state.clone();
+    let auto_stop = tokio::spawn(async move { auto_stop_aria2(&auto_stop_state).await });
+    timeout(
+        Duration::from_secs(2),
+        rpc_state.save_session_started.notified(),
+    )
+    .await
+    .expect("auto stop should reach saveSession while quiescing");
+
     let add_uri_state = state.clone();
     let add_uri = tokio::spawn(async move {
         execute_method(
@@ -517,20 +528,37 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
         )
         .await
     });
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let snapshot = state
+                .aria2_lifecycle
+                .snapshot()
+                .expect("lifecycle snapshot should load");
+            if snapshot.active_leases > 0 && snapshot.queued_requests > 0 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("external addUri should register activity while auto stop is quiescing");
+
+    rpc_state.release_save_session.notify_one();
+    let auto_stop_result = auto_stop.await.expect("auto stop should not panic");
+    let auto_stop_error = auto_stop_result.expect_err("new activity should cancel auto stop");
+    assert!(auto_stop_error.contains("在途生命周期操作"));
+    assert_eq!(
+        state
+            .aria2_lifecycle
+            .snapshot()
+            .expect("lifecycle snapshot should load")
+            .phase,
+        crate::runtime::Aria2LifecyclePhase::Ready
+    );
+
     timeout(Duration::from_secs(2), rpc_state.add_uri_started.notified())
         .await
         .expect("external addUri should reach RPC server");
-
-    let start_state = state.clone();
-    let start = tokio::spawn(async move { start_aria2(&start_state).await });
-    let stop_state = state.clone();
-    let stop = tokio::spawn(async move { stop_aria2(&stop_state).await });
-    let auto_stop_state = state.clone();
-    let auto_stop = tokio::spawn(async move { auto_stop_aria2(&auto_stop_state).await });
-
-    let start_result = start.await.expect("manual start should not panic");
-    let stop_result = stop.await.expect("manual stop should not panic");
-    let auto_stop_result = auto_stop.await.expect("auto stop should not panic");
     rpc_state.release_add_uri.notify_one();
     let add_uri_result = add_uri.await.expect("external addUri should not panic");
 
@@ -549,12 +577,6 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
     let _ = rpc_server.await;
     let _ = std::fs::remove_dir_all(&state.runtime.app_data_dir);
 
-    let start_status = start_result.expect("manual start should succeed");
-    assert_eq!(start_status.pid, Some(pid));
-    let stop_error = stop_result.expect_err("manual stop should reject in-flight addUri");
-    assert!(stop_error.to_string().contains("在途 RPC 请求"));
-    let auto_stop_error = auto_stop_result.expect_err("auto stop should reject in-flight addUri");
-    assert!(auto_stop_error.contains("在途生命周期操作"));
     assert_eq!(
         add_uri_result.expect("external addUri should succeed"),
         "gid-race"
@@ -564,9 +586,7 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
     assert!(process_still_owned);
     let task_stop_error =
         manual_stop_with_task.expect_err("manual stop should reject an active task");
-    assert!(task_stop_error
-        .to_string()
-        .contains("活动、在途操作或人工处理状态"));
+    assert!(task_stop_error.to_string().contains("活动或在途操作"));
 }
 
 #[tokio::test]
@@ -829,6 +849,8 @@ async fn test_state() -> Arc<HttpAppState> {
 struct LifecycleRaceRpcState {
     add_uri_started: Notify,
     release_add_uri: Notify,
+    save_session_started: Notify,
+    release_save_session: Notify,
 }
 
 async fn lifecycle_race_rpc(
@@ -843,6 +865,11 @@ async fn lifecycle_race_rpc(
             state.add_uri_started.notify_one();
             state.release_add_uri.notified().await;
             axum::Json(json!({ "result": "gid-race" }))
+        }
+        Some("aria2.saveSession") => {
+            state.save_session_started.notify_one();
+            state.release_save_session.notified().await;
+            axum::Json(json!({ "result": "OK" }))
         }
         _ => axum::Json(json!({ "result": "ok" })),
     }
