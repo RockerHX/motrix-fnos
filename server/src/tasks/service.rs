@@ -347,11 +347,8 @@ impl<'a> TaskService<'a> {
         errors.join("；")
     }
 
-    pub async fn list_download_tasks(
-        &self,
-        config: &Aria2Config,
-    ) -> Result<Vec<DownloadTask>, String> {
-        query::list_download_tasks(self, config).await
+    pub fn list_download_task_snapshot(&self) -> Result<Vec<DownloadTask>, String> {
+        query::list_download_task_snapshot(self)
     }
 
     pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {

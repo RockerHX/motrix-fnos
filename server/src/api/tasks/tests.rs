@@ -33,7 +33,7 @@ fn task_operation_conflict_maps_to_conflict_response() {
 }
 
 #[tokio::test]
-async fn create_and_list_routes_work_with_ready_aria2() {
+async fn create_and_refresh_then_list_routes_work_with_ready_aria2() {
     let mock = MockAria2Server::spawn().await;
     let (state, child_pid) = ready_state(&mock).await;
     let app = test_router(state.clone());
@@ -59,6 +59,26 @@ async fn create_and_list_routes_work_with_ready_aria2() {
     assert_eq!(created.id, 1);
     assert_eq!(created.gid.as_deref(), Some("gid-1"));
     assert_eq!(created.status, DownloadTaskStatus::Pending);
+
+    let before_refresh = response_json::<Vec<DownloadTask>>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/tasks")
+                    .body(Body::empty())
+                    .expect("list request should build"),
+            )
+            .await
+            .expect("list response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(before_refresh.len(), 1);
+    assert_eq!(before_refresh[0].status, DownloadTaskStatus::Pending);
+
+    crate::runtime::monitor_tasks_once(&state)
+        .await
+        .expect("background refresh should succeed");
 
     let listed = response_json::<Vec<DownloadTask>>(
         app.oneshot(
@@ -599,6 +619,84 @@ async fn list_removed_tasks_does_not_require_ready_aria2() {
 }
 
 #[tokio::test]
+async fn list_tasks_returns_memory_snapshot_when_aria2_is_stopped() {
+    let state = test_state().await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(1, DownloadTaskStatus::Active)))
+        .expect("tasks should lock");
+    let app = test_router(state.clone());
+
+    let listed = response_json::<Vec<DownloadTask>>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, DownloadTaskStatus::Active);
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
+#[tokio::test]
+async fn list_tasks_does_not_refresh_or_persist_when_aria2_is_ready() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let persisted = sample_task(1, DownloadTaskStatus::Paused);
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &persisted)
+        .await
+        .expect("persisted task should save");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(1, DownloadTaskStatus::Active)))
+        .expect("tasks should lock");
+    let app = test_router(state.clone());
+    let request_count = mock.request_count();
+
+    let listed = response_json::<Vec<DownloadTask>>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, DownloadTaskStatus::Active);
+    assert_eq!(mock.request_count(), request_count);
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some());
+
+    let stored = crate::database::tasks::list_download_tasks(&state.core.database.pool)
+        .await
+        .expect("stored tasks should load");
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].status, DownloadTaskStatus::Paused);
+    assert_eq!(stored[0].updated_at, persisted.updated_at);
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn list_tasks_rejects_unsupported_status_filter() {
     let state = test_state().await;
     let app = test_router(state);
@@ -876,6 +974,7 @@ fn spawn_sleep_child() -> std::process::Child {
 struct MockAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
+    state: Arc<MockAria2State>,
 }
 
 impl MockAria2Server {
@@ -883,7 +982,7 @@ impl MockAria2Server {
         let state = Arc::new(MockAria2State::default());
         let app = Router::new()
             .route("/jsonrpc", post(mock_aria2_rpc))
-            .with_state(state);
+            .with_state(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .expect("listener should bind");
@@ -894,7 +993,15 @@ impl MockAria2Server {
                 .expect("mock server should serve");
         });
 
-        Self { addr, handle }
+        Self {
+            addr,
+            handle,
+            state,
+        }
+    }
+
+    fn request_count(&self) -> u64 {
+        self.state.request_count.load(Ordering::SeqCst)
     }
 
     fn abort(self) {
@@ -905,6 +1012,7 @@ impl MockAria2Server {
 #[derive(Default)]
 struct MockAria2State {
     next_gid: AtomicU64,
+    request_count: AtomicU64,
     tasks: Mutex<HashMap<String, MockTask>>,
 }
 
@@ -919,6 +1027,7 @@ async fn mock_aria2_rpc(
     State(state): State<Arc<MockAria2State>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
+    state.request_count.fetch_add(1, Ordering::SeqCst);
     let method = payload
         .get("method")
         .and_then(Value::as_str)

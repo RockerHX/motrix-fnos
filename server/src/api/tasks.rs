@@ -1,7 +1,6 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::runtime::ensure_aria2_ready;
 use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
@@ -53,16 +52,8 @@ async fn list_tasks(
     }
 
     // 退出期间只读取最后已知配置，不能为了列表查询重新启动已经进入清理流程的 Aria2。
-    let config = if state.core.shutdown.is_exiting() {
-        state.aria2_config()
-    } else {
-        ensure_aria2_ready(&state)
-            .await
-            .map_err(classify_aria2_ready_error)?
-    };
     let tasks = service
-        .list_download_tasks(&config)
-        .await
+        .list_download_task_snapshot()
         .map_err(classify_task_error)?;
     Ok(Json(tasks))
 }

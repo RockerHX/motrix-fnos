@@ -232,6 +232,8 @@ describe("runtimeEvents", () => {
     instances[1]?.emit("open", new Event("open"));
 
     expect(mockTaskStore.refreshTasks).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mockTaskStore.refreshTasks).toHaveBeenCalledOnce();
   });
 
   it("cancels retries and ignores a late auth probe after disposal", async () => {

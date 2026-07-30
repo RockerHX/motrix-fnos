@@ -31,7 +31,9 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         .with_tasks_mut(|tasks| tasks.push(sample_task()))
         .expect("tasks should lock");
     broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
-    let app = Router::new().nest("/api", routes()).with_state(state);
+    let app = Router::new()
+        .nest("/api", routes())
+        .with_state(state.clone());
 
     let response = app
         .oneshot(
@@ -49,6 +51,12 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert!(text.contains("event: tasks.snapshot"));
     assert!(text.contains("\"archive.zip\""));
     assert!(text.contains("\"revision\":1"));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
 }
 
 #[tokio::test]
@@ -96,6 +104,12 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
     assert!(resync.contains("event: tasks.snapshot"));
     assert!(resync.contains("\"archive.zip\""));
     assert!(resync.contains("\"revision\":40"));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
 }
 
 async fn next_sse_frame(body: &mut Body) -> String {
