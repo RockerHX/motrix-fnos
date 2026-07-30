@@ -373,6 +373,10 @@ export const enUS: Record<TranslationKey, string> = {
   "engine.start": "Start Engine",
   "engine.stop": "Stop Engine",
   "engine.checkRpc": "Check RPC",
+  "engine.started": "Engine started",
+  "engine.stopped": "Engine stopped",
+  "engine.rpcChecked": "RPC status updated",
+  "engine.actionFailed": "Engine operation failed, please try again later",
 
   "logs.eyebrow": "Debug Logs",
   "logs.title": "In-app Debug Logs",

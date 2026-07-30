@@ -50,6 +50,12 @@ h2 {
   white-space: normal;
 }
 
+.success-message {
+  margin-bottom: 16px;
+  color: var(--app-color-success);
+  white-space: normal;
+}
+
 @media (max-width: 767px) {
   .engine-panel {
     padding: 18px;

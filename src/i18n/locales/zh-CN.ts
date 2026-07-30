@@ -371,6 +371,10 @@ export const zhCN = {
   "engine.start": "启动引擎",
   "engine.stop": "停止引擎",
   "engine.checkRpc": "检查 RPC",
+  "engine.started": "引擎已启动",
+  "engine.stopped": "引擎已停止",
+  "engine.rpcChecked": "RPC 状态已更新",
+  "engine.actionFailed": "引擎操作失败，请稍后重试",
 
   "logs.eyebrow": "Debug Logs",
   "logs.title": "应用内调试日志",
