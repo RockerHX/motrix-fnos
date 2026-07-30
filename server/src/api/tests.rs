@@ -662,6 +662,37 @@ async fn aria2_stop_returns_busy_conflict_for_active_task() {
 }
 
 #[tokio::test]
+async fn aria2_stop_allows_missing_metadata_record_without_engine_activity() {
+    let state = test_state(None).await;
+    let mut task = active_task_for_stop();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.gid = None;
+    task.status = DownloadTaskStatus::Error;
+    task.metadata_torrent_path = None;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("tasks should be writable");
+    let app = management_router(state.clone());
+
+    let status = response_json::<Aria2ProcessStatus>(
+        app.oneshot(authorized_request(&state, "POST", "/api/aria2/stop", Body::empty()).await)
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert!(!status.running);
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();

@@ -215,7 +215,7 @@ async fn ensure_auto_stop_idle(state: &HttpAppState) -> Result<(), String> {
 
     let activity = current_activity_snapshot(state).await?;
     if !activity.is_idle() {
-        return Err("Aria2 仍有活动、在途操作或人工处理状态，暂不能自动停止".to_string());
+        return Err("Aria2 仍有活动或在途操作，暂不能自动停止".to_string());
     }
     Ok(())
 }

@@ -1,6 +1,4 @@
-use crate::tasks::{
-    is_pending_magnet_metadata_task, DownloadTask, DownloadTaskSourceType, DownloadTaskStatus,
-};
+use crate::tasks::{is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -23,7 +21,6 @@ pub struct Aria2ActivitySnapshot {
     pub has_bt_upload: bool,
     pub has_inflight_operation: bool,
     pub has_queued_request: bool,
-    pub requires_manual_review: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -32,7 +29,6 @@ pub struct Aria2ActivitySignals {
     pub has_bt_upload: bool,
     pub has_inflight_operation: bool,
     pub has_queued_request: bool,
-    pub requires_manual_review: bool,
 }
 
 impl Aria2ActivitySnapshot {
@@ -42,7 +38,6 @@ impl Aria2ActivitySnapshot {
             || self.has_bt_upload
             || self.has_inflight_operation
             || self.has_queued_request
-            || self.requires_manual_review
     }
 
     pub fn from_tasks(tasks: &[DownloadTask], signals: Aria2ActivitySignals) -> Self {
@@ -51,7 +46,6 @@ impl Aria2ActivitySnapshot {
             has_bt_upload: signals.has_bt_upload,
             has_inflight_operation: signals.has_inflight_operation,
             has_queued_request: signals.has_queued_request,
-            requires_manual_review: signals.requires_manual_review,
             ..Self::default()
         };
 
@@ -73,16 +67,8 @@ impl Aria2ActivitySnapshot {
                 activity.has_active_task = true;
             }
 
-            if is_pending_magnet_metadata_task(task) {
-                if has_gid {
-                    activity.has_metadata_activity = true;
-                } else {
-                    activity.requires_manual_review = true;
-                }
-            }
-
-            if task_requires_manual_review(task, has_gid, is_active_status) {
-                activity.requires_manual_review = true;
+            if is_active_status && has_gid && is_pending_magnet_metadata_task(task) {
+                activity.has_metadata_activity = true;
             }
         }
 
@@ -92,24 +78,6 @@ impl Aria2ActivitySnapshot {
     pub fn is_idle(self) -> bool {
         !self.blocks_auto_stop()
     }
-}
-
-fn task_requires_manual_review(task: &DownloadTask, has_gid: bool, is_active_status: bool) -> bool {
-    if is_active_status && !has_gid {
-        return true;
-    }
-
-    let has_metadata_path = task
-        .metadata_torrent_path
-        .as_deref()
-        .map(|path| !path.trim().is_empty())
-        .unwrap_or(false);
-
-    if task.confirmation_required && !has_metadata_path {
-        return true;
-    }
-
-    task.source_type == DownloadTaskSourceType::Torrent && !is_active_status && !has_metadata_path
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

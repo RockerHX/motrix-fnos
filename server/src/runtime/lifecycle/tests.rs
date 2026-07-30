@@ -12,100 +12,128 @@ fn default_snapshot_enables_auto_stop_after_recovery_gate() {
 }
 
 #[test]
-fn active_task_blocks_auto_stop_even_when_speed_is_zero() {
-    let activity = Aria2ActivitySnapshot {
-        has_active_task: true,
-        ..Aria2ActivitySnapshot::default()
-    };
+fn activity_classifier_matches_engine_keepalive_matrix() {
+    let paused = sample_task(DownloadTaskStatus::Paused);
+    let complete = sample_task(DownloadTaskStatus::Complete);
+    let error = sample_task(DownloadTaskStatus::Error);
 
-    assert!(!activity.is_idle());
-    assert!(activity.blocks_auto_stop());
-}
+    let mut confirmation_wait = sample_task(DownloadTaskStatus::Pending);
+    confirmation_wait.source_type = DownloadTaskSourceType::Magnet;
+    confirmation_wait.url = "magnet:?xt=urn:btih:confirmation".to_string();
+    confirmation_wait.gid = None;
+    confirmation_wait.confirmation_required = true;
+    confirmation_wait.metadata_torrent_path = Some("/app-data/magnet/task.torrent".to_string());
+    confirmation_wait.file_path = None;
 
-#[test]
-fn activity_classifier_requires_a_gid_for_active_tasks() {
-    let mut active = sample_task(DownloadTaskStatus::Active);
-    active.download_speed = 0;
-    let activity = Aria2ActivitySnapshot::from_tasks(&[active], Aria2ActivitySignals::default());
-    assert!(activity.has_active_task);
-    assert!(!activity.is_idle());
+    let mut missing_metadata = sample_task(DownloadTaskStatus::Complete);
+    missing_metadata.source_type = DownloadTaskSourceType::Torrent;
+    missing_metadata.gid = None;
+    missing_metadata.metadata_torrent_path = None;
 
-    let mut missing_gid = sample_task(DownloadTaskStatus::Active);
-    missing_gid.gid = None;
-    let activity =
-        Aria2ActivitySnapshot::from_tasks(&[missing_gid], Aria2ActivitySignals::default());
-    assert!(!activity.has_active_task);
-    assert!(activity.requires_manual_review);
-    assert!(!activity.is_idle());
-}
+    let mut static_magnet = sample_task(DownloadTaskStatus::Pending);
+    static_magnet.source_type = DownloadTaskSourceType::Magnet;
+    static_magnet.url = "magnet:?xt=urn:btih:static".to_string();
+    static_magnet.gid = None;
+    static_magnet.file_path = None;
+    static_magnet.metadata_torrent_path = None;
 
-#[test]
-fn activity_classifier_allows_completed_magnet_confirmation_wait() {
-    let mut task = sample_task(DownloadTaskStatus::Paused);
-    task.source_type = DownloadTaskSourceType::Magnet;
-    task.gid = None;
-    task.confirmation_required = true;
-    task.metadata_torrent_path = Some("/app-data/magnet/task.torrent".to_string());
-    let activity = Aria2ActivitySnapshot::from_tasks(&[task], Aria2ActivitySignals::default());
-    assert!(activity.is_idle());
-}
+    let mut active_download = sample_task(DownloadTaskStatus::Active);
+    active_download.download_speed = 0;
 
-#[test]
-fn activity_classifier_keeps_metadata_bt_operations_and_queue_active() {
-    let mut metadata_task = sample_task(DownloadTaskStatus::Pending);
-    metadata_task.source_type = DownloadTaskSourceType::Magnet;
-    metadata_task.url = "magnet:?xt=urn:btih:test".to_string();
-    metadata_task.file_path = None;
-    metadata_task.metadata_torrent_path = None;
-    let activity = Aria2ActivitySnapshot::from_tasks(
-        &[metadata_task],
-        Aria2ActivitySignals {
-            has_bt_upload: true,
-            has_inflight_operation: true,
-            has_queued_request: true,
-            ..Aria2ActivitySignals::default()
-        },
-    );
-    assert!(activity.has_metadata_activity);
-    assert!(activity.has_bt_upload);
-    assert!(activity.has_inflight_operation);
-    assert!(activity.has_queued_request);
-    assert!(!activity.is_idle());
-}
+    let mut metadata_parsing = sample_task(DownloadTaskStatus::Pending);
+    metadata_parsing.source_type = DownloadTaskSourceType::Magnet;
+    metadata_parsing.url = "magnet:?xt=urn:btih:parsing".to_string();
+    metadata_parsing.gid = Some("metadata-gid".to_string());
+    metadata_parsing.file_path = None;
+    metadata_parsing.metadata_torrent_path = None;
 
-#[test]
-fn activity_classifier_marks_missing_bt_metadata_for_manual_review() {
-    let mut task = sample_task(DownloadTaskStatus::Complete);
-    task.source_type = DownloadTaskSourceType::Torrent;
-    task.gid = None;
-    task.metadata_torrent_path = None;
-    let activity = Aria2ActivitySnapshot::from_tasks(&[task], Aria2ActivitySignals::default());
-    assert!(activity.requires_manual_review);
-    assert!(!activity.is_idle());
-}
+    let mut seeding = sample_task(DownloadTaskStatus::Complete);
+    seeding.source_type = DownloadTaskSourceType::Torrent;
 
-#[test]
-fn confirmation_wait_without_engine_activity_is_idle() {
-    let activity = Aria2ActivitySnapshot::default();
+    let cases = [
+        ("无任务", Vec::new(), Aria2ActivitySignals::default(), true),
+        (
+            "暂停任务",
+            vec![paused],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "完成任务",
+            vec![complete],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "错误任务",
+            vec![error],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "磁链确认等待",
+            vec![confirmation_wait],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "种子缺失 metadata",
+            vec![missing_metadata],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "静态磁链",
+            vec![static_magnet],
+            Aria2ActivitySignals::default(),
+            true,
+        ),
+        (
+            "有效下载",
+            vec![active_download],
+            Aria2ActivitySignals::default(),
+            false,
+        ),
+        (
+            "metadata 解析",
+            vec![metadata_parsing],
+            Aria2ActivitySignals::default(),
+            false,
+        ),
+        (
+            "BT 做种",
+            vec![seeding],
+            Aria2ActivitySignals {
+                has_bt_upload: true,
+                ..Aria2ActivitySignals::default()
+            },
+            false,
+        ),
+        (
+            "在途任务操作",
+            Vec::new(),
+            Aria2ActivitySignals {
+                has_inflight_operation: true,
+                ..Aria2ActivitySignals::default()
+            },
+            false,
+        ),
+        (
+            "排队请求",
+            Vec::new(),
+            Aria2ActivitySignals {
+                has_queued_request: true,
+                ..Aria2ActivitySignals::default()
+            },
+            false,
+        ),
+    ];
 
-    assert!(activity.is_idle());
-    assert!(!activity.blocks_auto_stop());
-}
-
-#[test]
-fn manual_review_blocks_automatic_lifecycle_mutation() {
-    let activity = Aria2ActivitySnapshot {
-        requires_manual_review: true,
-        ..Aria2ActivitySnapshot::default()
-    };
-    let snapshot = Aria2LifecycleSnapshot {
-        phase: Aria2LifecyclePhase::Ready,
-        activity,
-        auto_stop_enabled: true,
-        consecutive_failures: 0,
-    };
-
-    assert!(!snapshot.can_auto_stop());
+    for (name, tasks, signals, expected_idle) in cases {
+        let activity = Aria2ActivitySnapshot::from_tasks(&tasks, signals);
+        assert_eq!(activity.is_idle(), expected_idle, "场景：{name}");
+        assert_eq!(activity.blocks_auto_stop(), !expected_idle, "场景：{name}");
+    }
 }
 
 #[test]

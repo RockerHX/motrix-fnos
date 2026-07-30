@@ -192,9 +192,18 @@ async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
 }
 
 #[tokio::test]
-async fn auto_stop_saves_session_and_clears_runtime_after_process_exit() {
+async fn auto_stop_allows_missing_metadata_record_and_clears_runtime() {
     let mock = MockAria2Server::spawn("complete").await;
     let state = ready_state(&mock).await;
+    let mut task = sample_task(DownloadTaskStatus::Complete);
+    task.source_type = crate::tasks::DownloadTaskSourceType::Torrent;
+    task.gid = None;
+    task.metadata_torrent_path = None;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("tasks should lock");
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
