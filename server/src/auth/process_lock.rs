@@ -19,6 +19,7 @@ impl ServerProcessLock {
         let lock_path = runtime_dir.join("motrix-fnos-server.lock");
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)

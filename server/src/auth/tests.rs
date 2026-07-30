@@ -36,13 +36,12 @@ fn password_hash_uses_argon2id_and_random_salts() {
 fn auth_service_supports_setup_change_protection_and_reset() {
     test_runtime().block_on(async {
         let (service, path) = test_service("lifecycle").await;
-        assert_eq!(
+        assert!(
             service
                 .state()
                 .await
                 .expect("state should load")
-                .setup_required,
-            true
+                .setup_required
         );
 
         let state = service
