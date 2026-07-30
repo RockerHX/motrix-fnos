@@ -181,6 +181,7 @@ pub struct Aria2LifecycleCoordinatorSnapshot {
     pub phase: Aria2LifecyclePhase,
     pub active_leases: usize,
     pub in_flight_requests: usize,
+    pub queued_requests: usize,
     pub cancellation_generation: u64,
     pub consecutive_failures: u32,
     pub retry_after: Option<Duration>,
@@ -193,6 +194,7 @@ struct CoordinatorState {
     next_lease_id: u64,
     active_leases: usize,
     in_flight_requests: usize,
+    queued_requests: usize,
     cancellation_generation: u64,
     consecutive_failures: u32,
     retry_at: Option<Instant>,
@@ -215,6 +217,7 @@ impl Aria2LifecycleCoordinator {
                 next_lease_id: 0,
                 active_leases: 0,
                 in_flight_requests: 0,
+                queued_requests: 0,
                 cancellation_generation: 0,
                 consecutive_failures: 0,
                 retry_at: None,
@@ -236,9 +239,21 @@ impl Aria2LifecycleCoordinator {
     pub async fn lock_lifecycle_operation_for_request(
         &self,
     ) -> Result<tokio::sync::MutexGuard<'_, ()>, String> {
-        tokio::time::timeout(self.policy.request_wait_timeout, self.operation.lock())
+        let queued_request = self.begin_queued_request()?;
+        let result = tokio::time::timeout(self.policy.request_wait_timeout, self.operation.lock())
             .await
-            .map_err(|_| "等待 Aria2 生命周期转换超时，请稍后重试".to_string())
+            .map_err(|_| "等待 Aria2 生命周期转换超时，请稍后重试".to_string());
+        drop(queued_request);
+        result
+    }
+
+    fn begin_queued_request(&self) -> Result<QueuedRequestGuard<'_>, String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "无法记录 Aria2 排队请求".to_string())?;
+        state.queued_requests = state.queued_requests.saturating_add(1);
+        Ok(QueuedRequestGuard { coordinator: self })
     }
 
     pub fn snapshot(&self) -> Result<Aria2LifecycleCoordinatorSnapshot, String> {
@@ -255,6 +270,7 @@ impl Aria2LifecycleCoordinator {
             phase: state.phase,
             active_leases: state.active_leases,
             in_flight_requests: state.in_flight_requests,
+            queued_requests: state.queued_requests,
             cancellation_generation: state.cancellation_generation,
             consecutive_failures: state.consecutive_failures,
             retry_after,
@@ -367,6 +383,21 @@ impl Aria2LifecycleCoordinator {
 impl Default for Aria2LifecycleCoordinator {
     fn default() -> Self {
         Self::new(Aria2LifecyclePolicy::default())
+    }
+}
+
+struct QueuedRequestGuard<'a> {
+    coordinator: &'a Aria2LifecycleCoordinator,
+}
+
+impl Drop for QueuedRequestGuard<'_> {
+    fn drop(&mut self) {
+        let Ok(mut state) = self.coordinator.state.lock() else {
+            return;
+        };
+        state.queued_requests = state.queued_requests.saturating_sub(1);
+        drop(state);
+        self.coordinator.changes.notify_waiters();
     }
 }
 

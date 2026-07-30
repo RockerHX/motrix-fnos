@@ -1,11 +1,30 @@
+use super::status::process_status;
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::HttpAppState;
 use crate::aria2::{save_session, terminate_process};
+use crate::database::tasks::persist_download_task_states;
 use crate::debug_logs::DebugLogStore;
 use crate::runtime::{Aria2ActivitySignals, Aria2ActivitySnapshot, Aria2LifecyclePhase};
-use crate::tasks::list_tasks;
+use crate::tasks::{list_tasks, tell_active_task_activity, DownloadTask, DownloadTaskSourceType};
+use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Aria2StopError {
+    Busy(String),
+    Failed(String),
+}
+
+impl fmt::Display for Aria2StopError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Busy(message) | Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for Aria2StopError {}
 
 pub fn stop_process(
     process: &Mutex<Option<ManagedAria2Process>>,
@@ -24,7 +43,7 @@ pub fn stop_process_with_timeout(
         "无法写入 Aria2 进程状态".to_string()
     })?;
 
-    if let Some(mut child) = guard.take() {
+    if let Some(child) = guard.as_mut() {
         let pid = child.id();
         if !child.is_running()? {
             debug_logs.warn(
@@ -47,6 +66,7 @@ pub fn stop_process_with_timeout(
             }
             debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
         }
+        let _ = guard.take();
     } else {
         debug_logs.info("aria2", "停止 Aria2 进程：当前没有运行中的进程");
     }
@@ -59,21 +79,52 @@ pub fn stop_process_with_timeout(
     })
 }
 
-pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
+pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Aria2StopError> {
+    stop_aria2_inner(state, true).await
+}
+
+pub(crate) async fn stop_aria2_after_shutdown(
+    state: &HttpAppState,
+) -> Result<Aria2ProcessStatus, Aria2StopError> {
+    stop_aria2_inner(state, false).await
+}
+
+async fn stop_aria2_inner(
+    state: &HttpAppState,
+    save_session_before_stop: bool,
+) -> Result<Aria2ProcessStatus, Aria2StopError> {
     let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
-    let snapshot = state.aria2_lifecycle.snapshot()?;
+    let snapshot = state
+        .aria2_lifecycle
+        .snapshot()
+        .map_err(Aria2StopError::Failed)?;
     if snapshot.in_flight_requests > 0 {
-        return Err(format!(
+        return Err(Aria2StopError::Busy(format!(
             "Aria2 仍有 {} 个在途 RPC 请求，暂不能停止",
             snapshot.in_flight_requests
+        )));
+    }
+    if !current_activity_snapshot(state)
+        .await
+        .map_err(Aria2StopError::Failed)?
+        .is_idle()
+    {
+        return Err(Aria2StopError::Busy(
+            "Aria2 仍有活动、在途操作或人工处理状态，暂不能停止".to_string(),
         ));
     }
-    if !current_activity_snapshot(state)?.is_idle() {
-        return Err("Aria2 仍有活动、在途操作或人工处理状态，暂不能停止".to_string());
+    if save_session_before_stop && state.aria2_runtime_snapshot().is_some() {
+        let config = state.aria2_config();
+        save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs))
+            .await
+            .map_err(|error| {
+                Aria2StopError::Failed(format!("手动停止前保存 Aria2 session 失败：{}", error))
+            })?;
     }
     state
         .aria2_lifecycle
-        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)?;
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)
+        .map_err(Aria2StopError::Failed)?;
 
     match stop_process_with_timeout(
         &state.aria2_process,
@@ -84,14 +135,15 @@ pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Stri
             state.clear_aria2_runtime();
             state
                 .aria2_lifecycle
-                .set_phase(crate::runtime::Aria2LifecyclePhase::Stopped)?;
+                .set_phase(crate::runtime::Aria2LifecyclePhase::Stopped)
+                .map_err(Aria2StopError::Failed)?;
             Ok(status)
         }
         Err(error) => {
             let _ = state
                 .aria2_lifecycle
                 .set_phase(crate::runtime::Aria2LifecyclePhase::Faulted);
-            Err(error)
+            Err(Aria2StopError::Failed(error))
         }
     }
 }
@@ -101,18 +153,23 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
     if state.core.shutdown.is_exiting() {
         return Err("服务正在退出，跳过 Aria2 自动停止".to_string());
     }
-    ensure_auto_stop_idle(state)?;
+    ensure_auto_stop_idle(state).await?;
 
     if state.aria2_runtime_snapshot().is_none() {
         return Err("Aria2 运行态不存在，跳过自动停止".to_string());
     }
+
+    let tasks = list_tasks(&state.core.download_tasks)?;
+    persist_download_task_states(&state.core.database.pool, &tasks)
+        .await
+        .map_err(|error| format!("自动停止前持久化任务状态失败：{}", error))?;
 
     let config = state.aria2_config();
     save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs))
         .await
         .map_err(|error| format!("自动停止前保存 Aria2 session 失败：{}", error))?;
 
-    ensure_auto_stop_idle(state)?;
+    ensure_auto_stop_idle(state).await?;
     state
         .aria2_lifecycle
         .set_phase(Aria2LifecyclePhase::Stopping)?;
@@ -138,7 +195,7 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
     }
 }
 
-fn ensure_auto_stop_idle(state: &HttpAppState) -> Result<(), String> {
+async fn ensure_auto_stop_idle(state: &HttpAppState) -> Result<(), String> {
     let coordinator = state.aria2_lifecycle.snapshot()?;
     if !matches!(
         coordinator.phase,
@@ -149,32 +206,63 @@ fn ensure_auto_stop_idle(state: &HttpAppState) -> Result<(), String> {
             coordinator.phase
         ));
     }
-    if coordinator.active_leases > 0 || coordinator.in_flight_requests > 0 {
+    if coordinator.active_leases > 0
+        || coordinator.in_flight_requests > 0
+        || coordinator.queued_requests > 0
+    {
         return Err(format!(
-            "Aria2 仍有在途生命周期操作（租约 {}，RPC {}），暂不能自动停止",
-            coordinator.active_leases, coordinator.in_flight_requests
+            "Aria2 仍有在途生命周期操作（租约 {}，RPC {}，排队 {}），暂不能自动停止",
+            coordinator.active_leases, coordinator.in_flight_requests, coordinator.queued_requests
         ));
     }
 
-    let activity = current_activity_snapshot(state)?;
+    let activity = current_activity_snapshot(state).await?;
     if !activity.is_idle() {
         return Err("Aria2 仍有活动、在途操作或人工处理状态，暂不能自动停止".to_string());
     }
     Ok(())
 }
 
-pub(crate) fn current_activity_snapshot(
+pub(crate) async fn current_activity_snapshot(
     state: &HttpAppState,
 ) -> Result<Aria2ActivitySnapshot, String> {
     let tasks = list_tasks(&state.core.download_tasks)?;
     let active_operation_count = state.core.download_tasks.active_operation_count()?;
+    let coordinator = state.aria2_lifecycle.snapshot()?;
+    let process = process_status(&state.aria2_process)?;
+    let has_bt_upload = process.running
+        && state.aria2_runtime_snapshot().is_some()
+        && tasks.iter().any(is_bt_activity_candidate)
+        && tell_active_task_activity(
+            &state.aria2_rpc,
+            &state.aria2_config(),
+            Some(&state.core.debug_logs),
+        )
+        .await?
+        .iter()
+        .any(|task| task.is_bt_uploading());
     Ok(Aria2ActivitySnapshot::from_tasks(
         &tasks,
         Aria2ActivitySignals {
+            has_bt_upload,
             has_inflight_operation: active_operation_count > 0,
+            has_queued_request: coordinator.queued_requests > 0,
             ..Aria2ActivitySignals::default()
         },
     ))
+}
+
+fn is_bt_activity_candidate(task: &DownloadTask) -> bool {
+    task.status != crate::tasks::DownloadTaskStatus::Removed
+        && task
+            .gid
+            .as_deref()
+            .map(|gid| !gid.trim().is_empty())
+            .unwrap_or(false)
+        && matches!(
+            task.source_type,
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
+        )
 }
 
 #[cfg(unix)]

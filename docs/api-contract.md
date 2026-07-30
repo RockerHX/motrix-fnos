@@ -211,6 +211,10 @@ Session 与 Cookie 约定：
 | `POST` | `/api/aria2/start` | 启动受管 Aria2 | `Aria2ProcessStatus` |
 | `POST` | `/api/aria2/stop` | 停止受管 Aria2 | `Aria2ProcessStatus` |
 
+上述读取接口不得因为查询启动 Aria2。`/api/aria2/rpc` 在 Aria2 停止时直接返回 `connected=false` 的停止态，不发起 RPC 探测。
+需要 Aria2 的任务操作、外部 `aria2.addUri`、启动恢复和后台监控统一经过生命周期协调器；不需要引擎的回收站永久删除等操作保持独立。
+`POST /api/aria2/stop` 遇到活动任务、metadata、在途操作或排队请求时返回 `409 Conflict`，错误码为 `aria2_busy`，不隐式暂停任务。空闲停止先保存必要状态和 session，确认进程退出后才清除运行态；保存或停止失败时保留运行态并返回 `503 Service Unavailable`，错误码为 `aria2_stop_failed`，客户端可以重试。
+
 ### 4.4 任务
 
 | 方法 | 路径 | 请求 | 响应 |
@@ -519,14 +523,14 @@ Session 与 Cookie 约定：
 | JSON-RPC 方法 | 鉴权 | 说明 |
 | --- | --- | --- |
 | `aria2.addUri` | 需要 `jsonRpcToken` | 添加 HTTP/HTTPS 或磁力链接下载任务，成功返回 Aria2 GID |
-| `aria2.getVersion` | 不需要 | 连通性测试，返回版本与空 `enabledFeatures` |
+| `aria2.getVersion` | 不需要 | 运行时返回版本与空 `enabledFeatures`；已停止时不启动 Aria2，返回 `-32003` 和 `Aria2 未运行`；正在停止时返回 `-32004` 和 `Aria2 正在停止，请稍后重试` |
 | `system.multicall` | 子调用按方法校验 | 批量执行；其中每个 `aria2.addUri` 子调用都必须携带有效 token |
 
 鉴权约定：
 
 - `jsonRpcToken` 通过 `/api/settings/jsonrpc-token` 专用接口更新，不是 Web 管理密码或 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
-- `aria2.getVersion` 保持匿名可用，便于外网连通性测试。
+- `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的 `-32003` 错误，在正在停止时使用相同的 `-32004` 错误。
 - `system.multicall` 外层 token 会被忽略；每个 `aria2.addUri` 子调用仍需在自身 `params` 中携带 token。
 
 `aria2.addUri` 示例：

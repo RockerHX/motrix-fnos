@@ -4,6 +4,7 @@ use crate::aria2::{ping_rpc, Aria2ConfigStatus};
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::{
     process_status, resolve_aria2_binary, start_aria2, stop_aria2, Aria2ProcessStatus,
+    Aria2StopError,
 };
 use axum::extract::State;
 use axum::routing::{get, post};
@@ -89,7 +90,7 @@ async fn stop_aria2_process(
     ensure_runtime_not_exiting(&state)?;
     let status = stop_aria2(&state)
         .await
-        .map_err(|error| ApiError::internal("aria2_stop_failed", error))?;
+        .map_err(classify_aria2_stop_error)?;
     Ok(Json(status))
 }
 
@@ -110,4 +111,13 @@ fn classify_aria2_start_error(error: String) -> ApiError {
     }
 
     ApiError::internal("aria2_start_failed", error)
+}
+
+fn classify_aria2_stop_error(error: Aria2StopError) -> ApiError {
+    match error {
+        Aria2StopError::Busy(message) => ApiError::conflict("aria2_busy", message),
+        Aria2StopError::Failed(message) => {
+            ApiError::service_unavailable("aria2_stop_failed", message)
+        }
+    }
 }

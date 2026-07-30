@@ -552,7 +552,7 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
     let start_status = start_result.expect("manual start should succeed");
     assert_eq!(start_status.pid, Some(pid));
     let stop_error = stop_result.expect_err("manual stop should reject in-flight addUri");
-    assert!(stop_error.contains("在途 RPC 请求"));
+    assert!(stop_error.to_string().contains("在途 RPC 请求"));
     let auto_stop_error = auto_stop_result.expect_err("auto stop should reject in-flight addUri");
     assert!(auto_stop_error.contains("在途生命周期操作"));
     assert_eq!(
@@ -564,7 +564,9 @@ async fn lifecycle_operations_race_without_duplicate_external_task() {
     assert!(process_still_owned);
     let task_stop_error =
         manual_stop_with_task.expect_err("manual stop should reject an active task");
-    assert!(task_stop_error.contains("活动、在途操作或人工处理状态"));
+    assert!(task_stop_error
+        .to_string()
+        .contains("活动、在途操作或人工处理状态"));
 }
 
 #[tokio::test]

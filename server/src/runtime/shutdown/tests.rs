@@ -91,6 +91,97 @@ async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
 }
 
 #[tokio::test]
+async fn manual_stop_saves_session_once_before_stopping_idle_aria2() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    crate::runtime::stop_aria2(&state)
+        .await
+        .expect("manual stop should succeed");
+
+    assert_eq!(mock.save_session_calls(), 1);
+    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    mock.abort();
+}
+
+#[tokio::test]
+async fn manual_stop_preserves_runtime_when_session_save_fails() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    mock.fail_session();
+
+    let error = crate::runtime::stop_aria2(&state)
+        .await
+        .expect_err("session failure should reject manual stop");
+
+    assert!(error
+        .to_string()
+        .contains("手动停止前保存 Aria2 session 失败"));
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some());
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
+    mock.abort();
+}
+
+#[tokio::test]
+async fn manual_stop_rejects_bt_seeding_activity() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            let mut task = sample_task(DownloadTaskStatus::Complete);
+            task.source_type = crate::tasks::DownloadTaskSourceType::Torrent;
+            task.gid = Some("gid-bt".to_string());
+            task.metadata_torrent_path = Some("/app-data/task.torrent".to_string());
+            tasks.push(task);
+        })
+        .expect("tasks should be writable");
+    mock.enable_bt_upload();
+
+    let error = crate::runtime::stop_aria2(&state)
+        .await
+        .expect_err("BT seeding should keep Aria2 running");
+
+    assert!(error.to_string().contains("活动、在途操作或人工处理状态"));
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some());
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
+    mock.abort();
+}
+
+#[tokio::test]
 async fn shutdown_wins_over_auto_stop_and_keeps_pause_semantics() {
     let mock = MockAria2Server::spawn().await;
     let state = ready_state(&mock).await;
@@ -144,6 +235,68 @@ async fn auto_stop_preserves_runtime_when_session_save_fails() {
         .expect_err("session failure should reject auto stop");
 
     assert!(error.contains("保存 Aria2 session 失败"));
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_some());
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
+    mock.abort();
+}
+
+#[tokio::test]
+async fn auto_stop_persists_task_state_before_saving_session() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Complete)))
+        .expect("tasks should be writable");
+
+    crate::runtime::auto_stop_aria2(&state)
+        .await
+        .expect("auto stop should persist task state and succeed");
+
+    let stored_tasks = list_download_tasks(&state.core.database.pool)
+        .await
+        .expect("stored tasks should load");
+    assert_eq!(stored_tasks.len(), 1);
+    assert_eq!(stored_tasks[0].status, DownloadTaskStatus::Complete);
+    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+
+    state.core.database.pool.close().await;
+    mock.abort();
+}
+
+#[tokio::test]
+async fn auto_stop_preserves_runtime_when_task_state_persist_fails() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Complete)))
+        .expect("tasks should be writable");
+    state.core.database.pool.close().await;
+
+    let error = crate::runtime::auto_stop_aria2(&state)
+        .await
+        .expect_err("task state persistence failure should reject auto stop");
+
+    assert!(error.contains("自动停止前持久化任务状态失败"));
+    assert_eq!(mock.save_session_calls(), 0);
     assert!(state.aria2_runtime_snapshot().is_some());
     assert!(state
         .aria2_process
@@ -294,6 +447,10 @@ impl MockAria2Server {
         self.state.fail_save_session.store(true, Ordering::SeqCst);
     }
 
+    fn enable_bt_upload(&self) {
+        self.state.bt_upload_active.store(true, Ordering::SeqCst);
+    }
+
     fn abort(self) {
         self.handle.abort();
     }
@@ -305,6 +462,7 @@ struct MockAria2State {
     pause_calls: AtomicU64,
     save_session_calls: AtomicU64,
     fail_save_session: AtomicBool,
+    bt_upload_active: AtomicBool,
 }
 
 impl Default for MockAria2State {
@@ -324,6 +482,7 @@ impl Default for MockAria2State {
             pause_calls: AtomicU64::new(0),
             save_session_calls: AtomicU64::new(0),
             fail_save_session: AtomicBool::new(false),
+            bt_upload_active: AtomicBool::new(false),
         }
     }
 }
@@ -398,6 +557,20 @@ async fn mock_aria2_rpc(
                 })
             } else {
                 json!({ "result": "OK" })
+            }
+        }
+        "aria2.tellActive" => {
+            if state.bt_upload_active.load(Ordering::SeqCst) {
+                json!({
+                    "result": [{
+                        "gid": "gid-bt",
+                        "uploadSpeed": "32",
+                        "seeder": true,
+                        "bittorrent": {}
+                    }]
+                })
+            } else {
+                json!({ "result": [] })
             }
         }
         _ => json!({ "result": "ok" }),

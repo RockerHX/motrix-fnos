@@ -125,14 +125,14 @@ async fn maybe_auto_stop(
         return Ok(());
     }
 
-    let activity = current_activity_snapshot(state)?;
+    let activity = current_activity_snapshot(state).await?;
     if !idle_stop.observe(activity, Instant::now(), policy.idle_debounce) {
         return Ok(());
     }
 
     // 防抖窗口结束后重新读取一次内存和生命周期状态，避免把短暂空闲误判为可停止。
     idle_stop.reset();
-    if !current_activity_snapshot(state)?.is_idle() {
+    if !current_activity_snapshot(state).await?.is_idle() {
         return Ok(());
     }
 

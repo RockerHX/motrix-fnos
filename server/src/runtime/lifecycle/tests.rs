@@ -227,6 +227,37 @@ async fn request_lifecycle_lock_times_out_with_retryable_error() {
     assert!(error.contains("请稍后重试"));
 }
 
+#[tokio::test]
+async fn coordinator_reports_requests_waiting_for_lifecycle_lock() {
+    let coordinator = Arc::new(Aria2LifecycleCoordinator::default());
+    let operation = coordinator.lock_lifecycle_operation().await;
+    let waiting_coordinator = Arc::clone(&coordinator);
+    let waiting_request = tokio::spawn(async move {
+        let _operation = waiting_coordinator
+            .lock_lifecycle_operation_for_request()
+            .await
+            .expect("queued request should acquire the lifecycle lock");
+    });
+
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    assert_eq!(
+        coordinator
+            .snapshot()
+            .expect("snapshot should load")
+            .queued_requests,
+        1
+    );
+    drop(operation);
+    let _ = waiting_request.await.expect("queued request should join");
+    assert_eq!(
+        coordinator
+            .snapshot()
+            .expect("snapshot should load")
+            .queued_requests,
+        0
+    );
+}
+
 #[test]
 fn lifecycle_failure_state_uses_bounded_backoff_and_clears_on_success() {
     assert_eq!(

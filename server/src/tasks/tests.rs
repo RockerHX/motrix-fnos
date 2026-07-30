@@ -1,3 +1,4 @@
+use super::aria2_rpc::query::Aria2ActiveTaskActivity;
 use super::refresh::{
     ensure_pause_status_settled, is_stale_aria2_gid_status, pause_status_is_settled,
 };
@@ -1071,6 +1072,33 @@ fn aria2_status_deserializes_file_index_from_string() {
     assert_eq!(task.files.len(), 1);
     assert_eq!(task.files[0].index, 1);
     assert_eq!(task.files[0].name, "archlinux.iso");
+}
+
+#[test]
+fn active_task_activity_detects_bt_seeding_and_upload_speed() {
+    let seeding: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "0",
+        "seeder": true,
+        "bittorrent": {}
+    }))
+    .expect("seeding activity should deserialize");
+    assert!(seeding.is_bt_uploading());
+
+    let uploading: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "128",
+        "seeder": false,
+        "bittorrent": {}
+    }))
+    .expect("upload activity should deserialize");
+    assert!(uploading.is_bt_uploading());
+
+    let idle: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "0",
+        "seeder": false,
+        "bittorrent": {}
+    }))
+    .expect("idle activity should deserialize");
+    assert!(!idle.is_bt_uploading());
 }
 
 #[test]

@@ -16,7 +16,6 @@ mod status;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::find_single_torrent_file;
-pub(crate) use aria2_rpc::is_aria2_outcome_unknown_error;
 pub(crate) use aria2_rpc::task_exists;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
@@ -24,6 +23,7 @@ pub use aria2_rpc::{
     pause_task_with_request_id, remove_task, remove_task_with_request_id, unpause_task,
     unpause_task_with_request_id, Aria2TaskCreationError,
 };
+pub(crate) use aria2_rpc::{is_aria2_outcome_unknown_error, tell_active_task_activity};
 pub use files::{delete_task_files, validate_task_files};
 use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};
 pub use model::{

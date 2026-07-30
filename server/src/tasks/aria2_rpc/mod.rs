@@ -1,6 +1,6 @@
 mod control;
 mod create;
-mod query;
+pub(crate) mod query;
 mod transport;
 
 pub(crate) use control::is_aria2_outcome_unknown_error;
@@ -16,5 +16,6 @@ pub use create::{add_torrent_to_aria2, add_uri_to_aria2, Aria2TaskCreationError}
 pub(crate) use create::{build_add_torrent_request, build_add_uri_request};
 pub(crate) use create::{build_add_torrent_request_with_id, build_add_uri_request_with_id};
 pub(crate) use query::{
-    build_tell_many_request, build_tell_status_request, task_exists, tell_status,
+    build_tell_many_request, build_tell_status_request, task_exists, tell_active_task_activity,
+    tell_status,
 };

@@ -11,6 +11,7 @@ use crate::auth::SessionKind;
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
+use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use axum::body::to_bytes;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::StatusCode;
@@ -634,6 +635,33 @@ async fn aria2_rpc_status_does_not_probe_stopped_or_unconfirmed_runtime() {
 }
 
 #[tokio::test]
+async fn aria2_stop_returns_busy_conflict_for_active_task() {
+    let state = test_state(None).await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(active_task_for_stop()))
+        .expect("tasks should be writable");
+    let app = management_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(authorized_request(&state, "POST", "/api/aria2/stop", Body::empty()).await)
+            .await
+            .expect("response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+
+    assert_eq!(error.code, "aria2_busy");
+    assert!(error.message.contains("活动、在途操作或人工处理状态"));
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();
@@ -1252,3 +1280,30 @@ fn temp_dir(label: &str) -> PathBuf {
 }
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn active_task_for_stop() -> DownloadTask {
+    DownloadTask {
+        id: 1,
+        url: "https://example.com/active.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
+        file_name: "active.zip".to_string(),
+        save_dir: "/tmp/downloads".to_string(),
+        owned_task_dir: None,
+        category: "默认".to_string(),
+        gid: Some("gid-active".to_string()),
+        status: DownloadTaskStatus::Active,
+        total_length: 1,
+        completed_length: 0,
+        download_speed: 0,
+        error_code: None,
+        error_message: None,
+        file_path: Some("/tmp/downloads/active.zip".to_string()),
+        metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }
+}
