@@ -235,6 +235,7 @@ Session 与 Cookie 约定：
 约定：
 
 - `GET /api/tasks` 只返回未删除任务。
+- 普通 `GET /api/tasks` 和 WebUI 普通刷新只返回内存任务快照，不启动 Aria2 或执行无变化完整持久化；活动任务由后台监控或明确任务操作刷新，不新增独立同步 API。
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
