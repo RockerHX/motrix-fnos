@@ -126,7 +126,9 @@ pub(crate) enum Aria2RpcError {
 impl fmt::Display for Aria2RpcError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Lifecycle(error) => write!(formatter, "Aria2 生命周期请求被拒绝：{error}"),
+            Self::Lifecycle(error) => {
+                write!(formatter, "Aria2 生命周期请求被拒绝（可重试）：{error}")
+            }
             Self::ConnectionFailed(error) => write!(formatter, "Aria2 RPC 连接失败：{error}"),
             Self::OutcomeUnknown(error) => write!(
                 formatter,

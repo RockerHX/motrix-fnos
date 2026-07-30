@@ -35,7 +35,8 @@ async fn lifecycle_bound_rpc_client_rejects_requests_during_stop_without_probing
         .await
         .expect_err("stopping lifecycle should reject RPC requests");
 
-    assert!(matches!(error, Aria2RpcError::Lifecycle(_)));
+    assert!(matches!(&error, Aria2RpcError::Lifecycle(_)));
+    assert!(error.to_string().contains("可重试"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     handle.abort();
 }

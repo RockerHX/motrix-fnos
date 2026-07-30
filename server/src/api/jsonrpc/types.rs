@@ -53,6 +53,13 @@ impl RpcFault {
         }
     }
 
+    pub(super) fn aria2_busy(message: impl Into<String>) -> Self {
+        Self {
+            code: -32004,
+            message: message.into(),
+        }
+    }
+
     pub(super) fn token_invalid() -> Self {
         Self {
             code: -32001,

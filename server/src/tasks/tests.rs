@@ -456,6 +456,10 @@ fn task_operation_guard_rejects_parallel_operation_and_releases_on_drop() {
     let guard = tasks
         .begin_operation(1)
         .expect("first operation should lock");
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        1
+    );
 
     let error = match tasks.begin_operation(1) {
         Ok(_) => panic!("parallel operation should reject"),
@@ -466,9 +470,17 @@ fn task_operation_guard_rejects_parallel_operation_and_releases_on_drop() {
     let different_task_guard = tasks
         .begin_operation(2)
         .expect("different task should lock independently");
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        2
+    );
 
     drop(guard);
     drop(different_task_guard);
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        0
+    );
     tasks
         .begin_operation(1)
         .expect("operation should unlock after guard drop");

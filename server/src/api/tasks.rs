@@ -318,6 +318,9 @@ fn classify_aria2_ready_error(error: String) -> ApiError {
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }
+    if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝") {
+        return ApiError::conflict("aria2_busy", error);
+    }
     if error.contains("端口范围")
         || error.contains("已被其他进程占用")
         || error.contains("RPC 未就绪")
@@ -330,6 +333,9 @@ fn classify_aria2_ready_error(error: String) -> ApiError {
 fn classify_task_error(error: String) -> ApiError {
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
+    }
+    if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝") {
+        return ApiError::conflict("aria2_busy", error);
     }
     if error.contains("已有操作正在进行") {
         return ApiError::conflict("task_operation_conflict", error);

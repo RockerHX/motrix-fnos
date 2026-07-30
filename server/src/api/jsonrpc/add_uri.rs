@@ -42,9 +42,14 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
         .ensure_not_exiting()
         .map_err(RpcFault::server_error)?;
 
-    let config = ensure_aria2_ready(state)
-        .await
-        .map_err(RpcFault::server_error)?;
+    let config = ensure_aria2_ready(state).await.map_err(|error| {
+        if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝")
+        {
+            RpcFault::aria2_busy(error)
+        } else {
+            RpcFault::server_error(error)
+        }
+    })?;
     let task = service
         .create_download_task(
             &config,

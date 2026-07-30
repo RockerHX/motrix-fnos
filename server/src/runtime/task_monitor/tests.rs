@@ -14,6 +14,47 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+#[test]
+fn idle_stop_debouncer_requires_full_window_and_resets_on_activity() {
+    let start = Instant::now();
+    let mut debouncer = IdleStopDebouncer::default();
+    let idle = crate::runtime::Aria2ActivitySnapshot::default();
+    let busy = crate::runtime::Aria2ActivitySnapshot {
+        has_active_task: true,
+        ..crate::runtime::Aria2ActivitySnapshot::default()
+    };
+
+    assert!(!debouncer.observe(idle, start, Duration::from_secs(30)));
+    assert!(!debouncer.observe(
+        idle,
+        start + Duration::from_secs(29),
+        Duration::from_secs(30)
+    ));
+    assert!(debouncer.observe(
+        idle,
+        start + Duration::from_secs(30),
+        Duration::from_secs(30)
+    ));
+    assert!(!debouncer.observe(busy, start + Duration::from_secs(31), Duration::ZERO));
+    assert!(!debouncer.observe(
+        idle,
+        start + Duration::from_secs(31),
+        Duration::from_secs(30)
+    ));
+}
+
+#[test]
+fn idle_stop_debouncer_suppresses_duplicate_failure_logs() {
+    let start = Instant::now();
+    let mut debouncer = IdleStopDebouncer::default();
+
+    assert!(debouncer.should_log_failure("session 失败", start));
+    assert!(!debouncer.should_log_failure("session 失败", start + Duration::from_secs(5)));
+    assert!(debouncer.should_log_failure("session 失败", start + Duration::from_secs(10)));
+    assert!(debouncer.should_log_failure("其他失败", start + Duration::from_secs(11)));
+}
 
 #[tokio::test]
 async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
@@ -148,6 +189,31 @@ async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
 
     state.core.database.pool.close().await;
     let _ = std::fs::remove_dir_all(app_data_dir);
+}
+
+#[tokio::test]
+async fn auto_stop_saves_session_and_clears_runtime_after_process_exit() {
+    let mock = MockAria2Server::spawn("complete").await;
+    let state = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    auto_stop_aria2(&state)
+        .await
+        .expect("auto stop should succeed");
+
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(!state.core.aria2_runtime_path.exists());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+
+    state.core.database.pool.close().await;
+    mock.abort();
 }
 
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {

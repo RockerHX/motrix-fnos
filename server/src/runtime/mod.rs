@@ -4,13 +4,16 @@ pub mod shutdown;
 pub mod task_monitor;
 mod task_operation_reconcile;
 
+pub(crate) use aria2_process::current_activity_snapshot;
 pub use aria2_process::{
-    ensure_aria2_ready, process_status, resolve_aria2_binary, start_aria2, start_process,
-    stop_aria2, stop_process, Aria2ProcessStatus, ManagedAria2Process, ResolvedAria2Binary,
+    auto_stop_aria2, ensure_aria2_ready, process_status, resolve_aria2_binary, start_aria2,
+    start_process, stop_aria2, stop_process, stop_process_with_timeout, Aria2ProcessStatus,
+    ManagedAria2Process, ResolvedAria2Binary,
 };
 pub use lifecycle::{
-    Aria2Lease, Aria2LeaseKind, Aria2LifecycleCoordinator, Aria2LifecycleCoordinatorSnapshot,
-    Aria2LifecyclePhase, Aria2LifecyclePolicy, Aria2LifecycleSnapshot,
+    Aria2ActivitySignals, Aria2ActivitySnapshot, Aria2Lease, Aria2LeaseKind,
+    Aria2LifecycleCoordinator, Aria2LifecycleCoordinatorSnapshot, Aria2LifecyclePhase,
+    Aria2LifecyclePolicy, Aria2LifecycleSnapshot,
 };
 pub use shutdown::run_shutdown_cleanup;
 pub(crate) use task_monitor::current_tasks_snapshot;

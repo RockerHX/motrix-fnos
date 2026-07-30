@@ -44,6 +44,13 @@ impl TaskMemoryState {
             .map_err(|_| "无法读取下载任务列表".to_string())
     }
 
+    pub fn active_operation_count(&self) -> Result<usize, String> {
+        self.active_operations
+            .lock()
+            .map(|operations| operations.len())
+            .map_err(|_| "无法读取任务操作状态".to_string())
+    }
+
     pub fn with_tasks_mut<T>(
         &self,
         update: impl FnOnce(&mut Vec<DownloadTask>) -> T,

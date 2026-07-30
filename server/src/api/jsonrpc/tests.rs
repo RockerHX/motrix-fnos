@@ -191,6 +191,22 @@ async fn get_version_returns_stopped_state_without_starting_aria2() {
 }
 
 #[tokio::test]
+async fn get_version_returns_retryable_busy_state_during_aria2_stop() {
+    let state = test_state().await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)
+        .expect("lifecycle should enter stopping");
+
+    let error = execute_method(&state, "aria2.getVersion", &json!([]))
+        .await
+        .expect_err("stopping Aria2 should return a retryable protocol error");
+
+    assert_eq!(error.code, -32004);
+    assert_eq!(error.message, "Aria2 正在停止，请稍后重试");
+}
+
+#[tokio::test]
 async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     let state = test_state().await;
     let listener = TcpListener::bind("127.0.0.1:0")

@@ -85,6 +85,17 @@ pub(super) async fn execute_method(
 }
 
 async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
+    if state
+        .aria2_lifecycle
+        .snapshot()
+        .map_err(RpcFault::server_error)?
+        .phase
+        == crate::runtime::Aria2LifecyclePhase::Stopping
+    {
+        return Err(RpcFault::aria2_busy(
+            "Aria2 正在停止，请稍后重试".to_string(),
+        ));
+    }
     let process = process_status(&state.aria2_process).map_err(RpcFault::server_error)?;
     let Some(runtime) = state.aria2_runtime_snapshot() else {
         return Err(RpcFault::aria2_not_running());

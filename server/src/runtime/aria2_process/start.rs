@@ -82,7 +82,10 @@ pub fn start_process(
 }
 
 pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, String> {
-    let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    let _operation = state
+        .aria2_lifecycle
+        .lock_lifecycle_operation_for_request()
+        .await?;
     ensure_aria2_ready_locked(state).await
 }
 
@@ -214,7 +217,10 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
 }
 
 pub async fn start_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
-    let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    let _operation = state
+        .aria2_lifecycle
+        .lock_lifecycle_operation_for_request()
+        .await?;
     let _config = ensure_aria2_ready_locked(state).await?;
     let status = process_status(&state.aria2_process)?;
     if !status.running {
