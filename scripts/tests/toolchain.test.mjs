@@ -10,11 +10,12 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const buildScript = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
 
-  assert.equal(packageJson.packageManager, 'pnpm@11.11.0');
+  assert.equal(packageJson.packageManager, 'pnpm@11.17.0');
   assert.match(nodeVersion, /^22\.\d+\.\d+$/);
-  assert.match(rustToolchain, /channel\s*=\s*"1\.93\.0"/);
+  assert.match(rustToolchain, /channel\s*=\s*"1\.97\.1"/);
   for (const workflow of [verifyWorkflow, releaseWorkflow]) {
-    assert.match(workflow, /toolchain:\s+1\.93\.0/);
+    assert.match(workflow, /version:\s+11\.17\.0/);
+    assert.match(workflow, /toolchain:\s+1\.97\.1/);
     assert.match(workflow, /node-version-file:\s+\.node-version/);
     assert.match(workflow, /pnpm install --frozen-lockfile/);
   }
