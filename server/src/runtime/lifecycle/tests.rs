@@ -379,6 +379,32 @@ fn lifecycle_failure_state_uses_bounded_backoff_and_clears_on_success() {
     assert_eq!(snapshot.last_error, None);
 }
 
+#[tokio::test]
+async fn lifecycle_failure_backoff_does_not_block_user_work() {
+    let coordinator = Arc::new(Aria2LifecycleCoordinator::default());
+    coordinator
+        .record_failure("后台探测失败")
+        .expect("failure should be recorded");
+
+    let activity = coordinator
+        .acquire_activity()
+        .expect("user activity should ignore background backoff");
+    let operation = coordinator
+        .lock_lifecycle_operation_for_request()
+        .await
+        .expect("user lifecycle request should ignore background backoff");
+
+    assert_eq!(
+        coordinator
+            .snapshot()
+            .expect("snapshot should load")
+            .consecutive_failures,
+        1
+    );
+    drop(operation);
+    drop(activity);
+}
+
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,

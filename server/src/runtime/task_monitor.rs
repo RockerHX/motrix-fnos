@@ -8,12 +8,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const TASK_MONITOR_INTERVAL: Duration = Duration::from_millis(500);
-const TASK_MONITOR_ERROR_LOG_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Default)]
 struct IdleStopDebouncer {
     idle_since: Option<Instant>,
-    last_failure: Option<(String, Instant)>,
 }
 
 impl IdleStopDebouncer {
@@ -35,28 +33,10 @@ impl IdleStopDebouncer {
     fn reset(&mut self) {
         self.idle_since = None;
     }
-
-    fn should_log_failure(&mut self, error: &str, now: Instant) -> bool {
-        let should_log = match self.last_failure.as_ref() {
-            Some((last_error, logged_at))
-                if last_error == error
-                    && now.duration_since(*logged_at) < TASK_MONITOR_ERROR_LOG_INTERVAL =>
-            {
-                false
-            }
-            _ => true,
-        };
-        if should_log {
-            self.last_failure = Some((error.to_string(), now));
-        }
-        should_log
-    }
 }
 
 pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
     tokio::spawn(async move {
-        let mut last_error: Option<String> = None;
-        let mut last_error_logged_at: Option<Instant> = None;
         let mut idle_stop = IdleStopDebouncer::default();
         loop {
             tokio::time::sleep(TASK_MONITOR_INTERVAL).await;
@@ -68,46 +48,76 @@ pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
                 break;
             }
 
-            match monitor_tasks_once(&state).await {
-                Ok(()) => {
-                    if last_error.take().is_some() {
-                        last_error_logged_at = None;
-                        state
-                            .core
-                            .debug_logs
-                            .info("runtime.monitor", "后台任务状态同步已恢复正常");
-                    }
-                    if let Err(error) = maybe_auto_stop(&state, &mut idle_stop).await {
-                        idle_stop.reset();
-                        state.core.debug_logs.warn(
-                            "runtime.auto_stop",
-                            format!("Aria2 自动停止未完成：{}", error),
-                        );
-                    }
-                }
-                Err(error) => {
-                    idle_stop.reset();
-                    let should_log = last_error.as_deref() != Some(error.as_str())
-                        || last_error_logged_at
-                            .map(|logged_at| logged_at.elapsed() >= TASK_MONITOR_ERROR_LOG_INTERVAL)
-                            .unwrap_or(true);
-                    if should_log {
-                        last_error_logged_at = Some(Instant::now());
-                        state.core.debug_logs.warn(
-                            "runtime.monitor",
-                            format!("后台任务状态同步失败：{}", error),
-                        );
-                    }
-                    last_error = Some(error);
-                }
+            if let Err(error) = monitor_task_tick(&state, &mut idle_stop).await {
+                state.core.debug_logs.error(
+                    "runtime.monitor",
+                    format!("后台监控生命周期状态不可用，停止本轮监控：{}", error),
+                );
+                break;
             }
         }
     });
 }
 
+async fn monitor_task_tick(
+    state: &Arc<HttpAppState>,
+    idle_stop: &mut IdleStopDebouncer,
+) -> Result<(), String> {
+    let lifecycle = state.aria2_lifecycle.snapshot()?;
+    if lifecycle.retry_after.is_some() {
+        idle_stop.reset();
+        return Ok(());
+    }
+
+    let result = match monitor_tasks_once(state).await {
+        Ok(()) => maybe_auto_stop(state, idle_stop, lifecycle.consecutive_failures > 0).await,
+        Err(error) => Err(error),
+    };
+
+    match result {
+        Ok(()) => record_monitor_recovery(state)?,
+        Err(error) => {
+            idle_stop.reset();
+            record_monitor_failure(state, error)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn record_monitor_recovery(state: &HttpAppState) -> Result<(), String> {
+    if state.aria2_lifecycle.snapshot()?.consecutive_failures == 0 {
+        return Ok(());
+    }
+    state.aria2_lifecycle.clear_failure()?;
+    state
+        .core
+        .debug_logs
+        .info("runtime.monitor", "Aria2 后台监控已恢复正常");
+    Ok(())
+}
+
+fn record_monitor_failure(state: &HttpAppState, error: String) -> Result<(), String> {
+    state.aria2_lifecycle.record_failure(error.clone())?;
+    let snapshot = state.aria2_lifecycle.snapshot()?;
+    let retry_after = snapshot
+        .retry_after
+        .map(|duration| format!("{} 秒后", duration.as_secs()))
+        .unwrap_or_else(|| "稍后".to_string());
+    state.core.debug_logs.warn(
+        "runtime.monitor",
+        format!(
+            "Aria2 后台监控失败（第 {} 次），{}重试：{}",
+            snapshot.consecutive_failures, retry_after, error
+        ),
+    );
+    Ok(())
+}
+
 async fn maybe_auto_stop(
     state: &Arc<HttpAppState>,
     idle_stop: &mut IdleStopDebouncer,
+    retrying_after_failure: bool,
 ) -> Result<(), String> {
     let policy = state.aria2_lifecycle.policy();
     if !policy.auto_stop_enabled || state.aria2_runtime_snapshot().is_none() {
@@ -119,49 +129,32 @@ async fn maybe_auto_stop(
     if !matches!(
         lifecycle.phase,
         Aria2LifecyclePhase::Ready | Aria2LifecyclePhase::Faulted
-    ) || lifecycle.retry_after.is_some()
-    {
+    ) {
         idle_stop.reset();
         return Ok(());
     }
 
-    let activity = current_activity_snapshot(state).await?;
-    if !idle_stop.observe(activity, Instant::now(), policy.idle_debounce) {
+    let activity = current_activity_snapshot(state, None).await?;
+    if !activity.is_idle() {
+        idle_stop.reset();
+        return Ok(());
+    }
+    if !retrying_after_failure && !idle_stop.observe(activity, Instant::now(), policy.idle_debounce)
+    {
         return Ok(());
     }
 
     // 防抖窗口结束后重新读取一次内存和生命周期状态，避免把短暂空闲误判为可停止。
     idle_stop.reset();
-    if !current_activity_snapshot(state).await?.is_idle() {
+    if !current_activity_snapshot(state, None).await?.is_idle() {
         return Ok(());
     }
 
-    match auto_stop_aria2(state).await {
-        Ok(status) => {
-            state.aria2_lifecycle.clear_failure()?;
-            state.core.debug_logs.info(
-                "runtime.auto_stop",
-                format!("Aria2 空闲自动停止完成：{}", status.message),
-            );
-        }
-        Err(error) => {
-            state.aria2_lifecycle.record_failure(error.clone())?;
-            let snapshot = state.aria2_lifecycle.snapshot()?;
-            if idle_stop.should_log_failure(&error, Instant::now()) {
-                let retry_after = snapshot
-                    .retry_after
-                    .map(|duration| format!("{} 秒后", duration.as_secs()))
-                    .unwrap_or_else(|| "稍后".to_string());
-                state.core.debug_logs.warn(
-                    "runtime.auto_stop",
-                    format!(
-                        "Aria2 自动停止失败（第 {} 次），{}重试：{}",
-                        snapshot.consecutive_failures, retry_after, error
-                    ),
-                );
-            }
-        }
-    }
+    let status = auto_stop_aria2(state).await?;
+    state.core.debug_logs.info(
+        "runtime.auto_stop",
+        format!("Aria2 空闲自动停止完成：{}", status.message),
+    );
     Ok(())
 }
 
