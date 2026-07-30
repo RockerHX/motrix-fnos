@@ -1,4 +1,5 @@
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
+use crate::app::HttpAppState;
 use crate::aria2::terminate_process;
 use crate::debug_logs::DebugLogStore;
 use std::sync::Mutex;
@@ -47,6 +48,36 @@ pub fn stop_process(
         binary_source: None,
         message: "Aria2 进程已停止".to_string(),
     })
+}
+
+pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
+    let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    let snapshot = state.aria2_lifecycle.snapshot()?;
+    if snapshot.in_flight_requests > 0 {
+        return Err(format!(
+            "Aria2 仍有 {} 个在途 RPC 请求，暂不能停止",
+            snapshot.in_flight_requests
+        ));
+    }
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)?;
+
+    match stop_process(&state.aria2_process, &state.core.debug_logs) {
+        Ok(status) => {
+            state.clear_aria2_runtime();
+            state
+                .aria2_lifecycle
+                .set_phase(crate::runtime::Aria2LifecyclePhase::Stopped)?;
+            Ok(status)
+        }
+        Err(error) => {
+            let _ = state
+                .aria2_lifecycle
+                .set_phase(crate::runtime::Aria2LifecyclePhase::Faulted);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(unix)]

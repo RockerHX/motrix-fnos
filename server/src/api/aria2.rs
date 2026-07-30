@@ -1,14 +1,10 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::aria2::{
-    generate_rpc_secret, ping_rpc, rpc_ports_exhausted_message, runtime_config,
-    select_rpc_port_with_saved_runtime, Aria2ConfigStatus, SavedAria2Runtime,
-};
+use crate::aria2::{ping_rpc, Aria2ConfigStatus};
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::{
-    process_status, resolve_aria2_binary, start_process, stop_process, Aria2ProcessStatus,
+    process_status, resolve_aria2_binary, start_aria2, stop_aria2, Aria2ProcessStatus,
 };
-use crate::state::Aria2RuntimeInfo;
 use axum::extract::State;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -81,35 +77,9 @@ async fn start_aria2_process(
 ) -> Result<Json<Aria2ProcessStatus>, ApiError> {
     ensure_runtime_not_exiting(&state)?;
 
-    let base = state.base_aria2_config.clone();
-    let saved_runtime = state.load_saved_aria2_runtime();
-    let saved_runtime = saved_runtime.as_ref().map(saved_runtime_info);
-    let port = select_rpc_port_with_saved_runtime(
-        &base,
-        saved_runtime.as_ref(),
-        &state.core.debug_logs,
-    )
-    .ok_or_else(|| ApiError::conflict("aria2_port_conflict", rpc_ports_exhausted_message()))?;
-    let config = state
-        .with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))
-        .map_err(|error| ApiError::internal("aria2_runtime_prepare_failed", error))?;
-    let status = start_process(
-        &state.aria2_process,
-        &state.runtime,
-        &config,
-        &state.core.debug_logs,
-    )
-    .map_err(classify_aria2_start_error)?;
-    if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
-        state
-            .set_aria2_runtime(state.build_aria2_runtime_info(
-                pid,
-                &config,
-                source,
-                crate::aria2::process_args(&config),
-            ))
-            .map_err(|error| ApiError::internal("aria2_runtime_persist_failed", error))?;
-    }
+    let status = start_aria2(&state)
+        .await
+        .map_err(classify_aria2_start_error)?;
     Ok(Json(status))
 }
 
@@ -117,10 +87,9 @@ async fn stop_aria2_process(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<Aria2ProcessStatus>, ApiError> {
     ensure_runtime_not_exiting(&state)?;
-    let status = stop_process(&state.aria2_process, &state.core.debug_logs)
+    let status = stop_aria2(&state)
+        .await
         .map_err(|error| ApiError::internal("aria2_stop_failed", error))?;
-    // stop_process 返回成功才表示进程退出已确认，失败路径必须保留运行态记录。
-    state.clear_aria2_runtime();
     Ok(Json(status))
 }
 
@@ -141,17 +110,4 @@ fn classify_aria2_start_error(error: String) -> ApiError {
     }
 
     ApiError::internal("aria2_start_failed", error)
-}
-
-fn saved_runtime_info(runtime: &Aria2RuntimeInfo) -> SavedAria2Runtime {
-    SavedAria2Runtime {
-        pid: runtime.pid,
-        actual_port: runtime.actual_port,
-        rpc_secret: runtime.rpc_secret.clone(),
-        binary_source: runtime.binary_source.clone(),
-        sidecar_name: runtime.sidecar_name.clone(),
-        app_data_dir: runtime.app_data_dir.clone(),
-        aria2_session_path: runtime.aria2_session_path.clone(),
-        aria2_log_path: runtime.aria2_log_path.clone(),
-    }
 }

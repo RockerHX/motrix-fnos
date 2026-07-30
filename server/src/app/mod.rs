@@ -7,7 +7,7 @@ use crate::database::{
     tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
-use crate::runtime::ManagedAria2Process;
+use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::storage::load_accessible_paths;
 use crate::tasks::DownloadTask;
@@ -154,6 +154,7 @@ pub struct HttpAppState {
     pub base_aria2_config: Aria2Config,
     pub aria2_rpc: Aria2RpcClient,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
+    pub aria2_lifecycle: Arc<Aria2LifecycleCoordinator>,
     pub runtime_events: RuntimeEventHub,
     pub(crate) tasks_snapshot_revision: Mutex<u64>,
     listeners_ready: AtomicBool,
@@ -168,13 +169,15 @@ impl HttpAppState {
             .map(|path| path.display().to_string());
 
         let auth = AuthRuntime::new(core.database.pool.clone());
+        let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
         Self {
             core: Arc::new(core),
             auth,
             runtime,
             base_aria2_config,
-            aria2_rpc: Aria2RpcClient::new(),
+            aria2_rpc: Aria2RpcClient::with_lifecycle(Arc::clone(&aria2_lifecycle)),
             aria2_process: Mutex::new(None),
+            aria2_lifecycle,
             runtime_events: RuntimeEventHub::new(),
             tasks_snapshot_revision: Mutex::new(0),
             listeners_ready: AtomicBool::new(false),

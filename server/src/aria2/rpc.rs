@@ -1,5 +1,6 @@
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::runtime::Aria2LifecycleCoordinator;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,7 @@ const ARIA2_RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(Clone)]
 pub struct Aria2RpcClient {
     client: reqwest::Client,
+    lifecycle: Option<std::sync::Arc<Aria2LifecycleCoordinator>>,
 }
 
 impl Aria2RpcClient {
@@ -25,7 +27,22 @@ impl Aria2RpcClient {
             .timeout(request_timeout)
             .build()
             .expect("Aria2 RPC HTTP client should build");
-        Self { client }
+        Self {
+            client,
+            lifecycle: None,
+        }
+    }
+
+    pub(crate) fn with_lifecycle(lifecycle: std::sync::Arc<Aria2LifecycleCoordinator>) -> Self {
+        let client = reqwest::Client::builder()
+            .connect_timeout(ARIA2_RPC_CONNECT_TIMEOUT)
+            .timeout(ARIA2_RPC_REQUEST_TIMEOUT)
+            .build()
+            .expect("Aria2 RPC HTTP client should build");
+        Self {
+            client,
+            lifecycle: Some(lifecycle),
+        }
     }
 
     pub(crate) async fn request<T>(
@@ -36,6 +53,12 @@ impl Aria2RpcClient {
     where
         T: DeserializeOwned,
     {
+        let _request_lease = self
+            .lifecycle
+            .as_ref()
+            .map(|lifecycle| lifecycle.acquire_request())
+            .transpose()
+            .map_err(Aria2RpcError::Lifecycle)?;
         let response = self
             .client
             .post(config.rpc_url())
@@ -91,6 +114,7 @@ pub(crate) struct Aria2RpcServerError {
 
 #[derive(Debug)]
 pub(crate) enum Aria2RpcError {
+    Lifecycle(String),
     ConnectionFailed(String),
     OutcomeUnknown(String),
     HttpStatus(StatusCode),
@@ -102,6 +126,7 @@ pub(crate) enum Aria2RpcError {
 impl fmt::Display for Aria2RpcError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Lifecycle(error) => write!(formatter, "Aria2 生命周期请求被拒绝：{error}"),
             Self::ConnectionFailed(error) => write!(formatter, "Aria2 RPC 连接失败：{error}"),
             Self::OutcomeUnknown(error) => write!(
                 formatter,

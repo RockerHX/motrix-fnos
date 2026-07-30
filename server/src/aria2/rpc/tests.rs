@@ -10,6 +10,37 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[tokio::test]
+async fn lifecycle_bound_rpc_client_rejects_requests_during_stop_without_probing() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_for_handler = calls.clone();
+    let (port, handle) = spawn_router(Router::new().route(
+        "/jsonrpc",
+        post(move || {
+            let calls = calls_for_handler.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Json(json!({ "result": "unexpected" }))
+            }
+        }),
+    ))
+    .await;
+    let coordinator = Arc::new(crate::runtime::Aria2LifecycleCoordinator::default());
+    coordinator
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)
+        .expect("lifecycle phase should change");
+    let client = Aria2RpcClient::with_lifecycle(coordinator);
+
+    let error = client
+        .request::<String>(&test_config(port), &json!({}))
+        .await
+        .expect_err("stopping lifecycle should reject RPC requests");
+
+    assert!(matches!(error, Aria2RpcError::Lifecycle(_)));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    handle.abort();
+}
+
+#[tokio::test]
 async fn ping_rpc_accepts_version_and_sends_configured_token() {
     let captured = Arc::new(Mutex::new(None));
     let captured_for_handler = captured.clone();

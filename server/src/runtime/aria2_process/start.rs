@@ -1,5 +1,6 @@
 use super::resolve::resolve_aria2_binary;
 use super::status::process_status;
+use super::stop::stop_process;
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
@@ -81,7 +82,38 @@ pub fn start_process(
 }
 
 pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, String> {
+    let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    ensure_aria2_ready_locked(state).await
+}
+
+async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, String> {
     let process = process_status(&state.aria2_process)?;
+    if process.running {
+        let Some(runtime) = state.aria2_runtime_snapshot() else {
+            return Err(lifecycle_error(
+                state,
+                "Aria2 进程已运行但运行态未记录，拒绝继续使用未知配置".to_string(),
+            ));
+        };
+        if process.pid != Some(runtime.pid) {
+            return Err(lifecycle_error(
+                state,
+                format!(
+                    "Aria2 进程 PID {} 与运行态 PID {} 不一致",
+                    process.pid.unwrap_or_default(),
+                    runtime.pid
+                ),
+            ));
+        }
+    }
+
+    if let Err(error) = state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Starting)
+    {
+        return Err(lifecycle_error(state, error));
+    }
+
     let mut started_process = false;
     if !process.running {
         state
@@ -92,28 +124,54 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
         let base = state.base_aria2_config.clone();
         let saved_runtime = state.load_saved_aria2_runtime();
         let saved_runtime = saved_runtime.as_ref().map(saved_runtime_info);
-        let port = select_rpc_port_with_saved_runtime(
+        let port = match select_rpc_port_with_saved_runtime(
             &base,
             saved_runtime.as_ref(),
             &state.core.debug_logs,
-        )
-        .ok_or_else(rpc_ports_exhausted_message)?;
-        let config =
-            state.with_aria2_runtime_paths(runtime_config(&base, port, generate_rpc_secret()))?;
-        let status = start_process(
+        ) {
+            Some(port) => port,
+            None => return Err(lifecycle_error(state, rpc_ports_exhausted_message())),
+        };
+        let config = match state.with_aria2_runtime_paths(runtime_config(
+            &base,
+            port,
+            generate_rpc_secret(),
+        )) {
+            Ok(config) => config,
+            Err(error) => return Err(lifecycle_error(state, error)),
+        };
+        let status = match start_process(
             &state.aria2_process,
             &state.runtime,
             &config,
             &state.core.debug_logs,
-        )
-        .map_err(|error| format!("启动 Aria2 Next 失败：{}", shorten_start_error(error)))?;
-        if let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) {
-            state.set_aria2_runtime(state.build_aria2_runtime_info(
-                pid,
-                &config,
-                source,
-                process_args(&config),
-            ))?;
+        ) {
+            Ok(status) => status,
+            Err(error) => {
+                return Err(lifecycle_error(
+                    state,
+                    format!("启动 Aria2 Next 失败：{}", shorten_start_error(error)),
+                ));
+            }
+        };
+        let (Some(pid), Some(source)) = (status.pid, status.binary_source.clone()) else {
+            return Err(lifecycle_error(
+                state,
+                "Aria2 启动成功但未返回有效进程身份".to_string(),
+            ));
+        };
+        let runtime = state.build_aria2_runtime_info(pid, &config, source, process_args(&config));
+        if let Err(error) = state.set_aria2_runtime(runtime) {
+            let stop_error = stop_process(&state.aria2_process, &state.core.debug_logs).err();
+            state.clear_aria2_runtime();
+            let message = match stop_error {
+                Some(stop_error) => format!(
+                    "写入 Aria2 运行态失败：{}；回收进程失败：{}",
+                    error, stop_error
+                ),
+                None => format!("写入 Aria2 运行态失败：{}", error),
+            };
+            return Err(lifecycle_error(state, message));
         }
     }
 
@@ -126,21 +184,54 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<Aria2Config, Str
     )
     .await
     {
-        let status = process_status(&state.aria2_process)?;
+        let status = match process_status(&state.aria2_process) {
+            Ok(status) => status,
+            Err(status_error) => return Err(lifecycle_error(state, status_error)),
+        };
         if !status.running {
             state.clear_aria2_runtime();
             state.core.debug_logs.error(
                 "aria2",
                 format!("Aria2 进程已退出，RPC 无法就绪：{}", status.message),
             );
-            return Err(format!(
-                "Aria2 Next 启动后已退出，RPC 未就绪，请查看 Aria2 日志（{}）",
-                normalize_rpc_error(&error)
+            return Err(lifecycle_error(
+                state,
+                format!(
+                    "Aria2 Next 启动后已退出，RPC 未就绪，请查看 Aria2 日志（{}）",
+                    normalize_rpc_error(&error)
+                ),
             ));
         }
-        return Err(error);
+        return Err(lifecycle_error(state, error));
+    }
+    if let Err(error) = state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+    {
+        return Err(lifecycle_error(state, error));
     }
     Ok(config)
+}
+
+pub async fn start_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
+    let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    let _config = ensure_aria2_ready_locked(state).await?;
+    let status = process_status(&state.aria2_process)?;
+    if !status.running {
+        state.clear_aria2_runtime();
+        return Err(lifecycle_error(
+            state,
+            format!("Aria2 RPC ready 后进程已退出：{}", status.message),
+        ));
+    }
+    Ok(status)
+}
+
+fn lifecycle_error(state: &HttpAppState, error: String) -> String {
+    let _ = state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Faulted);
+    error
 }
 
 pub(crate) async fn wait_for_rpc_ready(

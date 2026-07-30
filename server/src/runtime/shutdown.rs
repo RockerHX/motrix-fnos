@@ -19,29 +19,22 @@ pub async fn run_shutdown_cleanup(state: &Arc<HttpAppState>) {
     save_aria2_session_before_exit(state).await;
 
     // 只有确认 Aria2 已停止后才能清除运行态；失败时保留 PID/端口/secret，供下次启动识别并定向清理。
-    let should_clear_runtime =
-        match super::aria2_process::stop_process(&state.aria2_process, &state.core.debug_logs) {
-            Ok(status) => {
-                state.core.debug_logs.info(
-                    "runtime.exit",
-                    format!("退出流程已停止 Aria2：{}", status.message),
-                );
-                true
-            }
-            Err(error) => {
-                state.core.debug_logs.warn(
-                    "runtime.exit",
-                    format!(
-                        "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
-                        error
-                    ),
-                );
-                false
-            }
-        };
-
-    if should_clear_runtime {
-        state.clear_aria2_runtime();
+    match super::aria2_process::stop_aria2(state).await {
+        Ok(status) => {
+            state.core.debug_logs.info(
+                "runtime.exit",
+                format!("退出流程已停止 Aria2：{}", status.message),
+            );
+        }
+        Err(error) => {
+            state.core.debug_logs.warn(
+                "runtime.exit",
+                format!(
+                    "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
+                    error
+                ),
+            );
+        }
     }
 }
 
