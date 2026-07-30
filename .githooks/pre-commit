@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-staged_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
+# Disable Git's octal quoting so non-ASCII filenames (for example Chinese Markdown
+# names) still match the documentation/resource allowlist below.
+staged_files="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRD)"
 has_staged_file=0
 only_docs_or_assets=1
 
