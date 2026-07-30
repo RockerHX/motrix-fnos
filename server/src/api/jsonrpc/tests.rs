@@ -5,13 +5,15 @@ use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
+use crate::runtime::{stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
-use axum::body::Body;
+use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_LENGTH;
 use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -172,19 +174,213 @@ async fn multicall_requires_token_for_each_add_uri_call() {
 }
 
 #[tokio::test]
-async fn multicall_get_version_does_not_require_json_rpc_token() {
+async fn get_version_returns_stopped_state_without_starting_aria2() {
     let state = test_state().await;
 
-    match execute_method(&state, "aria2.getVersion", &json!([])).await {
-        Ok(result) => {
-            assert!(result.get("version").and_then(Value::as_str).is_some());
-            assert!(result.get("enabledFeatures").is_some());
-        }
-        Err(error) => {
-            assert_ne!(error.code, -32001);
-            assert_ne!(error.code, -32002);
-        }
-    }
+    let error = execute_method(&state, "aria2.getVersion", &json!([]))
+        .await
+        .expect_err("stopped Aria2 should return a protocol error");
+
+    assert_eq!(error.code, -32003);
+    assert_eq!(error.message, "Aria2 未运行");
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
+async fn get_version_returns_real_version_for_confirmed_running_aria2() {
+    let state = test_state().await;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock addr should exist")
+        .port();
+    let server = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": "motrix-fnos-version-check",
+                    "result": { "version": "2.4.9" }
+                }))
+            }),
+        );
+        axum::serve(listener, app)
+            .await
+            .expect("mock server should serve");
+    });
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+        ));
+
+    let config = crate::aria2::runtime_config(&state.base_aria2_config, port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+
+    let result = execute_method(&state, "aria2.getVersion", &json!([]))
+        .await
+        .expect("running Aria2 should return its version");
+    assert_eq!(result["version"], "2.4.9");
+    assert_eq!(result["enabledFeatures"], json!([]));
+
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consistent() {
+    let requests = Arc::new(AtomicU64::new(0));
+    let requests_for_handler = requests.clone();
+    let rpc_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock RPC listener should bind");
+    let rpc_port = rpc_listener
+        .local_addr()
+        .expect("mock RPC addr should exist")
+        .port();
+    let rpc_server = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(move || {
+                let requests = requests_for_handler.clone();
+                async move {
+                    requests.fetch_add(1, Ordering::SeqCst);
+                    axum::Json(json!({ "result": { "version": "2.4.9" } }))
+                }
+            }),
+        );
+        axum::serve(rpc_listener, app)
+            .await
+            .expect("mock RPC server should serve");
+    });
+
+    let mut state = test_state().await;
+    std::sync::Arc::get_mut(&mut state)
+        .expect("state should be uniquely owned")
+        .base_aria2_config
+        .rpc_port = rpc_port;
+
+    let http_response = super::super::jsonrpc_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jsonrpc")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": "http-version",
+                        "method": "aria2.getVersion",
+                        "params": []
+                    })
+                    .to_string(),
+                ))
+                .expect("HTTP request should build"),
+        )
+        .await
+        .expect("HTTP response should succeed");
+    let http_payload: Value = serde_json::from_slice(
+        &to_bytes(http_response.into_body(), usize::MAX)
+            .await
+            .expect("HTTP body should read"),
+    )
+    .expect("HTTP payload should parse");
+    assert_eq!(http_payload["error"]["code"], -32003);
+    assert_eq!(http_payload["error"]["message"], "Aria2 未运行");
+
+    let multicall_payload = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall-version",
+            "method": "system.multicall",
+            "params": [[{
+                "methodName": "aria2.getVersion",
+                "params": []
+            }]]
+        }),
+    )
+    .await;
+    assert_eq!(multicall_payload["result"][0]["faultCode"], -32003);
+    assert_eq!(
+        multicall_payload["result"][0]["faultString"],
+        "Aria2 未运行"
+    );
+
+    let websocket_listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("WebSocket listener should bind");
+    let websocket_addr = websocket_listener
+        .local_addr()
+        .expect("WebSocket addr should exist");
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let websocket_state = state.clone();
+    let websocket_server = tokio::spawn(async move {
+        axum::serve(
+            websocket_listener,
+            super::super::jsonrpc_router(websocket_state),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
+        .await
+        .expect("WebSocket server should stop cleanly");
+    });
+
+    let mut socket = connect_websocket(websocket_addr).await;
+    write_masked_websocket_frame(
+        &mut socket,
+        true,
+        0x1,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "websocket-version",
+            "method": "aria2.getVersion",
+            "params": []
+        })
+        .to_string()
+        .as_bytes(),
+    )
+    .await;
+    let websocket_payload: Value =
+        serde_json::from_str(&read_websocket_text_frame(&mut socket).await)
+            .expect("WebSocket payload should parse");
+    assert_eq!(websocket_payload["error"]["code"], -32003);
+    assert_eq!(websocket_payload["error"]["message"], "Aria2 未运行");
+    drop(socket);
+
+    shutdown_tx
+        .send(())
+        .expect("WebSocket server should accept shutdown");
+    websocket_server
+        .await
+        .expect("WebSocket server task should join");
+    assert_eq!(requests.load(Ordering::SeqCst), 0);
+    rpc_server.abort();
+    let _ = rpc_server.await;
 }
 
 #[test]
@@ -432,6 +628,43 @@ async fn assert_websocket_closed(socket: &mut TcpStream) {
     }
 }
 
+async fn read_websocket_text_frame(socket: &mut TcpStream) -> String {
+    let mut header = [0_u8; 2];
+    timeout(Duration::from_secs(1), socket.read_exact(&mut header))
+        .await
+        .expect("WebSocket response should arrive")
+        .expect("WebSocket response header should read");
+    assert_eq!(header[0] & 0x0f, 0x1, "response should be a text frame");
+    assert_eq!(header[1] & 0x80, 0, "server response should not be masked");
+
+    let payload_len = match header[1] & 0x7f {
+        length @ 0..=125 => length as usize,
+        126 => {
+            let mut bytes = [0_u8; 2];
+            timeout(Duration::from_secs(1), socket.read_exact(&mut bytes))
+                .await
+                .expect("WebSocket response length should arrive")
+                .expect("WebSocket response length should read");
+            u16::from_be_bytes(bytes) as usize
+        }
+        127 => {
+            let mut bytes = [0_u8; 8];
+            timeout(Duration::from_secs(1), socket.read_exact(&mut bytes))
+                .await
+                .expect("WebSocket response length should arrive")
+                .expect("WebSocket response length should read");
+            usize::try_from(u64::from_be_bytes(bytes)).expect("WebSocket payload should fit usize")
+        }
+        _ => unreachable!(),
+    };
+    let mut payload = vec![0_u8; payload_len];
+    timeout(Duration::from_secs(1), socket.read_exact(&mut payload))
+        .await
+        .expect("WebSocket response payload should arrive")
+        .expect("WebSocket response payload should read");
+    String::from_utf8(payload).expect("WebSocket response should be UTF-8")
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let index = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
@@ -444,4 +677,20 @@ fn temp_dir(label: &str) -> PathBuf {
             .expect("system time should be valid")
             .as_nanos()
     ))
+}
+
+#[cfg(unix)]
+fn spawn_long_running_child() -> Child {
+    Command::new("sh")
+        .args(["-c", "sleep 10"])
+        .spawn()
+        .expect("shell should spawn")
+}
+
+#[cfg(windows)]
+fn spawn_long_running_child() -> Child {
+    Command::new("cmd")
+        .args(["/C", "ping 127.0.0.1 -n 11 > NUL"])
+        .spawn()
+        .expect("cmd should spawn")
 }

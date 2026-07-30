@@ -233,7 +233,7 @@ describe("runtimeEvents", () => {
 
     expect(mockTaskStore.refreshTasks).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(mockTaskStore.refreshTasks).toHaveBeenCalledOnce();
+    expect(mockTaskStore.refreshTasks).toHaveBeenCalledTimes(1);
   });
 
   it("cancels retries and ignores a late auth probe after disposal", async () => {

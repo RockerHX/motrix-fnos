@@ -28,6 +28,25 @@ describe("useTaskTopbarActions", () => {
     await actions.refresh();
     expect(refreshTasks).toHaveBeenCalledWith(true);
   });
+
+  it("manual refresh reads active tasks and Aria2 status once", async () => {
+    const activeCategory = ref<MainNavCategory>("downloading");
+    const refreshTasks = vi.fn();
+    const refreshRemovedTasks = vi.fn();
+    const refreshAria2Status = vi.fn();
+    const actions = createActions(
+      activeCategory,
+      { isRuntimeExiting: false },
+      { refreshTasks, refreshRemovedTasks, refreshAria2Status },
+    );
+
+    await actions.refresh();
+
+    expect(refreshTasks).toHaveBeenCalledTimes(1);
+    expect(refreshTasks).toHaveBeenCalledWith(true);
+    expect(refreshRemovedTasks).not.toHaveBeenCalled();
+    expect(refreshAria2Status).toHaveBeenCalledTimes(1);
+  });
 });
 
 function createActions(activeCategory: Ref<MainNavCategory>, taskStore: { isRuntimeExiting: boolean }, overrides = {}) {

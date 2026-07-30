@@ -46,6 +46,13 @@ impl RpcFault {
         }
     }
 
+    pub(super) fn aria2_not_running() -> Self {
+        Self {
+            code: -32003,
+            message: "Aria2 未运行".to_string(),
+        }
+    }
+
     pub(super) fn token_invalid() -> Self {
         Self {
             code: -32001,
