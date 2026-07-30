@@ -1,7 +1,6 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::aria2::{ping_rpc, Aria2ConfigStatus};
-use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::{
     process_status, resolve_aria2_binary, start_aria2, stop_aria2, Aria2ProcessStatus,
     Aria2StopError,
@@ -28,7 +27,6 @@ async fn get_aria2_config_status(
         config.aria2_path = Some(resolved.path.display().to_string());
         config.binary_source = resolved.source;
     }
-    emit_file_log(DebugLogLevel::Info, "aria2", "读取 Aria2 配置状态");
     Ok(Json(Aria2ConfigStatus::from_config(&config)))
 }
 
@@ -37,11 +35,6 @@ async fn get_aria2_process_status(
 ) -> Result<Json<Aria2ProcessStatus>, ApiError> {
     let status = process_status(&state.aria2_process)
         .map_err(|error| ApiError::internal("aria2_process_status_failed", error))?;
-    emit_file_log(
-        DebugLogLevel::Info,
-        "aria2",
-        &format!("读取 Aria2 进程状态：{}", status.message),
-    );
     Ok(Json(status))
 }
 
@@ -61,7 +54,6 @@ async fn get_aria2_rpc_status(
     } else {
         ping_rpc(&state.aria2_rpc, &state.aria2_config(), None).await
     };
-    emit_file_log(DebugLogLevel::Info, "aria2.rpc", &status.message);
     Ok(Json(status))
 }
 

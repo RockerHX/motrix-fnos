@@ -1,6 +1,5 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -100,7 +99,6 @@ pub(crate) fn readiness_routes() -> Router<Arc<HttpAppState>> {
 }
 
 async fn get_app_info(State(_state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
-    emit_file_log(DebugLogLevel::Info, "app", "读取应用信息");
     Ok(Json(AppInfo {
         name: APP_NAME.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -116,7 +114,6 @@ async fn get_app_info(State(_state): State<Arc<HttpAppState>>) -> Result<Json<Ap
 async fn ping_backend(
     State(_state): State<Arc<HttpAppState>>,
 ) -> Result<Json<BackendPing>, ApiError> {
-    emit_file_log(DebugLogLevel::Info, "app", "Rust 后端通信检查成功");
     Ok(Json(BackendPing {
         ok: true,
         message: "Rust 后端通信正常".to_string(),

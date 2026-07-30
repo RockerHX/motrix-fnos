@@ -12,6 +12,7 @@ use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
+use crate::test_support::TestTracingCapture;
 use axum::body::to_bytes;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::StatusCode;
@@ -551,6 +552,86 @@ async fn aria2_routes_return_status_payloads() {
     .await;
     assert!(!rpc.connected);
     assert!(rpc.version.is_none());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn readonly_routes_do_not_write_file_logs_but_mutations_and_errors_still_do() {
+    let state = test_state(None).await;
+    let app = management_router(state.clone());
+    let capture = TestTracingCapture::default();
+    let tracing_guard = tracing::subscriber::set_default(capture.subscriber());
+
+    for _ in 0..2 {
+        for uri in [
+            "/api/app/info",
+            "/api/app/ping",
+            "/api/settings",
+            "/api/settings/jsonrpc-token",
+            "/api/aria2/config",
+            "/api/aria2/process",
+            "/api/aria2/rpc",
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .expect("request should build"),
+                )
+                .await
+                .expect("response should succeed");
+            assert_eq!(response.status(), StatusCode::OK, "uri: {uri}");
+        }
+    }
+    assert_eq!(capture.contents(), "");
+
+    capture.clear();
+    let response = app
+        .clone()
+        .oneshot(
+            authorized_json_request(
+                &state,
+                "PUT",
+                "/api/settings/jsonrpc-token",
+                &json!({ "token": "logging-test-token" }),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(capture.contents().contains("JSON-RPC Token 已更新"));
+
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&AccessiblePathsResponse {
+            paths: vec![state.runtime.app_data_dir.display().to_string()],
+        })
+        .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+    let error_request = authorized_json_request(
+        &state,
+        "POST",
+        "/api/tasks",
+        &json!({
+            "url": "https://example.com/file.iso",
+            "saveDir": "/tmp/not-authorized"
+        }),
+    )
+    .await;
+    capture.clear();
+    let response = app
+        .oneshot(error_request)
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let logs = capture.contents();
+    assert!(logs.contains("WARN"));
+    assert!(logs.contains("未授权"));
+
+    drop(tracing_guard);
 }
 
 #[tokio::test]

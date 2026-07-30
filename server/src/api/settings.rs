@@ -2,7 +2,6 @@ use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
-use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::settings::service::{
     load_app_config_from_pool, load_json_rpc_token, save_app_config, save_json_rpc_token, AppConfig,
 };
@@ -38,7 +37,6 @@ async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
     let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
         .await
         .map_err(|error| ApiError::internal("settings_load_failed", error))?;
-    emit_file_log(DebugLogLevel::Info, "settings", "读取应用配置");
     Ok(Json(config))
 }
 

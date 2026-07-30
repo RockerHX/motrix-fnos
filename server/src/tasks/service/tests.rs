@@ -88,7 +88,7 @@ async fn create_download_task_recovers_when_aria2_created_task_before_timeout() 
     let mut fixture = ServiceFixture::new(Vec::new(), false);
     fixture.aria2_rpc = crate::aria2::Aria2RpcClient::with_timeouts(
         Duration::from_secs(1),
-        Duration::from_millis(10),
+        Duration::from_millis(500),
     );
     let save_dir = temp_dir("service-create-timeout-reconcile");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1444,7 +1444,7 @@ impl TimeoutAfterAddAria2Server {
                             .expect("save dir should be present")
                             .to_string();
                         *task_state.lock().expect("task state should lock") = Some((url, save_dir));
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        tokio::time::sleep(Duration::from_secs(2)).await;
                         return Json(json!({ "result": "gid-timeout" }));
                     }
 

@@ -7,6 +7,7 @@ use crate::app::{
 };
 use crate::runtime::{auto_stop_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
+use crate::test_support::TestTracingCapture;
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_LENGTH;
 use axum::http::{Request, StatusCode};
@@ -206,7 +207,7 @@ async fn get_version_returns_retryable_busy_state_during_aria2_stop() {
     assert_eq!(error.message, "Aria2 正在停止，请稍后重试");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     let state = test_state().await;
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -253,11 +254,82 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
         ))
         .expect("runtime should persist");
 
-    let result = execute_method(&state, "aria2.getVersion", &json!([]))
+    let capture = TestTracingCapture::default();
+    let tracing_guard = tracing::subscriber::set_default(capture.subscriber());
+    for _ in 0..2 {
+        let result = execute_method(&state, "aria2.getVersion", &json!([]))
+            .await
+            .expect("running Aria2 should return its version");
+        assert_eq!(result["version"], "2.4.9");
+        assert_eq!(result["enabledFeatures"], json!([]));
+    }
+    assert_eq!(capture.contents(), "");
+    drop(tracing_guard);
+
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn get_version_logs_confirmed_rpc_failure_as_warning() {
+    let state = test_state().await;
+    let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .expect("running Aria2 should return its version");
-    assert_eq!(result["version"], "2.4.9");
-    assert_eq!(result["enabledFeatures"], json!([]));
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock addr should exist")
+        .port();
+    let server = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": "motrix-fnos-version-check",
+                    "error": { "message": "rpc unavailable" }
+                }))
+            }),
+        );
+        axum::serve(listener, app)
+            .await
+            .expect("mock server should serve");
+    });
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+        ));
+    let config = crate::aria2::runtime_config(&state.base_aria2_config, port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+
+    let capture = TestTracingCapture::default();
+    let tracing_guard = tracing::subscriber::set_default(capture.subscriber());
+    let error = execute_method(&state, "aria2.getVersion", &json!([]))
+        .await
+        .expect_err("RPC failure should return a protocol error");
+    assert_eq!(error.code, -32000);
+    let logs = capture.contents();
+    assert!(logs.contains("WARN"));
+    assert!(logs.contains("aria2.getVersion 调用失败"));
+    assert!(logs.contains("rpc unavailable"));
+    drop(tracing_guard);
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
