@@ -58,12 +58,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Rust dependency auditor
-        run: cargo install cargo-audit --version 0.22.2 --locked
-
-      - name: Audit production dependencies
-        run: pnpm run audit:deps
-
       - name: Prepare release files
         id: release_files
         env:
@@ -96,9 +90,6 @@ jobs:
           node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Run quick verification
-        run: pnpm run verify:pre-commit
 
       - name: Install FPK cross build dependencies
         run: |
@@ -162,7 +153,7 @@ jobs:
               exit 1
             fi
 
-            git commit -m "chore: 发布 ${VERSION} 版本" -m "$(cat release-notes-body.md)"
+            git commit --no-verify -m "chore: 发布 ${VERSION} 版本" -m "$(cat release-notes-body.md)"
 
             base_sha="$(git rev-parse HEAD^)"
             if [ "${base_sha}" != "${remote_main_sha}" ]; then

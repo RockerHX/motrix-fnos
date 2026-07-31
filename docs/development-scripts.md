@@ -13,7 +13,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 代码提交前使用 `pnpm run verify:pre-commit`，准备正式发布前使用 `pnpm run verify`；Git hooks 会按暂存文件类型自动选择是否执行提交前验证。
+- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，`git push` 前由 Git hook 执行完整 `pnpm run verify`；GitHub `Verify` 只保留手动触发入口。
 
 ## 命令速查
 
@@ -33,7 +33,7 @@
 | `release:prepare` | 本地准备正式版本、日志、commit 和 tag | 是，属于高影响命令 |
 | `release:notes` | 从 `CHANGELOG.md` 提取某版本发布正文 | 否 |
 | `verify` | 执行发布前完整验证 | 写 Rust 与前端构建缓存 |
-| `verify:pre-commit` | 执行提交前快速验证 | 写 Rust 与前端构建缓存 |
+| `verify:pre-commit` | 执行提交前快速静态检查 | 否 |
 | `prepare` | 安装依赖后尝试配置 Git hooks | 修改本仓库 Git 配置 |
 | `hooks:install` | 显式配置 Git hooks | 修改本仓库 Git 配置 |
 | `build:server:linux:x64` | 交叉编译 x86 Linux server | 写入 `server/target/` |
@@ -87,23 +87,20 @@
 提交前快速验证，依次执行：
 
 1. 项目版本一致性检查；
-2. 构建与发布脚本测试；
-3. FPK 进程身份校验 shell 测试；
-4. Rust 全部测试，并将 warning 视为错误；
-5. 前端类型检查；
-6. 前端单元测试。
+2. Rust 格式检查；
+3. 前端类型检查。
 
-它不执行 Rust release build、Web 生产构建或双架构 FPK 构建。
+它不执行脚本测试、Shell 测试、Rust 测试、前端单元测试或任何生产构建，用于在提交时快速发现基础问题。
 
 ### `pnpm run verify`
 
-发布前完整验证。在快速验证基础上增加 Rust 编译和 Web UI 生产构建。该命令仍不代替 `build:fpk`、解包检查或 fnOS 实机验证。
+推送前完整验证。它执行版本和格式检查、构建与发布脚本测试、FPK Shell 测试、Rust 测试与编译、前端类型检查、单元测试和生产构建。该命令仍不代替 `build:fpk`、解包检查或 fnOS 实机验证。
 
 ### `pnpm run audit:deps`
 
 使用锁定的 `server/Cargo.lock` 和 `pnpm-lock.yaml` 检查 Rust 与前端生产依赖。运行前需要安装固定版本的 `cargo-audit 0.22.2`；高危和严重漏洞返回失败，中低危打印报告但不阻断，审计工具缺失或无法解析结果时返回失败。该命令不会自动升级依赖。
 
-两个验证命令会保留 Rust 编译缓存，避免每次提交后重新编译已验证的依赖和测试目标。磁盘空间不足时，再显式执行 `pnpm run clean:rust` 回收整个 Rust 构建目录。
+快速验证不写 Rust 构建产物；完整验证会保留 Rust 编译缓存，避免每次推送前重新编译已验证的依赖和测试目标。磁盘空间不足时，再显式执行 `pnpm run clean:rust` 回收整个 Rust 构建目录。
 
 ## 清理命令
 
@@ -224,9 +221,9 @@ git config core.hooksPath .githooks
 - 暂存区包含代码、配置、脚本，或同时包含代码与文档/资源时，执行完整 `verify:pre-commit`。
 - 删除 Markdown、图片等非代码资源时，也按同样规则跳过测试，不会因为删除动作被误判为空暂存区。
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
-- `pre-push` 不做文件类型跳过，仍执行完整 `pnpm run verify`。
+- `pre-push` 不做文件类型跳过，执行完整 `pnpm run verify`。
 
-因此只提交文档或图片通常会很快完成；代码提交仍保留原有质量检查。
+因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 不随 `main` push 自动运行，需要远端复核时手动触发。
 
 ## FPK 构建与资产命令
 

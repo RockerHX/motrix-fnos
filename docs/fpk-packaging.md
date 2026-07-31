@@ -193,7 +193,7 @@ rtk pnpm run clean:dry-run
 rtk pnpm run clean:rust
 ```
 
-`pnpm run verify` / `pnpm run verify:pre-commit` 会保留 Rust 编译缓存；磁盘空间不足时再执行 `pnpm run clean:rust`。
+`pnpm run verify` 会保留 Rust 编译缓存；`pnpm run verify:pre-commit` 只做静态检查，不写 Rust 构建产物。磁盘空间不足时再执行 `pnpm run clean:rust`。
 
 ## 开发与验证
 
@@ -399,7 +399,6 @@ Release FPK
   -> 按 commit subject/body 生成确定性分类 CHANGELOG
   -> 同步 package / Cargo / FPK manifest / UI cache 版本
   -> 更新 Cargo.lock
-  -> 跑完整 `pnpm run verify`
   -> x86 / ARM FPK 构建
   -> 校验产物、生成双架构 SPDX SBOM 和 SHA256SUMS.txt
   -> 对 FPK、SBOM 和 SHA256SUMS.txt 生成 provenance/attestation
@@ -429,14 +428,15 @@ packaging/fnos/app/ui/config
 - `motrix_<version>_arm.fpk.spdx.json`
 - `SHA256SUMS.txt`
 
-`Release FPK` 在同一个 workflow 内完成验证、构建、提交、打 tag 和上传 Release，不依赖 PR 自动批准、自动合并，也不依赖 `GITHUB_TOKEN` 推送 tag 后再触发另一个 workflow。
+`Release FPK` 在同一个 workflow 内完成版本准备、双架构构建、产物验证、提交、打 tag 和上传 Release，不依赖 PR 自动批准、自动合并，也不依赖 `GITHUB_TOKEN` 推送 tag 后再触发另一个 workflow。
 
 ### 验证触发策略
 
-- `push main` 默认触发 `Verify`。
-- 仅包含发版白名单文件的 `push main` 会跳过 `Verify`，避免 `Release FPK` 提交发版 commit 后重复验证。
-- 任意 PR 会触发 `Verify`，用于普通代码审查。
-- `Release FPK` 自身会运行完整 `pnpm run verify`，这是发版流程的完整代码验证。
+- `pre-commit` 只执行版本、Rust 格式和前端类型检查，不运行单元测试或生产构建。
+- `pre-push` 执行完整 `pnpm run verify`；正常推送必须在本地通过全部脚本、Rust、前端测试和构建。
+- GitHub `Verify` 只支持 `workflow_dispatch` 手动触发，不随 `main` push 或 PR 自动运行，避免和本地 `pre-push` 重复。
+- `Release FPK` 不重复运行源码测试、依赖审计，也不查询 GitHub `Verify`；它只生成版本文件、构建双架构 FPK，并验证、签署和发布产物。
+- 自动生成的版本提交使用 `--no-verify`，避免提交钩子重复检查已经完成打包的版本文件。
 
 ### GitHub Actions 缓存策略
 
