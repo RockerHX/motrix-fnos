@@ -1,4 +1,4 @@
-use super::add_uri::parse_add_uri_command;
+use super::add_uri::{parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
 use super::methods::{execute_method, handle_jsonrpc_payload};
 use crate::app::HttpAppState;
@@ -365,11 +365,16 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
 
     let state = test_state().await;
     let save_dir = state.runtime.app_data_dir.join("protocol-downloads");
+    let absolute_save_dir = save_dir.display().to_string();
+    let relative_save_dir = absolute_save_dir
+        .strip_prefix('/')
+        .expect("test save directory should be absolute")
+        .to_string();
     std::fs::create_dir_all(&save_dir).expect("protocol save directory should create");
     std::fs::write(
         &state.runtime.accessible_paths_path,
         serde_json::to_vec(&json!({
-            "paths": [save_dir.display().to_string()]
+            "paths": [absolute_save_dir]
         }))
         .expect("accessible paths should serialize"),
     )
@@ -415,7 +420,7 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
                         "params": [
                             "token:secret",
                             ["https://example.com/http.zip"],
-                            { "dir": save_dir, "out": "http.zip" }
+                            { "dir": relative_save_dir, "out": "http.zip" }
                         ]
                     })
                     .to_string(),
@@ -432,6 +437,9 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
     )
     .expect("HTTP payload should parse");
     assert_eq!(http_payload["result"], "gid-protocol");
+    let tasks = state.core.download_tasks.list().expect("tasks should list");
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].save_dir, save_dir.display().to_string());
 
     let multicall_payload = handle_jsonrpc_payload(
         &state,
@@ -905,6 +913,58 @@ fn parse_add_uri_rejects_empty_uri_list() {
     let error = parse_add_uri_command(&json!([[]])).expect_err("empty URI should fail");
 
     assert_eq!(error.code, -32602);
+}
+
+#[test]
+fn resolve_authorized_save_dir_accepts_exact_and_missing_leading_slash() {
+    let accessible_paths = vec!["/vol1/1000/tmp".to_string()];
+
+    assert_eq!(
+        resolve_authorized_save_dir("/vol1/1000/tmp", &accessible_paths)
+            .expect("exact authorized path should pass"),
+        "/vol1/1000/tmp"
+    );
+    assert_eq!(
+        resolve_authorized_save_dir("vol1/1000/tmp", &accessible_paths)
+            .expect("one missing leading slash should be restored"),
+        "/vol1/1000/tmp"
+    );
+}
+
+#[test]
+fn resolve_authorized_save_dir_rejects_unsafe_or_inexact_relative_paths() {
+    let accessible_paths = vec!["/vol1/1000/tmp".to_string()];
+
+    for save_dir in [
+        "vol1/1000",
+        "vol1/1000/tmp/subdir",
+        "vol1//1000/tmp",
+        "vol1/./1000/tmp",
+        "vol1/../1000/tmp",
+        "vol1\\1000\\tmp",
+        "/vol1/1000/tmp/",
+    ] {
+        assert_eq!(
+            resolve_authorized_save_dir(save_dir, &accessible_paths),
+            Err(crate::storage::TaskSaveDirError::Unauthorized),
+            "save dir: {save_dir}"
+        );
+    }
+}
+
+#[test]
+fn resolve_authorized_save_dir_requires_one_unique_authorized_match() {
+    assert_eq!(
+        resolve_authorized_save_dir("vol1/1000/tmp", &[]),
+        Err(crate::storage::TaskSaveDirError::NoAccessiblePaths)
+    );
+    assert_eq!(
+        resolve_authorized_save_dir(
+            "vol1/1000/tmp",
+            &["/vol1/1000/tmp".to_string(), "/vol1/1000/tmp".to_string()]
+        ),
+        Err(crate::storage::TaskSaveDirError::Unauthorized)
+    );
 }
 
 async fn test_state() -> Arc<HttpAppState> {

@@ -572,6 +572,7 @@ Session 与 Cookie 约定：
 约定：
 
 - `dir` 必须来自 `/api/storage/accessible-paths` 返回的授权目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
+- 为兼容会删除 Unix 路径首个 `/` 的第三方发送页，JSON-RPC 仅在请求值不含空组件、`.`、`..` 或反斜杠，且补回一个 `/` 后能唯一、精确匹配授权目录时接受该值；任务最终仍使用授权列表中的原始绝对路径，不允许借此访问授权目录的任意子目录。
 - `out` 会映射为 Motrix 任务文件名。
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。

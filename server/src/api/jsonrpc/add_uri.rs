@@ -27,7 +27,7 @@ pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result
         Some(save_dir) => save_dir,
         None => default_save_dir(state)?,
     };
-    ensure_authorized_save_dir(state, &save_dir)?;
+    let save_dir = authorized_save_dir(state, &save_dir)?;
 
     let service = TaskService::new(
         Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
@@ -130,11 +130,11 @@ fn default_save_dir(state: &HttpAppState) -> Result<String, RpcFault> {
     .map_err(RpcFault::server_error)
 }
 
-fn ensure_authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<(), RpcFault> {
+fn authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<String, RpcFault> {
     let accessible_paths =
         crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
             .map_err(RpcFault::server_error)?;
-    crate::storage::validate_task_save_dir(Some(save_dir), &accessible_paths).map_err(|error| {
+    resolve_authorized_save_dir(save_dir, &accessible_paths).map_err(|error| {
         let message = match error {
             crate::storage::TaskSaveDirError::Required => "请选择已授权的保存目录",
             crate::storage::TaskSaveDirError::NoAccessiblePaths => {
@@ -144,4 +144,44 @@ fn ensure_authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<()
         };
         RpcFault::invalid_params(message)
     })
+}
+
+pub(super) fn resolve_authorized_save_dir(
+    save_dir: &str,
+    accessible_paths: &[String],
+) -> Result<String, crate::storage::TaskSaveDirError> {
+    let save_dir = save_dir.trim();
+    match crate::storage::validate_task_save_dir(Some(save_dir), accessible_paths) {
+        Ok(()) => {
+            return accessible_paths
+                .iter()
+                .find(|path| path.as_str() == save_dir)
+                .cloned()
+                .ok_or(crate::storage::TaskSaveDirError::Unauthorized);
+        }
+        Err(crate::storage::TaskSaveDirError::Unauthorized) => {}
+        Err(error) => return Err(error),
+    }
+
+    if save_dir.starts_with('/')
+        || save_dir.contains('\\')
+        || !save_dir
+            .split('/')
+            .all(|component| !component.is_empty() && component != "." && component != "..")
+    {
+        return Err(crate::storage::TaskSaveDirError::Unauthorized);
+    }
+
+    let candidate = format!("/{save_dir}");
+    let mut matches = accessible_paths
+        .iter()
+        .filter(|path| path.as_str() == candidate);
+    let matched = matches
+        .next()
+        .cloned()
+        .ok_or(crate::storage::TaskSaveDirError::Unauthorized)?;
+    if matches.next().is_some() {
+        return Err(crate::storage::TaskSaveDirError::Unauthorized);
+    }
+    Ok(matched)
 }
