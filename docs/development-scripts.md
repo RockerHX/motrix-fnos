@@ -28,13 +28,12 @@
 | `clean` | 删除前端和 FPK 生成物 | 是，删除生成物 |
 | `clean:dry-run` | 预览 `clean` 的删除范围 | 否 |
 | `clean:rust` | 删除整个 Rust `target` | 是，删除编译缓存与产物 |
-| `clean:rust:incremental` | 只删除 Rust incremental 缓存 | 是，保留主要编译缓存 |
 | `version:set` | 显式同步项目版本 | 是，修改四个版本源 |
 | `version:check` | 检查四个版本源是否一致 | 否 |
 | `release:prepare` | 本地准备正式版本、日志、commit 和 tag | 是，属于高影响命令 |
 | `release:notes` | 从 `CHANGELOG.md` 提取某版本发布正文 | 否 |
-| `verify` | 执行发布前完整验证 | 写构建缓存并清理 incremental 缓存 |
-| `verify:pre-commit` | 执行提交前快速验证 | 写构建缓存并清理 incremental 缓存 |
+| `verify` | 执行发布前完整验证 | 写 Rust 与前端构建缓存 |
+| `verify:pre-commit` | 执行提交前快速验证 | 写 Rust 与前端构建缓存 |
 | `prepare` | 安装依赖后尝试配置 Git hooks | 修改本仓库 Git 配置 |
 | `hooks:install` | 显式配置 Git hooks | 修改本仓库 Git 配置 |
 | `build:server:linux:x64` | 交叉编译 x86 Linux server | 写入 `server/target/` |
@@ -104,12 +103,7 @@
 
 使用锁定的 `server/Cargo.lock` 和 `pnpm-lock.yaml` 检查 Rust 与前端生产依赖。运行前需要安装固定版本的 `cargo-audit 0.22.2`；高危和严重漏洞返回失败，中低危打印报告但不阻断，审计工具缺失或无法解析结果时返回失败。该命令不会自动升级依赖。
 
-两个验证命令结束时默认删除 `server/target/` 下的 incremental 缓存，以控制磁盘占用。临时需要保留时使用：
-
-```bash
-pnpm run verify:pre-commit --keep-rust-incremental
-pnpm run verify --keep-rust-incremental
-```
+两个验证命令会保留 Rust 编译缓存，避免每次提交后重新编译已验证的依赖和测试目标。磁盘空间不足时，再显式执行 `pnpm run clean:rust` 回收整个 Rust 构建目录。
 
 ## 清理命令
 
@@ -129,15 +123,11 @@ pnpm run verify --keep-rust-incremental
 
 它不会删除 `server/target/`，也不会删除源代码、SQLite 实机数据或仓库内置的 `assets/aria2/` 源资产。
 
-### `pnpm run clean:rust:incremental`
-
-递归删除 `server/target/` 下名为 `incremental` 的目录，保留依赖和主要构建产物。适合只回收增量编译缓存空间。
-
 ### `pnpm run clean:rust`
 
 删除整个 `server/target/`。下一次 Rust 测试、编译或 FPK 构建需要完整重建，耗时会明显增加。
 
-`server/target/` 是 Rust 的本地编译缓存，不会提交到 Git。`debug/deps` 会保存调试测试产物，双架构 FPK 构建还会生成 x86 和 ARM 的 release 缓存，因此目录可能达到数 GB。`verify` 和 `verify:pre-commit` 默认只清理 `incremental`，保留主要缓存以缩短下次构建；磁盘紧张时再手动执行 `pnpm run clean:rust`。
+`server/target/` 是 Rust 的本地编译缓存，不会提交到 Git。`debug/deps` 会保存调试测试产物，双架构 FPK 构建还会生成 x86 和 ARM 的 release 缓存，因此目录可能达到数 GB。验证不会自动删除这些缓存；磁盘紧张时再手动执行 `pnpm run clean:rust`。
 
 ## 版本命令
 

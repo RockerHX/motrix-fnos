@@ -14,7 +14,6 @@
     "clean": "node scripts/clean-generated.mjs",
     "clean:dry-run": "node scripts/clean-generated.mjs --dry-run",
     "clean:rust": "node scripts/clean-rust-target.mjs",
-    "clean:rust:incremental": "node scripts/clean-rust-target.mjs --incremental",
     "version:set": "node scripts/version-set.mjs",
     "version:check": "node scripts/version-check.mjs",
     "release:prepare": "node scripts/release-prepare.mjs",
