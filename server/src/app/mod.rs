@@ -10,7 +10,7 @@ use crate::database::{
 use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
 use crate::settings::service::{load_app_config_from_pool, load_json_rpc_token};
 use crate::state::{Aria2RuntimeInfo, ServerState};
-use crate::storage::{default_download_dir, load_accessible_paths, validate_default_download_dir};
+use crate::storage::{default_download_dir, load_accessible_paths};
 use crate::tasks::DownloadTask;
 use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use serde::Serialize;
@@ -174,7 +174,6 @@ impl HttpAppState {
 
         let auth = AuthRuntime::new(core.database.pool.clone());
         let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
-        let initial_default_download_dir = runtime.app_data_dir.display().to_string();
         Self {
             core: Arc::new(core),
             auth,
@@ -186,7 +185,7 @@ impl HttpAppState {
             runtime_events: RuntimeEventHub::new(),
             tasks_snapshot_revision: Mutex::new(0),
             last_aria2_version: Mutex::new(None),
-            json_rpc_default_download_dir: Mutex::new(initial_default_download_dir),
+            json_rpc_default_download_dir: Mutex::new(String::new()),
             json_rpc_token: Mutex::new(String::new()),
             listeners_ready: AtomicBool::new(false),
         }
@@ -212,13 +211,31 @@ impl HttpAppState {
 
     pub(crate) fn remember_json_rpc_default_download_dir(&self, default_download_dir: &str) {
         let default_download_dir = default_download_dir.trim();
-        if default_download_dir.is_empty() {
-            return;
-        }
         *self
             .json_rpc_default_download_dir
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = default_download_dir.to_string();
+    }
+
+    pub(crate) fn refresh_json_rpc_default_download_dir(
+        &self,
+        preferred_download_dir: &str,
+        accessible_paths: &[String],
+    ) {
+        let preferred_download_dir = preferred_download_dir.trim();
+        let selected = accessible_paths
+            .iter()
+            .find(|path| path.as_str() == preferred_download_dir)
+            .cloned()
+            .or_else(|| {
+                (!accessible_paths.is_empty()).then(|| {
+                    default_download_dir(accessible_paths, &self.runtime.app_data_dir)
+                        .display()
+                        .to_string()
+                })
+            })
+            .unwrap_or_default();
+        self.remember_json_rpc_default_download_dir(&selected);
     }
 
     pub(crate) fn json_rpc_default_download_dir(&self) -> String {
@@ -323,17 +340,6 @@ pub async fn bootstrap_http_app_state(
         .display()
         .to_string();
     let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
-    let json_rpc_default_download_dir = if validate_default_download_dir(
-        &app_config.default_download_dir,
-        &accessible_paths,
-        &runtime.app_data_dir,
-    )
-    .is_ok()
-    {
-        app_config.default_download_dir
-    } else {
-        fallback_download_dir
-    };
     let json_rpc_token = load_json_rpc_token(&database.pool).await?;
     migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
     // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
@@ -344,7 +350,8 @@ pub async fn bootstrap_http_app_state(
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
     let state = Arc::new(HttpAppState::new(state, runtime.clone()));
-    state.remember_json_rpc_default_download_dir(&json_rpc_default_download_dir);
+    state
+        .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
     state.remember_json_rpc_token(&json_rpc_token);
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
 

@@ -58,7 +58,7 @@ async fn update_settings(
     )
     .await
     .map_err(classify_settings_save_error)?;
-    state.remember_json_rpc_default_download_dir(&config.default_download_dir);
+    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
     state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))

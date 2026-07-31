@@ -130,20 +130,45 @@ fn default_save_dir(state: &HttpAppState) -> Result<String, RpcFault> {
     .map_err(RpcFault::server_error)
 }
 
-fn authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<String, RpcFault> {
+pub(super) fn authorized_save_dir(
+    state: &HttpAppState,
+    save_dir: &str,
+) -> Result<String, RpcFault> {
     let accessible_paths =
         crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
             .map_err(RpcFault::server_error)?;
-    resolve_authorized_save_dir(save_dir, &accessible_paths).map_err(|error| {
-        let message = match error {
-            crate::storage::TaskSaveDirError::Required => "请选择已授权的保存目录",
-            crate::storage::TaskSaveDirError::NoAccessiblePaths => {
-                "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权"
-            }
-            crate::storage::TaskSaveDirError::Unauthorized => "保存目录不在飞牛已授权目录列表中",
-        };
-        RpcFault::invalid_params(message)
-    })
+    let cached_default = state.json_rpc_default_download_dir();
+    let resolved = match resolve_authorized_save_dir(save_dir, &accessible_paths) {
+        Ok(resolved) => Ok(resolved),
+        Err(crate::storage::TaskSaveDirError::Unauthorized)
+            if !cached_default.is_empty() && save_dir.trim() == cached_default =>
+        {
+            let current_default = crate::storage::default_download_dir(
+                &accessible_paths,
+                &state.runtime.app_data_dir,
+            )
+            .display()
+            .to_string();
+            resolve_authorized_save_dir(&current_default, &accessible_paths)
+        }
+        Err(error) => Err(error),
+    };
+    resolved
+        .inspect(|resolved| {
+            state.remember_json_rpc_default_download_dir(resolved);
+        })
+        .map_err(|error| {
+            let message = match error {
+                crate::storage::TaskSaveDirError::Required => "请选择已授权的保存目录",
+                crate::storage::TaskSaveDirError::NoAccessiblePaths => {
+                    "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权"
+                }
+                crate::storage::TaskSaveDirError::Unauthorized => {
+                    "保存目录不在飞牛已授权目录列表中"
+                }
+            };
+            RpcFault::invalid_params(message)
+        })
 }
 
 pub(super) fn resolve_authorized_save_dir(

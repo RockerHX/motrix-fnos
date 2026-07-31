@@ -539,7 +539,7 @@ Session 与 Cookie 约定：
 | JSON-RPC 方法 | 鉴权 | 说明 |
 | --- | --- | --- |
 | `aria2.addUri` | 需要 `jsonRpcToken` | 添加 HTTP/HTTPS 或磁力链接下载任务，成功返回 Aria2 GID |
-| `aria2.getGlobalOption` | 需要 `jsonRpcToken` | 从内存返回安全兼容子集，目前只包含默认下载目录 `dir`；不启动或探测 Aria2，不返回 RPC secret、代理凭据等敏感配置 |
+| `aria2.getGlobalOption` | 需要 `jsonRpcToken` | 从内存返回安全兼容子集，目前只包含已授权默认下载目录 `dir`；没有可用授权目录时返回空字符串，不启动或探测 Aria2，不返回 RPC secret、代理凭据等敏感配置 |
 | `aria2.getVersion` | 不需要 | 运行时返回版本与空 `enabledFeatures` 并更新进程内版本缓存；已停止时不启动 Aria2、不访问磁盘，返回最后一次读取到的版本，尚无缓存时返回 `unknown`；正在停止时返回 `-32004` 和 `Aria2 正在停止，请稍后重试` |
 | `system.multicall` | 子调用按方法校验 | 批量执行；其中每个需要鉴权的子调用都必须在自身参数中携带有效 token |
 
@@ -547,7 +547,8 @@ Session 与 Cookie 约定：
 
 - `jsonRpcToken` 通过 `/api/settings/jsonrpc-token` 专用接口更新，不是 Web 管理密码或 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
-- `aria2.getGlobalOption` 同样要求第一个参数为 `"token:<jsonRpcToken>"`；目录与 Token 在服务启动时加载到内存，并在管理设置保存成功后同步更新，因此重复查询不会读取 SQLite、授权目录文件或唤醒 Aria2。
+- `aria2.getGlobalOption` 同样要求第一个参数为 `"token:<jsonRpcToken>"`；目录与 Token 在服务启动时加载到内存，并在管理设置保存成功后同步更新，因此重复查询不会读取 SQLite、授权目录文件或唤醒 Aria2。应用数据根目录不会作为外部下载目录返回；没有可用授权目录时 `dir` 为 `""`，发送端应按未指定目录处理。
+- fnOS 在服务运行期间调整授权目录时，外部发送端可能短暂携带上一次查询到的旧默认目录；`aria2.addUri` 仅在该值确实等于服务端曾返回的缓存默认目录时改用当前授权默认目录并刷新缓存。其他未授权目录仍返回 `-32602`。
 - `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的只读兼容结果，在正在停止时使用相同的 `-32004` 错误。
 - `system.multicall` 外层 token 会被忽略；每个 `aria2.addUri` 或 `aria2.getGlobalOption` 子调用仍需在自身 `params` 中携带 token。
 

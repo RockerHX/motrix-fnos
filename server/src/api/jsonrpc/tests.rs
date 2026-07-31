@@ -1,4 +1,4 @@
-use super::add_uri::{parse_add_uri_command, resolve_authorized_save_dir};
+use super::add_uri::{authorized_save_dir, parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
 use super::methods::{execute_method, handle_jsonrpc_payload};
 use crate::app::HttpAppState;
@@ -202,6 +202,12 @@ async fn get_global_option_requires_token_and_uses_memory_snapshot() {
     assert_eq!(unconfigured.code, -32002);
 
     write_json_rpc_token(&state, "secret").await;
+    let without_authorized_dir =
+        execute_method(&state, "aria2.getGlobalOption", &json!(["token:secret"]))
+            .await
+            .expect("missing authorization should return an empty compatibility directory");
+    assert_eq!(without_authorized_dir, json!({ "dir": "" }));
+
     state.remember_json_rpc_default_download_dir("/vol1/1000/tmp");
     state.core.database.pool.close().await;
 
@@ -1015,6 +1021,32 @@ fn resolve_authorized_save_dir_requires_one_unique_authorized_match() {
         ),
         Err(crate::storage::TaskSaveDirError::Unauthorized)
     );
+}
+
+#[tokio::test]
+async fn authorized_save_dir_replaces_stale_cached_default_after_authorization_change() {
+    let state = test_state().await;
+    let stale_default = state.runtime.app_data_dir.display().to_string();
+    let current_default = "/vol1/1000/tmp";
+    state.remember_json_rpc_default_download_dir(&stale_default);
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&json!({ "paths": [current_default] }))
+            .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+
+    assert_eq!(
+        authorized_save_dir(&state, &stale_default)
+            .expect("stale advertised default should fall back to current authorization"),
+        current_default
+    );
+    assert_eq!(state.json_rpc_default_download_dir(), current_default);
+
+    let unauthorized = authorized_save_dir(&state, "/vol1/not-authorized")
+        .expect_err("an unrelated unauthorized directory must still be rejected");
+    assert_eq!(unauthorized.code, -32602);
+    assert_eq!(unauthorized.message, "保存目录不在飞牛已授权目录列表中");
 }
 
 async fn test_state() -> Arc<HttpAppState> {

@@ -231,10 +231,7 @@ async fn exercise_idle_window(
             .expect("JSON-RPC body should read"),
     )
     .expect("JSON-RPC response should parse");
-    assert_eq!(
-        payload["result"]["dir"],
-        state.runtime.app_data_dir.display().to_string()
-    );
+    assert_eq!(payload["result"]["dir"], "");
 }
 
 async fn spawn_mock_aria2() -> (u16, tokio::task::JoinHandle<()>) {
