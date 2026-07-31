@@ -46,13 +46,6 @@ impl RpcFault {
         }
     }
 
-    pub(super) fn aria2_not_running() -> Self {
-        Self {
-            code: -32003,
-            message: "Aria2 未运行".to_string(),
-        }
-    }
-
     pub(super) fn aria2_busy(message: impl Into<String>) -> Self {
         Self {
             code: -32004,

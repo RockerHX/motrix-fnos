@@ -178,12 +178,12 @@ async fn multicall_requires_token_for_each_add_uri_call() {
 async fn get_version_returns_stopped_state_without_starting_aria2() {
     let state = test_state().await;
 
-    let error = execute_method(&state, "aria2.getVersion", &json!([]))
+    let result = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
-        .expect_err("stopped Aria2 should return a protocol error");
+        .expect("stopped Aria2 should return a compatibility version result");
 
-    assert_eq!(error.code, -32003);
-    assert_eq!(error.message, "Aria2 未运行");
+    assert_eq!(result["version"], "unknown");
+    assert_eq!(result["enabledFeatures"], json!([]));
     assert!(state
         .aria2_process
         .lock()
@@ -269,6 +269,13 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
     state.clear_aria2_runtime();
+
+    let cached_result = execute_method(&state, "aria2.getVersion", &json!([]))
+        .await
+        .expect("stopped Aria2 should return the last observed version");
+    assert_eq!(cached_result["version"], "2.4.9");
+    assert_eq!(cached_result["enabledFeatures"], json!([]));
+
     server.abort();
     let _ = server.await;
 }
@@ -719,8 +726,8 @@ async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consist
             .expect("HTTP body should read"),
     )
     .expect("HTTP payload should parse");
-    assert_eq!(http_payload["error"]["code"], -32003);
-    assert_eq!(http_payload["error"]["message"], "Aria2 未运行");
+    assert_eq!(http_payload["result"]["version"], "unknown");
+    assert_eq!(http_payload["result"]["enabledFeatures"], json!([]));
 
     let multicall_payload = handle_jsonrpc_payload(
         &state,
@@ -735,10 +742,10 @@ async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consist
         }),
     )
     .await;
-    assert_eq!(multicall_payload["result"][0]["faultCode"], -32003);
+    assert_eq!(multicall_payload["result"][0][0]["version"], "unknown");
     assert_eq!(
-        multicall_payload["result"][0]["faultString"],
-        "Aria2 未运行"
+        multicall_payload["result"][0][0]["enabledFeatures"],
+        json!([])
     );
 
     let websocket_listener = TcpListener::bind("127.0.0.1:0")
@@ -779,8 +786,8 @@ async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consist
     let websocket_payload: Value =
         serde_json::from_str(&read_websocket_text_frame(&mut socket).await)
             .expect("WebSocket payload should parse");
-    assert_eq!(websocket_payload["error"]["code"], -32003);
-    assert_eq!(websocket_payload["error"]["message"], "Aria2 未运行");
+    assert_eq!(websocket_payload["result"]["version"], "unknown");
+    assert_eq!(websocket_payload["result"]["enabledFeatures"], json!([]));
     drop(socket);
 
     shutdown_tx

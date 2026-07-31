@@ -54,6 +54,9 @@ async fn get_aria2_rpc_status(
     } else {
         ping_rpc(&state.aria2_rpc, &state.aria2_config(), None).await
     };
+    if let Some(version) = status.version.as_deref() {
+        state.remember_aria2_version(version);
+    }
     Ok(Json(status))
 }
 

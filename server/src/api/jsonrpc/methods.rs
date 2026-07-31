@@ -98,10 +98,10 @@ async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
     }
     let process = process_status(&state.aria2_process).map_err(RpcFault::server_error)?;
     let Some(runtime) = state.aria2_runtime_snapshot() else {
-        return Err(RpcFault::aria2_not_running());
+        return Ok(version_result(state.last_aria2_version()));
     };
     if !process.running || process.pid != Some(runtime.pid) {
-        return Err(RpcFault::aria2_not_running());
+        return Ok(version_result(state.last_aria2_version()));
     }
 
     let config = state.aria2_config();
@@ -115,8 +115,16 @@ async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
         return Err(RpcFault::server_error(status.message));
     }
 
-    Ok(json!({
-        "version": status.version.unwrap_or_else(|| "unknown".to_string()),
+    if let Some(version) = status.version.as_deref() {
+        state.remember_aria2_version(version);
+    }
+
+    Ok(version_result(status.version))
+}
+
+fn version_result(version: Option<String>) -> Value {
+    json!({
+        "version": version.unwrap_or_else(|| "unknown".to_string()),
         "enabledFeatures": [],
-    }))
+    })
 }

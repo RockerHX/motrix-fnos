@@ -539,14 +539,14 @@ Session 与 Cookie 约定：
 | JSON-RPC 方法 | 鉴权 | 说明 |
 | --- | --- | --- |
 | `aria2.addUri` | 需要 `jsonRpcToken` | 添加 HTTP/HTTPS 或磁力链接下载任务，成功返回 Aria2 GID |
-| `aria2.getVersion` | 不需要 | 运行时返回版本与空 `enabledFeatures`；已停止时不启动 Aria2，返回 `-32003` 和 `Aria2 未运行`；正在停止时返回 `-32004` 和 `Aria2 正在停止，请稍后重试` |
+| `aria2.getVersion` | 不需要 | 运行时返回版本与空 `enabledFeatures` 并更新进程内版本缓存；已停止时不启动 Aria2、不访问磁盘，返回最后一次读取到的版本，尚无缓存时返回 `unknown`；正在停止时返回 `-32004` 和 `Aria2 正在停止，请稍后重试` |
 | `system.multicall` | 子调用按方法校验 | 批量执行；其中每个 `aria2.addUri` 子调用都必须携带有效 token |
 
 鉴权约定：
 
 - `jsonRpcToken` 通过 `/api/settings/jsonrpc-token` 专用接口更新，不是 Web 管理密码或 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
-- `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的 `-32003` 错误，在正在停止时使用相同的 `-32004` 错误。
+- `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的只读兼容结果，在正在停止时使用相同的 `-32004` 错误。
 - `system.multicall` 外层 token 会被忽略；每个 `aria2.addUri` 子调用仍需在自身 `params` 中携带 token。
 
 `aria2.addUri` 示例：

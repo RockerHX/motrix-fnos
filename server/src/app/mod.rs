@@ -157,6 +157,7 @@ pub struct HttpAppState {
     pub aria2_lifecycle: Arc<Aria2LifecycleCoordinator>,
     pub runtime_events: RuntimeEventHub,
     pub(crate) tasks_snapshot_revision: Mutex<u64>,
+    last_aria2_version: Mutex<Option<String>>,
     listeners_ready: AtomicBool,
 }
 
@@ -180,8 +181,27 @@ impl HttpAppState {
             aria2_lifecycle,
             runtime_events: RuntimeEventHub::new(),
             tasks_snapshot_revision: Mutex::new(0),
+            last_aria2_version: Mutex::new(None),
             listeners_ready: AtomicBool::new(false),
         }
+    }
+
+    pub(crate) fn remember_aria2_version(&self, version: &str) {
+        let version = version.trim();
+        if version.is_empty() {
+            return;
+        }
+        *self
+            .last_aria2_version
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(version.to_string());
+    }
+
+    pub(crate) fn last_aria2_version(&self) -> Option<String> {
+        self.last_aria2_version
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub fn aria2_runtime_snapshot(&self) -> Option<Aria2RuntimeInfo> {
