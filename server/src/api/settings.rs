@@ -58,6 +58,7 @@ async fn update_settings(
     )
     .await
     .map_err(classify_settings_save_error)?;
+    state.remember_json_rpc_default_download_dir(&config.default_download_dir);
     state.core.debug_logs.info("settings", "应用配置已保存");
     apply_runtime_download_config(&state, &config).await;
     Ok(Json(config))
@@ -79,6 +80,7 @@ async fn update_json_rpc_token(
     let token = save_json_rpc_token(&state.core.database.pool, &payload.token)
         .await
         .map_err(|error| ApiError::internal("jsonrpc_token_save_failed", error))?;
+    state.remember_json_rpc_token(&token);
     state
         .core
         .debug_logs

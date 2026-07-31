@@ -1,10 +1,10 @@
 use super::add_uri::add_uri;
+use super::auth::ensure_global_option_token;
 use super::types::{
     positional_params, rpc_error, rpc_success, strip_token_param, JsonRpcRequest, MulticallItem,
     RpcFault,
 };
 use crate::app::HttpAppState;
-use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::runtime::process_status;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -77,11 +77,19 @@ pub(super) async fn execute_method(
 ) -> Result<Value, RpcFault> {
     match method {
         "aria2.addUri" => add_uri(state, params).await.map(Value::String),
+        "aria2.getGlobalOption" => get_global_option(state, params),
         "aria2.getVersion" => get_version(state).await,
         _ => Err(RpcFault::method_not_found(format!(
             "Method not found: {method}"
         ))),
     }
+}
+
+fn get_global_option(state: &HttpAppState, params: &Value) -> Result<Value, RpcFault> {
+    ensure_global_option_token(state, params)?;
+    Ok(json!({
+        "dir": state.json_rpc_default_download_dir(),
+    }))
 }
 
 async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
@@ -107,10 +115,9 @@ async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
     let config = state.aria2_config();
     let status = crate::aria2::ping_rpc(&state.aria2_rpc, &config, None).await;
     if !status.connected {
-        emit_file_log(
-            DebugLogLevel::Warn,
+        state.core.debug_logs.warn(
             "aria2.rpc",
-            &format!("aria2.getVersion 调用失败：{}", status.message),
+            format!("aria2.getVersion 调用失败：{}", status.message),
         );
         return Err(RpcFault::server_error(status.message));
     }

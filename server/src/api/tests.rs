@@ -845,6 +845,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
     .await;
     assert!(token_status.configured);
     assert_eq!(token_status.masked_token.as_deref(), Some("••••••••a1b2"));
+    assert_eq!(state.json_rpc_token(), "test-token-a1b2");
 
     let updated_settings = response_json::<AppConfig>(
         app.clone()
@@ -874,6 +875,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
     assert_eq!(updated_settings.download_limit, 1024);
     assert_eq!(updated_settings.upload_limit, 2048);
     assert_eq!(updated_settings.language, "en-US");
+    assert_eq!(state.json_rpc_default_download_dir(), "/tmp/custom");
 
     let stored_settings = response_json::<AppConfig>(
         app.clone()

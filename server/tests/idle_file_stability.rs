@@ -7,10 +7,12 @@ use motrix_fnos_server::app::{
 };
 use motrix_fnos_server::aria2::runtime_config;
 use motrix_fnos_server::config::aria2::Aria2BinarySource;
+use motrix_fnos_server::database::connect_database;
 use motrix_fnos_server::debug_logs::{
     RollingFileMakeWriter, DEFAULT_FILE_LOG_MAX_BYTES, DEFAULT_FILE_LOG_RETENTION,
 };
 use motrix_fnos_server::runtime::{monitor_tasks_once, stop_process, ManagedAria2Process};
+use motrix_fnos_server::settings::service::save_json_rpc_token;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -39,6 +41,14 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,
     };
+    let initial_database = connect_database(runtime.database_path.clone())
+        .await
+        .expect("initial database should connect");
+    save_json_rpc_token(&initial_database.pool, "idle-stability-token")
+        .await
+        .expect("idle JSON-RPC token should save");
+    initial_database.pool.close().await;
+
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
@@ -193,6 +203,38 @@ async fn exercise_idle_window(
     )
     .expect("JSON-RPC response should parse");
     assert_eq!(payload["result"]["version"], "2.4.9");
+
+    let response = jsonrpc
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jsonrpc")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": "idle-global-option",
+                        "method": "aria2.getGlobalOption",
+                        "params": ["token:idle-stability-token"]
+                    })
+                    .to_string(),
+                ))
+                .expect("JSON-RPC request should build"),
+        )
+        .await
+        .expect("JSON-RPC response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload: Value = serde_json::from_slice(
+        &to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("JSON-RPC body should read"),
+    )
+    .expect("JSON-RPC response should parse");
+    assert_eq!(
+        payload["result"]["dir"],
+        state.runtime.app_data_dir.display().to_string()
+    );
 }
 
 async fn spawn_mock_aria2() -> (u16, tokio::task::JoinHandle<()>) {

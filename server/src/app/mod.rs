@@ -8,8 +8,9 @@ use crate::database::{
     DATABASE_FILE_NAME,
 };
 use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
+use crate::settings::service::{load_app_config_from_pool, load_json_rpc_token};
 use crate::state::{Aria2RuntimeInfo, ServerState};
-use crate::storage::load_accessible_paths;
+use crate::storage::{default_download_dir, load_accessible_paths, validate_default_download_dir};
 use crate::tasks::DownloadTask;
 use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
 use serde::Serialize;
@@ -158,6 +159,8 @@ pub struct HttpAppState {
     pub runtime_events: RuntimeEventHub,
     pub(crate) tasks_snapshot_revision: Mutex<u64>,
     last_aria2_version: Mutex<Option<String>>,
+    json_rpc_default_download_dir: Mutex<String>,
+    json_rpc_token: Mutex<String>,
     listeners_ready: AtomicBool,
 }
 
@@ -171,6 +174,7 @@ impl HttpAppState {
 
         let auth = AuthRuntime::new(core.database.pool.clone());
         let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
+        let initial_default_download_dir = runtime.app_data_dir.display().to_string();
         Self {
             core: Arc::new(core),
             auth,
@@ -182,6 +186,8 @@ impl HttpAppState {
             runtime_events: RuntimeEventHub::new(),
             tasks_snapshot_revision: Mutex::new(0),
             last_aria2_version: Mutex::new(None),
+            json_rpc_default_download_dir: Mutex::new(initial_default_download_dir),
+            json_rpc_token: Mutex::new(String::new()),
             listeners_ready: AtomicBool::new(false),
         }
     }
@@ -199,6 +205,38 @@ impl HttpAppState {
 
     pub(crate) fn last_aria2_version(&self) -> Option<String> {
         self.last_aria2_version
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn remember_json_rpc_default_download_dir(&self, default_download_dir: &str) {
+        let default_download_dir = default_download_dir.trim();
+        if default_download_dir.is_empty() {
+            return;
+        }
+        *self
+            .json_rpc_default_download_dir
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = default_download_dir.to_string();
+    }
+
+    pub(crate) fn json_rpc_default_download_dir(&self) -> String {
+        self.json_rpc_default_download_dir
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn remember_json_rpc_token(&self, token: &str) {
+        *self
+            .json_rpc_token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = token.trim().to_string();
+    }
+
+    pub(crate) fn json_rpc_token(&self) -> String {
+        self.json_rpc_token
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
@@ -281,6 +319,22 @@ pub async fn bootstrap_http_app_state(
     let database = connect_database(runtime.database_path.clone()).await?;
     let mut restored_tasks = list_download_tasks(&database.pool).await?;
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
+    let fallback_download_dir = default_download_dir(&accessible_paths, &runtime.app_data_dir)
+        .display()
+        .to_string();
+    let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
+    let json_rpc_default_download_dir = if validate_default_download_dir(
+        &app_config.default_download_dir,
+        &accessible_paths,
+        &runtime.app_data_dir,
+    )
+    .is_ok()
+    {
+        app_config.default_download_dir
+    } else {
+        fallback_download_dir
+    };
+    let json_rpc_token = load_json_rpc_token(&database.pool).await?;
     migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
     // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
     reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
@@ -290,6 +344,8 @@ pub async fn bootstrap_http_app_state(
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
     let state = Arc::new(HttpAppState::new(state, runtime.clone()));
+    state.remember_json_rpc_default_download_dir(&json_rpc_default_download_dir);
+    state.remember_json_rpc_token(&json_rpc_token);
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
 
     Ok(state)

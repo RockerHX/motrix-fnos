@@ -15,6 +15,13 @@ pub(super) async fn ensure_add_uri_token(
     validate_add_uri_token(&token, params)
 }
 
+pub(super) fn ensure_global_option_token(
+    state: &HttpAppState,
+    params: &Value,
+) -> Result<(), RpcFault> {
+    validate_add_uri_token(&state.json_rpc_token(), params)
+}
+
 pub(super) fn validate_add_uri_token(
     configured_token: &str,
     params: &Value,

@@ -5,6 +5,7 @@ use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
+use crate::debug_logs::DebugLogLevel;
 use crate::runtime::{auto_stop_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
 use crate::test_support::TestTracingCapture;
@@ -192,6 +193,50 @@ async fn get_version_returns_stopped_state_without_starting_aria2() {
 }
 
 #[tokio::test]
+async fn get_global_option_requires_token_and_uses_memory_snapshot() {
+    let state = test_state().await;
+
+    let unconfigured = execute_method(&state, "aria2.getGlobalOption", &json!(["token:secret"]))
+        .await
+        .expect_err("unconfigured token should fail");
+    assert_eq!(unconfigured.code, -32002);
+
+    write_json_rpc_token(&state, "secret").await;
+    state.remember_json_rpc_default_download_dir("/vol1/1000/tmp");
+    state.core.database.pool.close().await;
+
+    let invalid = execute_method(&state, "aria2.getGlobalOption", &json!(["token:wrong"]))
+        .await
+        .expect_err("wrong token should fail");
+    assert_eq!(invalid.code, -32001);
+
+    let result = execute_method(&state, "aria2.getGlobalOption", &json!(["token:secret"]))
+        .await
+        .expect("cached global options should be returned without database access");
+    assert_eq!(result, json!({ "dir": "/vol1/1000/tmp" }));
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+
+    let multicall = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "global-option-multicall",
+            "method": "system.multicall",
+            "params": [[{
+                "methodName": "aria2.getGlobalOption",
+                "params": ["token:secret"]
+            }]]
+        }),
+    )
+    .await;
+    assert_eq!(multicall["result"][0][0]["dir"], "/vol1/1000/tmp");
+}
+
+#[tokio::test]
 async fn get_version_returns_retryable_busy_state_during_aria2_stop() {
     let state = test_state().await;
     state
@@ -326,17 +371,22 @@ async fn get_version_logs_confirmed_rpc_failure_as_warning() {
         ))
         .expect("runtime should persist");
 
-    let capture = TestTracingCapture::default();
-    let tracing_guard = tracing::subscriber::set_default(capture.subscriber());
+    state.core.debug_logs.clear();
     let error = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
         .expect_err("RPC failure should return a protocol error");
     assert_eq!(error.code, -32000);
-    let logs = capture.contents();
-    assert!(logs.contains("WARN"));
-    assert!(logs.contains("aria2.getVersion 调用失败"));
-    assert!(logs.contains("rpc unavailable"));
-    drop(tracing_guard);
+    assert!(
+        error.message.contains("rpc unavailable"),
+        "{}",
+        error.message
+    );
+    let logs = state.core.debug_logs.list();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].level, DebugLogLevel::Warn);
+    assert_eq!(logs[0].module, "aria2.rpc");
+    assert!(logs[0].message.contains("aria2.getVersion 调用失败"));
+    assert!(logs[0].message.contains("rpc unavailable"));
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
@@ -1031,6 +1081,7 @@ async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
     save_json_rpc_token(&state.core.database.pool, token)
         .await
         .expect("JSON-RPC token should save");
+    state.remember_json_rpc_token(token);
 }
 
 fn padded_jsonrpc_payload(size: usize) -> Vec<u8> {
