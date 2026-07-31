@@ -22,3 +22,11 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   assert.match(buildScript, /x86_64-unknown-linux-gnu/);
   assert.match(buildScript, /aarch64-unknown-linux-gnu/);
 });
+
+test('自动发版使用确定性 CHANGELOG，不依赖已退役的 GitHub Models', () => {
+  const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+
+  assert.match(releaseWorkflow, /node scripts\/release-prepare\.mjs "\$\{VERSION\}" --no-verify --no-commit --no-tag/);
+  assert.doesNotMatch(releaseWorkflow, /github-models|MOTRIX_RELEASE_(?:CHANGELOG_PROVIDER|ANALYSIS_MODEL|EDITOR_MODEL|MODEL_MIN_INTERVAL_MS)/);
+  assert.doesNotMatch(releaseWorkflow, /^\s*models:\s*read\s*$/m);
+});
