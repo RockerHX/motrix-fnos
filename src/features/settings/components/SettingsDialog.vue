@@ -18,6 +18,7 @@ import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
 import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
+import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -204,6 +205,7 @@ function kbToBytes(value: number) {
 
       <WebAuthSettings />
       <JsonRpcTokenSettings :active="show" @open-guide="emit('openRpcGuide')" />
+      <LanJsonRpcSettings :active="show" @open-guide="emit('openRpcGuide')" />
     </NForm>
 
     <template #footer>

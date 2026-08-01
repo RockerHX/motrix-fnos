@@ -9,6 +9,8 @@ import DebugLogDialog from "./DebugLogDialog.vue";
 import { useI18n } from "../../../i18n";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
+import { useLanJsonRpcStore } from "../../settings/stores/lanJsonRpcStore";
+import { lanJsonRpcEndpoint } from "../../settings/utils/lanJsonRpcEndpoint";
 
 type EngineStatusSnapshot = {
   process: Aria2ProcessStatus;
@@ -32,7 +34,9 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const lanJsonRpcStore = useLanJsonRpcStore();
 const showDebugLogs = ref(false);
+const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
 const diagnosticMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
   { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
@@ -46,6 +50,12 @@ const diagnosticMetrics = computed<AppMetricItem[]>(() => [
     note: t("diagnostics.jsonRpcLoopback"),
   },
   {
+    label: t("diagnostics.lanJsonRpcEndpoint"),
+    value: lanEndpoint.value.value,
+    detail: "/jsonrpc",
+    note: t("diagnostics.lanJsonRpcSource"),
+  },
+  {
     label: t("diagnostics.jsonRpcToken"),
     value:
       props.jsonRpcTokenConfigured === true
@@ -56,6 +66,25 @@ const diagnosticMetrics = computed<AppMetricItem[]>(() => [
     note: t("diagnostics.jsonRpcTokenNote"),
     tone: props.jsonRpcTokenConfigured === true ? "success" : props.jsonRpcTokenConfigured === false ? "warning" : "default",
   },
+  {
+    label: t("diagnostics.lanJsonRpcToken"),
+    value: lanJsonRpcStore.status?.enabled
+      ? t("diagnostics.lanJsonRpcEnabled")
+      : t("diagnostics.lanJsonRpcDisabled"),
+    detail:
+      lanJsonRpcStore.status?.configured === true
+        ? t("diagnostics.jsonRpcTokenConfigured")
+        : lanJsonRpcStore.status?.configured === false
+          ? t("diagnostics.jsonRpcTokenMissing")
+          : t("diagnostics.jsonRpcTokenUnknown"),
+    note: t("diagnostics.jsonRpcTokenNote"),
+    tone:
+      lanJsonRpcStore.status?.enabled && lanJsonRpcStore.status?.configured
+        ? "success"
+        : lanJsonRpcStore.status
+          ? "warning"
+          : "default",
+  },
 ]);
 
 watch(
@@ -63,6 +92,7 @@ watch(
   (show) => {
     if (show) {
       emit("refreshStatus");
+      void lanJsonRpcStore.loadStatus().catch(() => undefined);
     }
   },
 );

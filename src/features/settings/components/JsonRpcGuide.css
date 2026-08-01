@@ -111,6 +111,12 @@
   user-select: all;
 }
 
+.json-rpc-guide-endpoint small {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 @media (max-width: 767px) {
   .json-rpc-guide-header,
   .json-rpc-guide-endpoint {

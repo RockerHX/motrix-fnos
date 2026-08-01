@@ -1,38 +1,55 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { NAlert, NButton } from "naive-ui";
 import { useI18n } from "../../../i18n";
+import { useJsonRpcTokenStore } from "../stores/jsonRpcTokenStore";
+import { useLanJsonRpcStore } from "../stores/lanJsonRpcStore";
+import { lanJsonRpcEndpoint } from "../utils/lanJsonRpcEndpoint";
 
-const LOCAL_RPC_ENDPOINT = "http://127.0.0.1:17081/jsonrpc";
+const PROXY_RPC_ENDPOINT = "http://127.0.0.1:17081/jsonrpc";
 
 const emit = defineEmits<{
   openSettings: [];
 }>();
 
 const { t } = useI18n();
-const copyState = ref<"idle" | "copied" | "unavailable">("idle");
+const publicTokenStore = useJsonRpcTokenStore();
+const lanStore = useLanJsonRpcStore();
+const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
+const copyTarget = ref<"proxy" | "lan" | null>(null);
+const copyUnavailable = ref(false);
 let copyResetTimer: number | undefined;
 
-async function copyEndpoint() {
+async function copyEndpoint(target: "proxy" | "lan", value: string) {
   if (!navigator.clipboard?.writeText) {
-    copyState.value = "unavailable";
+    copyUnavailable.value = true;
     return;
   }
 
   try {
-    await navigator.clipboard.writeText(LOCAL_RPC_ENDPOINT);
-    copyState.value = "copied";
+    await navigator.clipboard.writeText(value);
+    copyTarget.value = target;
+    copyUnavailable.value = false;
     if (copyResetTimer !== undefined) {
       window.clearTimeout(copyResetTimer);
     }
     copyResetTimer = window.setTimeout(() => {
-      copyState.value = "idle";
+      copyTarget.value = null;
       copyResetTimer = undefined;
     }, 2200);
   } catch {
-    copyState.value = "unavailable";
+    copyUnavailable.value = true;
   }
 }
+
+function tokenStatus(configured: boolean | undefined) {
+  if (configured === undefined) return t("rpcGuide.unknown");
+  return t(configured ? "rpcGuide.configured" : "rpcGuide.notConfigured");
+}
+
+onMounted(() => {
+  void Promise.allSettled([publicTokenStore.loadStatus(), lanStore.loadStatus()]);
+});
 
 onUnmounted(() => {
   if (copyResetTimer !== undefined) {
@@ -83,14 +100,45 @@ onUnmounted(() => {
 
     <div class="json-rpc-guide-endpoint">
       <div>
-        <span class="json-rpc-guide-label">{{ t("rpcGuide.localEndpoint") }}</span>
-        <code data-test="json-rpc-local-endpoint">{{ LOCAL_RPC_ENDPOINT }}</code>
+        <span class="json-rpc-guide-label">{{ t("rpcGuide.proxyEndpoint") }}</span>
+        <code data-test="json-rpc-proxy-endpoint">{{ PROXY_RPC_ENDPOINT }}</code>
+        <small>{{ t("rpcGuide.publicTokenStatus", { status: tokenStatus(publicTokenStore.status?.configured) }) }}</small>
       </div>
-      <NButton size="small" secondary @click="copyEndpoint">
+      <NButton size="small" secondary @click="copyEndpoint('proxy', PROXY_RPC_ENDPOINT)">
         {{
-          copyState === "copied"
+          copyTarget === "proxy"
             ? t("rpcGuide.copied")
-            : copyState === "unavailable"
+            : copyUnavailable
+              ? t("rpcGuide.copyUnavailable")
+              : t("rpcGuide.copyEndpoint")
+        }}
+      </NButton>
+    </div>
+
+    <div class="json-rpc-guide-endpoint">
+      <div>
+        <span class="json-rpc-guide-label">{{ t("rpcGuide.lanEndpoint") }}</span>
+        <code data-test="json-rpc-lan-endpoint">{{ lanEndpoint.value }}</code>
+        <small v-if="!lanEndpoint.concrete">{{ t("rpcGuide.lanAddressHint") }}</small>
+        <small>
+          {{
+            t("rpcGuide.lanTokenStatus", {
+              enabled: t(lanStore.status?.enabled ? "rpcGuide.enabled" : "rpcGuide.disabled"),
+              status: tokenStatus(lanStore.status?.configured),
+            })
+          }}
+        </small>
+      </div>
+      <NButton
+        v-if="lanEndpoint.concrete"
+        size="small"
+        secondary
+        @click="copyEndpoint('lan', lanEndpoint.value)"
+      >
+        {{
+          copyTarget === "lan"
+            ? t("rpcGuide.copied")
+            : copyUnavailable
               ? t("rpcGuide.copyUnavailable")
               : t("rpcGuide.copyEndpoint")
         }}

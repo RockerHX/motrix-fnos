@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("../../settings/services/lanJsonRpcService", () => ({
+  getLanJsonRpcStatus: vi.fn(async () => ({ enabled: true, configured: true, maskedToken: "••••••••1234", port: 17082 })),
+  rotateLanJsonRpcToken: vi.fn(),
+  updateLanJsonRpcEnabled: vi.fn(),
+}));
+
 vi.mock("../../../components/ui/AppDialog.vue", async () => {
   const { defineComponent, h } = await import("vue");
   return {
@@ -42,6 +48,8 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.text()).toContain("1.6.1");
     expect(wrapper.text()).toContain("pong");
     expect(wrapper.text()).toContain("127.0.0.1:17081");
+    expect(wrapper.text()).toContain("17082/jsonrpc");
+    expect(wrapper.text()).toContain("局域网入口 / Token");
     expect(wrapper.text()).toContain("已配置");
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
   });

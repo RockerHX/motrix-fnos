@@ -129,6 +129,23 @@ vi.mock("./JsonRpcTokenSettings.vue", async () => {
   };
 });
 
+vi.mock("./LanJsonRpcSettings.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return {
+    default: defineComponent({
+      name: "LanJsonRpcSettingsStub",
+      emits: ["openGuide"],
+      setup(_, { emit }) {
+        return () =>
+          h("div", [
+            h("span", "局域网推送设置"),
+            h("button", { "data-test": "open-lan-rpc-guide", onClick: () => emit("openGuide") }, "查看局域网指南"),
+          ]);
+      },
+    }),
+  };
+});
+
 import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 

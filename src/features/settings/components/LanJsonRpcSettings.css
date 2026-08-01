@@ -1,0 +1,72 @@
+.lan-json-rpc-settings {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay);
+}
+
+.lan-json-rpc-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.lan-json-rpc-heading h3 {
+  margin: 0 0 4px;
+  color: var(--app-text-strong);
+  font-size: 16px;
+}
+
+.lan-json-rpc-endpoint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+}
+
+.lan-json-rpc-endpoint > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.lan-json-rpc-endpoint span,
+.lan-json-rpc-endpoint small {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.lan-json-rpc-endpoint code {
+  overflow-wrap: anywhere;
+  color: var(--app-text-strong);
+  font-size: 13px;
+}
+
+.lan-json-rpc-modal {
+  width: min(92vw, 520px);
+}
+
+.lan-json-rpc-modal :deep(.n-input) {
+  margin-top: 16px;
+}
+
+.lan-json-rpc-actions {
+  margin-top: 18px;
+}
+
+@media (max-width: 767px) {
+  .lan-json-rpc-settings {
+    padding: 14px;
+  }
+
+  .lan-json-rpc-heading {
+    flex-direction: column;
+  }
+}

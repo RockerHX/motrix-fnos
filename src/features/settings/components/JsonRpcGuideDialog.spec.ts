@@ -1,4 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../services/jsonRpcTokenService", () => ({
+  getJsonRpcTokenStatus: vi.fn(async () => ({ configured: true, maskedToken: "••••••••abcd" })),
+  updateJsonRpcToken: vi.fn(),
+}));
+vi.mock("../services/lanJsonRpcService", () => ({
+  getLanJsonRpcStatus: vi.fn(async () => ({ enabled: true, configured: true, maskedToken: "••••••••1234", port: 17082 })),
+  rotateLanJsonRpcToken: vi.fn(),
+  updateLanJsonRpcEnabled: vi.fn(),
+}));
 
 vi.mock("../../../components/ui/AppDialog.vue", async () => {
   const { defineComponent, h } = await import("vue");
@@ -26,6 +36,8 @@ import JsonRpcGuideDialog from "./JsonRpcGuideDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 
 describe("JsonRpcGuideDialog", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("renders the independent guide and copies the local endpoint", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
@@ -35,7 +47,11 @@ describe("JsonRpcGuideDialog", () => {
     const { wrapper } = mountWithPinia(JsonRpcGuideDialog, { props: { show: true } });
 
     expect(wrapper.text()).toContain("JSON-RPC 配置指南");
-    expect(wrapper.get('[data-test="json-rpc-local-endpoint"]').text()).toBe("http://127.0.0.1:17081/jsonrpc");
+    await flushPromises();
+    expect(wrapper.get('[data-test="json-rpc-proxy-endpoint"]').text()).toBe("http://127.0.0.1:17081/jsonrpc");
+    expect(wrapper.get('[data-test="json-rpc-lan-endpoint"]').text()).toBe("http://<飞牛局域网IP>:17082/jsonrpc");
+    expect(wrapper.text()).toContain("公网 Token：已配置");
+    expect(wrapper.text()).toContain("局域网入口：已启用，Token：已配置");
     await wrapper.findAll("button").find((button) => button.text() === "复制地址")!.trigger("click");
     await flushPromises();
 
