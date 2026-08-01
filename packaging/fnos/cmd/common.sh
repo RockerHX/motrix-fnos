@@ -27,6 +27,10 @@ PROC_ROOT=${MOTRIX_FNOS_PROC_ROOT:-/proc}
 READINESS_ATTEMPTS=${MOTRIX_FNOS_READINESS_ATTEMPTS:-10}
 READINESS_RETRY_SECONDS=${MOTRIX_FNOS_READINESS_RETRY_SECONDS:-1}
 READINESS_REQUEST_TIMEOUT_SECONDS=${MOTRIX_FNOS_READINESS_REQUEST_TIMEOUT_SECONDS:-2}
+PROCESS_IDENTITY_ATTEMPTS=${MOTRIX_FNOS_PROCESS_IDENTITY_ATTEMPTS:-20}
+PROCESS_IDENTITY_RETRY_SECONDS=${MOTRIX_FNOS_PROCESS_IDENTITY_RETRY_SECONDS:-0.1}
+START_CLEANUP_ATTEMPTS=${MOTRIX_FNOS_START_CLEANUP_ATTEMPTS:-20}
+START_CLEANUP_RETRY_SECONDS=${MOTRIX_FNOS_START_CLEANUP_RETRY_SECONDS:-0.1}
 CURL_BIN=${MOTRIX_FNOS_CURL_BIN:-curl}
 WGET_BIN=${MOTRIX_FNOS_WGET_BIN:-wget}
 
@@ -102,6 +106,69 @@ is_running_pid() {
     actual_start_time=$(process_start_time "${pid}") || return 1
     [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
   fi
+}
+
+# 新启动的后台进程可能仍处于 nohup -> server 的 exec 窗口。此时可执行文件尚不匹配，
+# 但 PID 与启动时间仍能证明它是本次启动创建的同一进程实例。
+is_recorded_process_instance() {
+  pid="$1"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null || return 1
+  [ -f "${PID_START_FILE}" ] || return 1
+
+  recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
+  actual_start_time=$(process_start_time "${pid}") || return 1
+  [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ]
+}
+
+wait_for_server_identity() {
+  pid="$1"
+  attempt=1
+  while [ "${attempt}" -le "${PROCESS_IDENTITY_ATTEMPTS}" ]; do
+    if is_running_pid "${pid}"; then
+      return 0
+    fi
+    if ! is_recorded_process_instance "${pid}"; then
+      return 1
+    fi
+    if [ "${attempt}" -lt "${PROCESS_IDENTITY_ATTEMPTS}" ]; then
+      sleep "${PROCESS_IDENTITY_RETRY_SECONDS}"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+wait_for_recorded_process_exit() {
+  pid="$1"
+  attempt=1
+  while [ "${attempt}" -le "${START_CLEANUP_ATTEMPTS}" ]; do
+    if ! is_recorded_process_instance "${pid}"; then
+      return 0
+    fi
+    if [ "${attempt}" -lt "${START_CLEANUP_ATTEMPTS}" ]; then
+      sleep "${START_CLEANUP_RETRY_SECONDS}"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+terminate_recorded_process() {
+  pid="$1"
+  if ! is_recorded_process_instance "${pid}"; then
+    return 0
+  fi
+
+  kill -TERM "${pid}" 2>/dev/null || true
+  if wait_for_recorded_process_exit "${pid}"; then
+    return 0
+  fi
+
+  kill -KILL "${pid}" 2>/dev/null || true
+  wait_for_recorded_process_exit "${pid}"
 }
 
 readiness_url() {

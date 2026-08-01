@@ -33,16 +33,30 @@ if ! write_pid_record "${pid}"; then
   exit 1
 fi
 
+if ! wait_for_server_identity "${pid}"; then
+  if terminate_recorded_process "${pid}"; then
+    remove_pid_record
+    cleanup_message="已清理本次启动进程"
+  else
+    cleanup_message="无法终止本次启动进程，已保留 PID 记录以便后续停止"
+  fi
+  log_msg "motrix-fnos-server 启动失败，新进程未在 ${PROCESS_IDENTITY_ATTEMPTS} 次检查内切换为预期可执行文件；${cleanup_message}"
+  echo "motrix-fnos-server 启动失败，进程身份未就绪；${cleanup_message}" >&2
+  exit 1
+fi
+
 if wait_for_server_ready "${pid}"; then
   log_msg "motrix-fnos-server 启动成功且服务就绪，PID ${pid}，管理监听 ${HTTP_ADDR}，反代 JSON-RPC 监听 ${JSONRPC_ADDR}，局域网 JSON-RPC 监听 ${LAN_JSONRPC_ADDR}"
   echo "motrix-fnos-server 启动成功且服务就绪，PID ${pid}"
   exit 0
 fi
 
-if is_running_pid "${pid}"; then
-  kill "${pid}" 2>/dev/null || true
+if terminate_recorded_process "${pid}"; then
+  remove_pid_record
+  cleanup_message="已清理本次启动进程"
+else
+  cleanup_message="无法终止本次启动进程，已保留 PID 记录以便后续停止"
 fi
-remove_pid_record
-log_msg "motrix-fnos-server 启动失败，就绪接口 $(readiness_url || true) 未在 ${READINESS_ATTEMPTS} 次检查内返回 HTTP 200，请检查日志：${SERVER_LOG}"
-echo "motrix-fnos-server 启动失败，服务未就绪，请检查日志：${SERVER_LOG}" >&2
+log_msg "motrix-fnos-server 启动失败，就绪接口 $(readiness_url || true) 未在 ${READINESS_ATTEMPTS} 次检查内返回 HTTP 200；${cleanup_message}；请检查日志：${SERVER_LOG}"
+echo "motrix-fnos-server 启动失败，服务未就绪；${cleanup_message}；请检查日志：${SERVER_LOG}" >&2
 exit 1

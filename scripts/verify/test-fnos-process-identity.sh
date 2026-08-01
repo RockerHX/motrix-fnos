@@ -3,7 +3,12 @@
 set -eu
 
 TEST_ROOT=$(mktemp -d)
+ORPHAN_PID=""
 cleanup() {
+  if [ -n "${ORPHAN_PID}" ]; then
+    kill -KILL "${ORPHAN_PID}" 2>/dev/null || true
+    wait "${ORPHAN_PID}" 2>/dev/null || true
+  fi
   rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT INT TERM
@@ -26,7 +31,13 @@ MOTRIX_FNOS_SERVER_BIN="${SERVER_FIXTURE}"
 MOTRIX_FNOS_PROC_ROOT="${PROC_FIXTURE}"
 TRIM_PKGVAR="${TEST_ROOT}/data"
 MOTRIX_FNOS_TEST_SERVER_CALLS="${SERVER_CALLS}"
+MOTRIX_FNOS_PROCESS_IDENTITY_ATTEMPTS=10
+MOTRIX_FNOS_PROCESS_IDENTITY_RETRY_SECONDS=0.05
+MOTRIX_FNOS_START_CLEANUP_ATTEMPTS=10
+MOTRIX_FNOS_START_CLEANUP_RETRY_SECONDS=0.05
 export MOTRIX_FNOS_SERVER_BIN MOTRIX_FNOS_PROC_ROOT TRIM_PKGVAR MOTRIX_FNOS_TEST_SERVER_CALLS
+export MOTRIX_FNOS_PROCESS_IDENTITY_ATTEMPTS MOTRIX_FNOS_PROCESS_IDENTITY_RETRY_SECONDS
+export MOTRIX_FNOS_START_CLEANUP_ATTEMPTS MOTRIX_FNOS_START_CLEANUP_RETRY_SECONDS
 
 . "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
 
@@ -57,6 +68,19 @@ prepare_runtime_dirs
 write_pid_record "$$"
 is_running_pid "$$"
 
+rm "${PROC_FIXTURE}/$$/exe"
+ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
+is_recorded_process_instance "$$"
+(
+  sleep 0.1
+  rm "${PROC_FIXTURE}/$$/exe"
+  ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
+) &
+identity_transition_pid=$!
+wait_for_server_identity "$$"
+wait "${identity_transition_pid}"
+is_running_pid "$$"
+
 printf '%s\n' "9999" > "${PID_START_FILE}"
 if is_running_pid "$$"; then
   echo "启动时间不匹配时不应识别为 Motrix 进程" >&2
@@ -76,6 +100,28 @@ ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 rm "${PID_START_FILE}"
 is_running_pid "$$"
 
+sleep 30 &
+ORPHAN_PID=$!
+mkdir -p "${PROC_FIXTURE}/${ORPHAN_PID}"
+ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/${ORPHAN_PID}/exe"
+printf '%s\n' "${ORPHAN_PID} (nohup) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5151" > "${PROC_FIXTURE}/${ORPHAN_PID}/stat"
+printf '%s\n' "${ORPHAN_PID}" > "${PID_FILE}"
+printf '%s\n' "5151" > "${PID_START_FILE}"
+if is_running_pid "${ORPHAN_PID}"; then
+  echo "nohup exec 前不应通过严格可执行文件校验" >&2
+  exit 1
+fi
+is_recorded_process_instance "${ORPHAN_PID}"
+terminate_recorded_process "${ORPHAN_PID}"
+if kill -0 "${ORPHAN_PID}" 2>/dev/null; then
+  echo "启动失败清理必须终止仍处于 nohup exec 窗口的同一进程" >&2
+  exit 1
+fi
+wait "${ORPHAN_PID}" 2>/dev/null || true
+ORPHAN_PID=""
+remove_pid_record
+
+write_pid_record "$$"
 printf '%s\n' "9999" > "${PID_START_FILE}"
 clear_stale_pid
 test ! -e "${PID_FILE}"

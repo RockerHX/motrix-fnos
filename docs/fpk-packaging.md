@@ -327,6 +327,7 @@ rtk packaging/fnos/cmd/stop
 - 生命周期日志：`packaging/fnos/app/data/logs/lifecycle.log`，记录启动脚本和进程标准输出，单文件默认上限 1 MiB，保留最多 3 个轮转文件。
 - PID：`packaging/fnos/app/data/run/motrix-fnos-server.pid`
 - 进程启动时间：`packaging/fnos/app/data/run/motrix-fnos-server.starttime`，与 `/proc/<pid>/exe` 一起用于防止 PID 复用误判。
+- 新进程启动后允许 `nohup` 到 server 可执行文件存在短暂、有限的 exec 过渡窗口；过渡期间使用 PID 启动时间确认仍是本次创建的进程。启动失败时只终止启动时间匹配的进程实例，确认退出后才删除 PID 记录，避免遗留继续占用服务端口的孤儿进程。
 
 ## 最小排障
 
