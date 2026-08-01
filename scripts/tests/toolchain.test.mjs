@@ -90,6 +90,7 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   const buildAllScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
   const buildFpkScript = readFileSync('scripts/build/build-fpk.mjs', 'utf8');
   const buildServerScript = readFileSync('scripts/build/build-server-linux.mjs', 'utf8');
+  const buildFpkWebScript = readFileSync('scripts/build/build-web-ui-fpk.mjs', 'utf8');
   const buildWebScript = readFileSync('scripts/build/build-web.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/build/package-local.mjs');
@@ -100,6 +101,8 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.equal(packageJson.scripts.build, 'node scripts/build/build-web.mjs');
   assert.match(buildWebScript, /\['--noEmit'\]/);
   assert.match(buildWebScript, /\['build', '--logLevel', 'warn'\]/);
+  assert.match(buildFpkWebScript, /\['exec', 'vite', 'build', '--logLevel', 'warn'\]/);
+  assert.doesNotMatch(buildFpkWebScript, /\['run', 'build'\]/);
 
   assert.match(packageLocalScript, /\['run', 'verify'\]/);
   assert.match(packageLocalScript, /build-fpk-all\.mjs', '--reuse-web-dist'/);

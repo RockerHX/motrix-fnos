@@ -38,7 +38,7 @@
 | `prepare` | 安装依赖后尝试配置 Git hooks | 修改本仓库 Git 配置 |
 | `hooks:install` | 显式配置 Git hooks | 修改本仓库 Git 配置 |
 | `build:server:linux:x64` | 交叉编译 x86 Linux server | 写入 `server/target/` |
-| `build:web:fpk` | 构建并同步 FPK Web UI | 写入 `dist/` 和 FPK UI 目录 |
+| `build:web:fpk` | 只执行 Vite 生产构建并同步 FPK Web UI | 写入 `dist/` 和 FPK UI 目录 |
 | `assets:aria2:fetch` | 下载或校验固定版本 Aria2 Next | 可能修改 `assets/aria2/` |
 | `stage:aria2:x64` | 放置 x86 Aria2 sidecar | 覆盖共享 sidecar 文件 |
 | `stage:aria2:arm64` | 放置 ARM Aria2 sidecar | 覆盖共享 sidecar 文件 |
@@ -248,7 +248,7 @@ server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server
 
 ### `pnpm run build:web:fpk`
 
-先执行 `pnpm run build`，再清空并重建 `packaging/fnos/app/ui/dist/`。不要在该目标目录保存手工文件。
+直接执行 Vite 生产构建，再清空并重建 `packaging/fnos/app/ui/dist/`。该产物构建层不运行 `vue-tsc`；源码类型检查由推送前的 `pnpm run verify` 唯一负责。不要在目标目录保存手工文件。
 
 ### `pnpm run assets:aria2:fetch`
 
@@ -298,7 +298,7 @@ packaging/fnos/dist/motrix_<version>_arm.fpk
 
 构建会清空源码 staging 区的 `packaging/fnos/app/data/`，以防 SQLite、日志或运行残留进入安装包。该目录只能存放占位内容，不得用于保存本地测试数据。
 
-该命令只负责发布产物，不运行源码测试，供 Release workflow 使用。Web UI 只构建一次并同时进入两个架构的 FPK。
+该命令只负责发布产物，不运行源码测试或类型检查，供 Release workflow 使用。Web UI 只执行一次 Vite 生产构建并同时进入两个架构的 FPK。
 
 ### `pnpm run build:fpk`
 

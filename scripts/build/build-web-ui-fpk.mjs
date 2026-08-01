@@ -10,7 +10,7 @@ const targetDir = path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'dist');
 const reuseDist = process.argv.includes('--reuse-dist');
 
 if (!reuseDist) {
-  await run('pnpm', ['run', 'build']);
+  await run('pnpm', ['exec', 'vite', 'build', '--logLevel', 'warn']);
 }
 if (!existsSync(path.join(sourceDir, 'index.html'))) {
   console.error(`Web UI 构建结果无效：${sourceDir} 缺少 index.html`);
