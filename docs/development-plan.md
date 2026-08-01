@@ -2,6 +2,7 @@
 
 > 更新时间：2026-07-22
 > 本文档只记录阶段 13 的状态、范围、实施门禁和验收口径。已完成内容见 `CHANGELOG.md`。
+> 尚未进入阶段 13 的候选事项、长期待办和各自启动门禁见 `docs/future-development-plan.md`。
 
 ## 1. 当前状态
 
@@ -83,6 +84,7 @@
 - `docs/architecture.md`：长期架构与职责边界。
 - `docs/api-contract.md`：HTTP、SSE 与 JSON-RPC 接口契约。
 - `docs/fpk-packaging.md`：FPK 构建、发布和实机验证。
+- `docs/future-development-plan.md`：尚未进入当前阶段的候选事项与启动门禁。
 - `CHANGELOG.md`：已完成功能与发布历史。
 
 ## 7. 后期平台实验：统一网关可信性验证

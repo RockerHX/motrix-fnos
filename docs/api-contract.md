@@ -1,6 +1,6 @@
 # 前后端 HTTP / SSE / JSON-RPC API 契约
 
-> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；阶段状态见 `docs/development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
+> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；当前阶段状态见 `docs/development-plan.md`；后续候选事项见 `docs/future-development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
 
 ## 1. 运行时约定
 

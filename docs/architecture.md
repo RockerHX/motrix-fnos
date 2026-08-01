@@ -1,6 +1,6 @@
 # 飞牛版 Motrix 架构文档
 
-> 本文档只约束长期架构、职责边界、目录组织和运行模型。阶段任务、状态和优先级见 `docs/development-plan.md`；接口细节见 `docs/api-contract.md`；开发命令见 `docs/development-scripts.md`；FPK 打包与实机检查见 `docs/fpk-packaging.md`；当前 UI 产品需求与视觉规则见 `docs/design/ui-product-requirements.md` 和 `docs/design/DESIGN.md`。
+> 本文档只约束长期架构、职责边界、目录组织和运行模型。当前阶段任务、状态和优先级见 `docs/development-plan.md`；尚未进入当前阶段的候选事项与启动门禁见 `docs/future-development-plan.md`；接口细节见 `docs/api-contract.md`；开发命令见 `docs/development-scripts.md`；FPK 打包与实机检查见 `docs/fpk-packaging.md`；当前 UI 产品需求与视觉规则见 `docs/design/ui-product-requirements.md` 和 `docs/design/DESIGN.md`。
 
 ## 1. 架构边界
 
