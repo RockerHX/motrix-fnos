@@ -69,6 +69,9 @@ describe("LanJsonRpcSettings", () => {
     expect(
       (wrapper.get('[data-test="lan-json-rpc-issued-token"] input').element as HTMLInputElement).value,
     ).toBe("one-time-lan-token");
+    expect((wrapper.get(".app-dialog").element as HTMLElement).style.getPropertyValue("--app-dialog-width")).toBe(
+      "520px",
+    );
 
     await wrapper.findAll("button").find((button) => button.text() === "完成")!.trigger("click");
     expect(useLanJsonRpcStore().issuedToken).toBe("");
@@ -103,6 +106,9 @@ describe("LanJsonRpcSettings", () => {
 
     await wrapper.findAll("button").find((button) => button.text() === "轮换 Token")!.trigger("click");
     expect(mockedRotate).not.toHaveBeenCalled();
+    expect((wrapper.get(".app-dialog").element as HTMLElement).style.getPropertyValue("--app-dialog-width")).toBe(
+      "520px",
+    );
     const rotateButtons = wrapper.findAll("button").filter((button) => button.text() === "轮换 Token");
     await rotateButtons[rotateButtons.length - 1]!.trigger("click");
     await flushPromises();

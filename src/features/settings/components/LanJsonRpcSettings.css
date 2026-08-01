@@ -49,16 +49,8 @@
   font-size: 13px;
 }
 
-.lan-json-rpc-modal {
-  width: min(92vw, 520px);
-}
-
-.lan-json-rpc-modal :deep(.n-input) {
+.lan-json-rpc-issued-input {
   margin-top: 16px;
-}
-
-.lan-json-rpc-actions {
-  margin-top: 18px;
 }
 
 @media (max-width: 767px) {

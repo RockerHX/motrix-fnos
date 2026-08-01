@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { IconCopy, IconRefresh } from "@tabler/icons-vue";
-import { NAlert, NButton, NIcon, NInput, NModal, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import { NAlert, NButton, NIcon, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import AppDialog from "../../../components/ui/AppDialog.vue";
+import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
 import { useLanJsonRpcStore } from "../stores/lanJsonRpcStore";
@@ -141,46 +143,50 @@ onUnmounted(closeSensitiveDialogs);
       </NButton>
     </NSpace>
 
-    <NModal
+    <AppDialog
       :show="Boolean(store.issuedToken)"
-      preset="card"
-      class="lan-json-rpc-modal"
       :title="t('settings.lanJsonRpc.issuedTitle')"
+      width="520px"
       @update:show="!$event && closeIssuedToken()"
     >
       <NAlert type="warning" :bordered="false">{{ t("settings.lanJsonRpc.issuedWarning") }}</NAlert>
       <NInput
+        class="lan-json-rpc-issued-input"
         :value="store.issuedToken"
         readonly
         type="text"
         :input-props="{ autocomplete: 'off', spellcheck: 'false' }"
         data-test="lan-json-rpc-issued-token"
       />
-      <NSpace justify="end" class="lan-json-rpc-actions">
-        <NButton secondary @click="copyText(store.issuedToken)">
-          <template #icon><NIcon><IconCopy /></NIcon></template>
-          {{ t("common.copy") }}
-        </NButton>
-        <NButton type="primary" @click="closeIssuedToken">{{ t("common.done") }}</NButton>
-      </NSpace>
-    </NModal>
+      <template #footer>
+        <AppDialogActions>
+          <NButton secondary @click="copyText(store.issuedToken)">
+            <template #icon><NIcon><IconCopy /></NIcon></template>
+            {{ t("common.copy") }}
+          </NButton>
+          <NButton type="primary" @click="closeIssuedToken">{{ t("common.done") }}</NButton>
+        </AppDialogActions>
+      </template>
+    </AppDialog>
 
-    <NModal
-      v-model:show="showRotateConfirm"
-      preset="card"
-      class="lan-json-rpc-modal"
+    <AppDialog
+      :show="showRotateConfirm"
       :title="t('settings.lanJsonRpc.rotateTitle')"
+      width="520px"
       :mask-closable="!store.isSaving"
-      :closable="!store.isSaving"
+      :close-disabled="store.isSaving"
+      @update:show="showRotateConfirm = $event"
     >
       <NAlert type="warning" :bordered="false">{{ t("settings.lanJsonRpc.rotateConfirm") }}</NAlert>
-      <NSpace justify="end" class="lan-json-rpc-actions">
-        <NButton :disabled="store.isSaving" @click="showRotateConfirm = false">{{ t("common.cancel") }}</NButton>
-        <NButton type="warning" :loading="store.isSaving" @click="rotateToken">
-          {{ t("settings.lanJsonRpc.rotate") }}
-        </NButton>
-      </NSpace>
-    </NModal>
+      <template #footer>
+        <AppDialogActions>
+          <NButton :disabled="store.isSaving" @click="showRotateConfirm = false">{{ t("common.cancel") }}</NButton>
+          <NButton type="warning" :loading="store.isSaving" @click="rotateToken">
+            {{ t("settings.lanJsonRpc.rotate") }}
+          </NButton>
+        </AppDialogActions>
+      </template>
+    </AppDialog>
   </section>
 </template>
 
