@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { reportCommandProgress } from './command-progress.mjs';
+import { reportCommandProgress } from '../lib/command-progress.mjs';
 import {
   parseManifest,
   platformForTarget,
@@ -16,7 +16,7 @@ import {
   validateFpkPortIsolation,
   validateFpkRuntimeEnvScript,
   validateFpkRuntimeDataEntries,
-} from './script-utils.mjs';
+} from '../lib/script-utils.mjs';
 
 const repoRoot = process.cwd();
 const packagingRoot = path.join(repoRoot, 'packaging', 'fnos');
@@ -37,13 +37,13 @@ const env = {
 
 resetSourceAppDataDir();
 reportCommandProgress(`准备 Linux server：${buildTarget}`);
-run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
+run('node', ['scripts/build/build-server-linux.mjs', '--target', buildTarget], env);
 if (!reuseWebUi) {
   reportCommandProgress('构建 FPK Web UI');
-  run('node', ['scripts/build-web-ui-fpk.mjs'], env);
+  run('node', ['scripts/build/build-web-ui-fpk.mjs'], env);
 }
 reportCommandProgress(`放置 Aria2 Next sidecar：${sidecarTarget}`);
-run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
+run('node', ['scripts/build/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
 reportCommandProgress('组装并预检 FPK 文件结构');
 stageServerBinary(buildTarget);
 syncUiIcons();

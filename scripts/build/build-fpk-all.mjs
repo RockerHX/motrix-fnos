@@ -2,7 +2,7 @@
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { runCommandWithProgress } from './command-progress.mjs';
+import { runCommandWithProgress } from '../lib/command-progress.mjs';
 
 const repoRoot = process.cwd();
 const outputDir = path.join(repoRoot, 'packaging', 'fnos', 'dist');
@@ -17,7 +17,7 @@ if (!prepareOnly) {
   resetDir(outputDir);
 }
 
-const webArgs = ['scripts/build-web-ui-fpk.mjs'];
+const webArgs = ['scripts/build/build-web-ui-fpk.mjs'];
 if (reuseWebDist) {
   webArgs.push('--reuse-dist');
 }
@@ -25,7 +25,7 @@ console.log(`\n==> ${reuseWebDist ? '复用已验证的 Web UI 构建' : '构建
 await run('node', webArgs, reuseWebDist ? '复用已验证的 Web UI 构建' : '构建 FPK Web UI');
 
 for (const target of targets) {
-  const args = ['scripts/build-fpk.mjs', '--target', target, '--keep-dist', '--reuse-web-ui'];
+  const args = ['scripts/build/build-fpk.mjs', '--target', target, '--keep-dist', '--reuse-web-ui'];
   forwardOption(args, '--service-port');
   forwardOption(args, '--fnpack');
   if (prepareOnly) {

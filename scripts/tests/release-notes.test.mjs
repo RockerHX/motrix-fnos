@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const scriptPath = fileURLToPath(new URL('../release-notes.mjs', import.meta.url));
+const scriptPath = fileURLToPath(new URL('../release/release-notes.mjs', import.meta.url));
 
 test('GitHub Release 正文只接受分类完整的目标版本 CHANGELOG', () => {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'motrix-release-notes-'));

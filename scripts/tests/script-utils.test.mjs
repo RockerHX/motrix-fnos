@@ -22,14 +22,14 @@ import {
   validateFpkRuntimeDataEntries,
   validateChangelogBody,
   validatePortEntry,
-} from '../script-utils.mjs';
+} from '../lib/script-utils.mjs';
 import {
   assertProjectVersion,
   assertReleaseVersion,
   findVersionMismatches,
   readProjectVersions,
   setProjectVersion,
-} from '../version-utils.mjs';
+} from '../version/version-utils.mjs';
 
 test('版本号校验与比较使用语义化数字段', () => {
   assert.doesNotThrow(() => assertReleaseVersion('1.10.0'));

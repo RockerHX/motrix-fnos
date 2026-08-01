@@ -7,14 +7,14 @@ import test from 'node:test';
 import {
   collectReleaseCommitContext,
   readReleaseCommits,
-} from '../release-changelog-context.mjs';
+} from '../release/release-changelog-context.mjs';
 import {
   buildReleaseAnalysisPrompts,
   countChatInputTokens,
   generateChangelogWithHierarchicalSummary,
   MODEL_INPUT_TOKEN_BUDGET,
   NoReleaseFactsError,
-} from '../release-changelog-ai.mjs';
+} from '../release/release-changelog-ai.mjs';
 
 test('发布上下文只提供 commit 信息和本地统计，不包含源码 Diff', () => {
   const repoRoot = createFixtureRepository();

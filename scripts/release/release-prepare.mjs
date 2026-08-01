@@ -3,13 +3,13 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { assertReleaseVersion, readProjectVersions, repoRoot, setProjectVersion } from './version-utils.mjs';
+import { assertReleaseVersion, readProjectVersions, repoRoot, setProjectVersion } from '../version/version-utils.mjs';
 import {
   classifyCommit,
   cleanupCommitSubject,
   compareReleaseVersions,
   validateChangelogBody,
-} from './script-utils.mjs';
+} from '../lib/script-utils.mjs';
 import { generateChangelogWithHierarchicalSummary, NoReleaseFactsError } from './release-changelog-ai.mjs';
 import { collectReleaseCommitContext, readReleaseCommits } from './release-changelog-context.mjs';
 

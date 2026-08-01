@@ -131,7 +131,7 @@ FPK 启动脚本必须向同一个 Rust server 注入两个地址：
 - `app/ui/images/icon_256.png`：256×256；
 - `public/icon.png` 构建为 `app/ui/dist/icon.png`：256×256。
 
-因此，`icon_64.png` 的 `64` 是兼容 fnOS 入口文件名与 `{0}` 选择规则的名称，不代表本项目交付的像素尺寸。`scripts/build-fpk.mjs` 会同步这些资源，并在 FPK 预检阶段统一校验为 256×256；不要只修改其中一个尺寸或手工在 `app/ui/images/` 下留下旧生成物。
+因此，`icon_64.png` 的 `64` 是兼容 fnOS 入口文件名与 `{0}` 选择规则的名称，不代表本项目交付的像素尺寸。`scripts/build/build-fpk.mjs` 会同步这些资源，并在 FPK 预检阶段统一校验为 256×256；不要只修改其中一个尺寸或手工在 `app/ui/images/` 下留下旧生成物。
 
 图标显示模糊时，先确认实际 FPK 包内资源尺寸，再清理浏览器缓存、执行强制刷新或换浏览器复测。`1.7.5` 的实测表明，同一个 FPK 在缓存未更新的浏览器中可能显示模糊，而换浏览器后立即显示高清；这种现象不代表 FPK 中缺少 256 图标。官方 64/256 规范没有改变，全部使用 256 是本项目基于实机显示效果确定的交付约定。
 
@@ -288,7 +288,7 @@ packaging/fnos/
 - 源码态 `packaging/fnos/` **不是**可直接执行 `fnpack build` 的安全输入目录；真实打包输入由 `build:fpk:prepare` / `build:fpk*` 生成到 `.stage/<target>/`。
 - 如需手动检查 manifest、入口配置、端口配置或生命周期脚本，请检查 `.stage/x86/` 或 `.stage/arm/`，不要直接在源码态目录执行 `fnpack build`。
 - `dist/`、`.stage/`、`app/bin/` 中构建脚本放置的 server / Aria2 二进制、`app/ui/dist/`、`dist/*.fpk` 和 stage 目录内产物都是本地生成产物，不应作为源码态内容长期保留。
-- `assets/aria2/aria2-next-*` 是当前 `scripts/stage-aria2-sidecar.mjs` 使用的 sidecar 源资产，不是无用产物；只有未来改成下载缓存或发布资产拉取模式后，才可重新评估是否从仓库移除。
+- `assets/aria2/aria2-next-*` 是当前 `scripts/build/stage-aria2-sidecar.mjs` 使用的 sidecar 源资产，不是无用产物；只有未来改成下载缓存或发布资产拉取模式后，才可重新评估是否从仓库移除。
 
 ## 本地调试
 

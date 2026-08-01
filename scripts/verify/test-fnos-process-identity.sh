@@ -28,7 +28,7 @@ TRIM_PKGVAR="${TEST_ROOT}/data"
 MOTRIX_FNOS_TEST_SERVER_CALLS="${SERVER_CALLS}"
 export MOTRIX_FNOS_SERVER_BIN MOTRIX_FNOS_PROC_ROOT TRIM_PKGVAR MOTRIX_FNOS_TEST_SERVER_CALLS
 
-. "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+. "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
 
 test "${HTTP_ADDR}" = "0.0.0.0:17080"
 test "${JSONRPC_ADDR}" = "127.0.0.1:17081"
@@ -40,7 +40,7 @@ test "${MOTRIX_FNOS_JSONRPC_ADDR}" = "127.0.0.1:17081"
   MOTRIX_FNOS_HTTP_ADDR="127.0.0.1:27080"
   MOTRIX_FNOS_JSONRPC_ADDR="127.0.0.1:27081"
   export MOTRIX_FNOS_HTTP_ADDR MOTRIX_FNOS_JSONRPC_ADDR
-  . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+  . "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
   export_runtime_env
   test "${HTTP_ADDR}" = "127.0.0.1:27080"
   test "${JSONRPC_ADDR}" = "127.0.0.1:27081"
@@ -77,14 +77,14 @@ test ! -e "${PID_FILE}"
 test ! -e "${PID_START_FILE}"
 
 write_pid_record "$$"
-if "$(dirname -- "$0")/../packaging/fnos/cmd/reset-web-auth" >/dev/null 2>&1; then
+if "$(dirname -- "$0")/../../packaging/fnos/cmd/reset-web-auth" >/dev/null 2>&1; then
   echo "server 运行时不应允许重置 Web 鉴权" >&2
   exit 1
 fi
 test ! -e "${SERVER_CALLS}"
 
 printf '%s\n' "9999" > "${PID_START_FILE}"
-"$(dirname -- "$0")/../packaging/fnos/cmd/reset-web-auth" >/dev/null
+"$(dirname -- "$0")/../../packaging/fnos/cmd/reset-web-auth" >/dev/null
 grep -qx 'reset-web-auth' "${SERVER_CALLS}"
 test ! -e "${PID_FILE}"
 test ! -e "${PID_START_FILE}"

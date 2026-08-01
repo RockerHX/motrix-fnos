@@ -9,7 +9,7 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
-  const buildScript = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
+  const buildScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
 
   assert.equal(packageJson.packageManager, 'pnpm@11.17.0');
   assert.match(nodeVersion, /^22\.\d+\.\d+$/);
@@ -30,18 +30,18 @@ test('验证工具链版本和 CI 安装方式固定', () => {
 test('自动发版使用确定性 CHANGELOG，不依赖已退役的 GitHub Models', () => {
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
 
-  assert.match(releaseWorkflow, /node scripts\/release-prepare\.mjs "\$\{VERSION\}" --no-commit --no-tag/);
+  assert.match(releaseWorkflow, /node scripts\/release\/release-prepare\.mjs "\$\{VERSION\}" --no-commit --no-tag/);
   assert.doesNotMatch(releaseWorkflow, /github-models|MOTRIX_RELEASE_(?:CHANGELOG_PROVIDER|ANALYSIS_MODEL|EDITOR_MODEL|MODEL_MIN_INTERVAL_MS)/);
   assert.doesNotMatch(releaseWorkflow, /^\s*models:\s*read\s*$/m);
 });
 
 test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const prePushHook = readFileSync('.githooks/pre-push', 'utf8');
-  const verifyScript = readFileSync('scripts/verify.mjs', 'utf8');
-  const releasePrepareScript = readFileSync('scripts/release-prepare.mjs', 'utf8');
-  const rustTestScript = readFileSync('scripts/run-rust-tests.mjs', 'utf8');
-  const commandProgressScript = readFileSync('scripts/command-progress.mjs', 'utf8');
-  const vitestProgressReporter = readFileSync('scripts/vitest-progress-reporter.mjs', 'utf8');
+  const verifyScript = readFileSync('scripts/verify/verify.mjs', 'utf8');
+  const releasePrepareScript = readFileSync('scripts/release/release-prepare.mjs', 'utf8');
+  const rustTestScript = readFileSync('scripts/verify/run-rust-tests.mjs', 'utf8');
+  const commandProgressScript = readFileSync('scripts/lib/command-progress.mjs', 'utf8');
+  const vitestProgressReporter = readFileSync('scripts/verify/vitest-progress-reporter.mjs', 'utf8');
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
@@ -86,18 +86,18 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
 
 test('本地完整打包与 Release 产物构建复用明确的验证层级', () => {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-  const packageLocalScript = readFileSync('scripts/package-local.mjs', 'utf8');
-  const buildAllScript = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
-  const buildFpkScript = readFileSync('scripts/build-fpk.mjs', 'utf8');
-  const buildServerScript = readFileSync('scripts/build-server-linux.mjs', 'utf8');
-  const buildWebScript = readFileSync('scripts/build-web.mjs', 'utf8');
+  const packageLocalScript = readFileSync('scripts/build/package-local.mjs', 'utf8');
+  const buildAllScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
+  const buildFpkScript = readFileSync('scripts/build/build-fpk.mjs', 'utf8');
+  const buildServerScript = readFileSync('scripts/build/build-server-linux.mjs', 'utf8');
+  const buildWebScript = readFileSync('scripts/build/build-web.mjs', 'utf8');
 
-  assert.equal(packageJson.scripts['build:fpk'], 'node scripts/package-local.mjs');
-  assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build-fpk-all.mjs');
-  assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify-fpk-artifacts.mjs');
-  assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/test-duration-reporter\.mjs/);
+  assert.equal(packageJson.scripts['build:fpk'], 'node scripts/build/package-local.mjs');
+  assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build/build-fpk-all.mjs');
+  assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify/verify-fpk-artifacts.mjs');
+  assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/verify\/test-duration-reporter\.mjs/);
   assert.match(packageJson.scripts['test:unit'], /vitest-progress-reporter\.mjs/);
-  assert.equal(packageJson.scripts.build, 'node scripts/build-web.mjs');
+  assert.equal(packageJson.scripts.build, 'node scripts/build/build-web.mjs');
   assert.match(buildWebScript, /\['--noEmit'\]/);
   assert.match(buildWebScript, /\['build', '--logLevel', 'warn'\]/);
 

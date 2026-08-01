@@ -2,7 +2,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { runCommandWithProgress } from './command-progress.mjs';
+import { runCommandWithProgress } from '../lib/command-progress.mjs';
 
 const repoRoot = process.cwd();
 const sourceDir = path.join(repoRoot, 'dist');

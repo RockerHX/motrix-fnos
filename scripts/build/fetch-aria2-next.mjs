@@ -3,12 +3,12 @@ import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseChecksums, sha256 } from "./script-utils.mjs";
+import { parseChecksums, sha256 } from "../lib/script-utils.mjs";
 
 const VERSION = "2.4.9";
 const TAG = `v${VERSION}`;
 const BASE_URL = `https://github.com/AnInsomniacy/aria2-next/releases/download/${TAG}`;
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const BIN_DIR = join(ROOT, "assets", "aria2");
 
 const assets = [

@@ -1,7 +1,7 @@
 import { spec } from 'node:test/reporters';
 import { Readable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import { reportCommandProgress } from './command-progress.mjs';
+import { reportCommandProgress } from '../lib/command-progress.mjs';
 
 export default async function* testDurationReporter(source) {
   const reporter = Readable.from(reportTestProgress(source)).pipe(spec());

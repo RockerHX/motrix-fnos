@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const releasePrepareScript = fileURLToPath(new URL('../release-prepare.mjs', import.meta.url));
+const releasePrepareScript = fileURLToPath(new URL('../release/release-prepare.mjs', import.meta.url));
 
 test('未配置模型 provider 时 release prepare 使用确定性 commit log', () => {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'motrix-release-prepare-'));

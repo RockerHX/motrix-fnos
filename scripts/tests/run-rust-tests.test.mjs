@@ -5,7 +5,7 @@ import {
   rustCargoProgressDetail,
   rustTestProgressDetail,
   summarizeRustTestOutput,
-} from '../run-rust-tests.mjs';
+} from '../verify/run-rust-tests.mjs';
 
 test('Rust 测试输出汇总多个测试目标', () => {
   const output = [

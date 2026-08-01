@@ -77,17 +77,17 @@ jobs:
           current_version="$(node -p "require('./package.json').version")"
           if [ "${current_version}" = "${VERSION}" ]; then
             echo "main 已经是 ${VERSION}，进入幂等发布模式。"
-            node scripts/version-check.mjs
+            node scripts/version/version-check.mjs
             echo "mode=existing" >> "${GITHUB_OUTPUT}"
           else
-            node scripts/release-prepare.mjs "${VERSION}" --no-commit --no-tag
+            node scripts/release/release-prepare.mjs "${VERSION}" --no-commit --no-tag
             cargo metadata --manifest-path server/Cargo.toml --format-version 1 >/dev/null
-            node scripts/version-check.mjs
+            node scripts/version/version-check.mjs
             echo "mode=new" >> "${GITHUB_OUTPUT}"
           fi
 
-          node scripts/release-notes.mjs "${VERSION}" > release-notes.md
-          node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
+          node scripts/release/release-notes.mjs "${VERSION}" > release-notes.md
+          node scripts/release/release-notes.mjs "${VERSION}" --body > release-notes-body.md
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
 
@@ -114,7 +114,7 @@ jobs:
           test -f "packaging/fnos/dist/motrix_${VERSION}_x86.fpk"
           test -f "packaging/fnos/dist/motrix_${VERSION}_arm.fpk"
           pnpm run verify:fpk
-          node scripts/generate-fpk-sbom.mjs --version "${VERSION}" --output-dir packaging/fnos/dist
+          node scripts/release/generate-fpk-sbom.mjs --version "${VERSION}" --output-dir packaging/fnos/dist
           (cd packaging/fnos/dist && sha256sum "motrix_${VERSION}_"*.fpk "motrix_${VERSION}_"*.spdx.json > SHA256SUMS.txt)
           cat packaging/fnos/dist/SHA256SUMS.txt
 

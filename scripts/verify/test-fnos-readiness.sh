@@ -61,7 +61,7 @@ mkdir -p "${PROC_FIXTURE}/$$"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 printf '%s\n' "$$ (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4242" > "${PROC_FIXTURE}/$$/stat"
 
-. "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+. "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
 
 run_script() {
   if "$@" > "${OUTPUT_FILE}" 2>&1; then
@@ -111,7 +111,7 @@ test "$(readiness_url)" = "http://127.0.0.1:17080/api/app/ready"
 (
   MOTRIX_FNOS_HTTP_ADDR="[::]:27080"
   export MOTRIX_FNOS_HTTP_ADDR
-  . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+  . "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
   test "$(readiness_url)" = "http://[::1]:27080/api/app/ready"
 )
 
@@ -120,13 +120,13 @@ readiness_request
 (
   MOTRIX_FNOS_CURL_BIN="${TEST_ROOT}/missing-curl"
   export MOTRIX_FNOS_CURL_BIN
-  . "$(dirname -- "$0")/../packaging/fnos/cmd/common.sh"
+  . "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
   readiness_request
 )
 
 test ! -e "${RUNTIME_DIR}"
 test ! -e "${LOG_DIR}"
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/status"
 test "${script_status}" -eq 3
 grep -q "未运行" "${OUTPUT_FILE}"
 test ! -e "${RUNTIME_DIR}"
@@ -137,13 +137,13 @@ write_pid_record "$$"
 printf '%s\n' "lifecycle baseline" > "${LIFECYCLE_LOG}"
 printf '%s\n' "server baseline" > "${SERVER_LOG}"
 
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/start"
+run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/start"
 test "${script_status}" -eq 0
 grep -q "已在运行且服务就绪" "${OUTPUT_FILE}"
 
 snapshot_data_tree "${SNAPSHOT_BEFORE}"
 for _ in 1 2 3; do
-  run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+  run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/status"
   test "${script_status}" -eq 0
 done
 snapshot_data_tree "${SNAPSHOT_AFTER}"
@@ -151,14 +151,14 @@ cmp -s "${SNAPSHOT_BEFORE}" "${SNAPSHOT_AFTER}"
 grep -q "运行中且服务就绪" "${OUTPUT_FILE}"
 
 printf '%s\n' "503" > "${READY_STATUS_FILE}"
-assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/status"
 test "${script_status}" -eq 1
 grep -q "进程运行但服务未就绪" "${OUTPUT_FILE}"
 test ! -e "${ARIA2_CALLS}"
 
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
-assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../packaging/fnos/cmd/status"
+assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/status"
 test "${script_status}" -eq 3
 grep -q "未运行" "${OUTPUT_FILE}"
 test -e "${PID_FILE}"
@@ -167,7 +167,7 @@ test -e "${PID_START_FILE}"
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 write_pid_record "$$"
-run_script "$(dirname -- "$0")/../packaging/fnos/cmd/start"
+run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/start"
 test "${script_status}" -eq 1
 grep -q "进程存在但服务未就绪" "${OUTPUT_FILE}"
 

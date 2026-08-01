@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 import { StringDecoder } from 'node:string_decoder';
-import { cargoProgressDetail, reportCommandProgress } from './command-progress.mjs';
+import { cargoProgressDetail, reportCommandProgress } from '../lib/command-progress.mjs';
 
 export function summarizeRustTestOutput(output) {
   const summaries = [...String(output).matchAll(

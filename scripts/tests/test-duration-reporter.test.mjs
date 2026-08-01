@@ -7,7 +7,7 @@ import {
   isPassedTestOutput,
   nodeTestProgressDetail,
   parseReporterSummary,
-} from '../test-duration-reporter.mjs';
+} from '../verify/test-duration-reporter.mjs';
 
 test('测试耗时按阈值使用两位小数的毫秒或秒', () => {
   assert.equal(formatDuration(0.199041), '0.20ms');

@@ -69,7 +69,7 @@ if (process.argv[1]?.endsWith('generate-fpk-sbom.mjs')) {
   const version = readOption('--version');
   const outputDir = readOption('--output-dir') ?? path.join(process.cwd(), 'packaging', 'fnos', 'dist');
   if (!version || !existsSync(outputDir)) {
-    console.error('用法：node scripts/generate-fpk-sbom.mjs --version <x.y.z> [--output-dir <dir>]');
+    console.error('用法：node scripts/release/generate-fpk-sbom.mjs --version <x.y.z> [--output-dir <dir>]');
     process.exit(1);
   }
   try {

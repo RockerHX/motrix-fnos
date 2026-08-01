@@ -8,7 +8,7 @@ import {
   formatProgressLine,
   formatProgressMessage,
   runCommandWithProgress,
-} from '../command-progress.mjs';
+} from '../lib/command-progress.mjs';
 
 test('长任务进度使用单行阶段名称和两位小数秒数', () => {
   assert.equal(formatProgressLine('Rust 测试', 1234.56, '|'), '| Rust 测试 · 已运行 1.23s');

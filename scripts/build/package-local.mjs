@@ -5,7 +5,7 @@ import process from 'node:process';
 
 const startedAt = performance.now();
 run('pnpm', ['run', 'verify']);
-run('node', ['scripts/build-fpk-all.mjs', '--reuse-web-dist']);
+run('node', ['scripts/build/build-fpk-all.mjs', '--reuse-web-dist']);
 run('pnpm', ['run', 'verify:fpk']);
 
 console.log(`\n本地完整验证与双架构 FPK 构建通过，总耗时 ${formatDuration(performance.now() - startedAt)}。`);

@@ -2,14 +2,14 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { validateChangelogBody } from './script-utils.mjs';
+import { validateChangelogBody } from '../lib/script-utils.mjs';
 
 const version = process.argv[2];
 const bodyOnly = process.argv.includes('--body');
 const repoRoot = process.cwd();
 
 if (!version) {
-  console.error('用法：node scripts/release-notes.mjs <x.y.z> [--body]');
+  console.error('用法：node scripts/release/release-notes.mjs <x.y.z> [--body]');
   process.exit(1);
 }
 

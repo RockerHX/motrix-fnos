@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { validateFpkAppIdentity } from '../script-utils.mjs';
+import { validateFpkAppIdentity } from '../lib/script-utils.mjs';
 
 test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   const manifestContent = readFileSync('packaging/fnos/manifest.template', 'utf8');
@@ -24,8 +24,8 @@ test('仓库 FPK 身份与 Release 产物名保持一致', () => {
 });
 
 test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () => {
-  const buildAll = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
-  const build = readFileSync('scripts/build-fpk.mjs', 'utf8');
+  const buildAll = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
+  const build = readFileSync('scripts/build/build-fpk.mjs', 'utf8');
   const start = readFileSync('packaging/fnos/cmd/start', 'utf8');
   const status = readFileSync('packaging/fnos/cmd/status', 'utf8');
 

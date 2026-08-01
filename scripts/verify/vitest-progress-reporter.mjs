@@ -1,5 +1,5 @@
 import { MinimalReporter } from 'vitest/node';
-import { reportCommandProgress } from './command-progress.mjs';
+import { reportCommandProgress } from '../lib/command-progress.mjs';
 
 export default class VitestProgressReporter extends MinimalReporter {
   onTestModuleStart(testModule) {

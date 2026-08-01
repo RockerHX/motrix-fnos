@@ -6,11 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const cleanRustTargetScript = fileURLToPath(new URL('../clean-rust-target.mjs', import.meta.url));
+const cleanRustTargetScript = fileURLToPath(new URL('../maintenance/clean-rust-target.mjs', import.meta.url));
 
 test('验证保留 Rust 缓存，完整清理由显式 clean:rust 执行', () => {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-  const verifyScript = readFileSync('scripts/verify.mjs', 'utf8');
+  const verifyScript = readFileSync('scripts/verify/verify.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['clean:rust:incremental'], undefined);
   assert.doesNotMatch(verifyScript, /clean-rust-target\.mjs|keep-rust-incremental|incremental/);

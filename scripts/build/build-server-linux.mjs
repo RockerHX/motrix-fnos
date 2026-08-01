@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { cargoProgressDetail, runCommandWithProgress } from './command-progress.mjs';
+import { cargoProgressDetail, runCommandWithProgress } from '../lib/command-progress.mjs';
 
 const repoRoot = process.cwd();
 const target = readOption('--target') ?? 'x86_64-unknown-linux-gnu';

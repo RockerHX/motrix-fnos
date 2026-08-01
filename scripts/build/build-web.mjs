@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { performance } from 'node:perf_hooks';
 import process from 'node:process';
-import { runCommandWithProgress } from './command-progress.mjs';
+import { runCommandWithProgress } from '../lib/command-progress.mjs';
 
 const startedAt = performance.now();
 await run('vue-tsc', ['--noEmit'], '前端类型检查', '正在执行：vue-tsc --noEmit');

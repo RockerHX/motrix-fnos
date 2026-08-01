@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createSpdxDocument, writeFpkSboms } from '../generate-fpk-sbom.mjs';
+import { createSpdxDocument, writeFpkSboms } from '../release/generate-fpk-sbom.mjs';
 
 test('双架构 FPK 生成带 SHA-256 和架构信息的 SPDX SBOM', () => {
   const outputDir = mkdtempSync(path.join(tmpdir(), 'motrix-fpk-sbom-'));

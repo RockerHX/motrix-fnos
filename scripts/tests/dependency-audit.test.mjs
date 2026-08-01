@@ -5,7 +5,7 @@ import {
   parseCargoAuditReport,
   parsePnpmAuditReport,
   runAuditCommand,
-} from '../dependency-audit.mjs';
+} from '../verify/dependency-audit.mjs';
 
 test('无漏洞审计结果通过', () => {
   const result = evaluateAuditReports([
