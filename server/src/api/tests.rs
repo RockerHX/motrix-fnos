@@ -1,7 +1,7 @@
 use super::*;
 use crate::api::app::{AppInfo, AppReadiness, BackendPing};
 use crate::api::error::ErrorResponse;
-use crate::api::settings::JsonRpcTokenStatus;
+use crate::api::settings::{JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus};
 use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -14,11 +14,13 @@ use crate::settings::service::AppConfig;
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use crate::test_support::TestTracingCapture;
 use axum::body::to_bytes;
+use axum::extract::ConnectInfo;
 use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::StatusCode;
 use axum::routing::get;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tower::ServiceExt;
@@ -442,6 +444,117 @@ async fn jsonrpc_router_only_serves_the_exact_jsonrpc_path() {
     );
 }
 
+#[test]
+fn lan_jsonrpc_peer_filter_only_allows_rfc1918_ipv4() {
+    for allowed in ["10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.12"] {
+        assert!(is_rfc1918_peer(allowed.parse().expect("IP should parse")));
+    }
+    for denied in [
+        "127.0.0.1",
+        "169.254.1.1",
+        "172.15.255.255",
+        "172.32.0.1",
+        "192.0.2.1",
+        "8.8.8.8",
+        "::1",
+        "fd00::1",
+    ] {
+        assert!(!is_rfc1918_peer(denied.parse().expect("IP should parse")));
+    }
+}
+
+#[tokio::test]
+async fn lan_jsonrpc_router_checks_switch_and_true_tcp_peer_before_protocol_handling() {
+    let state = test_state(None).await;
+    let private_peer: SocketAddr = "192.168.1.12:45678".parse().expect("peer should parse");
+    let request = |method: &str, body: Body| {
+        let mut request = Request::builder()
+            .method(method)
+            .uri("/jsonrpc")
+            .body(body)
+            .expect("request should build");
+        request.extensions_mut().insert(ConnectInfo(private_peer));
+        request
+    };
+
+    let disabled = lan_jsonrpc_router(state.clone())
+        .oneshot(request("POST", Body::from("not-json")))
+        .await
+        .expect("disabled response should succeed");
+    assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+    };
+    let mut public_request = json_request(
+        "POST",
+        "/jsonrpc",
+        &json!({
+            "jsonrpc": "2.0",
+            "id": "spoofed-peer",
+            "method": "aria2.getVersion",
+            "params": []
+        }),
+    );
+    public_request.extensions_mut().insert(ConnectInfo(
+        "203.0.113.10:45678".parse::<SocketAddr>().unwrap(),
+    ));
+    public_request
+        .headers_mut()
+        .insert("x-forwarded-for", "192.168.1.12".parse().unwrap());
+    let denied = lan_jsonrpc_router(state.clone())
+        .oneshot(public_request)
+        .await
+        .expect("denied response should succeed");
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+    let allowed = lan_jsonrpc_router(state.clone())
+        .oneshot(request(
+            "POST",
+            Body::from(
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": "lan-version",
+                    "method": "aria2.getVersion",
+                    "params": []
+                })
+                .to_string(),
+            ),
+        ))
+        .await
+        .expect("allowed response should succeed");
+    assert_eq!(allowed.status(), StatusCode::OK);
+
+    let options = lan_jsonrpc_router(state.clone())
+        .oneshot(request("OPTIONS", Body::empty()))
+        .await
+        .expect("OPTIONS response should succeed");
+    assert_eq!(options.status(), StatusCode::NO_CONTENT);
+
+    let mut websocket = request("GET", Body::empty());
+    let headers = websocket.headers_mut();
+    headers.insert("connection", "upgrade".parse().unwrap());
+    headers.insert("upgrade", "websocket".parse().unwrap());
+    headers.insert("sec-websocket-version", "13".parse().unwrap());
+    headers.insert(
+        "sec-websocket-key",
+        "dGhlIHNhbXBsZSBub25jZQ==".parse().unwrap(),
+    );
+    headers.insert("sec-websocket-protocol", "jsonrpc".parse().unwrap());
+    let on_upgrade = hyper::upgrade::on(&mut websocket);
+    websocket.extensions_mut().insert(on_upgrade);
+    let upgraded = lan_jsonrpc_router(state)
+        .oneshot(websocket)
+        .await
+        .expect("WebSocket response should succeed");
+    assert_eq!(upgraded.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        upgraded.headers().get("sec-websocket-protocol"),
+        Some(&"jsonrpc".parse().unwrap())
+    );
+}
+
 #[tokio::test]
 async fn app_routes_return_expected_payloads() {
     let state = test_state(None).await;
@@ -847,6 +960,71 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
     assert_eq!(token_status.masked_token.as_deref(), Some("••••••••a1b2"));
     assert_eq!(state.json_rpc_token(), "test-token-a1b2");
 
+    let initial_lan_status = response_json::<LanJsonRpcStatus>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/settings/lan-jsonrpc")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(
+        initial_lan_status,
+        LanJsonRpcStatus {
+            enabled: false,
+            configured: false,
+            masked_token: None,
+            port: 17082,
+        }
+    );
+    let enabled_lan = response_json::<LanJsonRpcMutationResponse>(
+        app.clone()
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "PUT",
+                    "/api/settings/lan-jsonrpc",
+                    &json!({ "enabled": true }),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    let first_lan_token = enabled_lan
+        .issued_token
+        .expect("first enable should return a one-time token");
+    assert!(enabled_lan.status.enabled);
+    assert!(enabled_lan.status.configured);
+    assert_eq!(state.lan_json_rpc_config().await.token, first_lan_token);
+    let rotated_lan = response_json::<LanJsonRpcMutationResponse>(
+        app.clone()
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "POST",
+                    "/api/settings/lan-jsonrpc/token",
+                    &json!({}),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_ne!(
+        rotated_lan.issued_token.as_deref(),
+        Some(first_lan_token.as_str())
+    );
+
     let updated_settings = response_json::<AppConfig>(
         app.clone()
             .oneshot(
@@ -1237,6 +1415,7 @@ async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: aria2_path.map(PathBuf::from),
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,

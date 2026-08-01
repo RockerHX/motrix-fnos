@@ -4,12 +4,17 @@ use super::types::{
     positional_params, rpc_error, rpc_success, strip_token_param, JsonRpcRequest, MulticallItem,
     RpcFault,
 };
+use super::JsonRpcAccess;
 use crate::app::HttpAppState;
 use crate::runtime::process_status;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-pub(super) async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: Value) -> Value {
+pub(super) async fn handle_jsonrpc_payload_with_access(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    payload: Value,
+) -> Value {
     match payload {
         Value::Array(items) if items.is_empty() => {
             rpc_error(Value::Null, -32600, "Invalid Request")
@@ -17,16 +22,25 @@ pub(super) async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: V
         Value::Array(items) => {
             let mut responses = Vec::with_capacity(items.len());
             for item in items {
-                responses.push(handle_jsonrpc_request(state, item).await);
+                responses.push(handle_jsonrpc_request(state, access, item).await);
             }
             Value::Array(responses)
         }
-        Value::Object(_) => handle_jsonrpc_request(state, payload).await,
+        Value::Object(_) => handle_jsonrpc_request(state, access, payload).await,
         _ => rpc_error(Value::Null, -32600, "Invalid Request"),
     }
 }
 
-async fn handle_jsonrpc_request(state: &Arc<HttpAppState>, payload: Value) -> Value {
+#[cfg(test)]
+pub(super) async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: Value) -> Value {
+    handle_jsonrpc_payload_with_access(state, JsonRpcAccess::Proxy, payload).await
+}
+
+async fn handle_jsonrpc_request(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    payload: Value,
+) -> Value {
     let request = match serde_json::from_value::<JsonRpcRequest>(payload) {
         Ok(request) => request,
         Err(_) => return rpc_error(Value::Null, -32600, "Invalid Request"),
@@ -34,9 +48,9 @@ async fn handle_jsonrpc_request(state: &Arc<HttpAppState>, payload: Value) -> Va
     let id = request.id.clone().unwrap_or(Value::Null);
 
     let result = if request.method == "system.multicall" {
-        execute_multicall(state, &request.params).await
+        execute_multicall(state, access, &request.params).await
     } else {
-        execute_method(state, &request.method, &request.params).await
+        execute_method_with_access(state, access, &request.method, &request.params).await
     };
 
     match result {
@@ -45,7 +59,11 @@ async fn handle_jsonrpc_request(state: &Arc<HttpAppState>, payload: Value) -> Va
     }
 }
 
-async fn execute_multicall(state: &Arc<HttpAppState>, params: &Value) -> Result<Value, RpcFault> {
+async fn execute_multicall(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    params: &Value,
+) -> Result<Value, RpcFault> {
     let params = positional_params(params)?;
     let params = strip_token_param(params);
     let calls = params
@@ -58,7 +76,7 @@ async fn execute_multicall(state: &Arc<HttpAppState>, params: &Value) -> Result<
         let call = serde_json::from_value::<MulticallItem>(call.clone())
             .map_err(|_| RpcFault::invalid_params("Invalid multicall item"))?;
         let params = call.params.unwrap_or(Value::Array(Vec::new()));
-        match execute_method(state, &call.method_name, &params).await {
+        match execute_method_with_access(state, access, &call.method_name, &params).await {
             Ok(result) => results.push(json!([result])),
             Err(error) => results.push(json!({
                 "faultCode": error.code,
@@ -70,14 +88,15 @@ async fn execute_multicall(state: &Arc<HttpAppState>, params: &Value) -> Result<
     Ok(Value::Array(results))
 }
 
-pub(super) async fn execute_method(
+pub(super) async fn execute_method_with_access(
     state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
     method: &str,
     params: &Value,
 ) -> Result<Value, RpcFault> {
     match method {
-        "aria2.addUri" => add_uri(state, params).await.map(Value::String),
-        "aria2.getGlobalOption" => get_global_option(state, params),
+        "aria2.addUri" => add_uri(state, access, params).await.map(Value::String),
+        "aria2.getGlobalOption" => get_global_option(state, access, params).await,
         "aria2.getVersion" => get_version(state).await,
         _ => Err(RpcFault::method_not_found(format!(
             "Method not found: {method}"
@@ -85,8 +104,21 @@ pub(super) async fn execute_method(
     }
 }
 
-fn get_global_option(state: &HttpAppState, params: &Value) -> Result<Value, RpcFault> {
-    ensure_global_option_token(state, params)?;
+#[cfg(test)]
+pub(super) async fn execute_method(
+    state: &Arc<HttpAppState>,
+    method: &str,
+    params: &Value,
+) -> Result<Value, RpcFault> {
+    execute_method_with_access(state, JsonRpcAccess::Proxy, method, params).await
+}
+
+async fn get_global_option(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    params: &Value,
+) -> Result<Value, RpcFault> {
+    ensure_global_option_token(state, access, params).await?;
     Ok(json!({
         "dir": state.json_rpc_default_download_dir(),
     }))

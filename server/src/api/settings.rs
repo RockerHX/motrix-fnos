@@ -3,11 +3,15 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::settings::service::{
-    load_app_config_from_pool, load_json_rpc_token, save_app_config, save_json_rpc_token, AppConfig,
+    load_app_config_from_pool, save_app_config, save_json_rpc_token, save_lan_json_rpc_config,
+    AppConfig, LanJsonRpcConfig,
 };
 use axum::extract::State;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -17,6 +21,14 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route(
             "/settings/jsonrpc-token",
             get(get_json_rpc_token).put(update_json_rpc_token),
+        )
+        .route(
+            "/settings/lan-jsonrpc",
+            get(get_lan_json_rpc).put(update_lan_json_rpc),
+        )
+        .route(
+            "/settings/lan-jsonrpc/token",
+            post(rotate_lan_json_rpc_token),
         )
 }
 
@@ -30,6 +42,27 @@ pub struct JsonRpcTokenStatus {
 #[derive(Debug, Deserialize)]
 struct UpdateJsonRpcTokenRequest {
     token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanJsonRpcStatus {
+    pub enabled: bool,
+    pub configured: bool,
+    pub masked_token: Option<String>,
+    pub port: u16,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateLanJsonRpcRequest {
+    enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanJsonRpcMutationResponse {
+    pub status: LanJsonRpcStatus,
+    pub issued_token: Option<String>,
 }
 
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
@@ -67,10 +100,67 @@ async fn update_settings(
 async fn get_json_rpc_token(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<JsonRpcTokenStatus>, ApiError> {
-    let token = load_json_rpc_token(&state.core.database.pool)
+    Ok(Json(json_rpc_token_status(&state.json_rpc_token())))
+}
+
+async fn get_lan_json_rpc(State(state): State<Arc<HttpAppState>>) -> Json<LanJsonRpcStatus> {
+    let config = state.lan_json_rpc_config().await;
+    Json(lan_json_rpc_status(&config))
+}
+
+async fn update_lan_json_rpc(
+    State(state): State<Arc<HttpAppState>>,
+    ApiJson(payload): ApiJson<UpdateLanJsonRpcRequest>,
+) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
+    let mut current = state.lan_json_rpc_config.write().await;
+    let mut next = current.clone();
+    let issued_token = if payload.enabled && next.token.is_empty() {
+        let token = generate_lan_json_rpc_token()?;
+        next.token = token.clone();
+        Some(token)
+    } else {
+        None
+    };
+    next.enabled = payload.enabled;
+    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
         .await
-        .map_err(|error| ApiError::internal("jsonrpc_token_load_failed", error))?;
-    Ok(Json(json_rpc_token_status(&token)))
+        .map_err(|error| ApiError::internal("lan_jsonrpc_save_failed", error))?;
+    *current = persisted.clone();
+    state.core.debug_logs.info(
+        "settings.jsonrpc_lan",
+        if persisted.enabled {
+            "局域网 JSON-RPC 入口已启用"
+        } else {
+            "局域网 JSON-RPC 入口已关闭"
+        },
+    );
+    Ok(Json(LanJsonRpcMutationResponse {
+        status: lan_json_rpc_status(&persisted),
+        issued_token,
+    }))
+}
+
+async fn rotate_lan_json_rpc_token(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
+    let mut current = state.lan_json_rpc_config.write().await;
+    let token = generate_lan_json_rpc_token()?;
+    let next = LanJsonRpcConfig {
+        enabled: current.enabled,
+        token: token.clone(),
+    };
+    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
+        .await
+        .map_err(|error| ApiError::internal("lan_jsonrpc_token_save_failed", error))?;
+    *current = persisted.clone();
+    state
+        .core
+        .debug_logs
+        .info("settings.jsonrpc_lan", "局域网 JSON-RPC Token 已轮换");
+    Ok(Json(LanJsonRpcMutationResponse {
+        status: lan_json_rpc_status(&persisted),
+        issued_token: Some(token),
+    }))
 }
 
 async fn update_json_rpc_token(
@@ -105,6 +195,24 @@ fn json_rpc_token_status(token: &str) -> JsonRpcTokenStatus {
         configured: true,
         masked_token: Some(format!("••••••••{suffix}")),
     }
+}
+
+fn lan_json_rpc_status(config: &LanJsonRpcConfig) -> LanJsonRpcStatus {
+    let token = json_rpc_token_status(&config.token);
+    LanJsonRpcStatus {
+        enabled: config.enabled,
+        configured: token.configured,
+        masked_token: token.masked_token,
+        port: 17082,
+    }
+}
+
+fn generate_lan_json_rpc_token() -> Result<String, ApiError> {
+    let mut bytes = [0_u8; 32];
+    OsRng.try_fill_bytes(&mut bytes).map_err(|error| {
+        ApiError::internal("lan_jsonrpc_token_generate_failed", error.to_string())
+    })?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 #[cfg(test)]

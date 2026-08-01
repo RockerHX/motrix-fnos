@@ -8,7 +8,9 @@ use crate::database::{
     DATABASE_FILE_NAME,
 };
 use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
-use crate::settings::service::{load_app_config_from_pool, load_json_rpc_token};
+use crate::settings::service::{
+    load_app_config_from_pool, load_json_rpc_token, load_lan_json_rpc_config, LanJsonRpcConfig,
+};
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::storage::{default_download_dir, load_accessible_paths};
 use crate::tasks::DownloadTask;
@@ -23,16 +25,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, watch, RwLock};
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
 pub const JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_JSONRPC_ADDR";
+pub const LAN_JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_LAN_JSONRPC_ADDR";
 pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
 pub const TRUSTED_PROXY_IPS_ENV: &str = "MOTRIX_TRUSTED_PROXY_IPS";
 pub const WEB_COOKIE_SECURE_ENV: &str = "MOTRIX_WEB_COOKIE_SECURE";
 pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
 pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
+pub const DEFAULT_LAN_JSONRPC_ADDR: &str = "0.0.0.0:17082";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
@@ -42,6 +46,7 @@ pub struct ServerRuntimeConfig {
     pub database_path: PathBuf,
     pub http_addr: SocketAddr,
     pub jsonrpc_addr: SocketAddr,
+    pub lan_jsonrpc_addr: SocketAddr,
     pub aria2_path: Option<PathBuf>,
     pub accessible_paths_path: PathBuf,
     pub trusted_proxy_ips: Vec<IpAddr>,
@@ -73,6 +78,12 @@ impl ServerRuntimeConfig {
                 jsonrpc_addr
             ));
         }
+        let lan_jsonrpc_addr = env::var(LAN_JSONRPC_ADDR_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_LAN_JSONRPC_ADDR.to_string())
+            .parse::<SocketAddr>()
+            .map_err(|error| format!("解析局域网 JSON-RPC 监听地址失败：{}", error))?;
         let aria2_path = env::var(ARIA2_PATH_ENV)
             .ok()
             .filter(|value| !value.trim().is_empty())
@@ -90,6 +101,7 @@ impl ServerRuntimeConfig {
             database_path,
             http_addr,
             jsonrpc_addr,
+            lan_jsonrpc_addr,
             aria2_path,
             accessible_paths_path,
             trusted_proxy_ips,
@@ -161,6 +173,7 @@ pub struct HttpAppState {
     last_aria2_version: Mutex<Option<String>>,
     json_rpc_default_download_dir: Mutex<String>,
     json_rpc_token: Mutex<String>,
+    pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
     listeners_ready: AtomicBool,
 }
 
@@ -187,6 +200,7 @@ impl HttpAppState {
             last_aria2_version: Mutex::new(None),
             json_rpc_default_download_dir: Mutex::new(String::new()),
             json_rpc_token: Mutex::new(String::new()),
+            lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
             listeners_ready: AtomicBool::new(false),
         }
     }
@@ -257,6 +271,10 @@ impl HttpAppState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    pub(crate) async fn lan_json_rpc_config(&self) -> LanJsonRpcConfig {
+        self.lan_json_rpc_config.read().await.clone()
     }
 
     pub fn aria2_runtime_snapshot(&self) -> Option<Aria2RuntimeInfo> {
@@ -341,6 +359,7 @@ pub async fn bootstrap_http_app_state(
         .to_string();
     let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
     let json_rpc_token = load_json_rpc_token(&database.pool).await?;
+    let lan_json_rpc_config = load_lan_json_rpc_config(&database.pool).await?;
     migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
     // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
     reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
@@ -353,6 +372,7 @@ pub async fn bootstrap_http_app_state(
     state
         .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
     state.remember_json_rpc_token(&json_rpc_token);
+    *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
 
     Ok(state)
@@ -530,6 +550,13 @@ pub async fn run_server() -> Result<(), String> {
     state.core.debug_logs.info(
         "app",
         format!(
+            "局域网 JSON-RPC 入口已初始化，监听地址 {}",
+            state.runtime.lan_jsonrpc_addr
+        ),
+    );
+    state.core.debug_logs.info(
+        "app",
+        format!(
             "JSON-RPC 专用入口已初始化，监听地址 {}",
             state.runtime.jsonrpc_addr
         ),
@@ -619,6 +646,7 @@ async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<()
 struct HttpListeners {
     management: TcpListener,
     jsonrpc: TcpListener,
+    lan_jsonrpc: TcpListener,
 }
 
 async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListeners, String> {
@@ -633,10 +661,19 @@ async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListen
                 runtime.jsonrpc_addr, error
             )
         })?;
+    let lan_jsonrpc = TcpListener::bind(runtime.lan_jsonrpc_addr)
+        .await
+        .map_err(|error| {
+            format!(
+                "绑定局域网 JSON-RPC 监听地址失败：{}（{}）",
+                runtime.lan_jsonrpc_addr, error
+            )
+        })?;
 
     Ok(HttpListeners {
         management,
         jsonrpc,
+        lan_jsonrpc,
     })
 }
 
@@ -644,6 +681,7 @@ enum HttpStopTrigger {
     Signal(Result<String, String>),
     Management(std::io::Result<()>),
     JsonRpc(std::io::Result<()>),
+    LanJsonRpc(std::io::Result<()>),
 }
 
 async fn serve_http_listeners<F>(
@@ -663,17 +701,26 @@ where
     .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
     .into_future();
     let jsonrpc_server = axum::serve(listeners.jsonrpc, crate::api::jsonrpc_router(state.clone()))
-        .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver))
+        .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
         .into_future();
+    let lan_jsonrpc_server = axum::serve(
+        listeners.lan_jsonrpc,
+        crate::api::lan_jsonrpc_router(state.clone())
+            .into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
+    .into_future();
 
     tokio::pin!(management_server);
     tokio::pin!(jsonrpc_server);
+    tokio::pin!(lan_jsonrpc_server);
     tokio::pin!(shutdown_signal);
 
     let trigger = tokio::select! {
         signal = &mut shutdown_signal => HttpStopTrigger::Signal(signal),
         result = &mut management_server => HttpStopTrigger::Management(result),
         result = &mut jsonrpc_server => HttpStopTrigger::JsonRpc(result),
+        result = &mut lan_jsonrpc_server => HttpStopTrigger::LanJsonRpc(result),
     };
 
     let (reason, primary_error) = match &trigger {
@@ -698,6 +745,14 @@ where
             "JSON-RPC HTTP 服务运行失败，准备关闭管理服务".to_string(),
             Some(format!("JSON-RPC HTTP 服务运行失败：{}", error)),
         ),
+        HttpStopTrigger::LanJsonRpc(Ok(())) => (
+            "局域网 JSON-RPC HTTP 服务意外停止".to_string(),
+            Some("局域网 JSON-RPC HTTP 服务意外停止".to_string()),
+        ),
+        HttpStopTrigger::LanJsonRpc(Err(error)) => (
+            "局域网 JSON-RPC HTTP 服务运行失败，准备关闭其他服务".to_string(),
+            Some(format!("局域网 JSON-RPC HTTP 服务运行失败：{}", error)),
+        ),
     };
 
     state.request_shutdown(reason);
@@ -706,18 +761,41 @@ where
 
     let remaining_error = match trigger {
         HttpStopTrigger::Signal(_) => {
+            let (management_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
+                &mut management_server,
+                &mut jsonrpc_server,
+                &mut lan_jsonrpc_server
+            );
+            combine_server_errors([
+                ("管理 HTTP 服务", management_result),
+                ("JSON-RPC HTTP 服务", jsonrpc_result),
+                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+            ])
+        }
+        HttpStopTrigger::Management(_) => {
+            let (jsonrpc_result, lan_jsonrpc_result) =
+                tokio::join!(&mut jsonrpc_server, &mut lan_jsonrpc_server);
+            combine_server_errors([
+                ("JSON-RPC HTTP 服务", jsonrpc_result),
+                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+            ])
+        }
+        HttpStopTrigger::JsonRpc(_) => {
+            let (management_result, lan_jsonrpc_result) =
+                tokio::join!(&mut management_server, &mut lan_jsonrpc_server);
+            combine_server_errors([
+                ("管理 HTTP 服务", management_result),
+                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+            ])
+        }
+        HttpStopTrigger::LanJsonRpc(_) => {
             let (management_result, jsonrpc_result) =
                 tokio::join!(&mut management_server, &mut jsonrpc_server);
-            combine_server_errors(management_result, jsonrpc_result)
+            combine_server_errors([
+                ("管理 HTTP 服务", management_result),
+                ("JSON-RPC HTTP 服务", jsonrpc_result),
+            ])
         }
-        HttpStopTrigger::Management(_) => jsonrpc_server
-            .await
-            .err()
-            .map(|error| format!("JSON-RPC HTTP 服务停止失败：{}", error)),
-        HttpStopTrigger::JsonRpc(_) => management_server
-            .await
-            .err()
-            .map(|error| format!("管理 HTTP 服务停止失败：{}", error)),
     };
 
     match (primary_error, remaining_error) {
@@ -727,21 +805,18 @@ where
     }
 }
 
-fn combine_server_errors(
-    management: std::io::Result<()>,
-    jsonrpc: std::io::Result<()>,
+fn combine_server_errors<const N: usize>(
+    results: [(&str, std::io::Result<()>); N],
 ) -> Option<String> {
-    let management = management
-        .err()
-        .map(|error| format!("管理 HTTP 服务停止失败：{}", error));
-    let jsonrpc = jsonrpc
-        .err()
-        .map(|error| format!("JSON-RPC HTTP 服务停止失败：{}", error));
-    match (management, jsonrpc) {
-        (Some(management), Some(jsonrpc)) => Some(format!("{}；{}", management, jsonrpc)),
-        (Some(error), None) | (None, Some(error)) => Some(error),
-        (None, None) => None,
-    }
+    let errors = results
+        .into_iter()
+        .filter_map(|(name, result)| {
+            result
+                .err()
+                .map(|error| format!("{}停止失败：{}", name, error))
+        })
+        .collect::<Vec<_>>();
+    (!errors.is_empty()).then(|| errors.join("；"))
 }
 
 async fn wait_for_http_shutdown(mut receiver: watch::Receiver<bool>) {

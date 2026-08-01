@@ -23,6 +23,7 @@ fn runtime_config_uses_explicit_env_values() {
     std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
     std::env::set_var(HTTP_ADDR_ENV, "127.0.0.1:18080");
     std::env::set_var(JSONRPC_ADDR_ENV, "127.1.2.3:18081");
+    std::env::set_var(LAN_JSONRPC_ADDR_ENV, "127.0.0.1:18082");
     std::env::set_var(ARIA2_PATH_ENV, &aria2_path);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
     std::env::set_var(TRUSTED_PROXY_IPS_ENV, "192.0.2.10, ::1, 192.0.2.10");
@@ -41,6 +42,7 @@ fn runtime_config_uses_explicit_env_values() {
     );
     assert_eq!(config.http_addr.to_string(), "127.0.0.1:18080");
     assert_eq!(config.jsonrpc_addr.to_string(), "127.1.2.3:18081");
+    assert_eq!(config.lan_jsonrpc_addr.to_string(), "127.0.0.1:18082");
     assert_eq!(config.aria2_path.as_deref(), Some(aria2_path.as_path()));
     assert_eq!(
         config.trusted_proxy_ips,
@@ -58,6 +60,7 @@ fn runtime_config_uses_explicit_env_values() {
     std::env::remove_var(APP_DATA_DIR_ENV);
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(JSONRPC_ADDR_ENV);
+    std::env::remove_var(LAN_JSONRPC_ADDR_ENV);
     std::env::remove_var(ARIA2_PATH_ENV);
     std::env::remove_var(ACCESSIBLE_PATHS_FILE_ENV);
     std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
@@ -71,6 +74,7 @@ fn runtime_config_uses_default_listener_addresses() {
     std::env::set_var(APP_DATA_DIR_ENV, &temp_dir);
     std::env::remove_var(HTTP_ADDR_ENV);
     std::env::remove_var(JSONRPC_ADDR_ENV);
+    std::env::remove_var(LAN_JSONRPC_ADDR_ENV);
     std::env::remove_var(TRUSTED_PROXY_IPS_ENV);
     std::env::remove_var(WEB_COOKIE_SECURE_ENV);
 
@@ -78,9 +82,24 @@ fn runtime_config_uses_default_listener_addresses() {
 
     assert_eq!(config.http_addr.to_string(), DEFAULT_HTTP_ADDR);
     assert_eq!(config.jsonrpc_addr.to_string(), DEFAULT_JSONRPC_ADDR);
+    assert_eq!(
+        config.lan_jsonrpc_addr.to_string(),
+        DEFAULT_LAN_JSONRPC_ADDR
+    );
     assert!(!config.web_cookie_secure);
 
     std::env::remove_var(APP_DATA_DIR_ENV);
+}
+
+#[test]
+fn runtime_config_rejects_invalid_lan_jsonrpc_address() {
+    let _guard = env_lock().lock().expect("env lock should succeed");
+    std::env::set_var(LAN_JSONRPC_ADDR_ENV, "not-an-address");
+
+    let error = ServerRuntimeConfig::from_env().expect_err("address should be rejected");
+
+    assert!(error.contains("解析局域网 JSON-RPC 监听地址失败"));
+    std::env::remove_var(LAN_JSONRPC_ADDR_ENV);
 }
 
 #[test]
@@ -145,6 +164,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 app_data_dir: app_data_dir.clone(),
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+                lan_jsonrpc_addr: DEFAULT_LAN_JSONRPC_ADDR.parse().expect("addr should parse"),
                 aria2_path: None,
                 trusted_proxy_ips: Vec::new(),
                 web_cookie_secure: false,
@@ -285,6 +305,7 @@ fn request_shutdown_marks_exiting_and_broadcasts_event() {
         app_data_dir: temp_dir,
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        lan_jsonrpc_addr: DEFAULT_LAN_JSONRPC_ADDR.parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,
@@ -354,7 +375,34 @@ async fn listener_binding_releases_management_when_jsonrpc_port_is_occupied() {
 }
 
 #[tokio::test]
-async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
+async fn listener_binding_releases_other_ports_when_lan_jsonrpc_port_is_occupied() {
+    let management_addr = reserve_local_addr().await;
+    let jsonrpc_addr = reserve_local_addr().await;
+    let occupied_lan_jsonrpc = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("LAN JSON-RPC port should bind");
+    let lan_jsonrpc_addr = occupied_lan_jsonrpc
+        .local_addr()
+        .expect("LAN JSON-RPC address should read");
+    let mut runtime = listener_runtime(management_addr, jsonrpc_addr);
+    runtime.lan_jsonrpc_addr = lan_jsonrpc_addr;
+
+    let error = bind_http_listeners(&runtime)
+        .await
+        .expect_err("LAN JSON-RPC binding should fail");
+
+    assert!(error.contains("绑定局域网 JSON-RPC 监听地址失败"));
+    assert!(error.contains(&lan_jsonrpc_addr.to_string()));
+    TcpListener::bind(management_addr)
+        .await
+        .expect("management port should be released after failure");
+    TcpListener::bind(jsonrpc_addr)
+        .await
+        .expect("JSON-RPC port should be released after failure");
+}
+
+#[tokio::test]
+async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
     let runtime = listener_runtime(
         "127.0.0.1:0".parse().expect("address should parse"),
         "127.0.0.1:0".parse().expect("address should parse"),
@@ -374,6 +422,10 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
         .jsonrpc
         .local_addr()
         .expect("jsonrpc address should read");
+    let lan_jsonrpc_addr = listeners
+        .lan_jsonrpc
+        .local_addr()
+        .expect("LAN JSON-RPC address should read");
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<String>();
     let serving_state = state.clone();
     let server = tokio::spawn(async move {
@@ -429,8 +481,33 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
     assert_eq!(payload["id"], "rpc-version");
     assert_eq!(payload["error"]["code"], -32601);
 
+    let response = client
+        .post(format!("http://{lan_jsonrpc_addr}/jsonrpc"))
+        .body("not-json")
+        .send()
+        .await
+        .expect("disabled LAN JSON-RPC should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+    };
+    let response = client
+        .post(format!("http://{lan_jsonrpc_addr}/jsonrpc"))
+        .header("x-forwarded-for", "192.168.1.12")
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": "lan-loopback",
+            "method": "aria2.getVersion",
+            "params": []
+        }))
+        .send()
+        .await
+        .expect("loopback LAN JSON-RPC should respond");
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
     shutdown_sender
-        .send("测试双监听器停止".to_string())
+        .send("测试三监听器停止".to_string())
         .expect("shutdown signal should send");
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), server)
         .await
@@ -441,6 +518,7 @@ async fn dual_listeners_serve_isolated_routes_and_cleanup_once() {
     drop(client);
     assert_listener_closed(management_addr).await;
     assert_listener_closed(jsonrpc_addr).await;
+    assert_listener_closed(lan_jsonrpc_addr).await;
     let cleanup_count = state
         .core
         .debug_logs
@@ -768,6 +846,7 @@ fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRu
         app_data_dir,
         http_addr,
         jsonrpc_addr,
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,

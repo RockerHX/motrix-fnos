@@ -75,6 +75,34 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                     .expect("token should load"),
                 "test-token"
             );
+            assert_eq!(
+                load_lan_json_rpc_config(&database.pool)
+                    .await
+                    .expect("default LAN config should load"),
+                LanJsonRpcConfig::default()
+            );
+            let lan_config = save_lan_json_rpc_config(
+                &database.pool,
+                &LanJsonRpcConfig {
+                    enabled: true,
+                    token: "  lan-token  ".to_string(),
+                },
+            )
+            .await
+            .expect("LAN config should save");
+            assert_eq!(
+                lan_config,
+                LanJsonRpcConfig {
+                    enabled: true,
+                    token: "lan-token".to_string(),
+                }
+            );
+            assert_eq!(
+                load_lan_json_rpc_config(&database.pool)
+                    .await
+                    .expect("LAN config should reload"),
+                lan_config
+            );
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);

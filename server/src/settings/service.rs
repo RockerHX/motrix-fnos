@@ -5,6 +5,7 @@ use sqlx::SqlitePool;
 use std::path::Path;
 
 const APP_CONFIG_KEY: &str = "download";
+const LAN_JSONRPC_CONFIG_KEY: &str = "jsonrpc_lan";
 const DEFAULT_LANGUAGE: &str = "zh-CN";
 const ENGLISH_LANGUAGE: &str = "en-US";
 
@@ -17,6 +18,15 @@ pub struct AppConfig {
     pub upload_limit: u64,
     #[serde(default = "default_language")]
     pub language: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanJsonRpcConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -73,6 +83,27 @@ pub async fn save_json_rpc_token(pool: &SqlitePool, token: &str) -> Result<Strin
     config.json_rpc_token = token.trim().to_string();
     set_app_config_value(pool, APP_CONFIG_KEY, &config).await?;
     Ok(config.json_rpc_token)
+}
+
+pub async fn load_lan_json_rpc_config(pool: &SqlitePool) -> Result<LanJsonRpcConfig, String> {
+    let config = get_app_config_value(pool, LAN_JSONRPC_CONFIG_KEY)
+        .await?
+        .unwrap_or_default();
+    Ok(normalize_lan_json_rpc_config(config))
+}
+
+pub async fn save_lan_json_rpc_config(
+    pool: &SqlitePool,
+    config: &LanJsonRpcConfig,
+) -> Result<LanJsonRpcConfig, String> {
+    let config = normalize_lan_json_rpc_config(config.clone());
+    set_app_config_value(pool, LAN_JSONRPC_CONFIG_KEY, &config).await?;
+    Ok(config)
+}
+
+fn normalize_lan_json_rpc_config(mut config: LanJsonRpcConfig) -> LanJsonRpcConfig {
+    config.token = config.token.trim().to_string();
+    config
 }
 
 pub fn normalize_app_config(

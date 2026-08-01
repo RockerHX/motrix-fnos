@@ -1,5 +1,6 @@
 use super::auth::ensure_add_uri_token;
 use super::types::{positional_params, strip_token_param, RpcFault};
+use super::JsonRpcAccess;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::repository::SqliteTaskRepository;
@@ -20,8 +21,12 @@ pub(super) struct AddUriCommand {
     pub(super) aria2_options: serde_json::Map<String, Value>,
 }
 
-pub(super) async fn add_uri(state: &Arc<HttpAppState>, params: &Value) -> Result<String, RpcFault> {
-    ensure_add_uri_token(state, params).await?;
+pub(super) async fn add_uri(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    params: &Value,
+) -> Result<String, RpcFault> {
+    ensure_add_uri_token(state, access, params).await?;
     let command = parse_add_uri_command(params)?;
     let save_dir = match command.save_dir {
         Some(save_dir) => save_dir,

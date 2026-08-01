@@ -37,6 +37,9 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR
             .parse()
             .expect("JSON-RPC addr should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0"
+            .parse()
+            .expect("LAN JSON-RPC addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,

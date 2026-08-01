@@ -12,11 +12,11 @@ mod tasks;
 
 use crate::app::HttpAppState;
 use axum::body::Body;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
 use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::Router;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -67,9 +67,45 @@ pub fn management_router(state: Arc<HttpAppState>) -> Router {
 
 pub fn jsonrpc_router(state: Arc<HttpAppState>) -> Router {
     Router::new()
-        .merge(jsonrpc::routes())
+        .merge(jsonrpc::routes(jsonrpc::JsonRpcAccess::Proxy))
         .layer(middleware::from_fn(request_context))
         .with_state(state)
+}
+
+pub fn lan_jsonrpc_router(state: Arc<HttpAppState>) -> Router {
+    Router::new()
+        .merge(jsonrpc::routes(jsonrpc::JsonRpcAccess::Lan))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authorize_lan_jsonrpc_peer,
+        ))
+        .layer(middleware::from_fn(request_context))
+        .with_state(state)
+}
+
+async fn authorize_lan_jsonrpc_peer(
+    State(state): State<Arc<HttpAppState>>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if !state.lan_json_rpc_config().await.enabled {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if !is_rfc1918_peer(peer.ip()) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    next.run(request).await
+}
+
+fn is_rfc1918_peer(ip: std::net::IpAddr) -> bool {
+    let std::net::IpAddr::V4(ip) = ip else {
+        return false;
+    };
+    let octets = ip.octets();
+    octets[0] == 10
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168)
 }
 
 fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {

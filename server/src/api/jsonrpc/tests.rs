@@ -1,6 +1,10 @@
 use super::add_uri::{authorized_save_dir, parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
-use super::methods::{execute_method, handle_jsonrpc_payload};
+use super::methods::{
+    execute_method, execute_method_with_access, handle_jsonrpc_payload,
+    handle_jsonrpc_payload_with_access,
+};
+use super::JsonRpcAccess;
 use crate::app::HttpAppState;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -61,6 +65,109 @@ fn validate_add_uri_token_accepts_matching_token() {
         &json!(["token:secret", ["https://example.com/file.zip"]]),
     )
     .expect("matching token should pass");
+}
+
+#[tokio::test]
+async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+    };
+
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Proxy,
+        "aria2.getGlobalOption",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .is_ok());
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Proxy,
+        "aria2.getGlobalOption",
+        &json!(["token:lan-secret"]),
+    )
+    .await
+    .is_err());
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Lan,
+        "aria2.getGlobalOption",
+        &json!(["token:lan-secret"]),
+    )
+    .await
+    .is_ok());
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Lan,
+        "aria2.getGlobalOption",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .is_err());
+
+    let anonymous_version =
+        execute_method_with_access(&state, JsonRpcAccess::Lan, "aria2.getVersion", &json!([]))
+            .await
+            .expect("getVersion should remain anonymous");
+    assert!(anonymous_version.get("version").is_some());
+
+    let multicall = handle_jsonrpc_payload_with_access(
+        &state,
+        JsonRpcAccess::Lan,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "lan-multicall",
+            "method": "system.multicall",
+            "params": [[
+                {
+                    "methodName": "aria2.getGlobalOption",
+                    "params": ["token:lan-secret"]
+                },
+                {
+                    "methodName": "aria2.getGlobalOption",
+                    "params": ["token:public-secret"]
+                }
+            ]]
+        }),
+    )
+    .await;
+    assert_eq!(
+        multicall["result"][0][0]["dir"],
+        state.json_rpc_default_download_dir()
+    );
+    assert_eq!(multicall["result"][1]["faultCode"], -32001);
+}
+
+#[tokio::test]
+async fn token_validation_uses_memory_after_database_is_closed() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+    };
+    state.core.database.pool.close().await;
+
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Proxy,
+        "aria2.getGlobalOption",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .is_ok());
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Lan,
+        "aria2.getGlobalOption",
+        &json!(["token:lan-secret"]),
+    )
+    .await
+    .is_ok());
 }
 
 #[tokio::test]
@@ -1057,6 +1164,7 @@ async fn test_state() -> Arc<HttpAppState> {
         app_data_dir: app_data_dir.clone(),
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
         web_cookie_secure: false,

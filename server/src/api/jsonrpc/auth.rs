@@ -1,25 +1,33 @@
 use super::types::{positional_params, RpcFault};
+use super::JsonRpcAccess;
 use crate::app::HttpAppState;
-use crate::settings::service::load_json_rpc_token;
 use serde_json::Value;
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 
 pub(super) async fn ensure_add_uri_token(
     state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
     params: &Value,
 ) -> Result<(), RpcFault> {
-    let token = load_json_rpc_token(&state.core.database.pool)
-        .await
-        .map_err(RpcFault::server_error)?;
-
+    let token = configured_token(state, access).await;
     validate_add_uri_token(&token, params)
 }
 
-pub(super) fn ensure_global_option_token(
-    state: &HttpAppState,
+pub(super) async fn ensure_global_option_token(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
     params: &Value,
 ) -> Result<(), RpcFault> {
-    validate_add_uri_token(&state.json_rpc_token(), params)
+    let token = configured_token(state, access).await;
+    validate_add_uri_token(&token, params)
+}
+
+async fn configured_token(state: &HttpAppState, access: JsonRpcAccess) -> String {
+    match access {
+        JsonRpcAccess::Proxy => state.json_rpc_token(),
+        JsonRpcAccess::Lan => state.lan_json_rpc_config().await.token,
+    }
 }
 
 pub(super) fn validate_add_uri_token(
@@ -32,9 +40,13 @@ pub(super) fn validate_add_uri_token(
     }
 
     let params = positional_params(params)?;
-    match extract_token_param(params) {
-        Some(token) if token == configured_token => Ok(()),
-        _ => Err(RpcFault::token_invalid()),
+    let Some(token) = extract_token_param(params) else {
+        return Err(RpcFault::token_invalid());
+    };
+    if bool::from(configured_token.as_bytes().ct_eq(token.as_bytes())) {
+        Ok(())
+    } else {
+        Err(RpcFault::token_invalid())
     }
 }
 

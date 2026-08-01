@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：同一 Rust server 共享业务状态并启动两个 TCP 监听器；管理监听器承载 Web UI、HTTP API 与 SSE，RPC 专用监听器只承载带 token 的 JSON-RPC 兼容入口。
+- 前后端通信：同一 Rust server 共享业务状态并启动三个 TCP 监听器；管理监听器承载 Web UI、HTTP API 与 SSE，回环 RPC 监听器和局域网 RPC 监听器分别承载使用独立 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -31,7 +31,8 @@ fnOS FPK
   ├─ manifest / config / cmd / wizard / icons
   ├─ Rust server
   │   ├─ 管理监听器（Web UI、HTTP API、SSE）
-  │   ├─ RPC 专用监听器（仅 /jsonrpc）
+  │   ├─ 回环 RPC 监听器（仅 /jsonrpc）
+  │   ├─ 局域网 RPC 监听器（仅 /jsonrpc）
   │   ├─ Aria2 Next 进程管理
   │   ├─ SQLite 持久化
   │   └─ 调试日志与运行状态
@@ -47,8 +48,9 @@ fnOS FPK
 - fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
 - Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，未知路径统一返回 404。
-- RPC 专用监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
-- 两个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
+- 回环 RPC 监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
+- 局域网 RPC 监听器默认绑定 `0.0.0.0:17082`，同样只注册精确的 `/jsonrpc`。监听器始终绑定；局域网入口关闭时所有请求返回 404，开启后只接受真实 TCP 对端位于 IPv4 RFC1918 网段的请求，不读取代理来源 Header。
+- 三个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
 - 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
 - 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
@@ -63,7 +65,7 @@ FPK 应用身份与 FN Connect 短域名：
 
 升级不兼容约定：
 
-- JSON-RPC 已迁移到回环专用监听器 `127.0.0.1:17081`；外部客户端必须经本机 Lucky 等反向代理访问，不能再复用管理监听器。
+- 既有公网 JSON-RPC 继续使用回环专用监听器 `127.0.0.1:17081` 和原 Token；局域网客户端使用 `17082` 和独立局域网 Token，不能复用管理监听器或跨入口复用 Token。
 - Web 管理首次使用必须设置独立管理密码；升级不会把 JSON-RPC Token 复用为 Web 密码，也不会根据 fnOS 登录态自动放行。
 
 ## 4. 分层职责
@@ -194,7 +196,7 @@ Rust Runtime Event
 ## 8. 生命周期与安全边界
 
 - 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
-- 管理监听器与 RPC 专用监听器必须在业务服务就绪后共同启动；任一监听器启动失败都不得留下半可用进程。
+- 管理监听器、回环 RPC 监听器与局域网 RPC 监听器必须在业务服务就绪后共同启动；任一监听器启动失败都不得留下半可用进程。
 - PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
 - 后端启动时准备数据目录、初始化 SQLite；Aria2 仅在恢复工作或其他引擎活动需要时按需启动或连接。
 - 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
@@ -212,8 +214,9 @@ Rust Runtime Event
 - 管理 API 与 SSE 默认要求有效的服务端 Web Session；管理写操作还必须校验 CSRF Token。首次启动必须完成密码初始化，关闭管理保护必须验证当前密码并使已有 Session 失效。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
 - 会话 Cookie 的 `Secure` 属性由 `MOTRIX_WEB_COOKIE_SECURE` 显式控制，默认关闭。反向代理已终止 HTTPS 时才设置为 `true`；server 不根据客户端可伪造的 `X-Forwarded-Proto` 自动判断。
-- JSON-RPC Token 与 Web 管理密码是两套独立凭据。JSON-RPC 写操作继续校验独立 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
+- 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
 - 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
+- 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
 - 日志必须隐藏私密 URL query 和敏感配置。
 
 ## 9. fnOS 平台查证规则

@@ -9,6 +9,7 @@
 | `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 | 用户本地数据目录下的 `motrix-fnos` |
 | `MOTRIX_FNOS_HTTP_ADDR` | 管理监听地址 | `0.0.0.0:17080` |
 | `MOTRIX_FNOS_JSONRPC_ADDR` | JSON-RPC 专用监听地址 | `127.0.0.1:17081` |
+| `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | 局域网 JSON-RPC 监听地址 | `0.0.0.0:17082` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 可信反向代理的直接对端 IP，逗号分隔 | 空，不读取代理来源 Header |
@@ -19,16 +20,18 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 监听器约定：
 
 - 管理监听器只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
-- JSON-RPC 专用监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
+- 回环 JSON-RPC 监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
+- 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`，开启后只接受 RFC1918 IPv4 真实对端，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
-- 两个监听器共享业务状态和退出信号；任一地址绑定失败时 server 整体启动失败。
+- `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
+- 三个监听器共享业务状态和退出信号；任一地址绑定失败时 server 整体启动失败。
 
 ## 2. 前端消费约定
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
 - 浏览器请求使用同源服务端 Session Cookie；管理写操作通过 `X-CSRF-Token` 请求头携带 CSRF Token。
-- `/jsonrpc` 只存在于 `MOTRIX_FNOS_JSONRPC_ADDR`，不与 Web UI 共用监听器；写操作继续要求独立 JSON-RPC Token。
+- `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用浏览器原生 `EventSource`。
@@ -401,6 +404,9 @@ Session 与 Cookie 约定：
 | `PUT` | `/api/settings` | `AppConfig` | `AppConfig` |
 | `GET` | `/api/settings/jsonrpc-token` | - | `JsonRpcTokenStatus` |
 | `PUT` | `/api/settings/jsonrpc-token` | `UpdateJsonRpcTokenRequest` | `JsonRpcTokenStatus` |
+| `GET` | `/api/settings/lan-jsonrpc` | - | `LanJsonRpcStatus` |
+| `PUT` | `/api/settings/lan-jsonrpc` | `UpdateLanJsonRpcRequest` | `LanJsonRpcMutationResponse` |
+| `POST` | `/api/settings/lan-jsonrpc/token` | - | `LanJsonRpcMutationResponse` |
 
 约定：
 
@@ -411,6 +417,8 @@ Session 与 Cookie 约定：
 - JSON-RPC Token 通过专用受保护接口更新；保存后立即生效且无需重启 Aria2。
 - `GET /api/settings/jsonrpc-token` 只返回是否已配置和掩码，不返回 Token 原文。
 - JSON-RPC Token 为空时，`/jsonrpc` 的 `aria2.addUri` 会拒绝添加任务；`aria2.getVersion` 仍可用于连通性测试。
+- 局域网 JSON-RPC 配置使用独立的 `jsonrpc_lan` 持久化记录。首次启用且尚无 Token 时由服务端生成 32 字节随机 Token；关闭入口保留 Token，重新启用不影响已配置客户端。
+- `issuedToken` 只在首次生成或主动轮换时返回一次；普通读取、关闭和使用既有 Token 重新启用时必须为 `null`。任何响应和日志均不得回传或记录旧 Token 原文。
 
 `AppConfig`：
 
@@ -438,6 +446,37 @@ Session 与 Cookie 约定：
 ```json
 {
   "token": "new-json-rpc-token"
+}
+```
+
+`LanJsonRpcStatus`：
+
+```json
+{
+  "enabled": true,
+  "configured": true,
+  "maskedToken": "••••••••a1b2",
+  "port": 17082
+}
+```
+
+`UpdateLanJsonRpcRequest` 与 `LanJsonRpcMutationResponse`：
+
+```json
+{
+  "enabled": true
+}
+```
+
+```json
+{
+  "status": {
+    "enabled": true,
+    "configured": true,
+    "maskedToken": "••••••••a1b2",
+    "port": 17082
+  },
+  "issuedToken": "one-time-raw-token-or-null"
 }
 ```
 
@@ -524,7 +563,7 @@ Session 与 Cookie 约定：
 
 ## 6. JSON-RPC 兼容入口
 
-`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。它只注册在默认 `127.0.0.1:17081` 的 RPC 专用监听器；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
+`/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。公网反代入口注册在 `127.0.0.1:17081`，局域网入口注册在 `0.0.0.0:17082`；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
 
 不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理首次使用必须先设置独立管理密码。
 
@@ -546,6 +585,8 @@ Session 与 Cookie 约定：
 鉴权约定：
 
 - `jsonRpcToken` 通过 `/api/settings/jsonrpc-token` 专用接口更新，不是 Web 管理密码或 Aria2 RPC Secret，也不会暴露后端内部 Aria2 secret。
+- `lanJsonRpcToken` 由 `/api/settings/lan-jsonrpc` 首次启用时生成，或通过 `/api/settings/lan-jsonrpc/token` 轮换；它只在 `17082` 有效，公网 Token 只在 `17081` 有效。
+- 两类 Token 在服务启动时加载到内存，设置成功后同步更新；所有鉴权方法都使用常量时间比较，请求过程中不得读取 SQLite。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
 - `aria2.getGlobalOption` 同样要求第一个参数为 `"token:<jsonRpcToken>"`；目录与 Token 在服务启动时加载到内存，并在管理设置保存成功后同步更新，因此重复查询不会读取 SQLite、授权目录文件或唤醒 Aria2。应用数据根目录不会作为外部下载目录返回；没有可用授权目录时 `dir` 为 `""`，发送端应按未指定目录处理。
 - fnOS 在服务运行期间调整授权目录时，外部发送端可能短暂携带上一次查询到的旧默认目录；`aria2.addUri` 仅在该值确实等于服务端曾返回的缓存默认目录时改用当前授权默认目录并刷新缓存。其他未授权目录仍返回 `-32602`。
@@ -582,3 +623,4 @@ Session 与 Cookie 约定：
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
+- 局域网入口关闭时所有请求返回 404；开启时只接受 RFC1918 IPv4 真实对端。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
