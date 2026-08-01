@@ -31,6 +31,9 @@ test('双架构 FPK 解包后保留完整运行内容且不携带运行态残留
   const existingArtifacts = artifacts.filter(({ file }) => existsSync(file));
 
   if (existingArtifacts.length === 0) {
+    if (process.env.MOTRIX_REQUIRE_FPK_ARTIFACTS === '1') {
+      assert.fail('未发现需要验收的双架构 FPK');
+    }
     t.skip('未发现已构建的双架构 FPK，跳过解包验收');
     return;
   }

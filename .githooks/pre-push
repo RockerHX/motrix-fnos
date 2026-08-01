@@ -1,6 +1,24 @@
 #!/bin/sh
 set -eu
 
+has_branch_update=0
+zero_oid="0000000000000000000000000000000000000000"
+
+while read -r _local_ref local_oid remote_ref _remote_oid; do
+  case "$remote_ref" in
+    refs/heads/*)
+      if [ "$local_oid" != "$zero_oid" ]; then
+        has_branch_update=1
+      fi
+      ;;
+  esac
+done
+
+if [ "$has_branch_update" -eq 0 ]; then
+  echo "未推送分支源码，跳过完整验证。"
+  exit 0
+fi
+
 if command -v pnpm >/dev/null 2>&1; then
   pnpm run verify
 else

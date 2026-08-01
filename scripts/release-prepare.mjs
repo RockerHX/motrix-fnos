@@ -66,15 +66,7 @@ try {
     updateChangelog(changelogSection, options.version);
   }
 
-  if (!options.noVerify) {
-    run('pnpm', ['run', 'verify']);
-  } else {
-    console.warn('已跳过本地 verify。');
-  }
-
-  // verify 可能生成或改写文件；提交前再次使用发布白名单核对，确保自动提交边界没有被构建副作用扩大。
-  const statusAfterVerify = gitStatus();
-  assertOnlyExpectedReleaseChanges(statusAfterVerify);
+  assertOnlyExpectedReleaseChanges(gitStatus());
 
   if (!options.noCommit) {
     // 只暂存固定的版本与 CHANGELOG 文件，不使用 git add -A，防止并发产生的无关文件进入发布 commit。
@@ -90,10 +82,13 @@ try {
     console.warn('已跳过 release tag。');
   }
 
-  console.log(`\n本地发版准备完成：${releaseTag}`);
-  console.log('下一步：');
-  console.log('  git push');
-  console.log(`  git push origin ${releaseTag}`);
+  if (!options.noCommit && !options.noTag) {
+    console.log(`\n本地发版准备完成：${releaseTag}`);
+    console.log('下一步：');
+    console.log(`  git push --atomic origin HEAD ${releaseTag}`);
+  } else {
+    console.log('\n受控发布文件准备完成。');
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
@@ -102,14 +97,13 @@ try {
 function parseArgs(args) {
   const version = args.find((arg) => !arg.startsWith('-'));
   if (!version) {
-    console.error('用法：pnpm run release:prepare <x.y.z> [--dry-run] [--from <tag>] [--no-verify] [--no-commit] [--no-tag]');
+    console.error('用法：pnpm run release:prepare <x.y.z> [--dry-run] [--from <tag>] [--no-commit] [--no-tag]');
     process.exit(1);
   }
 
   return {
     version,
     dryRun: args.includes('--dry-run'),
-    noVerify: args.includes('--no-verify'),
     noCommit: args.includes('--no-commit'),
     noTag: args.includes('--no-tag'),
     from: readOption(args, '--from'),

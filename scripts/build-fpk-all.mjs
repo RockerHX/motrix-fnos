@@ -7,6 +7,7 @@ import process from 'node:process';
 const repoRoot = process.cwd();
 const outputDir = path.join(repoRoot, 'packaging', 'fnos', 'dist');
 const prepareOnly = process.argv.includes('--prepare-only');
+const reuseWebDist = process.argv.includes('--reuse-web-dist');
 const targets = [
   'x86_64-unknown-linux-gnu',
   'aarch64-unknown-linux-gnu',
@@ -16,8 +17,15 @@ if (!prepareOnly) {
   resetDir(outputDir);
 }
 
+const webArgs = ['scripts/build-web-ui-fpk.mjs'];
+if (reuseWebDist) {
+  webArgs.push('--reuse-dist');
+}
+console.log(`\n==> ${reuseWebDist ? '复用已验证的 Web UI 构建' : '构建 FPK Web UI'}`);
+run('node', webArgs);
+
 for (const target of targets) {
-  const args = ['scripts/build-fpk.mjs', '--target', target, '--keep-dist'];
+  const args = ['scripts/build-fpk.mjs', '--target', target, '--keep-dist', '--reuse-web-ui'];
   forwardOption(args, '--service-port');
   forwardOption(args, '--fnpack');
   if (prepareOnly) {

@@ -27,6 +27,7 @@ const stageDir = path.join(packagingRoot, '.stage', platform);
 const sidecarTarget = buildTarget;
 const prepareOnly = process.argv.includes('--prepare-only');
 const keepDist = process.argv.includes('--keep-dist');
+const reuseWebUi = process.argv.includes('--reuse-web-ui');
 const servicePort = readOption('--service-port') ?? '17080';
 const env = {
   ...process.env,
@@ -35,7 +36,9 @@ const env = {
 
 resetSourceAppDataDir();
 run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
-run('node', ['scripts/build-web-ui-fpk.mjs'], env);
+if (!reuseWebUi) {
+  run('node', ['scripts/build-web-ui-fpk.mjs'], env);
+}
 run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
 stageServerBinary(buildTarget);
 syncUiIcons();

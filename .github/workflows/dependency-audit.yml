@@ -1,11 +1,17 @@
-name: Verify
+name: Dependency Audit
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "23 19 * * 0"
+
+permissions:
+  contents: read
 
 jobs:
-  verify:
+  audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -16,13 +22,13 @@ jobs:
         with:
           toolchain: 1.97.1
 
-      - name: Cache Rust registry
+      - name: Cache Rust registry and installed tools
         uses: Swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
         with:
           workspaces: server -> target
-          shared-key: rust-registry
+          shared-key: dependency-audit
           cache-targets: false
-          cache-bin: false
+          cache-bin: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup pnpm
@@ -34,10 +40,9 @@ jobs:
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .node-version
-          cache: pnpm
 
-      - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install Rust dependency auditor
+        run: cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Run verification
-        run: pnpm run verify
+      - name: Audit production dependencies
+        run: pnpm run audit:deps

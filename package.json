@@ -20,6 +20,7 @@
     "release:notes": "node scripts/release-notes.mjs",
     "verify": "node scripts/verify.mjs",
     "verify:pre-commit": "node scripts/verify.mjs --quick",
+    "verify:fpk": "node scripts/verify-fpk-artifacts.mjs",
     "audit:deps": "node scripts/dependency-audit.mjs",
     "prepare": "git config core.hooksPath .githooks || true",
     "hooks:install": "git config core.hooksPath .githooks",
@@ -31,7 +32,8 @@
     "build:fpk:x64": "node scripts/build-fpk.mjs --target x86_64-unknown-linux-gnu",
     "build:fpk:arm64": "node scripts/build-fpk.mjs --target aarch64-unknown-linux-gnu",
     "build:fpk:prepare": "node scripts/build-fpk-all.mjs --prepare-only",
-    "build:fpk": "node scripts/build-fpk-all.mjs"
+    "build:fpk:artifacts": "node scripts/build-fpk-all.mjs",
+    "build:fpk": "node scripts/package-local.mjs"
   },
   "dependencies": {
     "@tabler/icons-vue": "^3.46.0",

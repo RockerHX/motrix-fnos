@@ -13,7 +13,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，`git push` 前由 Git hook 执行完整 `pnpm run verify`；GitHub `Verify` 只保留手动触发入口。
+- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 只保留手动触发入口，依赖审计由独立的每周 workflow 执行。
 
 ## 命令速查
 
@@ -34,6 +34,7 @@
 | `release:notes` | 从 `CHANGELOG.md` 提取某版本发布正文 | 否 |
 | `verify` | 执行发布前完整验证 | 写 Rust 与前端构建缓存 |
 | `verify:pre-commit` | 执行提交前快速静态检查 | 否 |
+| `verify:fpk` | 解包验收已生成的双架构 FPK | 只写临时解包目录 |
 | `prepare` | 安装依赖后尝试配置 Git hooks | 修改本仓库 Git 配置 |
 | `hooks:install` | 显式配置 Git hooks | 修改本仓库 Git 配置 |
 | `build:server:linux:x64` | 交叉编译 x86 Linux server | 写入 `server/target/` |
@@ -44,7 +45,8 @@
 | `build:fpk:x64` | 构建一个 x86 FPK | 写 stage、编译产物和 FPK |
 | `build:fpk:arm64` | 构建一个 ARM FPK | 写 stage、编译产物和 FPK |
 | `build:fpk:prepare` | 双架构预组装与预检，不调用 fnpack | 写双架构 stage 和编译产物 |
-| `build:fpk` | 构建 x86 与 ARM 两个 FPK | 重建 FPK 输出目录 |
+| `build:fpk:artifacts` | 只构建 x86 与 ARM 两个 FPK，供 Release 调用 | 重建 FPK 输出目录 |
+| `build:fpk` | 完整验证源码并构建、验收双架构 FPK | 写构建缓存并重建 FPK 输出目录 |
 
 ## Web UI 开发
 
@@ -87,18 +89,21 @@
 提交前快速验证，依次执行：
 
 1. 项目版本一致性检查；
-2. Rust 格式检查；
-3. 前端类型检查。
+2. Rust 格式检查。
 
-它不执行脚本测试、Shell 测试、Rust 测试、前端单元测试或任何生产构建，用于在提交时快速发现基础问题。
+Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型检查、脚本测试、Shell 测试、Rust 测试、前端单元测试或任何生产构建，目标是在约 1 秒内发现基础问题。
 
 ### `pnpm run verify`
 
-推送前完整验证。它执行版本和格式检查、构建与发布脚本测试、FPK Shell 测试、Rust 测试与编译、前端类型检查、单元测试和生产构建。该命令仍不代替 `build:fpk`、解包检查或 fnOS 实机验证。
+推送前完整验证。它执行版本和格式检查、构建与发布脚本测试、FPK Shell 测试、Rust 测试与编译、前端单元测试，并通过一次 `pnpm run build` 完成唯一一次前端类型检查和生产构建。该命令仍不代替 FPK 解包检查或 fnOS 实机验证。
+
+### `pnpm run verify:fpk`
+
+要求 `packaging/fnos/dist/` 中存在版本匹配的 x86 与 ARM 两个 FPK，逐一解包检查 manifest、端口配置、生命周期脚本、Web UI、双架构 server/sidecar 和空运行数据目录。缺少产物时直接失败，不得静默跳过。
 
 ### `pnpm run audit:deps`
 
-使用锁定的 `server/Cargo.lock` 和 `pnpm-lock.yaml` 检查 Rust 与前端生产依赖。运行前需要安装固定版本的 `cargo-audit 0.22.2`；高危和严重漏洞返回失败，中低危打印报告但不阻断，审计工具缺失或无法解析结果时返回失败。该命令不会自动升级依赖。
+使用锁定的 `server/Cargo.lock` 和 `pnpm-lock.yaml` 检查 Rust 与前端生产依赖。运行前需要安装固定版本的 `cargo-audit 0.22.2`；高危和严重漏洞返回失败，中低危打印报告但不阻断，审计工具缺失或无法解析结果时返回失败。该命令不会自动升级依赖，由 `Dependency Audit` workflow 每周一北京时间 03:23 自动执行，也可手动触发。
 
 快速验证不写 Rust 构建产物；完整验证会保留 Rust 编译缓存，避免每次推送前重新编译已验证的依赖和测试目标。磁盘空间不足时，再显式执行 `pnpm run clean:rust` 回收整个 Rust 构建目录。
 
@@ -180,9 +185,10 @@ beta 测试版本只用于本地安装验证，不应创建 GitHub Release 或�
 1. 校验目标是高于当前版本的正式 `x.y.z`；
 2. 复用已有目标版本 CHANGELOG，或按两个版本之间的 commit subject/body 生成确定性的分类发布日志；
 3. 同步版本文件并更新 CHANGELOG；
-4. 运行完整 `pnpm run verify`；
-5. 暂存固定的发布文件并创建中文 release commit；
-6. 创建 `v<x.y.z>` tag。
+4. 暂存固定的发布文件并创建中文 release commit；
+5. 创建 `v<x.y.z>` tag。
+
+该命令不再自行运行完整验证。准备完成后使用它输出的单次原子推送命令，由 `pre-push` 对包含版本提交的分支执行唯一一次完整验证，并同时推送分支和 tag。
 
 常用的只读预演：
 
@@ -190,7 +196,7 @@ beta 测试版本只用于本地安装验证，不应创建 GitHub Release 或�
 pnpm run release:prepare 1.7.4 --dry-run
 ```
 
-可用参数还有 `--from <tag>`、`--no-verify`、`--no-commit` 和 `--no-tag`。后三个参数主要供受控自动化或故障排查使用，日常正式发布不应随意跳过验证、提交或 tag。
+可用参数还有 `--from <tag>`、`--no-commit` 和 `--no-tag`。后两个参数主要供受控自动化或故障排查使用，日常正式发布不应随意跳过提交或 tag。
 
 高影响注意事项：
 
@@ -217,11 +223,12 @@ git config core.hooksPath .githooks
 
 当前 hook 行为：
 
-- 暂存区只有 `docs/`、Markdown/文本文档或常见图片、字体、音视频资源时，只执行空白检查，跳过 Rust 和前端测试；Markdown 允许用两个行尾空格表示强制换行。
+- 所有提交都先对暂存区执行空白检查；Markdown 允许用两个行尾空格表示强制换行。
+- 暂存区只有 `docs/`、Markdown/文本文档或常见图片、字体、音视频资源时，完成空白检查后跳过版本和 Rust 格式检查。
 - 暂存区包含代码、配置、脚本，或同时包含代码与文档/资源时，执行完整 `verify:pre-commit`。
 - 删除 Markdown、图片等非代码资源时，也按同样规则跳过测试，不会因为删除动作被误判为空暂存区。
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
-- `pre-push` 不做文件类型跳过，执行完整 `pnpm run verify`。
+- `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 或删除远端引用时跳过源码验证。
 
 因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 不随 `main` push 自动运行，需要远端复核时手动触发。
 
@@ -269,6 +276,8 @@ packaging/fnos/app/bin/aria2-next
 
 为 x86 和 ARM 分别完成预组装和全部静态预检，但跳过 `fnpack build`，因此不会生成新的 `.fpk`。它仍会执行双架构 server 编译、Web UI 构建和 sidecar staging，不是轻量级 lint 命令。
 
+Web UI 在双架构循环开始前只构建一次，两个 stage 复用同一份静态资源。
+
 主要检查目录：
 
 ```text
@@ -278,7 +287,7 @@ packaging/fnos/.stage/arm/
 
 FPK 图标由 `scripts/build-fpk.mjs` 从包根资源同步到 `app/ui/images/`，并在预检阶段统一校验为 256×256。当前项目保留 `icon_64.png` 这个官方入口文件名，但文件内容仍使用 256×256，以保证高清显示；具体文件清单、官方 64/256 规范和浏览器缓存排查见 [FPK 打包说明](fpk-packaging.md) 的“图标尺寸与高清显示”。
 
-### `pnpm run build:fpk`
+### `pnpm run build:fpk:artifacts`
 
 先清空 `packaging/fnos/dist/`，再完整构建 x86 与 ARM，最终保留两个 FPK：
 
@@ -288,6 +297,19 @@ packaging/fnos/dist/motrix_<version>_arm.fpk
 ```
 
 构建会清空源码 staging 区的 `packaging/fnos/app/data/`，以防 SQLite、日志或运行残留进入安装包。该目录只能存放占位内容，不得用于保存本地测试数据。
+
+该命令只负责发布产物，不运行源码测试，供 Release workflow 使用。Web UI 只构建一次并同时进入两个架构的 FPK。
+
+### `pnpm run build:fpk`
+
+本地完整打包入口，固定执行以下链路：
+
+1. 运行一次完整 `pnpm run verify`；
+2. 复用刚生成且已通过类型检查的根目录 `dist/`；
+3. 构建双架构 server 与 FPK，不重复构建 Web UI；
+4. 运行 `pnpm run verify:fpk` 解包验收新产物。
+
+Release 不调用该命令，避免在远端重复源码测试。
 
 ## 推荐工作流
 
@@ -311,8 +333,6 @@ pnpm run build:fpk
 ### 正式发布前检查
 
 ```bash
-pnpm run version:check
-pnpm run verify
 pnpm run build:fpk
 ```
 

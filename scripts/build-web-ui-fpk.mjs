@@ -7,11 +7,18 @@ import process from 'node:process';
 const repoRoot = process.cwd();
 const sourceDir = path.join(repoRoot, 'dist');
 const targetDir = path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'dist');
+const reuseDist = process.argv.includes('--reuse-dist');
 
-run('pnpm', ['run', 'build']);
+if (!reuseDist) {
+  run('pnpm', ['run', 'build']);
+}
+if (!existsSync(path.join(sourceDir, 'index.html'))) {
+  console.error(`Web UI 构建结果无效：${sourceDir} 缺少 index.html`);
+  process.exit(1);
+}
 resetDir(targetDir);
 cpSync(sourceDir, targetDir, { recursive: true });
-console.log(`Web UI 已同步到 ${targetDir}`);
+console.log(`${reuseDist ? '已验证的 Web UI' : 'Web UI'} 已同步到 ${targetDir}`);
 
 if (!existsSync(path.join(targetDir, 'index.html'))) {
   console.error('Web UI 同步失败：缺少 index.html');

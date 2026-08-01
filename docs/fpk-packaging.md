@@ -155,6 +155,8 @@ rtk pnpm run build:fpk:prepare
 rtk pnpm run build:fpk
 ```
 
+该本地入口会先运行一次完整源码验证，再复用已验证的 Web UI 构建双架构 FPK，并在完成后解包验收两个产物。Release workflow 使用内部的 `build:fpk:artifacts`，只构建发布产物。
+
 只构建 x86：
 
 ```bash
@@ -193,7 +195,7 @@ rtk pnpm run clean:dry-run
 rtk pnpm run clean:rust
 ```
 
-`pnpm run verify` 会保留 Rust 编译缓存；`pnpm run verify:pre-commit` 只做静态检查，不写 Rust 构建产物。磁盘空间不足时再执行 `pnpm run clean:rust`。
+`pnpm run verify` 会保留 Rust 编译缓存；`pnpm run verify:pre-commit` 只做版本、暂存区空白与 Rust 格式等快速静态检查，不执行前端类型检查，也不写 Rust 构建产物。磁盘空间不足时再执行 `pnpm run clean:rust`。
 
 ## 开发与验证
 
@@ -225,6 +227,12 @@ rtk pnpm run verify:pre-commit
 
 ```bash
 rtk pnpm run verify
+```
+
+本地完整验证、双架构打包和产物验收：
+
+```bash
+rtk pnpm run build:fpk
 ```
 
 双架构预组装并执行端口预检：
@@ -432,11 +440,13 @@ packaging/fnos/app/ui/config
 
 ### 验证触发策略
 
-- `pre-commit` 只执行版本、Rust 格式和前端类型检查，不运行单元测试或生产构建。
-- `pre-push` 执行完整 `pnpm run verify`；正常推送必须在本地通过全部脚本、Rust、前端测试和构建。
+- `pre-commit` 只执行版本、暂存区空白和 Rust 格式检查，不运行前端类型检查、单元测试或生产构建。
+- `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 时跳过。正常分支推送必须在本地通过全部脚本、Rust、前端测试和构建。
 - GitHub `Verify` 只支持 `workflow_dispatch` 手动触发，不随 `main` push 或 PR 自动运行，避免和本地 `pre-push` 重复。
-- `Release FPK` 不重复运行源码测试、依赖审计，也不查询 GitHub `Verify`；它只生成版本文件、构建双架构 FPK，并验证、签署和发布产物。
-- 自动生成的版本提交使用 `--no-verify`，避免提交钩子重复检查已经完成打包的版本文件。
+- Release 只允许修改 `CHANGELOG.md` 和固定版本文件；这些发布元数据变化与已经通过本地验证的业务源码视为等价，出现白名单外改动时立即中止。
+- `Release FPK` 不重复运行源码测试、依赖审计，也不查询 GitHub `Verify`；它只生成版本文件、构建双架构 FPK，并解包验证、签署和发布产物。
+- 自动生成的版本提交和内部推送都使用 `--no-verify`，避免 GitHub runner 因安装本地 hooks 而隐藏重复完整验证。
+- `Dependency Audit` 与源码验证和 Release 分离，每周一北京时间 03:23 定时执行。
 
 ### GitHub Actions 缓存策略
 
@@ -451,8 +461,7 @@ packaging/fnos/app/ui/config
 
 ```bash
 rtk pnpm run release:prepare <x.y.z>
-rtk git push
-rtk git push origin v<x.y.z>
+rtk git push --atomic origin HEAD v<x.y.z>
 ```
 
-本地命令会复用 `CHANGELOG.md` 中已填写的目标版本条目；如果未填写，会按 commit log 生成确定性草稿。
+本地命令会复用 `CHANGELOG.md` 中已填写的目标版本条目；如果未填写，会按 commit log 生成确定性草稿。单次原子推送只触发一次 `pre-push` 完整验证，同时发布版本提交和 tag。
