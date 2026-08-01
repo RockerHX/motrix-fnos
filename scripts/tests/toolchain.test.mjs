@@ -40,6 +40,7 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const verifyScript = readFileSync('scripts/verify.mjs', 'utf8');
   const releasePrepareScript = readFileSync('scripts/release-prepare.mjs', 'utf8');
   const rustTestScript = readFileSync('scripts/run-rust-tests.mjs', 'utf8');
+  const commandProgressScript = readFileSync('scripts/command-progress.mjs', 'utf8');
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
@@ -54,7 +55,10 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.doesNotMatch(quickSteps, /typecheck|test:scripts|test-fnos|"test"|test:unit|"build"/);
   assert.doesNotMatch(releasePrepareScript, /run\('pnpm', \['run', 'verify'\]\)/);
   assert.match(fullSteps, /run-rust-tests\.mjs/);
+  assert.match(fullSteps, /\["build", "--quiet"/);
   assert.match(rustTestScript, /\['test', '--quiet', '--manifest-path', 'server\/Cargo\.toml'\]/);
+  assert.match(verifyScript, /runCommandWithProgress/);
+  assert.match(commandProgressScript, /HEARTBEAT_INTERVAL_MS = 30_000/);
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
   assert.doesNotMatch(verifyWorkflow, /^\s+push:\s*$/m);
@@ -82,6 +86,7 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   const packageLocalScript = readFileSync('scripts/package-local.mjs', 'utf8');
   const buildAllScript = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
   const buildFpkScript = readFileSync('scripts/build-fpk.mjs', 'utf8');
+  const buildServerScript = readFileSync('scripts/build-server-linux.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/package-local.mjs');
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build-fpk-all.mjs');
@@ -95,9 +100,11 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.match(packageLocalScript, /\['run', 'verify:fpk'\]/);
 
   assert.ok(
-    buildAllScript.indexOf("run('node', webArgs)") < buildAllScript.indexOf('for (const target of targets)'),
+    buildAllScript.indexOf("await run('node', webArgs") < buildAllScript.indexOf('for (const target of targets)'),
     '双架构循环前应只准备一次 Web UI',
   );
+  assert.match(buildAllScript, /runCommandWithProgress/);
+  assert.match(buildServerScript, /\['zigbuild', '--quiet'/);
   assert.match(buildAllScript, /'--reuse-web-ui'/);
   assert.match(buildFpkScript, /if \(!reuseWebUi\)/);
 });

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import process from 'node:process';
+import { runCommandWithProgress } from './command-progress.mjs';
 
 const repoRoot = process.cwd();
 const sourceDir = path.join(repoRoot, 'dist');
@@ -10,7 +10,7 @@ const targetDir = path.join(repoRoot, 'packaging', 'fnos', 'app', 'ui', 'dist');
 const reuseDist = process.argv.includes('--reuse-dist');
 
 if (!reuseDist) {
-  run('pnpm', ['run', 'build']);
+  await run('pnpm', ['run', 'build']);
 }
 if (!existsSync(path.join(sourceDir, 'index.html'))) {
   console.error(`Web UI 构建结果无效：${sourceDir} 缺少 index.html`);
@@ -25,14 +25,16 @@ if (!existsSync(path.join(targetDir, 'index.html'))) {
   process.exit(1);
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, {
-    cwd: repoRoot,
-    stdio: 'inherit',
-    env: process.env,
-  });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+async function run(command, args) {
+  try {
+    await runCommandWithProgress(command, args, {
+      title: '构建 FPK Web UI',
+      cwd: repoRoot,
+      env: process.env,
+    });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(error?.exitCode ?? 1);
   }
 }
 

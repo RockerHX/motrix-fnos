@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import process from "node:process";
+import { runCommandWithProgress } from "./command-progress.mjs";
 
 const quick = process.argv.includes("--quick");
 const packageManager = resolvePackageManager();
@@ -22,7 +22,7 @@ const steps = quick
       { title: "FPK 进程身份校验测试", command: "sh", args: ["scripts/test-fnos-process-identity.sh"] },
       { title: "FPK 服务就绪脚本测试", command: "sh", args: ["scripts/test-fnos-readiness.sh"] },
       { title: "Rust 测试（warnings as errors）", command: "node", args: ["scripts/run-rust-tests.mjs"], env: rustEnv },
-      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
+      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--quiet", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端单元测试", command: packageManager, args: ["run", "test:unit"] },
       { title: "前端类型检查与构建", command: packageManager, args: ["run", "build"] },
     ];
@@ -38,23 +38,10 @@ console.log(`${quick ? "快速验证" : "完整验证"}通过，总耗时 ${form
 
 function runStep(step) {
   console.log(`\n==> ${step.title}`);
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveCommand(step.command), step.args, {
-      cwd: process.cwd(),
-      env: step.env ?? process.env,
-      stdio: "inherit",
-      shell: false,
-    });
-
-    child.on("error", reject);
-    child.on("exit", (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`${step.title} 失败：${signal ?? code}`));
-    });
+  return runCommandWithProgress(resolveCommand(step.command), step.args, {
+    title: step.title,
+    cwd: process.cwd(),
+    env: step.env ?? process.env,
   });
 }
 

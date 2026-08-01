@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
+import { runCommandWithProgress } from './command-progress.mjs';
 
 const repoRoot = process.cwd();
 const outputDir = path.join(repoRoot, 'packaging', 'fnos', 'dist');
@@ -22,7 +22,7 @@ if (reuseWebDist) {
   webArgs.push('--reuse-dist');
 }
 console.log(`\n==> ${reuseWebDist ? '复用已验证的 Web UI 构建' : '构建 FPK Web UI'}`);
-run('node', webArgs);
+await run('node', webArgs, reuseWebDist ? '复用已验证的 Web UI 构建' : '构建 FPK Web UI');
 
 for (const target of targets) {
   const args = ['scripts/build-fpk.mjs', '--target', target, '--keep-dist', '--reuse-web-ui'];
@@ -33,7 +33,7 @@ for (const target of targets) {
   }
 
   console.log(`\n==> 构建 FPK 目标：${target}`);
-  run('node', args);
+  await run('node', args, `构建 FPK 目标：${target}`);
 }
 
 if (prepareOnly) {
@@ -60,9 +60,11 @@ function forwardOption(args, name) {
   args.push(name, value);
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: repoRoot, stdio: 'inherit', env: process.env });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+async function run(command, args, title) {
+  try {
+    await runCommandWithProgress(command, args, { title, cwd: repoRoot, env: process.env });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(error?.exitCode ?? 1);
   }
 }

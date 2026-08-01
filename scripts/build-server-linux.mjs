@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { runCommandWithProgress } from './command-progress.mjs';
 
 const repoRoot = process.cwd();
 const target = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
@@ -16,7 +17,7 @@ let env = {
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
 };
 
-const args = ['zigbuild', '--manifest-path', manifestPath, '--release', '--target', cargoTarget];
+const args = ['zigbuild', '--quiet', '--manifest-path', manifestPath, '--release', '--target', cargoTarget];
 
 if (!hasCargoSubcommand('zigbuild', env)) {
   fail('未检测到 cargo-zigbuild。请先安装交叉构建依赖，例如：python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang');
@@ -24,8 +25,8 @@ if (!hasCargoSubcommand('zigbuild', env)) {
 env = ensureZig(env);
 env = appendRustFlags(env, ['-A', 'linker_messages']);
 
-ensureRustTarget(rustTarget, env);
-run('cargo', args, env);
+await ensureRustTarget(rustTarget, env);
+await run('cargo', args, env, `编译 Linux server：${target}`);
 console.log(`Linux server 构建完成：${outputPath}（glibc baseline: ${cargoTarget}）`);
 
 function readOption(name) {
@@ -74,7 +75,7 @@ function findPythonZig(env) {
   return existsSync(candidate) ? candidate : null;
 }
 
-function ensureRustTarget(target, env) {
+async function ensureRustTarget(target, env) {
   if (!which('rustup', env)) {
     fail(`未检测到 rustup，无法确认 Rust target：${target}`);
   }
@@ -89,7 +90,7 @@ function ensureRustTarget(target, env) {
   }
 
   console.log(`未检测到 Rust target ${target}，准备执行 rustup target add ${target}`);
-  run('rustup', ['target', 'add', target], env);
+  await run('rustup', ['target', 'add', target], env, `安装 Rust target：${target}`);
 }
 
 function resolveCargoTarget(target) {
@@ -132,10 +133,12 @@ function appendRustFlags(env, flags) {
   };
 }
 
-function run(command, args, env) {
-  const result = spawnSync(command, args, { cwd: repoRoot, env, stdio: 'inherit' });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+async function run(command, args, env, title) {
+  try {
+    await runCommandWithProgress(command, args, { title, cwd: repoRoot, env });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(error?.exitCode ?? 1);
   }
 }
 
