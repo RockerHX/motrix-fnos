@@ -82,6 +82,7 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/package-local.mjs');
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build-fpk-all.mjs');
   assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify-fpk-artifacts.mjs');
+  assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/test-duration-reporter\.mjs/);
 
   assert.match(packageLocalScript, /\['run', 'verify'\]/);
   assert.match(packageLocalScript, /build-fpk-all\.mjs', '--reuse-web-dist'/);

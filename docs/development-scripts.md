@@ -82,7 +82,7 @@
 
 ### `pnpm run test:scripts`
 
-使用 Node.js test runner 运行 `scripts/tests/*.test.mjs`，覆盖版本同步、发布日志、FPK 预检和其他构建脚本的纯逻辑或临时仓库测试。测试不得直接改动真实项目版本或发布状态。
+使用 Node.js test runner 运行 `scripts/tests/*.test.mjs`，覆盖版本同步、发布日志、FPK 预检和其他构建脚本的纯逻辑或临时仓库测试。测试不得直接改动真实项目版本或发布状态。耗时小于 1000ms 时以两位小数的毫秒显示，达到 1000ms 后转换为两位小数的秒。
 
 ### `pnpm run verify:pre-commit`
 
