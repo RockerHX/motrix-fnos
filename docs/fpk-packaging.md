@@ -29,13 +29,13 @@ desktop_applaunchname =
 1. `appname` 决定 FPK 身份和产物前缀 `motrix_`。
 2. `desktop_appname` 与 `.url` 键决定 FN Connect 注册的应用入口身份。
 3. 空的 `desktop_applaunchname` 让 FN Connect 使用标准 `Application` 入口，不生成 `-main` 后缀。
-4. `service_port`、入口 `port` 和 `MotrixFNOS.sc` 仍统一使用管理端口 `17080`。
+4. `service_port` 和入口 `port` 继续使用管理端口 `17080`；`MotrixFNOS.sc` 声明 `17080/tcp,17082/tcp`，不声明 `17081`。
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
 ## 已查证约束
 
-截至 2026-07-17，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；本轮双监听器交付前已重新读取下列 Manifest、应用框架、fnpack、应用入口与图标页面：
+截至 2026-07-17，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；三监听器交付前已重新读取下列 Manifest、应用框架、fnpack、应用入口与图标页面：
 
 - 官方 Manifest 文档明确了 `platform=x86|arm|all`、`os_min_version`、`service_port` 等字段，但**没有文档化 `arch` 字段**。当前仓库仍保留 x86 staging 中的 `arch = x86_64`，直到官方资料或实机验证证明可删。
 - 官方应用框架文档列出了 `cmd/main`、`install_*`、`upgrade_*`、`uninstall_*`、`config_*` 生命周期脚本。
@@ -50,7 +50,7 @@ desktop_applaunchname =
 - Web UI 构建保持相对基址 `./`，确保从端口入口根路径加载静态资源。
 - 桌面入口默认 `allUsers=false`，但 `control.accessPerm=editable`，允许管理员在应用设置中切换“仅管理员 / 设备内所有用户”。端口模式不提供可信 `X-Trim-*` Header，后端不得依赖统一网关身份。
 - `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
-- 官方入口和 manifest 只描述对外服务端口，不提供“仅供应用内本机反代”的第二端口声明。Motrix 因此只把管理端口 `17080` 注册给 fnOS；JSON-RPC 专用端口 `17081` 由 server 在回环地址监听，不注册为平台资源。
+- 官方入口和 manifest 只描述单个桌面服务端口，不提供“仅供应用内本机反代”的第二入口声明。Motrix 因此只把管理端口 `17080` 写入 manifest 和桌面入口；回环反代端口 `17081` 不注册为平台资源，局域网端口 `17082` 仅通过已验证的 `.sc` 多端口格式声明。
 
 如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：
 
@@ -80,26 +80,30 @@ desktop_applaunchname =
 - x86：`server/target/x86_64-unknown-linux-gnu/release/motrix-fnos-server`
 - ARM：`server/target/aarch64-unknown-linux-gnu/release/motrix-fnos-server`
 
-## 双监听器与端口边界
+## 三监听器与端口边界
 
-FPK 启动脚本必须向同一个 Rust server 注入两个地址：
+FPK 启动脚本必须向同一个 Rust server 注入三个地址：
 
 | 环境变量 | FPK 默认值 | 平台可见性 |
 | --- | --- | --- |
 | `MOTRIX_FNOS_HTTP_ADDR` | `0.0.0.0:17080` | manifest、桌面入口和 `MotrixFNOS.sc` 只映射该管理端口 |
 | `MOTRIX_FNOS_JSONRPC_ADDR` | `127.0.0.1:17081` | 仅 NAS 本机反向代理可访问，不进入任何 fnOS 端口声明 |
+| `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | `0.0.0.0:17082` | 由 `MotrixFNOS.sc` 与管理端口共同声明，manifest 与桌面入口仍不引用 |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 空 | 仅填写直接连接到管理 listener 的可信代理 IP；未配置时忽略 `X-Forwarded-For` |
 | `MOTRIX_WEB_COOKIE_SECURE` | `false` | HTTPS 终止代理场景显式设为 `true`；直接 HTTP 场景保持 `false` |
 
 固定规则：
 
-- `manifest.service_port`、唯一 `app/ui/config` iframe 入口端口以及 `MotrixFNOS.sc` 的源/目标端口必须都是 `17080`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
+- `manifest.service_port` 与唯一 `app/ui/config` iframe 入口端口必须都是 `17080`；`MotrixFNOS.sc` 的源/目标端口必须精确声明 `17080/tcp,17082/tcp`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
 - `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
+- `17082` 始终监听但由服务端开关和 RFC1918 IPv4 来源检查共同保护；局域网 Token 不得在 `17081` 使用。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
-- FPK 日志可以记录两个监听地址，但不得记录 Web 密码、Session、CSRF、JSON-RPC Token 或 Aria2 secret。
+- FPK 日志可以记录三个监听地址，但不得记录 Web 密码、Session、CSRF、JSON-RPC Token 或 Aria2 secret。
 - 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。
 - 反向代理终止 HTTPS 时必须同时确认代理地址已加入 `MOTRIX_TRUSTED_PROXY_IPS`，并显式设置 `MOTRIX_WEB_COOKIE_SECURE=true`。该开关不会验证代理是否真的使用 HTTPS。
+
+多端口声明查证：飞牛官方 manifest 文档目前只定义单个 `service_port`；可验证第三方 FPK 仓库 `conversun/fnos-apps` 的 AdGuardHome 与 Forgejo 分别使用同一 `.sc` 文件声明 `3080/tcp,53/tcp,53/udp` 和 `3005/tcp,2223/tcp`。本项目据此只扩展协议文件，不增加第二桌面入口；正式发布前仍须在目标 fnOS 实机确认安装、防火墙、局域网 TCP 对端地址和卸载清理行为。
 
 设备架构必须匹配：
 
@@ -244,12 +248,12 @@ rtk pnpm run build:fpk:prepare
 预组装后应分别检查 `.stage/x86` 和 `.stage/arm`：
 
 ```bash
-rtk rg -n '17080|17081' packaging/fnos/.stage/x86/manifest packaging/fnos/.stage/x86/MotrixFNOS.sc packaging/fnos/.stage/x86/app/ui/config packaging/fnos/.stage/x86/config/resource
-rtk rg -n 'MOTRIX_FNOS_(HTTP|JSONRPC)_ADDR' packaging/fnos/.stage/x86/cmd/common.sh
+rtk rg -n '17080|17081|17082' packaging/fnos/.stage/x86/manifest packaging/fnos/.stage/x86/MotrixFNOS.sc packaging/fnos/.stage/x86/app/ui/config packaging/fnos/.stage/x86/config/resource
+rtk rg -n 'MOTRIX_FNOS_(HTTP|JSONRPC|LAN_JSONRPC)_ADDR' packaging/fnos/.stage/x86/cmd/common.sh
 rtk file packaging/fnos/.stage/x86/app/bin/motrix-fnos-server packaging/fnos/.stage/arm/app/bin/motrix-fnos-server
 ```
 
-预期 `17081` 不出现在任何平台端口声明中，只出现在生命周期脚本的回环监听默认值中；两个 staged `app/data/` 目录均为空。
+预期 manifest 和桌面入口只有 `17080`，`MotrixFNOS.sc` 精确包含 `17080/tcp,17082/tcp`，`17081` 只出现在生命周期脚本的回环监听默认值中；两个 staged `app/data/` 目录均为空。
 
 预组装还会拒绝非空的 `app/data/` 和不符合 `motrix_<version>_x86.fpk` / `motrix_<version>_arm.fpk` 的产物名，避免本机 SQLite、日志、PID 或架构错误的 FPK 进入发布目录。
 
@@ -339,7 +343,7 @@ rtk packaging/fnos/cmd/stop
 fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以保留用户数据为默认策略：
 
 - 同一 `appname=motrix` 身份内升级必须保留 `TRIM_PKGVAR` 中的 SQLite、设置、JSON-RPC 密钥、Aria2 session 和日志。
-- 从旧 `appname=motrix.fnos` 切换到 `motrix` 时，fnOS 按两个应用处理，旧数据和 JSON-RPC Token 不会自动迁移；旧应用必须先停止或卸载，避免两个应用争用 `17080`、`17081`。
+- 从旧 `appname=motrix.fnos` 切换到 `motrix` 时，fnOS 按两个应用处理，旧数据和 JSON-RPC Token 不会自动迁移；旧应用必须先停止或卸载，避免两个应用争用 `17080`、`17081`、`17082`。
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
@@ -349,7 +353,7 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 
 - 实机升级前先停止应用，再备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。
 - 记录升级前的任务数量、下载设置、授权目录、Aria2 session 校验值和 JSON-RPC Token“是否已配置”，不要把 Token 原文写入验证记录。
-- 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；避免把公网流量提前指向尚未监听的端口。
+- 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；启用局域网入口后还需从真实 RFC1918 客户端确认 `17082/jsonrpc`，并验证回环、公网、IPv6 来源被拒绝。
 - 回滚需要恢复旧 FPK 和升级前应用数据备份，并将 Lucky 后端恢复为旧版对应地址；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
 
 ### 验证结论分级
@@ -370,7 +374,7 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
 | 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
 | 同身份升级 | 从旧版 `motrix` 升级到新版 `motrix` | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
-| 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081` 监听进程 |
+| 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081`/`17082` 监听进程 |
 | 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
 | 卸载（删除数据） | 卸载应用并勾选“同时删除 Motrix 应用数据” | 仅清理 `TRIM_PKGVAR` 内的 Motrix 应用数据，不删除用户下载文件 | `cmd/uninstall_callback` 日志、数据库/设置/session/log 是否被清理 |
 

@@ -39,5 +39,6 @@ test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () 
   assert.match(build, /['"]cmd['"]|['"]cmd\//);
   assert.match(start, /wait_for_server_ready/);
   assert.match(start, /JSONRPC_ADDR/);
+  assert.match(start, /LAN_JSONRPC_ADDR/);
   assert.match(status, /readiness_request/);
 });

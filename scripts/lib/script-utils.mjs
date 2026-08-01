@@ -221,6 +221,7 @@ export function validateFpkPortIsolation({
   resourceContent,
   managementPort,
   jsonRpcPort,
+  lanJsonRpcPort,
 }) {
   const manifest = parseManifest(manifestContent);
   if (manifest.service_port !== managementPort) {
@@ -239,8 +240,11 @@ export function validateFpkPortIsolation({
   assertNoPort(JSON.stringify(uiConfig), jsonRpcPort, '应用入口配置');
   assertNoPort(resourceContent, jsonRpcPort, 'config/resource');
   assertNoPort(portConfigContent, jsonRpcPort, 'MotrixFNOS.sc');
+  assertNoPort(manifestContent, lanJsonRpcPort, 'manifest');
+  assertNoPort(JSON.stringify(uiConfig), lanJsonRpcPort, '应用入口配置');
+  assertNoPort(resourceContent, lanJsonRpcPort, 'config/resource');
 
-  const expectedPort = `${managementPort}/tcp`;
+  const expectedPort = `${managementPort}/tcp,${lanJsonRpcPort}/tcp`;
   for (const key of ['src.ports', 'dst.ports']) {
     const value = readShellAssignment(portConfigContent, key);
     if (value !== expectedPort) {
@@ -249,13 +253,20 @@ export function validateFpkPortIsolation({
   }
 }
 
-export function validateFpkRuntimeEnvScript(content, expectedJsonRpcAddr) {
+export function validateFpkRuntimeEnvScript(content, expectedJsonRpcAddr, expectedLanJsonRpcAddr) {
   const defaultLine = `JSONRPC_ADDR=\${MOTRIX_FNOS_JSONRPC_ADDR:-"${expectedJsonRpcAddr}"}`;
   if (!content.includes(defaultLine)) {
     throw new Error(`cmd/common.sh 缺少 JSON-RPC 回环默认值 ${expectedJsonRpcAddr}`);
   }
   if (!content.includes('export MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"')) {
     throw new Error('cmd/common.sh 未导出 MOTRIX_FNOS_JSONRPC_ADDR');
+  }
+  const lanDefaultLine = `LAN_JSONRPC_ADDR=\${MOTRIX_FNOS_LAN_JSONRPC_ADDR:-"${expectedLanJsonRpcAddr}"}`;
+  if (!content.includes(lanDefaultLine)) {
+    throw new Error(`cmd/common.sh 缺少局域网 JSON-RPC 默认值 ${expectedLanJsonRpcAddr}`);
+  }
+  if (!content.includes('export MOTRIX_FNOS_LAN_JSONRPC_ADDR="${LAN_JSONRPC_ADDR}"')) {
+    throw new Error('cmd/common.sh 未导出 MOTRIX_FNOS_LAN_JSONRPC_ADDR');
   }
 }
 

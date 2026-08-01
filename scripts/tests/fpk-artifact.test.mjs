@@ -74,8 +74,10 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assert.equal(manifest.version, packageVersion);
   assert.equal(manifest.platform, platform);
   assert.equal(manifest.service_port, '17080');
-  assert.match(readFileSync(path.join(packageRoot, 'MotrixFNOS.sc'), 'utf8'), /src\.ports="17080\/tcp"/);
-  assert.match(readFileSync(path.join(packageRoot, 'MotrixFNOS.sc'), 'utf8'), /dst\.ports="17080\/tcp"/);
+  const portConfig = readFileSync(path.join(packageRoot, 'MotrixFNOS.sc'), 'utf8');
+  assert.match(portConfig, /src\.ports="17080\/tcp,17082\/tcp"/);
+  assert.match(portConfig, /dst\.ports="17080\/tcp,17082\/tcp"/);
+  assert.doesNotMatch(portConfig, /17081/);
 
   const appRoot = path.join(packageRoot, 'app');
   mkdirSync(appRoot, { recursive: true });

@@ -30,6 +30,7 @@ const prepareOnly = process.argv.includes('--prepare-only');
 const keepDist = process.argv.includes('--keep-dist');
 const reuseWebUi = process.argv.includes('--reuse-web-ui');
 const servicePort = readOption('--service-port') ?? '17080';
+const lanJsonRpcPort = '17082';
 const env = {
   ...process.env,
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
@@ -52,7 +53,7 @@ resetStageAppDataDir(stageDir);
 renderManifest(stageDir, platform, servicePort);
 const stageManifest = parseManifest(readFileSync(path.join(stageDir, 'manifest'), 'utf8'));
 patchUiPort(path.join(stageDir, 'app', 'ui', 'config'), servicePort, stageManifest.desktop_applaunchname);
-patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort);
+patchPortConfig(path.join(stageDir, 'MotrixFNOS.sc'), servicePort, lanJsonRpcPort);
 removeGitKeepFiles(stageDir);
 preflightStageDir(stageDir, platform, servicePort);
 
@@ -220,11 +221,16 @@ function preflightStageDir(dir, platform, servicePort) {
       resourceContent: readFileSync(path.join(dir, 'config', 'resource'), 'utf8'),
       managementPort: servicePort,
       jsonRpcPort: '17081',
+      lanJsonRpcPort,
     });
-    validateFpkRuntimeEnvScript(readFileSync(path.join(dir, 'cmd', 'common.sh'), 'utf8'), '127.0.0.1:17081');
+    validateFpkRuntimeEnvScript(
+      readFileSync(path.join(dir, 'cmd', 'common.sh'), 'utf8'),
+      '127.0.0.1:17081',
+      '0.0.0.0:17082',
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    fail(`FPK 预检失败，双监听器端口隔离无效：${message}`);
+    fail(`FPK 预检失败，三监听器端口隔离无效：${message}`);
   }
 
   if (platform === 'x86') {
@@ -284,8 +290,8 @@ function validateJsonFile(filePath, label) {
   }
 }
 
-function patchPortConfig(portConfigPath, servicePort) {
-  const port = `${servicePort}/tcp`;
+function patchPortConfig(portConfigPath, servicePort, lanJsonRpcPort) {
+  const port = `${servicePort}/tcp,${lanJsonRpcPort}/tcp`;
   let config = readFileSync(portConfigPath, 'utf8');
   config = config.replace(/^src\.ports=.*$/m, `src.ports="${port}"`);
   config = config.replace(/^dst\.ports=.*$/m, `dst.ports="${port}"`);
