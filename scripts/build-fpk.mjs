@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
+import { reportCommandProgress } from './command-progress.mjs';
 import {
   parseManifest,
   platformForTarget,
@@ -35,11 +36,15 @@ const env = {
 };
 
 resetSourceAppDataDir();
+reportCommandProgress(`准备 Linux server：${buildTarget}`);
 run('node', ['scripts/build-server-linux.mjs', '--target', buildTarget], env);
 if (!reuseWebUi) {
+  reportCommandProgress('构建 FPK Web UI');
   run('node', ['scripts/build-web-ui-fpk.mjs'], env);
 }
+reportCommandProgress(`放置 Aria2 Next sidecar：${sidecarTarget}`);
 run('node', ['scripts/stage-aria2-sidecar.mjs', '--target', sidecarTarget], env);
+reportCommandProgress('组装并预检 FPK 文件结构');
 stageServerBinary(buildTarget);
 syncUiIcons();
 prepareStageDir();
@@ -57,6 +62,7 @@ if (prepareOnly) {
 }
 
 const fnpack = ensureFnpack(env);
+reportCommandProgress('执行 fnpack 打包');
 const stagedPackagePath = path.join(stageDir, `${stageManifest.appname}.fpk`);
 rmSync(stagedPackagePath, { force: true });
 const buildOutput = runAndCapture(fnpack, ['build', '--directory', stageDir], env, stageDir);

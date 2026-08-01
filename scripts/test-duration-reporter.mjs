@@ -1,9 +1,10 @@
 import { spec } from 'node:test/reporters';
 import { Readable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
+import { reportCommandProgress } from './command-progress.mjs';
 
 export default async function* testDurationReporter(source) {
-  const reporter = Readable.from(source).pipe(spec());
+  const reporter = Readable.from(reportTestProgress(source)).pipe(spec());
   const summary = {};
   for await (const output of reporter) {
     const formattedOutput = formatReporterOutput(output);
@@ -18,6 +19,19 @@ export default async function* testDurationReporter(source) {
   if (summaryOutput) {
     yield summaryOutput;
   }
+}
+
+async function* reportTestProgress(source) {
+  for await (const event of source) {
+    const detail = nodeTestProgressDetail(event);
+    if (detail) reportCommandProgress(detail);
+    yield event;
+  }
+}
+
+export function nodeTestProgressDetail(event) {
+  const name = event?.type === 'test:start' ? event.data?.name?.trim() : '';
+  return name ? `正在测试：${name}` : null;
 }
 
 export function formatDuration(milliseconds) {

@@ -5,6 +5,7 @@ import {
   formatReporterOutput,
   formatReporterSummary,
   isPassedTestOutput,
+  nodeTestProgressDetail,
   parseReporterSummary,
 } from '../test-duration-reporter.mjs';
 
@@ -14,6 +15,14 @@ test('测试耗时按阈值使用两位小数的毫秒或秒', () => {
   assert.equal(formatDuration(997.234458), '997.23ms');
   assert.equal(formatDuration(1000), '1.00s');
   assert.equal(formatDuration(10018.575625), '10.02s');
+});
+
+test('Node.js 测试开始事件生成当前测试进度', () => {
+  assert.equal(
+    nodeTestProgressDetail({ type: 'test:start', data: { name: '版本同步支持 beta 版本' } }),
+    '正在测试：版本同步支持 beta 版本',
+  );
+  assert.equal(nodeTestProgressDetail({ type: 'test:pass', data: { name: '完成' } }), null);
 });
 
 test('测试 reporter 同时格式化单项和汇总耗时', () => {

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { runCommandWithProgress } from './command-progress.mjs';
+import { cargoProgressDetail, runCommandWithProgress } from './command-progress.mjs';
 
 const repoRoot = process.cwd();
 const target = readOption('--target') ?? 'x86_64-unknown-linux-gnu';
@@ -17,7 +17,7 @@ let env = {
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
 };
 
-const args = ['zigbuild', '--quiet', '--manifest-path', manifestPath, '--release', '--target', cargoTarget];
+const args = ['zigbuild', '--manifest-path', manifestPath, '--release', '--target', cargoTarget];
 
 if (!hasCargoSubcommand('zigbuild', env)) {
   fail('未检测到 cargo-zigbuild。请先安装交叉构建依赖，例如：python3 -m pip install --user --break-system-packages cargo-zigbuild ziglang');
@@ -135,7 +135,13 @@ function appendRustFlags(env, flags) {
 
 async function run(command, args, env, title) {
   try {
-    await runCommandWithProgress(command, args, { title, cwd: repoRoot, env });
+    await runCommandWithProgress(command, args, {
+      title,
+      initialDetail: '准备 Cargo 交叉编译',
+      activity: cargoProgressDetail,
+      cwd: repoRoot,
+      env,
+    });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(error?.exitCode ?? 1);

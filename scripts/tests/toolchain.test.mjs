@@ -41,6 +41,7 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const releasePrepareScript = readFileSync('scripts/release-prepare.mjs', 'utf8');
   const rustTestScript = readFileSync('scripts/run-rust-tests.mjs', 'utf8');
   const commandProgressScript = readFileSync('scripts/command-progress.mjs', 'utf8');
+  const vitestProgressReporter = readFileSync('scripts/vitest-progress-reporter.mjs', 'utf8');
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
@@ -55,10 +56,12 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.doesNotMatch(quickSteps, /typecheck|test:scripts|test-fnos|"test"|test:unit|"build"/);
   assert.doesNotMatch(releasePrepareScript, /run\('pnpm', \['run', 'verify'\]\)/);
   assert.match(fullSteps, /run-rust-tests\.mjs/);
-  assert.match(fullSteps, /\["build", "--quiet"/);
-  assert.match(rustTestScript, /\['test', '--quiet', '--manifest-path', 'server\/Cargo\.toml'\]/);
+  assert.match(fullSteps, /\["build", "--manifest-path"/);
+  assert.match(rustTestScript, /\['test', '--manifest-path', 'server\/Cargo\.toml'\]/);
   assert.match(verifyScript, /runCommandWithProgress/);
   assert.match(commandProgressScript, /HEARTBEAT_INTERVAL_MS = 30_000/);
+  assert.match(commandProgressScript, /PROGRESS_MESSAGE_PREFIX/);
+  assert.match(vitestProgressReporter, /onTestCaseReady/);
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
   assert.doesNotMatch(verifyWorkflow, /^\s+push:\s*$/m);
@@ -87,13 +90,16 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   const buildAllScript = readFileSync('scripts/build-fpk-all.mjs', 'utf8');
   const buildFpkScript = readFileSync('scripts/build-fpk.mjs', 'utf8');
   const buildServerScript = readFileSync('scripts/build-server-linux.mjs', 'utf8');
+  const buildWebScript = readFileSync('scripts/build-web.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/package-local.mjs');
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build-fpk-all.mjs');
   assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify-fpk-artifacts.mjs');
   assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/test-duration-reporter\.mjs/);
-  assert.equal(packageJson.scripts['test:unit'], 'vitest run --reporter=minimal');
-  assert.match(packageJson.scripts.build, /vite build --logLevel warn/);
+  assert.match(packageJson.scripts['test:unit'], /vitest-progress-reporter\.mjs/);
+  assert.equal(packageJson.scripts.build, 'node scripts/build-web.mjs');
+  assert.match(buildWebScript, /\['--noEmit'\]/);
+  assert.match(buildWebScript, /\['build', '--logLevel', 'warn'\]/);
 
   assert.match(packageLocalScript, /\['run', 'verify'\]/);
   assert.match(packageLocalScript, /build-fpk-all\.mjs', '--reuse-web-dist'/);
@@ -104,7 +110,8 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
     '双架构循环前应只准备一次 Web UI',
   );
   assert.match(buildAllScript, /runCommandWithProgress/);
-  assert.match(buildServerScript, /\['zigbuild', '--quiet'/);
+  assert.match(buildServerScript, /cargoProgressDetail/);
+  assert.match(buildFpkScript, /reportCommandProgress/);
   assert.match(buildAllScript, /'--reuse-web-ui'/);
   assert.match(buildFpkScript, /if \(!reuseWebUi\)/);
 });

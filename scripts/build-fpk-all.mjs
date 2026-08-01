@@ -33,7 +33,7 @@ for (const target of targets) {
   }
 
   console.log(`\n==> 构建 FPK 目标：${target}`);
-  await run('node', args, `构建 FPK 目标：${target}`);
+  await run('node', args, `构建 FPK 目标：${target}`, '准备目标构建');
 }
 
 if (prepareOnly) {
@@ -60,9 +60,9 @@ function forwardOption(args, name) {
   args.push(name, value);
 }
 
-async function run(command, args, title) {
+async function run(command, args, title, initialDetail = title) {
   try {
-    await runCommandWithProgress(command, args, { title, cwd: repoRoot, env: process.env });
+    await runCommandWithProgress(command, args, { title, initialDetail, cwd: repoRoot, env: process.env });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(error?.exitCode ?? 1);

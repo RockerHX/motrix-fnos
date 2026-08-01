@@ -66,7 +66,7 @@
 
 ### `pnpm run build`
 
-先运行 `vue-tsc --noEmit`，通过后执行 Vite 生产构建，输出到根目录 `dist/`。成功路径不打印模块转换和 chunk 明细；构建 warning 与 error 仍正常输出。
+先运行 `vue-tsc --noEmit`，通过后执行 Vite 生产构建，输出到根目录 `dist/`。两个子阶段通过同一进度通道更新当前任务，仍各自只执行一次。成功路径不打印模块转换和 chunk 明细；构建 warning 与 error 仍正常输出。
 
 注意：该产物是通用 Web 构建结果；进入 FPK 前还要由 `build:web:fpk` 同步到 `packaging/fnos/app/ui/dist/`。
 
@@ -78,7 +78,7 @@
 
 ### `pnpm run test:unit`
 
-使用 Vitest 运行全部前端 `*.spec.ts` 单元测试。使用 minimal reporter，不打印成功文件和 queued 状态；失败详情、warning、error 与最终统计仍正常输出。适合前端 service、store、组件和启动编排变更。
+使用 Vitest 运行全部前端 `*.spec.ts` 单元测试。自定义 reporter 继承 minimal reporter，不打印成功文件和 queued 状态；交互终端的第二行进度实时显示刚开始执行的测试文件和用例。失败详情、warning、error 与最终统计仍正常输出。适合前端 service、store、组件和启动编排变更。
 
 ### `pnpm run test:scripts`
 
@@ -95,7 +95,7 @@ Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型�
 
 ### `pnpm run verify`
 
-推送前完整验证。它执行版本和格式检查、构建与发布脚本测试、FPK Shell 测试、Rust 测试与编译、前端单元测试，并通过一次 `pnpm run build` 完成唯一一次前端类型检查和生产构建。Rust 成功测试不逐项打印 `ok`，失败详情仍完整输出。交互终端中的长步骤在同一行显示阶段名称和累计耗时；非交互日志每 30 秒输出一次心跳。步骤结束后再输出精简摘要，失败时完整回放 stdout 和 stderr。该命令仍不代替 FPK 解包检查或 fnOS 实机验证。
+推送前完整验证。它执行版本和格式检查、构建与发布脚本测试、FPK Shell 测试、Rust 测试与编译、前端单元测试，并通过一次 `pnpm run build` 完成唯一一次前端类型检查和生产构建。Rust 成功测试不逐项打印 `ok`，失败详情仍完整输出。交互终端中的长步骤使用两行动态区域：第一行显示阶段名称和累计耗时，第二行显示当前 Node/Vitest 测试、最近完成的 Rust 测试、Cargo crate 或构建子阶段；非交互日志每 30 秒输出一次包含当前子任务的心跳。步骤结束后再输出精简摘要，失败时完整回放 stdout 和 stderr。该命令仍不代替 FPK 解包检查或 fnOS 实机验证。
 
 ### `pnpm run verify:fpk`
 
