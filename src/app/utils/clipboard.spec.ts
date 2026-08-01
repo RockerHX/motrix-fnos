@@ -10,6 +10,7 @@ describe("copyTextToClipboard", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
 
@@ -49,7 +50,7 @@ describe("copyTextToClipboard", () => {
   });
 
   it("reports an insecure context when every copy method fails", async () => {
-    installExecCommand(false);
+    const execCommand = installExecCommand(true);
     Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
 
     await expect(copyTextToClipboard("manual-copy")).resolves.toEqual({
@@ -57,6 +58,20 @@ describe("copyTextToClipboard", () => {
       method: null,
       reason: "insecure-context",
     });
+    expect(execCommand).not.toHaveBeenCalled();
+    expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("does not trust legacy copy success in an embedded context", async () => {
+    const execCommand = installExecCommand(true);
+    vi.stubGlobal("window", { isSecureContext: true, self: {}, top: {} });
+
+    await expect(copyTextToClipboard("embedded-copy")).resolves.toEqual({
+      copied: false,
+      method: null,
+      reason: "embedded-context",
+    });
+    expect(execCommand).not.toHaveBeenCalled();
     expect(document.querySelector("textarea")).toBeNull();
   });
 

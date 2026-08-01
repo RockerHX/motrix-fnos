@@ -20,17 +20,23 @@ export async function copyTextToClipboard(text: string): Promise<ClipboardCopyRe
       await writeText(text);
       return { copied: true, method: "clipboard" };
     } catch (error) {
-      if (copyWithLegacyCommand(text)) {
+      if (canTrustLegacyCopy() && copyWithLegacyCommand(text)) {
         return { copied: true, method: "legacy" };
       }
       return { copied: false, method: null, reason: clipboardFailureReason(error) };
     }
   }
 
-  if (copyWithLegacyCommand(text)) {
+  if (canTrustLegacyCopy() && copyWithLegacyCommand(text)) {
     return { copied: true, method: "legacy" };
   }
   return { copied: false, method: null, reason: clipboardFailureReason() };
+}
+
+function canTrustLegacyCopy(): boolean {
+  // fnOS WebView can report execCommand("copy") success in HTTP or iframe contexts
+  // without writing to the system clipboard. Treat those contexts as manual-copy only.
+  return typeof window !== "undefined" && window.isSecureContext === true && !isEmbeddedWindow();
 }
 
 function copyWithLegacyCommand(text: string): boolean {
@@ -67,7 +73,11 @@ function clipboardFailureReason(error?: unknown): ClipboardFailureReason {
   if (typeof window !== "undefined" && window.isSecureContext === false) {
     return "insecure-context";
   }
-  if (error instanceof DOMException && ["NotAllowedError", "SecurityError"].includes(error.name)) {
+  if (
+    typeof DOMException !== "undefined" &&
+    error instanceof DOMException &&
+    ["NotAllowedError", "SecurityError"].includes(error.name)
+  ) {
     return "denied";
   }
   return "unavailable";
