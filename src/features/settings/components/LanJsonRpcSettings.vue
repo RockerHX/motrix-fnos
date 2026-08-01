@@ -1,9 +1,20 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { IconCopy, IconRefresh } from "@tabler/icons-vue";
-import { NAlert, NButton, NIcon, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import {
+  NAlert,
+  NButton,
+  NIcon,
+  NInput,
+  NSpace,
+  NSwitch,
+  NText,
+  useMessage,
+  type InputInst,
+} from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
+import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
 import { useLanJsonRpcStore } from "../stores/lanJsonRpcStore";
@@ -15,6 +26,7 @@ const store = useLanJsonRpcStore();
 const message = useMessage();
 const { t } = useI18n();
 const showRotateConfirm = ref(false);
+const issuedTokenInput = ref<InputInst | null>(null);
 const endpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
 const statusText = computed(() => {
   if (store.isLoading) return t("common.loading");
@@ -34,6 +46,15 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => store.issuedToken,
+  (token) => {
+    if (token) {
+      void selectIssuedToken();
+    }
+  },
 );
 
 async function loadStatus() {
@@ -63,13 +84,23 @@ async function rotateToken() {
   }
 }
 
-async function copyText(value: string) {
-  try {
-    await navigator.clipboard.writeText(value);
+async function copyText(value: string, selectTokenOnFailure = false) {
+  const result = await copyTextToClipboard(value);
+  if (result.copied) {
     message.success(t("common.copied"));
-  } catch (error) {
-    message.error(getErrorMessage(error, t("settings.lanJsonRpc.copyFailed")));
+    return;
   }
+
+  message.warning(t("common.clipboardManualCopy"));
+  if (selectTokenOnFailure) {
+    await selectIssuedToken();
+  }
+}
+
+async function selectIssuedToken() {
+  await nextTick();
+  issuedTokenInput.value?.focus();
+  issuedTokenInput.value?.select();
 }
 
 function closeIssuedToken() {
@@ -151,6 +182,7 @@ onUnmounted(closeSensitiveDialogs);
     >
       <NAlert type="warning" :bordered="false">{{ t("settings.lanJsonRpc.issuedWarning") }}</NAlert>
       <NInput
+        ref="issuedTokenInput"
         class="lan-json-rpc-issued-input"
         :value="store.issuedToken"
         readonly
@@ -160,7 +192,7 @@ onUnmounted(closeSensitiveDialogs);
       />
       <template #footer>
         <AppDialogActions>
-          <NButton secondary @click="copyText(store.issuedToken)">
+          <NButton secondary @click="copyText(store.issuedToken, true)">
             <template #icon><NIcon><IconCopy /></NIcon></template>
             {{ t("common.copy") }}
           </NButton>

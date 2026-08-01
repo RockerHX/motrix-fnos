@@ -9,6 +9,8 @@ export const zhCN = {
   "common.done": "完成",
   "common.copy": "复制",
   "common.copied": "已复制",
+  "common.clipboardManualCopy":
+    "当前页面不是可使用剪贴板的安全顶层环境，常见原因是局域网 HTTP 或 fnOS 内嵌窗口。请手动选择内容并按 Ctrl+C / Command+C，或直接打开 Motrix HTTPS 域名。",
   "common.enabled": "已生效",
   "common.pending": "待支持",
   "common.placeholder": "占位页",
@@ -334,7 +336,6 @@ export const zhCN = {
   "settings.lanJsonRpc.rotateConfirm": "轮换后，所有使用旧局域网 Token 的客户端会立即失效。",
   "settings.lanJsonRpc.issuedTitle": "保存局域网 Token",
   "settings.lanJsonRpc.issuedWarning": "这是 Token 原文唯一一次显示。关闭弹窗后无法再次查看，请立即保存到客户端。",
-  "settings.lanJsonRpc.copyFailed": "复制失败，请手动选择复制",
   "settings.maxConcurrentDownloads": "最大并发下载数",
   "settings.downloadLimit": "下载限速",
   "settings.uploadLimit": "上传限速",
@@ -425,8 +426,6 @@ export const zhCN = {
   "logs.cleared": "调试日志已清空",
   "logs.noCopy": "当前没有可复制的调试日志",
   "logs.copied": "调试日志已复制",
-  "logs.autoCopyLimited": "飞牛窗口限制自动复制：{message}",
-  "logs.clipboardUnavailable": "当前飞牛窗口不提供剪贴板写入 API",
   "logs.noDownload": "当前没有可下载的调试日志",
   "logs.exported": "调试日志已导出",
   "logs.failed": "调试日志操作失败",
@@ -451,7 +450,8 @@ export const zhCN = {
   "logs.category.runtime": "运行时",
   "logs.manualCopy.eyebrow": "Manual Copy",
   "logs.manualCopy.title": "手动复制调试日志",
-  "logs.manualCopy.hint": "飞牛内嵌窗口限制了自动写入剪贴板。下面文本已自动选中，请按 Command+C 或 Ctrl+C 手动复制；也可以使用“下载日志”。",
+  "logs.manualCopy.hint":
+    "当前页面可能处于局域网 HTTP，或位于未获得剪贴板写入权限的 fnOS 内嵌窗口。下面文本已自动选中，请按 Command+C 或 Ctrl+C 手动复制；也可以使用“下载日志”。",
 } as const;
 
 export type TranslationKey = keyof typeof zhCN;

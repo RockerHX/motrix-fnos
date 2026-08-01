@@ -19,6 +19,7 @@ describe("i18n", () => {
       "Detected 2 link(s); 2 separate download task(s) will be created.",
     );
     expect(useI18n().t("common.save")).toBe("Save");
+    expect(useI18n().t("common.clipboardManualCopy")).toContain("LAN HTTP");
   });
 
   it("formats missing and valid timestamps with the active language", () => {

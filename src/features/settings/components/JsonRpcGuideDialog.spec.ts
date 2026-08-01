@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const message = vi.hoisted(() => ({ warning: vi.fn() }));
+
+vi.mock("naive-ui", async () => {
+  const actual = await vi.importActual<typeof import("naive-ui")>("naive-ui");
+  return { ...actual, useMessage: () => message };
+});
+
 vi.mock("../services/jsonRpcTokenService", () => ({
   getJsonRpcTokenStatus: vi.fn(async () => ({ configured: true, maskedToken: "••••••••abcd" })),
   updateJsonRpcToken: vi.fn(),
@@ -67,5 +74,23 @@ describe("JsonRpcGuideDialog", () => {
 
     expect(wrapper.emitted("update:show")).toContainEqual([false]);
     expect(wrapper.emitted("openSettings")).toHaveLength(1);
+  });
+
+  it("keeps a manual-copy state and explains why automatic copy is blocked", async () => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+    const { wrapper } = mountWithPinia(JsonRpcGuideDialog, { props: { show: true } });
+    await flushPromises();
+
+    await wrapper.findAll("button").find((button) => button.text() === "复制地址")!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.findAll("button").some((button) => button.text() === "请手动选择复制")).toBe(true);
+    expect(message.warning).toHaveBeenCalledWith(
+      "当前页面不是可使用剪贴板的安全顶层环境，常见原因是局域网 HTTP 或 fnOS 内嵌窗口。请手动选择内容并按 Ctrl+C / Command+C，或直接打开 Motrix HTTPS 域名。",
+    );
   });
 });

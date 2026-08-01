@@ -11,6 +11,8 @@ export const enUS: Record<TranslationKey, string> = {
   "common.done": "Done",
   "common.copy": "Copy",
   "common.copied": "Copied",
+  "common.clipboardManualCopy":
+    "This page is not a secure top-level context with clipboard access, commonly because it uses LAN HTTP or runs inside an fnOS embedded window. Select the content and press Ctrl+C or Command+C, or open the Motrix HTTPS domain directly.",
   "common.enabled": "Active",
   "common.pending": "Planned",
   "common.placeholder": "Placeholder",
@@ -336,7 +338,6 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.lanJsonRpc.rotateConfirm": "All clients using the old LAN Token will stop working immediately.",
   "settings.lanJsonRpc.issuedTitle": "Save the LAN Token",
   "settings.lanJsonRpc.issuedWarning": "This is the only time the raw Token is shown. Save it in your client before closing this dialog.",
-  "settings.lanJsonRpc.copyFailed": "Copy failed; select and copy manually",
   "settings.maxConcurrentDownloads": "Max Concurrent Downloads",
   "settings.downloadLimit": "Download Speed Limit",
   "settings.uploadLimit": "Upload Speed Limit",
@@ -427,8 +428,6 @@ export const enUS: Record<TranslationKey, string> = {
   "logs.cleared": "Debug logs cleared",
   "logs.noCopy": "No debug logs to copy",
   "logs.copied": "Debug logs copied",
-  "logs.autoCopyLimited": "Automatic copy is limited in the fnOS window: {message}",
-  "logs.clipboardUnavailable": "Clipboard write API is unavailable in the current fnOS window",
   "logs.noDownload": "No debug logs to download",
   "logs.exported": "Debug logs exported",
   "logs.failed": "Debug log operation failed",
@@ -453,5 +452,6 @@ export const enUS: Record<TranslationKey, string> = {
   "logs.category.runtime": "Runtime",
   "logs.manualCopy.eyebrow": "Manual Copy",
   "logs.manualCopy.title": "Copy Debug Logs Manually",
-  "logs.manualCopy.hint": "The fnOS embedded window blocked automatic clipboard writes. The text below is selected automatically. Press Command+C or Ctrl+C to copy it manually, or use Download Logs.",
+  "logs.manualCopy.hint":
+    "This page may be using LAN HTTP or running in an fnOS embedded window without clipboard-write permission. The text below is selected automatically. Press Command+C or Ctrl+C to copy it manually, or use Download Logs.",
 };

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { NAlert, NButton } from "naive-ui";
+import { NAlert, NButton, useMessage } from "naive-ui";
+import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { useI18n } from "../../../i18n";
 import { useJsonRpcTokenStore } from "../stores/jsonRpcTokenStore";
 import { useLanJsonRpcStore } from "../stores/lanJsonRpcStore";
@@ -13,23 +14,19 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const message = useMessage();
 const publicTokenStore = useJsonRpcTokenStore();
 const lanStore = useLanJsonRpcStore();
 const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
 const copyTarget = ref<"proxy" | "lan" | null>(null);
-const copyUnavailable = ref(false);
+const manualCopyTarget = ref<"proxy" | "lan" | null>(null);
 let copyResetTimer: number | undefined;
 
 async function copyEndpoint(target: "proxy" | "lan", value: string) {
-  if (!navigator.clipboard?.writeText) {
-    copyUnavailable.value = true;
-    return;
-  }
-
-  try {
-    await navigator.clipboard.writeText(value);
+  const result = await copyTextToClipboard(value);
+  if (result.copied) {
     copyTarget.value = target;
-    copyUnavailable.value = false;
+    manualCopyTarget.value = null;
     if (copyResetTimer !== undefined) {
       window.clearTimeout(copyResetTimer);
     }
@@ -37,9 +34,12 @@ async function copyEndpoint(target: "proxy" | "lan", value: string) {
       copyTarget.value = null;
       copyResetTimer = undefined;
     }, 2200);
-  } catch {
-    copyUnavailable.value = true;
+    return;
   }
+
+  copyTarget.value = null;
+  manualCopyTarget.value = target;
+  message.warning(t("common.clipboardManualCopy"));
 }
 
 function tokenStatus(configured: boolean | undefined) {
@@ -108,7 +108,7 @@ onUnmounted(() => {
         {{
           copyTarget === "proxy"
             ? t("rpcGuide.copied")
-            : copyUnavailable
+            : manualCopyTarget === "proxy"
               ? t("rpcGuide.copyUnavailable")
               : t("rpcGuide.copyEndpoint")
         }}
@@ -138,7 +138,7 @@ onUnmounted(() => {
         {{
           copyTarget === "lan"
             ? t("rpcGuide.copied")
-            : copyUnavailable
+            : manualCopyTarget === "lan"
               ? t("rpcGuide.copyUnavailable")
               : t("rpcGuide.copyEndpoint")
         }}
