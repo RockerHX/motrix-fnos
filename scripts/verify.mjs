@@ -21,7 +21,7 @@ const steps = quick
       { title: "构建与发布脚本测试", command: packageManager, args: ["run", "test:scripts"] },
       { title: "FPK 进程身份校验测试", command: "sh", args: ["scripts/test-fnos-process-identity.sh"] },
       { title: "FPK 服务就绪脚本测试", command: "sh", args: ["scripts/test-fnos-readiness.sh"] },
-      { title: "Rust 测试（warnings as errors）", command: "cargo", args: ["test", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
+      { title: "Rust 测试（warnings as errors）", command: "node", args: ["scripts/run-rust-tests.mjs"], env: rustEnv },
       { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], env: rustEnv },
       { title: "前端单元测试", command: packageManager, args: ["run", "test:unit"] },
       { title: "前端类型检查与构建", command: packageManager, args: ["run", "build"] },

@@ -54,7 +54,7 @@ pub(crate) fn terminate_process(pid: u32) -> bool {
     let _ = std::process::Command::new("kill")
         .arg("-TERM")
         .arg(pid.to_string())
-        .status();
+        .output();
     if wait_until_process_exits(pid, Duration::from_millis(800)) {
         return true;
     }
@@ -62,7 +62,7 @@ pub(crate) fn terminate_process(pid: u32) -> bool {
     let _ = std::process::Command::new("kill")
         .arg("-KILL")
         .arg(pid.to_string())
-        .status();
+        .output();
     wait_until_process_exits(pid, Duration::from_millis(800))
 }
 
@@ -71,8 +71,8 @@ fn process_is_running(pid: u32) -> bool {
     std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
-        .status()
-        .map(|status| status.success())
+        .output()
+        .map(|output| output.status.success())
         .unwrap_or(false)
 }
 

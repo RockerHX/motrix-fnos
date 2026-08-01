@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build --logLevel warn",
     "preview": "vite preview",
     "test:scripts": "node --test --test-reporter=./scripts/test-duration-reporter.mjs scripts/tests/*.test.mjs",
-    "test:unit": "vitest run",
+    "test:unit": "vitest run --reporter=minimal",
     "typecheck": "vue-tsc --noEmit",
     "clean": "node scripts/clean-generated.mjs",
     "clean:dry-run": "node scripts/clean-generated.mjs --dry-run",

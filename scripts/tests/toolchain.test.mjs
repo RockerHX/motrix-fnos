@@ -39,10 +39,12 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const prePushHook = readFileSync('.githooks/pre-push', 'utf8');
   const verifyScript = readFileSync('scripts/verify.mjs', 'utf8');
   const releasePrepareScript = readFileSync('scripts/release-prepare.mjs', 'utf8');
+  const rustTestScript = readFileSync('scripts/run-rust-tests.mjs', 'utf8');
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
   const quickSteps = verifyScript.match(/const steps = quick\s*\?\s*\[([\s\S]*?)\]\s*:\s*\[/)?.[1] ?? '';
+  const fullSteps = verifyScript.match(/\]\s*:\s*\[([\s\S]*?)\];/)?.[1] ?? '';
 
   assert.equal(existsSync('.githooks/pre-push'), true);
   assert.match(prePushHook, /pnpm run verify/);
@@ -51,6 +53,8 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(quickSteps, /"fmt"/);
   assert.doesNotMatch(quickSteps, /typecheck|test:scripts|test-fnos|"test"|test:unit|"build"/);
   assert.doesNotMatch(releasePrepareScript, /run\('pnpm', \['run', 'verify'\]\)/);
+  assert.match(fullSteps, /run-rust-tests\.mjs/);
+  assert.match(rustTestScript, /\['test', '--quiet', '--manifest-path', 'server\/Cargo\.toml'\]/);
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
   assert.doesNotMatch(verifyWorkflow, /^\s+push:\s*$/m);
@@ -83,6 +87,8 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build-fpk-all.mjs');
   assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify-fpk-artifacts.mjs');
   assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/test-duration-reporter\.mjs/);
+  assert.equal(packageJson.scripts['test:unit'], 'vitest run --reporter=minimal');
+  assert.match(packageJson.scripts.build, /vite build --logLevel warn/);
 
   assert.match(packageLocalScript, /\['run', 'verify'\]/);
   assert.match(packageLocalScript, /build-fpk-all\.mjs', '--reuse-web-dist'/);
