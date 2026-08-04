@@ -40,6 +40,8 @@ export interface TaskActionDetails {
 export interface TaskActionConfirmTexts {
   redownloadTitle: string;
   redownloadConfirmText: string;
+  restoreTitle: string;
+  restoreConfirmText: string;
   deleteTitle: string;
   deleteConfirmText: string;
   deleteFilesLabel: string;

@@ -96,6 +96,30 @@ vi.mock("naive-ui", async () => {
           ]);
       },
     }),
+    NSwitch: defineComponent({
+      name: "NSwitchStub",
+      inheritAttrs: false,
+      props: {
+        value: { type: Boolean, default: false },
+        disabled: { type: Boolean, default: false },
+        loading: { type: Boolean, default: false },
+      },
+      emits: ["update:value"],
+      setup(props, { emit, attrs }) {
+        return () =>
+          h("button", {
+            ...attrs,
+            type: "button",
+            role: "switch",
+            disabled: props.disabled,
+            "aria-checked": String(props.value),
+            "data-loading": String(props.loading),
+            onClick: () => {
+              if (!props.disabled) emit("update:value", !props.value);
+            },
+          });
+      },
+    }),
   };
 });
 
@@ -108,6 +132,7 @@ import type {
   TaskActionPermissions,
   TaskActionState,
 } from "./taskActionViewModel";
+import type { DownloadTask } from "../../../types/tasks";
 
 describe("TaskActions", () => {
   it("shows buttons for active, paused, complete and removed states", async () => {
@@ -148,7 +173,7 @@ describe("TaskActions", () => {
     expect(removedWrapper.text()).toContain("永久删除");
   });
 
-  it("emits pause, resume, confirmFiles and restore in both normal and compact layouts", async () => {
+  it("emits pause, resume, confirmFiles and confirmed restore in both normal and compact layouts", async () => {
     const { wrapper } = mountTaskActions({
       permissions: {
         canPause: true,
@@ -162,6 +187,7 @@ describe("TaskActions", () => {
     await clickButton(wrapper, "继续");
     await clickButton(wrapper, "确认文件");
     await clickButton(wrapper, "恢复");
+    await clickButton(wrapper, "恢复", -1);
 
     expect(wrapper.emitted("pause")).toHaveLength(1);
     expect(wrapper.emitted("resume")).toHaveLength(1);
@@ -182,6 +208,7 @@ describe("TaskActions", () => {
     await clickButton(compactWrapper, "继续");
     await clickButton(compactWrapper, "确认文件");
     await clickButton(compactWrapper, "恢复");
+    await clickButton(compactWrapper, "恢复", -1);
 
     expect(compactWrapper.emitted("pause")).toHaveLength(1);
     expect(compactWrapper.emitted("resume")).toHaveLength(1);
@@ -313,6 +340,7 @@ describe("TaskActions", () => {
     await clickIconButton(wrapper, "继续");
     await clickIconButton(wrapper, "确认文件");
     await clickIconButton(wrapper, "恢复");
+    await clickButton(wrapper, "恢复", -1);
 
     expect(wrapper.emitted("pause")).toHaveLength(1);
     expect(wrapper.emitted("resume")).toHaveLength(1);
@@ -364,6 +392,59 @@ describe("TaskActions", () => {
     });
     await clickIconButton(permanentDeleteWrapper, "永久删除");
     expect(permanentDeleteWrapper.find('[data-test="n-modal"]').text()).toContain("确认永久删除");
+
+    const { wrapper: restoreWrapper } = mountTaskActions({
+      variant: "icon-pill",
+      permissions: { canDelete: false, canRestore: true },
+    });
+    await clickIconButton(restoreWrapper, "恢复");
+    expect(restoreWrapper.find('[data-test="n-modal"]').text()).toContain("确认恢复");
+  });
+
+  it("keeps the detail proxy switch controlled and confirms changes for active tasks", async () => {
+    const { wrapper: pausedWrapper } = mountTaskActions({
+      task: { status: "paused", useProxy: false },
+    });
+    await clickButton(pausedWrapper, "详情");
+    const pausedSwitch = pausedWrapper.get('button[role="switch"]');
+    await pausedSwitch.trigger("click");
+    expect(pausedWrapper.emitted("updateProxy")).toEqual([[true]]);
+    expect(pausedSwitch.attributes("aria-checked")).toBe("false");
+
+    const { wrapper: activeWrapper } = mountTaskActions({
+      task: { status: "active", useProxy: false },
+    });
+    await clickButton(activeWrapper, "详情");
+    await activeWrapper.get('button[role="switch"]').trigger("click");
+    expect(activeWrapper.emitted("updateProxy")).toBeUndefined();
+    expect(activeWrapper.text()).toContain("切换运行中任务的代理可能导致连接短暂重连");
+
+    await clickButton(activeWrapper, "继续切换");
+    expect(activeWrapper.emitted("updateProxy")).toEqual([[true]]);
+  });
+
+  it("inherits and allows overriding proxy use for redownload and restore", async () => {
+    const { wrapper: redownloadWrapper } = mountTaskActions({
+      task: { status: "complete", useProxy: true },
+      permissions: { canRedownload: true, canDelete: false },
+    });
+    await clickButton(redownloadWrapper, "重新下载");
+    const redownloadSwitch = redownloadWrapper.get('button[role="switch"]');
+    expect(redownloadSwitch.attributes("aria-checked")).toBe("true");
+    await redownloadSwitch.trigger("click");
+    await clickButton(redownloadWrapper, "重新下载", -1);
+    expect(redownloadWrapper.emitted("confirmRedownload")).toEqual([[false]]);
+
+    const { wrapper: restoreWrapper } = mountTaskActions({
+      task: { status: "removed", useProxy: true },
+      permissions: { canRestore: true, canDelete: false },
+    });
+    await clickButton(restoreWrapper, "恢复");
+    const restoreSwitch = restoreWrapper.get('button[role="switch"]');
+    expect(restoreSwitch.attributes("aria-checked")).toBe("true");
+    await restoreSwitch.trigger("click");
+    await clickButton(restoreWrapper, "恢复", -1);
+    expect(restoreWrapper.emitted("restore")).toEqual([[false]]);
   });
 });
 
@@ -375,12 +456,14 @@ interface MountTaskActionsOverrides {
   labels?: Partial<TaskActionLabels>;
   details?: Partial<TaskActionDetails>;
   confirmTexts?: Partial<TaskActionConfirmTexts>;
+  task?: Partial<DownloadTask>;
 }
 
 function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
   const props = {
     compact: overrides.compact ?? false,
     variant: overrides.variant ?? "text",
+    task: createTask(overrides.task),
     state: {
       isOperating: false,
       isActionDisabled: false,
@@ -431,6 +514,8 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
     confirmTexts: {
       redownloadTitle: "重新下载",
       redownloadConfirmText: "确认重新下载",
+      restoreTitle: "恢复下载任务",
+      restoreConfirmText: "确认恢复",
       deleteTitle: "删除任务",
       deleteConfirmText: "确认删除",
       deleteFilesLabel: "同时删除本地文件",
@@ -445,6 +530,32 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
   return {
     props,
     ...mounted,
+  };
+}
+
+function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
+  return {
+    id: 1,
+    url: "https://example.com/file.iso",
+    sourceType: "url",
+    fileName: "file.iso",
+    saveDir: "/downloads",
+    category: "默认",
+    gid: "gid-1",
+    status: "active",
+    totalLength: 100,
+    completedLength: 20,
+    downloadSpeed: 10,
+    errorCode: null,
+    errorMessage: null,
+    filePath: "/downloads/file.iso",
+    useProxy: false,
+    metadataTorrentPath: null,
+    confirmationRequired: false,
+    files: [],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
   };
 }
 

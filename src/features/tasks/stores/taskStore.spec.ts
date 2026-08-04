@@ -16,6 +16,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
   restoreDownloadTask,
+  updateDownloadTaskProxy,
 } from "../services/taskService";
 
 vi.mock("../services/taskService", () => ({
@@ -31,6 +32,7 @@ vi.mock("../services/taskService", () => ({
   redownloadDownloadTask: vi.fn(),
   resumeDownloadTask: vi.fn(),
   restoreDownloadTask: vi.fn(),
+  updateDownloadTaskProxy: vi.fn(),
 }));
 
 const mockedConfirmDownloadTaskFiles = vi.mocked(confirmDownloadTaskFiles);
@@ -45,6 +47,7 @@ const mockedPermanentlyDeleteDownloadTask = vi.mocked(permanentlyDeleteDownloadT
 const mockedRedownloadDownloadTask = vi.mocked(redownloadDownloadTask);
 const mockedResumeDownloadTask = vi.mocked(resumeDownloadTask);
 const mockedRestoreDownloadTask = vi.mocked(restoreDownloadTask);
+const mockedUpdateDownloadTaskProxy = vi.mocked(updateDownloadTaskProxy);
 
 describe("taskStore refresh and operation state", () => {
   beforeEach(() => {
@@ -263,12 +266,51 @@ describe("taskStore refresh and operation state", () => {
     expect(store.tasks.find((task) => task.id === confirmationTask.id)).toEqual(confirmedTask);
 
     mockedRedownloadDownloadTask.mockResolvedValueOnce(redownloadedTask);
-    await expect(store.redownloadTask(completedTask.id)).resolves.toEqual(redownloadedTask);
+    await expect(store.redownloadTask(completedTask.id, false)).resolves.toEqual(redownloadedTask);
+    expect(mockedRedownloadDownloadTask).toHaveBeenCalledWith(completedTask.id, false);
     expect(store.tasks.find((task) => task.id === completedTask.id)).toEqual(redownloadedTask);
 
     mockedDeleteDownloadTask.mockResolvedValueOnce(removedTask);
     await expect(store.deleteTask(completedTask.id, true)).resolves.toEqual(removedTask);
     expect(store.tasks.find((task) => task.id === completedTask.id)).toBeUndefined();
+    expect(store.removedTasks).toContainEqual(removedTask);
+  });
+
+  it("keeps the server proxy fact and blocks duplicate UI state while the request is in flight", async () => {
+    const store = useTaskStore();
+    const originalTask = createTask({ id: 24, status: "active", useProxy: false });
+    const updatedTask = createTask({ id: 24, status: "active", useProxy: true });
+    const deferred = createDeferred<DownloadTask>();
+    store.tasks = [originalTask];
+    mockedUpdateDownloadTaskProxy.mockReturnValueOnce(deferred.promise);
+
+    const updatePromise = store.updateTaskProxy(originalTask.id, true);
+    expect(store.isTaskOperating(originalTask.id)).toBe(true);
+    expect(store.tasks[0]?.useProxy).toBe(false);
+
+    deferred.resolve(updatedTask);
+    await expect(updatePromise).resolves.toEqual(updatedTask);
+    expect(mockedUpdateDownloadTaskProxy).toHaveBeenCalledWith(originalTask.id, true);
+    expect(store.isTaskOperating(originalTask.id)).toBe(false);
+    expect(store.tasks[0]?.useProxy).toBe(true);
+
+    mockedUpdateDownloadTaskProxy.mockRejectedValueOnce(new Error("proxy failed"));
+    await expect(store.updateTaskProxy(originalTask.id, false)).rejects.toThrow("proxy failed");
+    expect(store.tasks[0]?.useProxy).toBe(true);
+    expect(store.isTaskOperating(originalTask.id)).toBe(false);
+  });
+
+  it("updates the proxy fact for a task that remains in the recycle bin", async () => {
+    const store = useTaskStore();
+    const removedTask = createTask({ id: 25, status: "removed", useProxy: false });
+    const updatedTask = createTask({ id: 25, status: "removed", useProxy: true });
+    store.removedTasks = [removedTask];
+    mockedUpdateDownloadTaskProxy.mockResolvedValueOnce(updatedTask);
+
+    await expect(store.updateTaskProxy(removedTask.id, true)).resolves.toEqual(updatedTask);
+
+    expect(store.tasks).toEqual([]);
+    expect(store.removedTasks).toEqual([updatedTask]);
   });
 
   it("permanentlyDeleteTask removes removed task after request succeeds", async () => {
@@ -295,13 +337,14 @@ describe("taskStore refresh and operation state", () => {
     store.removedTasks = [removedTask];
     mockedRestoreDownloadTask.mockResolvedValueOnce(restoredTask);
 
-    const promise = store.restoreTask(removedTask.id);
+    const promise = store.restoreTask(removedTask.id, true);
     expect(store.isTaskOperating(removedTask.id)).toBe(true);
     await expect(promise).resolves.toEqual(restoredTask);
 
     expect(store.isTaskOperating(removedTask.id)).toBe(false);
     expect(store.removedTasks).toEqual([]);
     expect(store.tasks).toContainEqual(restoredTask);
+    expect(mockedRestoreDownloadTask).toHaveBeenCalledWith(removedTask.id, true);
   });
 
   it("restoreTask keeps the removed task when the request fails", async () => {

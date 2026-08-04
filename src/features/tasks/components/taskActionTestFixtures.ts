@@ -22,6 +22,8 @@ export const defaultLabels: TaskActionLabels = {
 export const defaultConfirmTexts: TaskActionConfirmTexts = {
   redownloadTitle: "重新下载任务",
   redownloadConfirmText: "确认重新下载",
+  restoreTitle: "恢复下载任务",
+  restoreConfirmText: "确认恢复",
   deleteTitle: "删除任务",
   deleteConfirmText: "确认删除",
   deleteFilesLabel: "同时删除本地文件",

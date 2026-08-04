@@ -1,4 +1,4 @@
-import { httpDelete, httpGet, httpPost, httpPostFormData } from "../../../services/http";
+import { httpDelete, httpGet, httpPost, httpPostFormData, httpPut } from "../../../services/http";
 import type {
   CreateBatchDownloadTasksRequest,
   CreateBatchDownloadTasksResponse,
@@ -56,6 +56,10 @@ export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/resume`);
 }
 
+export function updateDownloadTaskProxy(taskId: number, enabled: boolean): Promise<DownloadTask> {
+  return httpPut<DownloadTask>(`/api/tasks/${taskId}/proxy`, { enabled });
+}
+
 export function confirmDownloadTaskFiles(
   taskId: number,
   payload: ConfirmDownloadTaskFilesRequest,
@@ -63,12 +67,16 @@ export function confirmDownloadTaskFiles(
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/confirm`, payload);
 }
 
-export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
-  return httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`);
+export function redownloadDownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  return useProxy === undefined
+    ? httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`)
+    : httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`, { useProxy });
 }
 
-export function restoreDownloadTask(taskId: number): Promise<DownloadTask> {
-  return httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`);
+export function restoreDownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  return useProxy === undefined
+    ? httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`)
+    : httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`, { useProxy });
 }
 
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {

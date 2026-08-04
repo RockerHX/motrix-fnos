@@ -57,6 +57,21 @@ describe("TaskCardHeader", () => {
     expect(wrapper.find(".task-card-actions").exists()).toBe(true);
     expect(wrapper.get('[data-test="action"]').text()).toBe("操作");
   });
+
+  it("shows a proxy status icon without exposing the proxy address", () => {
+    const wrapper = mount(TaskCardHeader, {
+      props: {
+        task: createTask({ useProxy: true }),
+        variant: "mobile",
+      },
+    });
+
+    const indicator = wrapper.get(".task-proxy-indicator");
+    expect(indicator.attributes("title")).toBe("此任务使用下载代理");
+    expect(indicator.attributes("aria-label")).toBe("此任务使用下载代理");
+    expect(indicator.get('[data-icon-name="proxy"]').attributes("data-icon-name")).toBe("proxy");
+    expect(wrapper.text()).not.toContain("http://");
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

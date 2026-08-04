@@ -45,6 +45,8 @@ vi.mock("../services/taskService", () => ({
   permanentlyDeleteDownloadTask: vi.fn(),
   redownloadDownloadTask: vi.fn(),
   resumeDownloadTask: vi.fn(),
+  restoreDownloadTask: vi.fn(),
+  updateDownloadTaskProxy: vi.fn(),
 }));
 
 vi.mock("../../settings/services/downloadProxyService", () => ({

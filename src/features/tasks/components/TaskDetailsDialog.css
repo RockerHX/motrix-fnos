@@ -11,6 +11,10 @@
   word-break: break-word;
 }
 
+.task-detail-proxy {
+  margin-top: 16px;
+}
+
 @media (max-width: 767px) {
   .task-detail-card {
     min-width: 0;

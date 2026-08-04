@@ -89,6 +89,8 @@ const details = computed<TaskActionDetails>(() => {
 const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
   redownloadTitle: t("task.redownload.title"),
   redownloadConfirmText: t("task.redownload.confirm", { name: props.task.fileName }),
+  restoreTitle: t("task.restore.title"),
+  restoreConfirmText: t("task.restore.confirm", { name: props.task.fileName }),
   deleteTitle: t("task.delete.title"),
   deleteConfirmText: t("task.delete.confirm", { name: props.task.fileName }),
   deleteFilesLabel: t("task.delete.files"),
@@ -107,10 +109,20 @@ async function confirmTaskFiles(selectedFileIndexes: number[]) {
   }
 }
 
-async function confirmRedownloadTask() {
+async function updateTaskProxy(enabled: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.redownloadTask(props.task.id);
+    await taskStore.updateTaskProxy(props.task.id, enabled);
+    message.success(t(enabled ? "task.proxy.enabled" : "task.proxy.disabled"));
+  } catch (error) {
+    message.error(getErrorMessage(error, t("task.operationFailed")));
+  }
+}
+
+async function confirmRedownloadTask(useProxy: boolean) {
+  if (!ensureCanOperate()) return;
+  try {
+    await taskStore.redownloadTask(props.task.id, useProxy);
     message.success(t("task.actions.redownloaded"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
@@ -137,10 +149,10 @@ async function confirmPermanentDeleteTask() {
   }
 }
 
-async function restoreTask() {
+async function restoreTask(useProxy: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.restoreTask(props.task.id);
+    await taskStore.restoreTask(props.task.id, useProxy);
     message.success(t("task.actions.restored"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
@@ -166,6 +178,7 @@ function formatTimestamp(timestamp: number) {
 
 <template>
   <TaskActions
+    :task="props.task"
     :compact="props.compact"
     :variant="props.variant"
     :state="actionState"
@@ -179,6 +192,7 @@ function formatTimestamp(timestamp: number) {
     @confirm-redownload="confirmRedownloadTask"
     @confirm-delete="confirmDeleteTask"
     @restore="restoreTask"
+    @update-proxy="updateTaskProxy"
     @confirm-permanent-delete="confirmPermanentDeleteTask"
   />
   <TaskFileConfirmDialog

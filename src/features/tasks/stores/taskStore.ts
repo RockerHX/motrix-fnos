@@ -13,6 +13,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
   restoreDownloadTask,
+  updateDownloadTaskProxy,
 } from "../services/taskService";
 import { t } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -178,8 +179,12 @@ export const useTaskStore = defineStore("tasks", () => {
     );
   }
 
-  async function redownloadTask(taskId: number): Promise<DownloadTask> {
-    return runTaskOperation(taskId, () => redownloadDownloadTask(taskId));
+  async function updateTaskProxy(taskId: number, enabled: boolean): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => updateDownloadTaskProxy(taskId, enabled));
+  }
+
+  async function redownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => redownloadDownloadTask(taskId, useProxy));
   }
 
   async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
@@ -197,11 +202,11 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
-  async function restoreTask(taskId: number): Promise<DownloadTask> {
+  async function restoreTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
     ensureRuntimeActive();
     beginTaskOperation(taskId);
     try {
-      const task = await restoreDownloadTask(taskId);
+      const task = await restoreDownloadTask(taskId, useProxy);
       if (!isRuntimeExiting.value) {
         removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
         upsertTask(task);
@@ -224,7 +229,9 @@ export const useTaskStore = defineStore("tasks", () => {
       if (!isRuntimeExiting.value) {
         if (task.status === "removed") {
           removeTask(task.id);
+          upsertRemovedTask(task);
         } else {
+          removedTasks.value = removedTasks.value.filter((item) => item.id !== task.id);
           upsertTask(task);
         }
       }
@@ -233,7 +240,6 @@ export const useTaskStore = defineStore("tasks", () => {
       endTaskOperation(taskId);
     }
   }
-
 
   function applyTaskSnapshot(payload: TasksSnapshotPayload) {
     if (
@@ -292,6 +298,16 @@ export const useTaskStore = defineStore("tasks", () => {
 
   function removeTask(taskId: number) {
     tasks.value = tasks.value.filter((item) => item.id !== taskId);
+  }
+
+  function upsertRemovedTask(task: DownloadTask) {
+    const existingIndex = removedTasks.value.findIndex((item) => item.id === task.id);
+    if (existingIndex < 0) {
+      removedTasks.value = [task, ...removedTasks.value];
+      return;
+    }
+
+    removedTasks.value = removedTasks.value.map((item) => (item.id === task.id ? task : item));
   }
 
   function applyResolvedTasks(nextTasks: DownloadTask[], taskErrorMessages: string[]) {
@@ -440,6 +456,7 @@ export const useTaskStore = defineStore("tasks", () => {
     createTorrentTask,
     pauseTask,
     resumeTask,
+    updateTaskProxy,
     confirmTaskFiles,
     redownloadTask,
     deleteTask,

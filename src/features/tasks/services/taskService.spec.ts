@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { httpDelete, httpGet, httpPost, httpPostFormData } from "../../../services/http";
+import { httpDelete, httpGet, httpPost, httpPostFormData, httpPut } from "../../../services/http";
 import {
   confirmDownloadTaskFiles,
   createBatchDownloadTasks,
@@ -13,6 +13,7 @@ import {
   redownloadDownloadTask,
   resumeDownloadTask,
   restoreDownloadTask,
+  updateDownloadTaskProxy,
 } from "./taskService";
 
 vi.mock("../../../services/http", () => ({
@@ -20,6 +21,7 @@ vi.mock("../../../services/http", () => ({
   httpGet: vi.fn(),
   httpPost: vi.fn(),
   httpPostFormData: vi.fn(),
+  httpPut: vi.fn(),
 }));
 
 describe("taskService", () => {
@@ -69,14 +71,18 @@ describe("taskService", () => {
     pauseDownloadTask(7);
     resumeDownloadTask(7);
     confirmDownloadTaskFiles(7, { selectedFileIndexes: [3, 1] });
-    redownloadDownloadTask(7);
-    restoreDownloadTask(8);
+    updateDownloadTaskProxy(7, true);
+    redownloadDownloadTask(7, false);
+    restoreDownloadTask(8, true);
+    redownloadDownloadTask(9);
 
     expect(httpPost).toHaveBeenNthCalledWith(1, "/api/tasks/7/pause");
     expect(httpPost).toHaveBeenNthCalledWith(2, "/api/tasks/7/resume");
     expect(httpPost).toHaveBeenNthCalledWith(3, "/api/tasks/7/confirm", { selectedFileIndexes: [3, 1] });
-    expect(httpPost).toHaveBeenNthCalledWith(4, "/api/tasks/7/redownload");
-    expect(httpPost).toHaveBeenNthCalledWith(5, "/api/tasks/8/restore");
+    expect(httpPut).toHaveBeenCalledWith("/api/tasks/7/proxy", { enabled: true });
+    expect(httpPost).toHaveBeenNthCalledWith(4, "/api/tasks/7/redownload", { useProxy: false });
+    expect(httpPost).toHaveBeenNthCalledWith(5, "/api/tasks/8/restore", { useProxy: true });
+    expect(httpPost).toHaveBeenNthCalledWith(6, "/api/tasks/9/redownload");
   });
 
   it("encodes soft and permanent delete endpoints", () => {

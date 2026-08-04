@@ -41,6 +41,15 @@
   flex: 0 0 auto;
 }
 
+.task-proxy-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--app-color-success);
+  line-height: 1;
+}
+
 .task-card-header--desktop .task-card-title-group :deep(.n-tag) {
   --n-height: 18px;
   --n-font-size: 10px;

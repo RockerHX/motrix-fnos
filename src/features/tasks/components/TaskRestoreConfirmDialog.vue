@@ -22,7 +22,7 @@ const emit = defineEmits<{
 <template>
   <AppConfirmDialog
     :show="show"
-    :title="confirmTexts.redownloadTitle"
+    :title="confirmTexts.restoreTitle"
     :mask-closable="!state.isOperating"
     :loading="state.isOperating"
     :disabled="state.isActionDisabled"
@@ -31,7 +31,7 @@ const emit = defineEmits<{
     @confirm="emit('confirm', useProxy)"
   >
     <NSpace vertical>
-      <p>{{ confirmTexts.redownloadConfirmText }}</p>
+      <p>{{ confirmTexts.restoreConfirmText }}</p>
       <TaskProxyToggle
         :value="useProxy"
         :disabled="state.isActionDisabled"
@@ -39,6 +39,6 @@ const emit = defineEmits<{
         @update:value="emit('update:useProxy', $event)"
       />
     </NSpace>
-    <template #confirm-label>{{ labels.redownload }}</template>
+    <template #confirm-label>{{ labels.restore }}</template>
   </AppConfirmDialog>
 </template>

@@ -41,6 +41,7 @@ vi.mock("naive-ui", () => ({
 }));
 
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
+import type { DownloadTask } from "../../../types/tasks";
 
 describe("TaskDetailsDialog", () => {
   it("does not render content while hidden", () => {
@@ -49,6 +50,9 @@ describe("TaskDetailsDialog", () => {
         show: false,
         closeLabel: "关闭",
         details: { title: "任务详情", items: [] },
+        task: createTask(),
+        isOperating: false,
+        isActionDisabled: false,
       },
     });
 
@@ -67,6 +71,9 @@ describe("TaskDetailsDialog", () => {
             { label: "状态", value: "下载中" },
           ],
         },
+        task: createTask(),
+        isOperating: false,
+        isActionDisabled: false,
       },
     });
 
@@ -74,7 +81,7 @@ describe("TaskDetailsDialog", () => {
       "任务名称file.iso",
       "状态下载中",
     ]);
-    await wrapper.get("button").trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "关闭")!.trigger("click");
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
   });
 
@@ -84,6 +91,9 @@ describe("TaskDetailsDialog", () => {
         show: true,
         closeLabel: "关闭",
         details: { title: "任务详情", items: [] },
+        task: createTask(),
+        isOperating: false,
+        isActionDisabled: false,
       },
     });
 
@@ -92,3 +102,29 @@ describe("TaskDetailsDialog", () => {
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
   });
 });
+
+function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
+  return {
+    id: 1,
+    url: "https://example.com/file.iso",
+    sourceType: "url",
+    fileName: "file.iso",
+    saveDir: "/downloads",
+    category: "默认",
+    gid: "gid-1",
+    status: "paused",
+    totalLength: 100,
+    completedLength: 20,
+    downloadSpeed: 0,
+    errorCode: null,
+    errorMessage: null,
+    filePath: "/downloads/file.iso",
+    useProxy: false,
+    metadataTorrentPath: null,
+    confirmationRequired: false,
+    files: [],
+    createdAt: 1,
+    updatedAt: 2,
+    ...overrides,
+  };
+}

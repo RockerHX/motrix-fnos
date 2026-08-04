@@ -6,6 +6,8 @@ import TaskDetailsDialog from "./TaskDetailsDialog.vue";
 import TaskRedownloadConfirmDialog from "./TaskRedownloadConfirmDialog.vue";
 import TaskDeleteConfirmDialog from "./TaskDeleteConfirmDialog.vue";
 import TaskPermanentDeleteConfirmDialog from "./TaskPermanentDeleteConfirmDialog.vue";
+import TaskRestoreConfirmDialog from "./TaskRestoreConfirmDialog.vue";
+import type { DownloadTask } from "../../../types/tasks";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
@@ -18,6 +20,7 @@ const props = withDefaults(
   defineProps<{
     compact?: boolean;
     variant?: "text" | "icon-pill";
+    task: DownloadTask;
     state: TaskActionState;
     permissions: TaskActionPermissions;
     labels: TaskActionLabels;
@@ -34,16 +37,20 @@ const emit = defineEmits<{
   pause: [];
   resume: [];
   confirmFiles: [];
-  confirmRedownload: [];
+  confirmRedownload: [useProxy: boolean];
   confirmDelete: [deleteFiles: boolean];
-  restore: [];
+  restore: [useProxy: boolean];
+  updateProxy: [enabled: boolean];
   confirmPermanentDelete: [];
 }>();
 
 const showDeleteConfirm = ref(false);
 const showPermanentDeleteConfirm = ref(false);
 const showRedownloadConfirm = ref(false);
+const showRestoreConfirm = ref(false);
 const showDetails = ref(false);
+const redownloadUseProxy = ref(false);
+const restoreUseProxy = ref(false);
 
 watch(
   () => props.state.isRuntimeExiting,
@@ -55,12 +62,31 @@ watch(
     showDeleteConfirm.value = false;
     showPermanentDeleteConfirm.value = false;
     showRedownloadConfirm.value = false;
+    showRestoreConfirm.value = false;
     showDetails.value = false;
+  },
+);
+
+watch(
+  () => [props.permissions.canRedownload, props.permissions.canRestore] as const,
+  ([canRedownload, canRestore]) => {
+    if (!canRedownload) showRedownloadConfirm.value = false;
+    if (!canRestore) showRestoreConfirm.value = false;
   },
 );
 
 function openDeleteConfirm() {
   showDeleteConfirm.value = true;
+}
+
+function openRedownloadConfirm() {
+  redownloadUseProxy.value = props.task.useProxy;
+  showRedownloadConfirm.value = true;
+}
+
+function openRestoreConfirm() {
+  restoreUseProxy.value = props.task.useProxy;
+  showRestoreConfirm.value = true;
 }
 </script>
 
@@ -133,7 +159,7 @@ function openDeleteConfirm() {
       :title="props.labels.redownload"
       :aria-label="props.labels.redownload"
       :disabled="props.state.isActionDisabled"
-      @click="showRedownloadConfirm = true"
+      @click="openRedownloadConfirm"
     >
       <AppIcon name="redownload" :size="14" />
     </NButton>
@@ -162,7 +188,7 @@ function openDeleteConfirm() {
       :aria-busy="props.state.isOperating ? 'true' : undefined"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
-      @click="emit('restore')"
+      @click="openRestoreConfirm"
     >
       <AppIcon v-if="!props.state.isOperating" name="restore" :size="14" />
     </NButton>
@@ -243,7 +269,7 @@ function openDeleteConfirm() {
       :title="props.labels.redownload"
       :aria-label="props.labels.redownload"
       :disabled="props.state.isActionDisabled"
-      @click="showRedownloadConfirm = true"
+      @click="openRedownloadConfirm"
     >
       {{ props.labels.redownload }}
     </NButton>
@@ -269,7 +295,7 @@ function openDeleteConfirm() {
       :aria-label="props.labels.restore"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
-      @click="emit('restore')"
+      @click="openRestoreConfirm"
     >
       {{ props.labels.restore }}
     </NButton>
@@ -332,7 +358,7 @@ function openDeleteConfirm() {
       secondary
       class="task-action-button"
       :disabled="props.state.isActionDisabled"
-      @click="showRedownloadConfirm = true"
+      @click="openRedownloadConfirm"
     >
       {{ props.labels.redownload }}
     </NButton>
@@ -354,7 +380,7 @@ function openDeleteConfirm() {
       class="task-action-button"
       :loading="props.state.isOperating"
       :disabled="props.state.isActionDisabled"
-      @click="emit('restore')"
+      @click="openRestoreConfirm"
     >
       {{ props.labels.restore }}
     </NButton>
@@ -372,14 +398,32 @@ function openDeleteConfirm() {
     </NButton>
   </NSpace>
 
-  <TaskDetailsDialog v-model:show="showDetails" :details="props.details" :close-label="props.labels.close" />
+  <TaskDetailsDialog
+    v-model:show="showDetails"
+    :task="props.task"
+    :details="props.details"
+    :close-label="props.labels.close"
+    :is-operating="props.state.isOperating"
+    :is-action-disabled="props.state.isActionDisabled"
+    @update-proxy="emit('updateProxy', $event)"
+  />
 
   <TaskRedownloadConfirmDialog
     v-model:show="showRedownloadConfirm"
+    v-model:use-proxy="redownloadUseProxy"
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
-    @confirm="emit('confirmRedownload')"
+    @confirm="emit('confirmRedownload', $event)"
+  />
+
+  <TaskRestoreConfirmDialog
+    v-model:show="showRestoreConfirm"
+    v-model:use-proxy="restoreUseProxy"
+    :state="props.state"
+    :labels="props.labels"
+    :confirm-texts="props.confirmTexts"
+    @confirm="emit('restore', $event)"
   />
 
   <TaskDeleteConfirmDialog
