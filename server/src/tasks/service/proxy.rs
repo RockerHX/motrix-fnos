@@ -251,6 +251,22 @@ impl TaskService<'_> {
         }
     }
 
+    pub(super) async fn resolve_recreated_task_proxy(
+        &self,
+        task: &DownloadTask,
+        use_proxy_override: Option<bool>,
+    ) -> Result<ResolvedTaskProxy, String> {
+        let use_proxy = use_proxy_override.unwrap_or(task.use_proxy);
+        let binding = if use_proxy == task.use_proxy {
+            self.resolve_existing_task_proxy(task).await?
+        } else if use_proxy {
+            self.resolve_profile_proxy_binding().await?
+        } else {
+            TaskProxyBinding::profile(None)
+        };
+        Ok(ResolvedTaskProxy { use_proxy, binding })
+    }
+
     async fn resolve_profile_proxy_binding(&self) -> Result<TaskProxyBinding, String> {
         let config = self
             .repository

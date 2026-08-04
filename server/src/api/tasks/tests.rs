@@ -32,6 +32,33 @@ fn task_operation_conflict_maps_to_conflict_response() {
     assert_eq!(error.status(), StatusCode::CONFLICT);
 }
 
+#[test]
+fn restore_and_redownload_proxy_override_body_is_optional() {
+    assert!(parse_task_proxy_override_body(b"")
+        .expect("empty body should inherit task proxy")
+        .is_none());
+    assert_eq!(
+        parse_task_proxy_override_body(b"{}")
+            .expect("empty JSON object should inherit task proxy")
+            .expect("JSON body should be present")
+            .use_proxy,
+        None
+    );
+    assert_eq!(
+        parse_task_proxy_override_body(br#"{"useProxy":true}"#)
+            .expect("explicit override should parse")
+            .expect("JSON body should be present")
+            .use_proxy,
+        Some(true)
+    );
+    assert_eq!(
+        parse_task_proxy_override_body(b"not-json")
+            .expect_err("invalid JSON should be rejected")
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
 #[tokio::test]
 async fn create_and_refresh_then_list_routes_work_with_ready_aria2() {
     let mock = MockAria2Server::spawn().await;

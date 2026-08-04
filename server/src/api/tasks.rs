@@ -9,6 +9,7 @@ use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTask,
     DownloadTaskSourceType,
 };
+use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post, put};
@@ -258,11 +259,13 @@ async fn resume_task(
 async fn redownload_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
+    body: Bytes,
 ) -> Result<Json<DownloadTask>, ApiError> {
+    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service
-        .redownload_download_task(&context.config, task_id)
+        .redownload_download_task(&context.config, task_id, use_proxy)
         .await
         .map_err(classify_task_error)?;
     context.finish(task)
@@ -271,11 +274,13 @@ async fn redownload_task(
 async fn restore_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
+    body: Bytes,
 ) -> Result<Json<DownloadTask>, ApiError> {
+    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service
-        .restore_removed_task(&context.config, task_id)
+        .restore_removed_task(&context.config, task_id, use_proxy)
         .await
         .map_err(classify_task_error)?;
     context.finish(task)

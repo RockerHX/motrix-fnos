@@ -1,5 +1,6 @@
 use super::*;
 use crate::tasks::files::{stage_task_files, StagedTaskFiles};
+use crate::tasks::update_task_proxy_state;
 
 impl<'a> TaskService<'a> {
     pub async fn pause_download_task(
@@ -288,6 +289,7 @@ impl<'a> TaskService<'a> {
         &self,
         config: &Aria2Config,
         task_id: u64,
+        use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
@@ -295,6 +297,9 @@ impl<'a> TaskService<'a> {
         if snapshot.status != DownloadTaskStatus::Complete {
             return Err("只有已完成任务可以重新下载".to_string());
         }
+        let resolved_proxy = self
+            .resolve_recreated_task_proxy(&snapshot, use_proxy_override)
+            .await?;
 
         validate_task_files(&snapshot)?;
         let torrent_data = match snapshot.source_type {
@@ -315,8 +320,8 @@ impl<'a> TaskService<'a> {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
-            use_proxy: false,
-            proxy_binding: crate::tasks::TaskProxyBinding::default(),
+            use_proxy: resolved_proxy.use_proxy,
+            proxy_binding: resolved_proxy.binding.clone(),
         };
         let mut operation = self
             .begin_task_operation(
@@ -370,7 +375,17 @@ impl<'a> TaskService<'a> {
             return Err(error);
         }
 
-        let pending = match mark_task_redownloaded(self.download_tasks, task_id, gid.clone()) {
+        if let Err(error) = mark_task_redownloaded(self.download_tasks, task_id, gid.clone()) {
+            return self
+                .rollback_redownload(config, snapshot, gid, None, &mut operation, error)
+                .await;
+        }
+        let pending = match update_task_proxy_state(
+            self.download_tasks,
+            task_id,
+            resolved_proxy.use_proxy,
+            resolved_proxy.binding,
+        ) {
             Ok(task) => task,
             Err(error) => {
                 return self

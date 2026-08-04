@@ -66,6 +66,24 @@ pub(super) struct UpdateTaskProxyRequest {
     pub(super) enabled: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct TaskProxyOverrideRequest {
+    #[serde(default)]
+    pub(super) use_proxy: Option<bool>,
+}
+
+pub(super) fn parse_task_proxy_override_body(
+    body: &[u8],
+) -> Result<Option<TaskProxyOverrideRequest>, ApiError> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_slice(body).map(Some).map_err(|error| {
+        ApiError::bad_request("invalid_json", format!("请求体 JSON 无效：{}", error))
+    })
+}
+
 pub(super) enum ListTasksFilter {
     Visible,
     Removed,

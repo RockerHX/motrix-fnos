@@ -1,11 +1,12 @@
 use super::*;
-use crate::tasks::PreparedDownloadTask;
+use crate::tasks::{update_task_proxy_state, PreparedDownloadTask};
 
 impl<'a> TaskService<'a> {
     pub async fn restore_removed_task(
         &self,
         config: &Aria2Config,
         task_id: u64,
+        use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
@@ -13,6 +14,12 @@ impl<'a> TaskService<'a> {
         if snapshot.status != DownloadTaskStatus::Removed {
             return Err("只有回收站任务可以恢复".to_string());
         }
+        let resolved_proxy = self
+            .resolve_recreated_task_proxy(&snapshot, use_proxy_override)
+            .await?;
+        let mut task_to_restore = snapshot.clone();
+        task_to_restore.use_proxy = resolved_proxy.use_proxy;
+        task_to_restore.proxy_binding = resolved_proxy.binding;
 
         let mut operation = self
             .begin_task_operation(
@@ -28,7 +35,7 @@ impl<'a> TaskService<'a> {
 
         let (gid, reparsing_base_dir) = match snapshot.source_type {
             DownloadTaskSourceType::Url => match self
-                .restore_url_task(config, &snapshot, &mut operation)
+                .restore_url_task(config, &task_to_restore, &mut operation)
                 .await
             {
                 Ok(gid) => (gid, None),
@@ -43,7 +50,7 @@ impl<'a> TaskService<'a> {
             },
             DownloadTaskSourceType::Torrent => {
                 match self
-                    .restore_bt_task(config, &snapshot, &mut operation)
+                    .restore_bt_task(config, &task_to_restore, &mut operation)
                     .await
                 {
                     Ok(gid) => (gid, None),
@@ -61,7 +68,7 @@ impl<'a> TaskService<'a> {
                 if snapshot.confirmation_required || snapshot.file_path.is_none() =>
             {
                 match self
-                    .restore_magnet_metadata_task(config, &snapshot, &mut operation)
+                    .restore_magnet_metadata_task(config, &task_to_restore, &mut operation)
                     .await
                 {
                     Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
@@ -75,9 +82,14 @@ impl<'a> TaskService<'a> {
                     }
                 }
             }
-            DownloadTaskSourceType::Magnet => match read_saved_torrent_metadata(&snapshot) {
+            DownloadTaskSourceType::Magnet => match read_saved_torrent_metadata(&task_to_restore) {
                 Ok(torrent_data) => match self
-                    .restore_bt_task_with_data(config, &snapshot, &torrent_data, &mut operation)
+                    .restore_bt_task_with_data(
+                        config,
+                        &task_to_restore,
+                        &torrent_data,
+                        &mut operation,
+                    )
                     .await
                 {
                     Ok(gid) => (gid, None),
@@ -91,7 +103,7 @@ impl<'a> TaskService<'a> {
                     }
                 },
                 Err(_) => match self
-                    .restore_magnet_metadata_task(config, &snapshot, &mut operation)
+                    .restore_magnet_metadata_task(config, &task_to_restore, &mut operation)
                     .await
                 {
                     Ok((gid, base_save_dir)) => (gid, Some(base_save_dir)),
@@ -117,7 +129,7 @@ impl<'a> TaskService<'a> {
             return Err(error);
         }
 
-        let restored = if let Some(base_save_dir) = reparsing_base_dir {
+        let _restored = if let Some(base_save_dir) = reparsing_base_dir {
             match mark_magnet_task_reparsing(
                 self.download_tasks,
                 task_id,
@@ -151,6 +163,25 @@ impl<'a> TaskService<'a> {
                         )
                         .await);
                 }
+            }
+        };
+        let restored = match update_task_proxy_state(
+            self.download_tasks,
+            task_id,
+            task_to_restore.use_proxy,
+            task_to_restore.proxy_binding,
+        ) {
+            Ok(task) => task,
+            Err(error) => {
+                let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
+                return Err(self
+                    .rollback_task_operation_state(
+                        snapshot,
+                        &mut operation,
+                        "memory_state_failed",
+                        error,
+                    )
+                    .await);
             }
         };
 
@@ -289,7 +320,7 @@ fn restored_task_options(task: &DownloadTask, save_dir: String) -> PreparedDownl
         start_mode: DownloadTaskStartMode::Paused,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
+        use_proxy: task.use_proxy,
+        proxy_binding: task.proxy_binding.clone(),
     }
 }
