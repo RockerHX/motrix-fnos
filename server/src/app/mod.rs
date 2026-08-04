@@ -174,6 +174,7 @@ pub struct HttpAppState {
     json_rpc_default_download_dir: Mutex<String>,
     json_rpc_token: Mutex<String>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
+    pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     listeners_ready: AtomicBool,
 }
 
@@ -201,6 +202,7 @@ impl HttpAppState {
             json_rpc_default_download_dir: Mutex::new(String::new()),
             json_rpc_token: Mutex::new(String::new()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
+            download_proxy_update_lock: tokio::sync::Mutex::new(()),
             listeners_ready: AtomicBool::new(false),
         }
     }

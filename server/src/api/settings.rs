@@ -2,11 +2,17 @@ use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
+use crate::settings::proxy::{
+    delete_download_proxy, load_download_proxy_status, update_download_proxy,
+    DownloadProxyMutationResponse, DownloadProxyServiceContext, DownloadProxyServiceError,
+    DownloadProxyStatus,
+};
 use crate::settings::service::{
     load_app_config_from_pool, save_app_config, save_json_rpc_token, save_lan_json_rpc_config,
     AppConfig, LanJsonRpcConfig,
 };
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -29,6 +35,12 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route(
             "/settings/lan-jsonrpc/token",
             post(rotate_lan_json_rpc_token),
+        )
+        .route(
+            "/settings/proxy",
+            get(get_download_proxy)
+                .put(put_download_proxy)
+                .delete(clear_download_proxy),
         )
 }
 
@@ -58,6 +70,12 @@ struct UpdateLanJsonRpcRequest {
     enabled: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateDownloadProxyRequest {
+    proxy_url: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LanJsonRpcMutationResponse {
@@ -71,6 +89,51 @@ async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
         .await
         .map_err(|error| ApiError::internal("settings_load_failed", error))?;
     Ok(Json(config))
+}
+
+async fn get_download_proxy(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<Json<DownloadProxyStatus>, ApiError> {
+    load_download_proxy_status(&state.core.database.pool)
+        .await
+        .map(Json)
+        .map_err(classify_download_proxy_error)
+}
+
+async fn put_download_proxy(
+    State(state): State<Arc<HttpAppState>>,
+    ApiJson(payload): ApiJson<UpdateDownloadProxyRequest>,
+) -> Result<Json<DownloadProxyMutationResponse>, ApiError> {
+    let aria2_config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
+    update_download_proxy(
+        DownloadProxyServiceContext {
+            pool: &state.core.database.pool,
+            tasks: &state.core.download_tasks,
+            aria2_lifecycle: &state.aria2_lifecycle,
+            aria2_rpc: &state.aria2_rpc,
+            aria2_config,
+            debug_logs: &state.core.debug_logs,
+            update_lock: &state.download_proxy_update_lock,
+        },
+        &payload.proxy_url,
+    )
+    .await
+    .map(Json)
+    .map_err(classify_download_proxy_error)
+}
+
+async fn clear_download_proxy(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<StatusCode, ApiError> {
+    delete_download_proxy(
+        &state.core.database.pool,
+        &state.core.download_tasks,
+        &state.download_proxy_update_lock,
+        &state.core.debug_logs,
+    )
+    .await
+    .map(|()| StatusCode::NO_CONTENT)
+    .map_err(classify_download_proxy_error)
 }
 
 async fn update_settings(
@@ -236,6 +299,26 @@ fn classify_settings_save_error(error: String) -> ApiError {
         return ApiError::bad_request("settings_save_failed", error);
     }
     ApiError::internal("settings_save_failed", error)
+}
+
+fn classify_download_proxy_error(error: DownloadProxyServiceError) -> ApiError {
+    match error {
+        DownloadProxyServiceError::InvalidUrl(message) => {
+            ApiError::bad_request("proxy_invalid_url", message)
+        }
+        DownloadProxyServiceError::InUse => {
+            ApiError::conflict("proxy_in_use", "仍有任务使用应用代理配置，不能清除")
+        }
+        DownloadProxyServiceError::Load(message) => {
+            ApiError::internal("proxy_load_failed", message)
+        }
+        DownloadProxyServiceError::Save(message) => {
+            ApiError::internal("proxy_save_failed", message)
+        }
+        DownloadProxyServiceError::State(message) => {
+            ApiError::internal("proxy_save_failed", message)
+        }
+    }
 }
 
 async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {

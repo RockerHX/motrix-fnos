@@ -3,6 +3,8 @@ use super::*;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
+use axum::response::IntoResponse;
+use http_body_util::BodyExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static LAN_TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -43,6 +45,82 @@ fn public_app_config_never_serializes_legacy_token_field() {
     };
     let value = serde_json::to_value(config).expect("config should serialize");
     assert!(value.get("jsonRpcToken").is_none());
+}
+
+#[tokio::test]
+async fn proxy_settings_handlers_round_trip_masked_status_and_clear_safely() {
+    let (state, runtime) = lan_test_state("proxy-round-trip").await;
+    let saved = put_download_proxy(
+        State(state.clone()),
+        ApiJson(UpdateDownloadProxyRequest {
+            proxy_url: "http://ApiUser:ApiPassword@Proxy.Example:7890".to_string(),
+        }),
+    )
+    .await
+    .expect("proxy should save")
+    .0;
+    assert!(saved.status.configured);
+    assert_eq!(saved.status.revision, 1);
+    let masked = saved
+        .status
+        .masked_proxy_url
+        .as_deref()
+        .expect("masked proxy should exist");
+    assert!(masked.contains("***:***@proxy.example:7890"));
+    assert!(!masked.contains("ApiUser"));
+    assert!(!masked.contains("ApiPassword"));
+
+    let loaded = get_download_proxy(State(state.clone()))
+        .await
+        .expect("proxy status should load")
+        .0;
+    assert_eq!(loaded, saved.status);
+    assert_eq!(
+        clear_download_proxy(State(state.clone()))
+            .await
+            .expect("unused proxy should clear"),
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        !get_download_proxy(State(state.clone()))
+            .await
+            .expect("cleared proxy status should load")
+            .0
+            .configured
+    );
+
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn invalid_proxy_api_error_never_echoes_credentials() {
+    let (state, runtime) = lan_test_state("proxy-invalid").await;
+    let raw = "http://SecretUser:SecretPassword@proxy.example:7890?token=private";
+    let error = put_download_proxy(
+        State(state.clone()),
+        ApiJson(UpdateDownloadProxyRequest {
+            proxy_url: raw.to_string(),
+        }),
+    )
+    .await
+    .expect_err("query should be rejected");
+    assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+    let response = error.into_response();
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("error body should collect")
+        .to_bytes();
+    let body = String::from_utf8(body.to_vec()).expect("error body should be utf-8");
+    assert!(body.contains("proxy_invalid_url"));
+    assert!(!body.contains("SecretUser"));
+    assert!(!body.contains("SecretPassword"));
+    assert!(!body.contains("token=private"));
+
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(runtime.app_data_dir);
 }
 
 #[tokio::test]
