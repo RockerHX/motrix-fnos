@@ -4,7 +4,7 @@ impl<'a> TaskService<'a> {
     pub async fn create_download_task(
         &self,
         config: &Aria2Config,
-        payload: CreateDownloadTaskRequest,
+        mut payload: CreateDownloadTaskRequest,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         if payload
@@ -15,7 +15,13 @@ impl<'a> TaskService<'a> {
         {
             return Err("请选择已授权的保存目录".to_string());
         }
-        let prepared = prepare_task_with_logs(payload, self.debug_logs)?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let resolved_proxy = self
+            .resolve_create_task_proxy(&mut payload.advanced_options, &mut payload.aria2_options)
+            .await?;
+        let mut prepared = prepare_task_with_logs(payload, self.debug_logs)?;
+        prepared.use_proxy = resolved_proxy.use_proxy;
+        prepared.proxy_binding = resolved_proxy.binding;
         let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut critical_paths = vec![prepared.save_dir.clone()];
@@ -108,14 +114,21 @@ impl<'a> TaskService<'a> {
     pub async fn create_torrent_download_task(
         &self,
         config: &Aria2Config,
-        payload: CreateTorrentDownloadTaskRequest,
+        mut payload: CreateTorrentDownloadTaskRequest,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         if payload.save_dir.trim().is_empty() {
             return Err("请选择已授权的保存目录".to_string());
         }
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let mut aria2_options = serde_json::Map::new();
+        let resolved_proxy = self
+            .resolve_create_task_proxy(&mut payload.advanced_options, &mut aria2_options)
+            .await?;
         let torrent_data = payload.torrent_data.clone();
-        let prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
+        let mut prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
+        prepared.use_proxy = resolved_proxy.use_proxy;
+        prepared.proxy_binding = resolved_proxy.binding;
         let prepared_for_cleanup = prepared.clone();
         let task_id = self.next_task_id.fetch_add(1, Ordering::Relaxed);
         let _operation = self.download_tasks.begin_operation(task_id)?;

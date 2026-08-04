@@ -83,6 +83,7 @@ impl<'a> TaskService<'a> {
         selected_file_indexes: Vec<u32>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut selected = selected_file_indexes
             .into_iter()
@@ -98,6 +99,7 @@ impl<'a> TaskService<'a> {
         if !task.confirmation_required {
             return Err("当前任务不需要确认文件".to_string());
         }
+        let proxy_binding = self.resolve_existing_task_proxy(&task).await?;
         let select_file = selected
             .iter()
             .map(u32::to_string)
@@ -167,7 +169,7 @@ impl<'a> TaskService<'a> {
         }
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
-        let prepared = match prepare_bt_download_task_with_logs(
+        let mut prepared = match prepare_bt_download_task_with_logs(
             PrepareBtDownloadTaskRequest {
                 source_url: task.url.clone(),
                 display_name: task.file_name.clone(),
@@ -188,6 +190,8 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
+        prepared.use_proxy = task.use_proxy;
+        prepared.proxy_binding = proxy_binding;
         let gid = match self
             .add_torrent_for_task_operation(config, &mut operation, &prepared, &torrent_data)
             .await
@@ -222,6 +226,7 @@ impl<'a> TaskService<'a> {
             prepared.save_dir.clone(),
             &selected,
             restore_metadata_path.display().to_string(),
+            prepared.proxy_binding.clone(),
         ) {
             Ok(task) => task,
             Err(error) => {

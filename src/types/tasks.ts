@@ -5,6 +5,7 @@ export type DownloadTaskStartMode = "now" | "paused";
 export interface CreateTaskAdvancedOptions {
   connections?: number | null;
   downloadLimitKb?: number | null;
+  useProxy?: boolean | null;
   proxy?: string | null;
 }
 

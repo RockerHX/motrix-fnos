@@ -279,6 +279,8 @@ impl<'a> TaskService<'a> {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: crate::tasks::TaskProxyBinding::default(),
         };
         let mut operation = self
             .begin_task_operation(

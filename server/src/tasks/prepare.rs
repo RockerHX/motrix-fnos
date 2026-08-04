@@ -93,6 +93,8 @@ pub(crate) fn prepare_bt_download_task_with_logs(
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
         aria2_options,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
     })
 }
 
@@ -146,6 +148,8 @@ fn prepare_task_inner(
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
         aria2_options,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
     })
 }
 

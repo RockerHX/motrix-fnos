@@ -53,6 +53,7 @@ pub async fn add_uri_to_aria2(
     request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, Aria2TaskCreationError> {
+    validate_prepared_task_proxy(task).map_err(Aria2TaskCreationError::Failed)?;
     log_info(
         debug_logs,
         "aria2.addUri",
@@ -109,6 +110,7 @@ pub async fn add_torrent_to_aria2(
     request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, Aria2TaskCreationError> {
+    validate_prepared_task_proxy(task).map_err(Aria2TaskCreationError::Failed)?;
     log_info(
         debug_logs,
         "aria2.addTorrent",
@@ -178,6 +180,7 @@ pub(crate) fn build_add_uri_request_with_id(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
+    apply_task_proxy_option(&mut options, task);
     if task.source_type == DownloadTaskSourceType::Magnet {
         apply_start_mode_option(&mut options, DownloadTaskStartMode::Now);
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
@@ -252,6 +255,7 @@ pub(crate) fn build_add_torrent_request_with_id(
     for (key, value) in task.aria2_options.clone() {
         options.insert(key, value);
     }
+    apply_task_proxy_option(&mut options, task);
     apply_start_mode_option(&mut options, task.start_mode);
     apply_default_bt_trackers(&mut options);
     apply_default_bt_seed_behavior(&mut options);
@@ -270,4 +274,27 @@ pub(crate) fn build_add_torrent_request_with_id(
         "method": "aria2.addTorrent",
         "params": params,
     })
+}
+
+fn validate_prepared_task_proxy(task: &PreparedDownloadTask) -> Result<(), String> {
+    if task.use_proxy && task.proxy_binding.effective_proxy_url().is_none() {
+        return Err("任务要求使用代理，但没有可用的代理配置".to_string());
+    }
+    Ok(())
+}
+
+fn apply_task_proxy_option(
+    options: &mut serde_json::Map<String, serde_json::Value>,
+    task: &PreparedDownloadTask,
+) {
+    if let Some(proxy_url) = task
+        .use_proxy
+        .then(|| task.proxy_binding.effective_proxy_url())
+        .flatten()
+    {
+        options.insert(
+            "all-proxy".to_string(),
+            serde_json::Value::String(proxy_url.to_string()),
+        );
+    }
 }

@@ -289,5 +289,7 @@ fn restored_task_options(task: &DownloadTask, save_dir: String) -> PreparedDownl
         start_mode: DownloadTaskStartMode::Paused,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
     }
 }

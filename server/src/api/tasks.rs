@@ -62,6 +62,11 @@ async fn create_task(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<CreateDownloadTaskRequest>,
 ) -> Result<Json<DownloadTask>, ApiError> {
+    validate_create_preconditions(&state, payload.save_dir.as_deref())?;
+    task_service(&state)
+        .validate_create_task_proxy(&payload.advanced_options, &payload.aria2_options)
+        .await
+        .map_err(classify_task_error)?;
     let context =
         TaskMutationContext::prepare_for_create(&state, payload.save_dir.as_deref()).await?;
     let task = context
@@ -76,8 +81,6 @@ async fn create_batch_tasks(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<CreateBatchDownloadTasksRequest>,
 ) -> Result<(StatusCode, Json<CreateBatchDownloadTasksResponse>), ApiError> {
-    let context = TaskMutationContext::prepare_for_create(&state, Some(&payload.save_dir)).await?;
-
     let urls = payload
         .urls
         .into_iter()
@@ -87,8 +90,9 @@ async fn create_batch_tasks(
 
     let mut created = Vec::new();
     let mut failed = Vec::new();
+    validate_create_preconditions(&state, Some(&payload.save_dir))?;
     if urls.is_empty() {
-        context.state.core.debug_logs.warn(
+        state.core.debug_logs.warn(
             "api.tasks",
             "批量创建任务失败：请输入至少一个 HTTP / HTTPS 下载链接",
         );
@@ -96,7 +100,31 @@ async fn create_batch_tasks(
             input: String::new(),
             message: "请输入至少一个 HTTP / HTTPS 下载链接".to_string(),
         });
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(CreateBatchDownloadTasksResponse { created, failed }),
+        ));
     }
+    if let Err(error) = task_service(&state)
+        .validate_create_task_proxy(&payload.advanced_options, &serde_json::Map::new())
+        .await
+    {
+        if !is_proxy_request_error(&error) {
+            return Err(classify_task_error(error));
+        }
+        failed.extend(
+            urls.into_iter()
+                .map(|input| CreateBatchDownloadTaskFailure {
+                    input,
+                    message: error.clone(),
+                }),
+        );
+        return Ok((
+            StatusCode::BAD_REQUEST,
+            Json(CreateBatchDownloadTasksResponse { created, failed }),
+        ));
+    }
+    let context = TaskMutationContext::prepare_for_create(&state, Some(&payload.save_dir)).await?;
 
     // 每个 URL 都是独立任务：单条失败只进入 failed，已经创建并持久化的任务不回滚。
     for url in urls {
@@ -144,6 +172,11 @@ async fn create_torrent_task(
     multipart: Multipart,
 ) -> Result<Json<DownloadTask>, ApiError> {
     let upload = parse_torrent_multipart(multipart, &state).await?;
+    validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
+    task_service(&state)
+        .validate_create_task_proxy(&upload.request.advanced_options, &serde_json::Map::new())
+        .await
+        .map_err(classify_task_error)?;
     let context =
         TaskMutationContext::prepare_for_create(&state, Some(&upload.request.save_dir)).await?;
     let task = context
@@ -268,8 +301,19 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
         &state.core.app_data_dir,
         &state.core.debug_logs,
         &state.aria2_rpc,
+        &state.download_proxy_update_lock,
         RuntimeGuard::new(&state.core.shutdown),
     )
+}
+
+fn validate_create_preconditions(
+    state: &HttpAppState,
+    save_dir: Option<&str>,
+) -> Result<(), ApiError> {
+    task_service(state)
+        .ensure_not_exiting()
+        .map_err(classify_task_error)?;
+    ensure_authorized_save_dir(state, save_dir)
 }
 
 fn ensure_authorized_save_dir(
@@ -340,6 +384,16 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("已有操作正在进行") {
         return ApiError::conflict("task_operation_conflict", error);
     }
+    if error.contains("代理选择冲突") {
+        return ApiError::bad_request("proxy_conflict", error);
+    }
+    if error.contains("未配置下载代理") {
+        return ApiError::bad_request("proxy_not_configured", error);
+    }
+    if error.contains("代理地址") || error.contains("代理协议") || error.contains("代理端口")
+    {
+        return ApiError::bad_request("proxy_invalid", error);
+    }
     // 当前 service 使用中文错误文本区分可修正请求；新增或调整领域错误时必须同步检查这里的 HTTP 分类。
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")
@@ -356,6 +410,14 @@ fn classify_task_error(error: String) -> ApiError {
         return ApiError::bad_request("task_operation_failed", error);
     }
     ApiError::internal("task_operation_failed", error)
+}
+
+fn is_proxy_request_error(error: &str) -> bool {
+    error.contains("代理选择冲突")
+        || error.contains("未配置下载代理")
+        || error.contains("代理地址")
+        || error.contains("代理协议")
+        || error.contains("代理端口")
 }
 
 #[cfg(test)]

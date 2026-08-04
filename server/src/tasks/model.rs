@@ -243,15 +243,28 @@ pub enum DownloadTaskStartMode {
     Paused,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskAdvancedOptions {
     pub connections: Option<u32>,
     pub download_limit_kb: Option<u64>,
+    pub use_proxy: Option<bool>,
     pub proxy: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+impl fmt::Debug for CreateTaskAdvancedOptions {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateTaskAdvancedOptions")
+            .field("connections", &self.connections)
+            .field("download_limit_kb", &self.download_limit_kb)
+            .field("use_proxy", &self.use_proxy)
+            .field("proxy", &self.proxy.as_ref().map(|_| "[REDACTED]"))
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDownloadTaskRequest {
     pub url: String,
@@ -268,7 +281,25 @@ pub struct CreateDownloadTaskRequest {
     pub aria2_options: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug)]
+impl fmt::Debug for CreateDownloadTaskRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateDownloadTaskRequest")
+            .field("url", &self.url)
+            .field("file_name", &self.file_name)
+            .field("save_dir", &self.save_dir)
+            .field("source_type", &self.source_type)
+            .field("start_mode", &self.start_mode)
+            .field("category", &self.category)
+            .field("advanced_options", &self.advanced_options)
+            .field(
+                "aria2_option_keys",
+                &self.aria2_options.keys().collect::<Vec<_>>(),
+            )
+            .finish()
+    }
+}
+
 pub struct CreateTorrentDownloadTaskRequest {
     pub torrent_file_name: String,
     pub torrent_data: Vec<u8>,
@@ -276,6 +307,20 @@ pub struct CreateTorrentDownloadTaskRequest {
     pub start_mode: DownloadTaskStartMode,
     pub category: Option<String>,
     pub advanced_options: CreateTaskAdvancedOptions,
+}
+
+impl fmt::Debug for CreateTorrentDownloadTaskRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateTorrentDownloadTaskRequest")
+            .field("torrent_file_name", &self.torrent_file_name)
+            .field("torrent_data_len", &self.torrent_data.len())
+            .field("save_dir", &self.save_dir)
+            .field("start_mode", &self.start_mode)
+            .field("category", &self.category)
+            .field("advanced_options", &self.advanced_options)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,4 +335,6 @@ pub struct PreparedDownloadTask {
     pub start_mode: DownloadTaskStartMode,
     pub advanced_options: CreateTaskAdvancedOptions,
     pub aria2_options: serde_json::Map<String, serde_json::Value>,
+    pub use_proxy: bool,
+    pub proxy_binding: TaskProxyBinding,
 }

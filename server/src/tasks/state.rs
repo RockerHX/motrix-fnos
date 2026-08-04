@@ -1,6 +1,6 @@
 use crate::tasks::{
     should_pause_task_on_exit, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask, TaskProxyBinding,
+    DownloadTaskStatus, PreparedDownloadTask,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -127,8 +127,8 @@ pub fn store_created_task_with_id(
         error_code: None,
         error_message: None,
         file_path,
-        use_proxy: false,
-        proxy_binding: TaskProxyBinding::default(),
+        use_proxy: prepared.use_proxy,
+        proxy_binding: prepared.proxy_binding,
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),
@@ -276,6 +276,7 @@ pub fn mark_task_files_confirmed(
     save_dir: String,
     selected_indexes: &[u32],
     metadata_torrent_path: String,
+    proxy_binding: crate::tasks::TaskProxyBinding,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         task.gid = Some(gid);
@@ -287,6 +288,7 @@ pub fn mark_task_files_confirmed(
         task.error_code = None;
         task.error_message = None;
         task.metadata_torrent_path = Some(metadata_torrent_path);
+        task.proxy_binding = proxy_binding;
         task.files_deleted = false;
         task.selected_file_indexes = selected_indexes.to_vec();
         task.file_path = Some(

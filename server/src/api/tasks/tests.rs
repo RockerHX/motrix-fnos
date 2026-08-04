@@ -262,9 +262,109 @@ async fn create_route_accepts_category_and_advanced_options() {
 
     assert_eq!(created.category, "电影");
     assert_eq!(created.gid.as_deref(), Some("gid-1"));
+    assert!(created.use_proxy);
+    let stored_override: Option<String> =
+        sqlx::query_scalar("SELECT proxy_url FROM task_proxy_overrides WHERE task_id = ?")
+            .bind(created.id as i64)
+            .fetch_optional(&state.core.database.pool)
+            .await
+            .expect("private proxy override should load");
+    assert_eq!(stored_override.as_deref(), Some("http://127.0.0.1:7890/"));
 
     cleanup_state(&state, child_pid);
     mock.abort();
+}
+
+#[tokio::test]
+async fn create_route_returns_structured_proxy_errors_without_side_effects() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-proxy-validation");
+    let save_dir_text = save_dir.display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir_text));
+
+    let conflict = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(json_request(
+                "POST",
+                "/api/tasks",
+                &json!({
+                    "url": "https://example.com/archive.zip",
+                    "saveDir": save_dir_text,
+                    "advancedOptions": {
+                        "useProxy": false,
+                        "proxy": "http://127.0.0.1:7890"
+                    }
+                }),
+            ))
+            .await
+            .expect("conflict response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(conflict.code, "proxy_conflict");
+
+    let missing = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &json!({
+                "url": "https://example.com/archive.zip",
+                "saveDir": save_dir_text,
+                "advancedOptions": { "useProxy": true }
+            }),
+        ))
+        .await
+        .expect("missing profile response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(missing.code, "proxy_not_configured");
+    assert!(!save_dir.exists());
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_route_checks_proxy_before_starting_aria2() {
+    let state = test_state().await;
+    let save_dir = temp_dir("task-proxy-preflight");
+    let save_dir_text = save_dir.display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir_text));
+    let app = test_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &json!({
+                "url": "https://example.com/archive.zip",
+                "saveDir": save_dir_text,
+                "advancedOptions": { "useProxy": true }
+            }),
+        ))
+        .await
+        .expect("proxy preflight response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+
+    assert_eq!(error.code, "proxy_not_configured");
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    assert!(!save_dir.exists());
 }
 
 #[tokio::test]
@@ -274,6 +374,13 @@ async fn create_batch_route_returns_created_and_failed_items() {
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-batch-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
+    crate::database::settings::replace_download_proxy_config(
+        &state.core.database.pool,
+        "http://127.0.0.1:7890/".to_string(),
+        1,
+    )
+    .await
+    .expect("proxy profile should save");
 
     let result = response_json::<CreateBatchDownloadTasksResponse>(
         app.oneshot(json_request(
@@ -284,7 +391,8 @@ async fn create_batch_route_returns_created_and_failed_items() {
                     "https://example.com/archive-a.zip",
                     "ftp://example.com/archive-b.zip"
                 ],
-                "saveDir": save_dir
+                "saveDir": save_dir,
+                "advancedOptions": { "useProxy": true }
             }),
         ))
         .await
@@ -296,6 +404,7 @@ async fn create_batch_route_returns_created_and_failed_items() {
     assert_eq!(result.created.len(), 1);
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.created[0].url, "https://example.com/archive-a.zip");
+    assert!(result.created[0].use_proxy);
     assert_eq!(result.failed[0].input, "ftp://example.com/archive-b.zip");
 
     cleanup_state(&state, child_pid);
@@ -333,6 +442,43 @@ async fn create_batch_route_returns_bad_request_when_all_items_fail() {
 
     cleanup_state(&state, child_pid);
     mock.abort();
+}
+
+#[tokio::test]
+async fn create_batch_reports_proxy_preflight_failure_per_item_without_starting_aria2() {
+    let state = test_state().await;
+    let save_dir = temp_dir("task-batch-proxy-preflight");
+    let save_dir_text = save_dir.display().to_string();
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir_text));
+    let app = test_router(state.clone());
+
+    let result = response_json::<CreateBatchDownloadTasksResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/batch",
+            &json!({
+                "urls": [
+                    "https://example.com/archive-a.zip",
+                    "https://example.com/archive-b.zip"
+                ],
+                "saveDir": save_dir_text,
+                "advancedOptions": { "useProxy": true }
+            }),
+        ))
+        .await
+        .expect("batch proxy preflight response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+
+    assert!(result.created.is_empty());
+    assert_eq!(result.failed.len(), 2);
+    assert!(result
+        .failed
+        .iter()
+        .all(|failure| failure.message.contains("未配置下载代理")));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(!save_dir.exists());
 }
 
 #[tokio::test]

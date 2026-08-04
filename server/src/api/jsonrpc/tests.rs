@@ -583,7 +583,11 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
                         "params": [
                             "token:secret",
                             ["https://example.com/http.zip"],
-                            { "dir": relative_save_dir, "out": "http.zip" }
+                            {
+                                "dir": relative_save_dir,
+                                "out": "http.zip",
+                                "all-proxy": "socks5://Proxy.Example.com:1080"
+                            }
                         ]
                     })
                     .to_string(),
@@ -603,6 +607,25 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
     let tasks = state.core.download_tasks.list().expect("tasks should list");
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].save_dir, save_dir.display().to_string());
+    assert!(tasks[0].use_proxy);
+    assert_eq!(
+        tasks[0].proxy_binding.source(),
+        crate::tasks::TaskProxySource::Override
+    );
+    assert_eq!(
+        tasks[0].proxy_binding.effective_proxy_url(),
+        Some("socks5://proxy.example.com:1080")
+    );
+    let stored_override: Option<String> =
+        sqlx::query_scalar("SELECT proxy_url FROM task_proxy_overrides WHERE task_id = ?")
+            .bind(tasks[0].id as i64)
+            .fetch_optional(&state.core.database.pool)
+            .await
+            .expect("JSON-RPC private proxy override should load");
+    assert_eq!(
+        stored_override.as_deref(),
+        Some("socks5://proxy.example.com:1080")
+    );
 
     let multicall_payload = handle_jsonrpc_payload(
         &state,
@@ -1069,6 +1092,9 @@ fn parse_add_uri_preserves_speed_related_options() {
     );
     assert!(!command.aria2_options.contains_key("unknown-option"));
     assert!(!command.aria2_options.contains_key("dir"));
+    let debug = format!("{command:?}");
+    assert!(!debug.contains("socks5://127.0.0.1:7890"));
+    assert!(debug.contains("all-proxy"));
 }
 
 #[test]
@@ -1076,6 +1102,25 @@ fn parse_add_uri_rejects_empty_uri_list() {
     let error = parse_add_uri_command(&json!([[]])).expect_err("empty URI should fail");
 
     assert_eq!(error.code, -32602);
+}
+
+#[test]
+fn parse_add_uri_rejects_invalid_proxy_before_runtime_work() {
+    let invalid_url = parse_add_uri_command(&json!([
+        ["https://example.com/file.zip"],
+        { "all-proxy": "ftp://user:password@proxy.example.com:21" }
+    ]))
+    .expect_err("unsupported proxy should fail during parsing");
+    assert_eq!(invalid_url.code, -32602);
+    assert!(!invalid_url.message.contains("user"));
+    assert!(!invalid_url.message.contains("password"));
+
+    let invalid_type = parse_add_uri_command(&json!([
+        ["https://example.com/file.zip"],
+        { "all-proxy": true }
+    ]))
+    .expect_err("non-string proxy should fail during parsing");
+    assert_eq!(invalid_type.code, -32602);
 }
 
 #[test]

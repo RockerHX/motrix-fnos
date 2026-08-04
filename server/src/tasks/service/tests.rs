@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+use crate::database::settings::StoredDownloadProxyConfig;
 use crate::tasks::{DownloadTaskFile, TaskOperation, TaskOperationStatus, TaskOperationType};
 use axum::async_trait;
 use axum::routing::post;
@@ -68,6 +69,7 @@ async fn create_download_task_persists_with_fake_repository() {
     assert_eq!(task.id, 1);
     assert_eq!(task.gid.as_deref(), Some("gid-created"));
     assert_eq!(task.status, DownloadTaskStatus::Pending);
+    assert!(!task.use_proxy);
     assert_eq!(fixture.repository.persisted_tasks().len(), 1);
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
@@ -80,6 +82,158 @@ async fn create_download_task_persists_with_fake_repository() {
     assert_eq!(fixture.tasks.list().expect("tasks should list").len(), 1);
 
     mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_applies_saved_proxy_profile() {
+    let mock = MockAria2Server::spawn().await;
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    fixture
+        .repository
+        .set_download_proxy("http://user:password@Proxy.Example.com:7890");
+    let save_dir = temp_dir("service-create-profile-proxy");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+
+    let task = fixture
+        .service()
+        .create_download_task(
+            &test_config(mock.addr.port(), "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions {
+                    use_proxy: Some(true),
+                    ..CreateTaskAdvancedOptions::default()
+                },
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect("profile proxy task should create");
+
+    assert!(task.use_proxy);
+    assert_eq!(
+        task.proxy_binding.source(),
+        crate::tasks::TaskProxySource::Profile
+    );
+    assert_eq!(
+        task.proxy_binding.effective_proxy_url(),
+        Some("http://user:password@proxy.example.com:7890/")
+    );
+    assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_persists_legacy_proxy_as_private_override() {
+    let mock = MockAria2Server::spawn().await;
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let save_dir = temp_dir("service-create-legacy-proxy");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+
+    let task = fixture
+        .service()
+        .create_download_task(
+            &test_config(mock.addr.port(), "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions {
+                    proxy: Some("socks5://Proxy.Example.com:1080".to_string()),
+                    ..CreateTaskAdvancedOptions::default()
+                },
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect("legacy proxy task should create");
+
+    assert!(task.use_proxy);
+    assert_eq!(
+        task.proxy_binding.source(),
+        crate::tasks::TaskProxySource::Override
+    );
+    assert_eq!(
+        task.proxy_binding.effective_proxy_url(),
+        Some("socks5://proxy.example.com:1080")
+    );
+    assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_download_task_rejects_proxy_conflict_before_side_effects() {
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let save_dir = temp_dir("service-create-proxy-conflict");
+
+    let error = fixture
+        .service()
+        .create_download_task(
+            &test_config(1, "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions {
+                    use_proxy: Some(false),
+                    proxy: Some("http://127.0.0.1:7890".to_string()),
+                    ..CreateTaskAdvancedOptions::default()
+                },
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect_err("conflicting proxy fields should reject creation");
+
+    assert!(error.contains("代理选择冲突"));
+    assert!(!save_dir.exists());
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    assert!(fixture.repository.operations().is_empty());
+}
+
+#[tokio::test]
+async fn create_download_task_rejects_missing_profile_before_side_effects() {
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    let save_dir = temp_dir("service-create-proxy-missing");
+
+    let error = fixture
+        .service()
+        .create_download_task(
+            &test_config(1, "secret"),
+            CreateDownloadTaskRequest {
+                url: "https://example.com/archive.zip".to_string(),
+                file_name: Some("archive.zip".to_string()),
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Url,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions {
+                    use_proxy: Some(true),
+                    ..CreateTaskAdvancedOptions::default()
+                },
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect_err("missing proxy profile should reject creation");
+
+    assert!(error.contains("未配置下载代理"));
+    assert!(!save_dir.exists());
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    assert!(fixture.repository.operations().is_empty());
 }
 
 #[tokio::test]
@@ -213,6 +367,9 @@ async fn create_download_task_persist_failure_marks_operation_failed_and_removes
 async fn create_torrent_download_task_persists_with_fake_repository() {
     let mock = MockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
     let save_dir = temp_dir("service-create-torrent");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
     let config = test_config(mock.addr.port(), "secret");
@@ -227,7 +384,10 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
                 save_dir: save_dir.display().to_string(),
                 start_mode: DownloadTaskStartMode::Paused,
                 category: None,
-                advanced_options: CreateTaskAdvancedOptions::default(),
+                advanced_options: CreateTaskAdvancedOptions {
+                    use_proxy: Some(true),
+                    ..CreateTaskAdvancedOptions::default()
+                },
             },
         )
         .await
@@ -236,6 +396,11 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
     assert_eq!(task.id, 1);
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
     assert_eq!(task.status, DownloadTaskStatus::Paused);
+    assert!(task.use_proxy);
+    assert_eq!(
+        task.proxy_binding.source(),
+        crate::tasks::TaskProxySource::Profile
+    );
     assert_eq!(task.url, "torrent:example.torrent");
     assert_eq!(task.file_name, "example");
     assert!(PathBuf::from(&task.save_dir)
@@ -260,6 +425,47 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
         .context
         .completed_side_effects
         .contains(&"restore_metadata_saved".to_string()));
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn create_magnet_download_task_persists_proxy_selection() {
+    let mock = MockAria2Server::spawn().await;
+    let fixture = ServiceFixture::new(Vec::new(), false);
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    let save_dir = temp_dir("service-create-magnet-proxy");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+
+    let task = fixture
+        .service()
+        .create_download_task(
+            &test_config(mock.addr.port(), "secret"),
+            CreateDownloadTaskRequest {
+                url: "magnet:?xt=urn:btih:test".to_string(),
+                file_name: None,
+                save_dir: Some(save_dir.display().to_string()),
+                source_type: DownloadTaskSourceType::Magnet,
+                start_mode: DownloadTaskStartMode::Now,
+                category: None,
+                advanced_options: CreateTaskAdvancedOptions {
+                    use_proxy: Some(true),
+                    ..CreateTaskAdvancedOptions::default()
+                },
+                aria2_options: serde_json::Map::new(),
+            },
+        )
+        .await
+        .expect("magnet proxy task should create");
+
+    assert!(task.use_proxy);
+    assert_eq!(
+        task.proxy_binding.source(),
+        crate::tasks::TaskProxySource::Profile
+    );
+    assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
 
     mock.abort();
 }
@@ -622,8 +828,10 @@ async fn confirm_download_task_files_archives_restore_metadata() {
             error_code: None,
             error_message: None,
             file_path: None,
-            use_proxy: false,
-            proxy_binding: crate::tasks::TaskProxyBinding::default(),
+            use_proxy: true,
+            proxy_binding: crate::tasks::TaskProxyBinding::profile(Some(
+                "http://127.0.0.1:7891/".to_string(),
+            )),
             metadata_torrent_path: Some(metadata_torrent_path.display().to_string()),
             files_deleted: false,
             selected_file_indexes: Vec::new(),
@@ -644,7 +852,11 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         aria2_rpc: crate::aria2::Aria2RpcClient::new(),
         shutdown: ShutdownState::new(),
         app_data_dir: fixture.app_data_dir.clone(),
+        proxy_update_lock: tokio::sync::Mutex::new(()),
     };
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
     let config = test_config(mock.addr.port(), "secret");
 
     let task = fixture
@@ -673,6 +885,11 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         .filter_map(Result::ok)
         .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("torrent")));
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
+    assert!(task.use_proxy);
+    assert_eq!(
+        task.proxy_binding.effective_proxy_url(),
+        Some("http://127.0.0.1:7890/")
+    );
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].operation_type, TaskOperationType::Confirm);
@@ -1221,6 +1438,7 @@ struct ServiceFixture {
     aria2_rpc: crate::aria2::Aria2RpcClient,
     shutdown: ShutdownState,
     app_data_dir: PathBuf,
+    proxy_update_lock: tokio::sync::Mutex<()>,
 }
 
 impl ServiceFixture {
@@ -1238,6 +1456,7 @@ impl ServiceFixture {
             aria2_rpc: crate::aria2::Aria2RpcClient::new(),
             shutdown,
             app_data_dir: temp_dir("service-app-data"),
+            proxy_update_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -1249,6 +1468,7 @@ impl ServiceFixture {
             &self.app_data_dir,
             &self.debug_logs,
             &self.aria2_rpc,
+            &self.proxy_update_lock,
             RuntimeGuard::new(&self.shutdown),
         )
     }
@@ -1261,6 +1481,7 @@ struct FakeTaskRepository {
 
 #[derive(Default)]
 struct FakeRepositoryState {
+    download_proxy_config: Option<StoredDownloadProxyConfig>,
     upserted_tasks: Vec<DownloadTask>,
     persisted_tasks: Vec<DownloadTask>,
     persisted_task_batches: Vec<Vec<DownloadTask>>,
@@ -1272,6 +1493,17 @@ struct FakeRepositoryState {
 }
 
 impl FakeTaskRepository {
+    fn set_download_proxy(&self, proxy_url: &str) {
+        self.state
+            .lock()
+            .expect("repository state should lock")
+            .download_proxy_config = Some(StoredDownloadProxyConfig {
+            proxy_url: proxy_url.to_string(),
+            revision: 1,
+            updated_at: 1,
+        });
+    }
+
     fn fail_persist_on_call(&self, call: usize) {
         self.state
             .lock()
@@ -1314,6 +1546,15 @@ impl FakeTaskRepository {
 
 #[async_trait]
 impl TaskRepository for Arc<FakeTaskRepository> {
+    async fn get_download_proxy_config(&self) -> Result<Option<StoredDownloadProxyConfig>, String> {
+        Ok(self
+            .state
+            .lock()
+            .expect("repository state should lock")
+            .download_proxy_config
+            .clone())
+    }
+
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String> {
         self.state
             .lock()

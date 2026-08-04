@@ -33,6 +33,7 @@ mod control;
 mod create;
 mod delete;
 mod magnet;
+mod proxy;
 mod query;
 mod restore;
 
@@ -66,6 +67,7 @@ pub struct TaskService<'a> {
     app_data_dir: &'a Path,
     debug_logs: &'a DebugLogStore,
     aria2_rpc: &'a Aria2RpcClient,
+    proxy_update_lock: &'a tokio::sync::Mutex<()>,
     runtime_guard: RuntimeGuard<'a>,
 }
 
@@ -77,6 +79,7 @@ impl<'a> TaskService<'a> {
         app_data_dir: &'a Path,
         debug_logs: &'a DebugLogStore,
         aria2_rpc: &'a Aria2RpcClient,
+        proxy_update_lock: &'a tokio::sync::Mutex<()>,
         runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
         Self {
@@ -86,6 +89,7 @@ impl<'a> TaskService<'a> {
             app_data_dir,
             debug_logs,
             aria2_rpc,
+            proxy_update_lock,
             runtime_guard,
         }
     }

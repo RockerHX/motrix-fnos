@@ -12,13 +12,28 @@ use crate::tasks::{
 use serde_json::Value;
 use std::sync::Arc;
 
-#[derive(Debug)]
 pub(super) struct AddUriCommand {
     pub(super) url: String,
     pub(super) source_type: DownloadTaskSourceType,
     pub(super) save_dir: Option<String>,
     pub(super) file_name: Option<String>,
     pub(super) aria2_options: serde_json::Map<String, Value>,
+}
+
+impl std::fmt::Debug for AddUriCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AddUriCommand")
+            .field("url", &self.url)
+            .field("source_type", &self.source_type)
+            .field("save_dir", &self.save_dir)
+            .field("file_name", &self.file_name)
+            .field(
+                "aria2_option_keys",
+                &self.aria2_options.keys().collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 pub(super) async fn add_uri(
@@ -41,6 +56,7 @@ pub(super) async fn add_uri(
         &state.core.app_data_dir,
         &state.core.debug_logs,
         &state.aria2_rpc,
+        &state.download_proxy_update_lock,
         RuntimeGuard::new(&state.core.shutdown),
     );
     service
@@ -70,12 +86,23 @@ pub(super) async fn add_uri(
             },
         )
         .await
-        .map_err(RpcFault::server_error)?;
+        .map_err(classify_create_error)?;
     broadcast_tasks_snapshot(state).map_err(RpcFault::server_error)?;
 
     task.gid
         .filter(|gid| !gid.trim().is_empty())
         .ok_or_else(|| RpcFault::server_error("创建下载任务成功，但响应缺少 GID"))
+}
+
+fn classify_create_error(error: String) -> RpcFault {
+    if error.contains("代理选择冲突")
+        || error.contains("代理地址")
+        || error.contains("代理协议")
+        || error.contains("代理端口")
+    {
+        return RpcFault::invalid_params(error);
+    }
+    RpcFault::server_error(error)
 }
 
 pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, RpcFault> {
@@ -87,12 +114,31 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
     let url = first_uri(uris)?;
     let options = params.get(1).and_then(Value::as_object);
 
+    let mut aria2_options = options.map(sanitize_aria2_options).unwrap_or_default();
+    match aria2_options.get("all-proxy") {
+        Some(Value::String(proxy_url)) => {
+            let normalized =
+                crate::settings::proxy::normalize_proxy_url(proxy_url).map_err(|error| {
+                    let message = match error {
+                        crate::settings::proxy::DownloadProxyServiceError::InvalidUrl(message) => {
+                            message
+                        }
+                        _ => "代理地址校验失败",
+                    };
+                    RpcFault::invalid_params(message)
+                })?;
+            aria2_options.insert("all-proxy".to_string(), Value::String(normalized));
+        }
+        Some(_) => return Err(RpcFault::invalid_params("代理地址必须是字符串")),
+        None => {}
+    }
+
     Ok(AddUriCommand {
         source_type: detect_source_type(&url),
         url,
         save_dir: options.and_then(|options| string_option(options.get("dir"))),
         file_name: options.and_then(|options| string_option(options.get("out"))),
-        aria2_options: options.map(sanitize_aria2_options).unwrap_or_default(),
+        aria2_options,
     })
 }
 

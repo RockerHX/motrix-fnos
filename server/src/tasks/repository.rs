@@ -1,3 +1,4 @@
+use crate::database::settings::{get_download_proxy_config, StoredDownloadProxyConfig};
 use crate::database::task_operations::{
     begin_task_operation, list_unfinished_task_operations, update_task_operation,
 };
@@ -11,6 +12,7 @@ use sqlx::SqlitePool;
 
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
+    async fn get_download_proxy_config(&self) -> Result<Option<StoredDownloadProxyConfig>, String>;
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String>;
     async fn persist_task_state(&self, task: &DownloadTask) -> Result<(), String>;
     async fn persist_task_states(&self, tasks: &[DownloadTask]) -> Result<(), String>;
@@ -42,6 +44,10 @@ impl<'a> SqliteTaskRepository<'a> {
 
 #[async_trait]
 impl TaskRepository for SqliteTaskRepository<'_> {
+    async fn get_download_proxy_config(&self) -> Result<Option<StoredDownloadProxyConfig>, String> {
+        get_download_proxy_config(self.pool).await
+    }
+
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String> {
         upsert_download_task(self.pool, task).await
     }

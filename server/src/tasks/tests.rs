@@ -185,7 +185,7 @@ fn bt_task_path_component_removes_only_the_last_extension() {
 }
 
 #[test]
-fn prepare_task_maps_advanced_options_and_category() {
+fn prepare_task_maps_non_proxy_advanced_options_and_category() {
     let task = prepare_task(CreateDownloadTaskRequest {
         url: "https://example.com/file.zip".to_string(),
         file_name: None,
@@ -196,7 +196,8 @@ fn prepare_task_maps_advanced_options_and_category() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: Some(8),
             download_limit_kb: Some(512),
-            proxy: Some(" http://127.0.0.1:7890 ".to_string()),
+            use_proxy: None,
+            proxy: None,
         },
         aria2_options: serde_json::Map::from_iter([
             (
@@ -215,7 +216,7 @@ fn prepare_task_maps_advanced_options_and_category() {
     assert_eq!(task.aria2_options["split"], "8");
     assert_eq!(task.aria2_options["max-connection-per-server"], "8");
     assert_eq!(task.aria2_options["max-download-limit"], "524288");
-    assert_eq!(task.aria2_options["all-proxy"], "http://127.0.0.1:7890");
+    assert!(!task.aria2_options.contains_key("all-proxy"));
     assert_eq!(task.aria2_options["user-agent"], "Motrix");
     assert!(!task.aria2_options.contains_key("unknown-option"));
 }
@@ -232,6 +233,7 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: Some(65),
             download_limit_kb: None,
+            use_proxy: None,
             proxy: None,
         },
         aria2_options: serde_json::Map::new(),
@@ -249,12 +251,13 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: None,
             download_limit_kb: None,
+            use_proxy: None,
             proxy: Some("   ".to_string()),
         },
         aria2_options: serde_json::Map::new(),
     })
     .expect_err("blank proxy should fail");
-    assert!(blank_proxy.contains("代理地址不能为空"));
+    assert!(blank_proxy.contains("代理选择尚未解析"));
 
     let invalid_proxy = prepare_task(CreateDownloadTaskRequest {
         url: "https://example.com/file.zip".to_string(),
@@ -266,12 +269,41 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: None,
             download_limit_kb: None,
+            use_proxy: None,
             proxy: Some("ftp://127.0.0.1:7890".to_string()),
         },
         aria2_options: serde_json::Map::new(),
     })
     .expect_err("unsupported proxy should fail");
-    assert!(invalid_proxy.contains("代理地址必须"));
+    assert!(invalid_proxy.contains("代理选择尚未解析"));
+}
+
+#[test]
+fn create_request_debug_redacts_legacy_proxy_values() {
+    let request = CreateDownloadTaskRequest {
+        url: "https://example.com/archive.zip".to_string(),
+        file_name: None,
+        save_dir: Some("/downloads".to_string()),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions {
+            proxy: Some("http://legacy-user:legacy-password@proxy.example.com:7890".to_string()),
+            ..CreateTaskAdvancedOptions::default()
+        },
+        aria2_options: serde_json::Map::from_iter([(
+            "all-proxy".to_string(),
+            serde_json::json!("socks5://rpc-user:rpc-password@proxy.example.com:1080"),
+        )]),
+    };
+
+    let debug = format!("{request:?}");
+    assert!(!debug.contains("legacy-user"));
+    assert!(!debug.contains("legacy-password"));
+    assert!(!debug.contains("rpc-user"));
+    assert!(!debug.contains("rpc-password"));
+    assert!(debug.contains("[REDACTED]"));
+    assert!(debug.contains("all-proxy"));
 }
 
 #[test]
@@ -292,6 +324,8 @@ fn store_created_task_persists_gid() {
             start_mode: DownloadTaskStartMode::Now,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
     )
@@ -323,6 +357,8 @@ fn store_created_task_preserves_paused_start_mode() {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
     )
@@ -1574,11 +1610,9 @@ fn add_uri_request_contains_url_and_options() {
                     "max-download-limit".to_string(),
                     serde_json::Value::String("524288".to_string()),
                 ),
-                (
-                    "all-proxy".to_string(),
-                    serde_json::Value::String("http://127.0.0.1:7890".to_string()),
-                ),
             ]),
+            use_proxy: true,
+            proxy_binding: TaskProxyBinding::profile(Some("http://127.0.0.1:7890".to_string())),
         },
     );
 
@@ -1628,6 +1662,8 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
     );
 
@@ -1640,6 +1676,7 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
     assert_eq!(request["params"][1]["pause"], "false");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
     assert_eq!(request["params"][1]["bt-save-metadata"], "true");
+    assert!(request["params"][1].get("all-proxy").is_none());
     assert!(request["params"][1]["bt-tracker"]
         .as_str()
         .expect("bt-tracker should be string")
@@ -1662,6 +1699,8 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
             start_mode: DownloadTaskStartMode::Now,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
     );
 
@@ -1689,6 +1728,8 @@ fn add_torrent_request_contains_base64_payload_and_options() {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
         b"torrent-bytes",
     );
