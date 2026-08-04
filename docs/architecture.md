@@ -176,6 +176,19 @@ Vue Component
 - 磁链缺少已保存 metadata 时允许重新解析并再次进入文件确认流程；升级前已删除且源 metadata 已丢失的种子任务必须明确拒绝恢复，不得生成不可用任务。
 - Aria2 自动保存的种子元数据和 session 恢复语义必须保留；具体请求字段、状态和错误响应见 `docs/api-contract.md`。
 
+任务级下载代理约束：
+
+- 应用只保存一个下载代理配置，使用独立的 `app_config.download_proxy` 记录规范化 URL、revision 和更新时间；该配置不并入普通 `AppConfig`，普通设置读取不得返回代理原文。
+- SQLite `download_tasks.use_proxy` 是任务是否要求代理的长期事实；`proxy_source` 只用于内部区分应用配置来源与旧接口兼容来源。Aria2 option 和 session 都不是任务代理意图的事实来源。
+- 旧 `advancedOptions.proxy` 与外部 JSON-RPC `all-proxy` 继续兼容，但原始 URL 只能保存到以任务 ID 关联的私密覆盖记录中。任务 API、SSE、调试日志、操作记录和普通 `Debug` 输出不得暴露代理 URL、来源、revision 或凭据。
+- 新建任务的代理开关每次打开固定为关闭。任务创建后仍可调整；完成和回收站任务只更新将来恢复或重新下载时继承的 SQLite 意图，不唤醒 Aria2。
+- 应用配置来源任务在创建、运行中切换、继续、确认 BT 文件、session 恢复、stale GID 重建、磁链 GID 跟随、恢复和重新下载时解析当前配置。兼容来源任务在这些链路中使用自身私密覆盖。
+- 恢复与重新下载省略覆盖值时继承原任务的完整代理绑定；显式改变开关时改用应用配置来源。关闭兼容来源任务时删除其私密覆盖，之后重新开启使用应用配置。
+- 运行中任务切换先向 Aria2 应用 option，再持久化 SQLite；SQLite 失败时补偿旧 option。RPC 结果未知时保留旧 SQLite 事实和未完成操作，由启动对账收敛。
+- Aria2 启动恢复必须保持暂停，在 unpause 前比较并应用目标 `all-proxy`；代理未配置、解析失败或应用失败时保持暂停或进入可诊断错误状态，不得静默直连。
+- 替换应用代理配置只即时处理已运行且引用应用配置的任务，不为设置操作启动 Aria2；无运行 GID 的任务延后到下一次受控运行点对账。相同规范化 URL 不增加 revision，也不触发重连。
+- 只要仍有 `use_proxy=true` 且来源为应用配置的任务，包含完成和回收站任务，就不得清除应用代理配置。兼容来源任务不阻止清除。
+
 标准事件流：
 
 ```text
@@ -206,6 +219,7 @@ Rust Runtime Event
 - 自动停止必须由协调器二次确认空闲，依次完成状态持久化、session 保存、进程退出确认和运行态清理；停止期间的新请求必须取消停止、等待重启或收到明确可重试错误。
 - 手动停止遇到活动任务或在途操作时返回冲突，不隐式暂停任务；完整应用退出的暂停和持久化收尾不复用日常空闲停止语义。
 - Aria2 session 只作为恢复输入，SQLite 任务和操作记录仍是长期事实；未知 RPC 结果、未知 GID、暂存文件或 metadata 缺失时保留用户文件并转人工处理。
+- 任务代理恢复同样以 SQLite 意图为准；session 中的 `all-proxy` 只能作为恢复时待核对的运行值，不能反向覆盖任务记录。
 - 前端页面关闭、刷新或重新进入不等于应用退出。
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
@@ -217,7 +231,7 @@ Rust Runtime Event
 - 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
 - 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
 - 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
-- 日志必须隐藏私密 URL query 和敏感配置。
+- 日志必须隐藏私密 URL query 和敏感配置；下载代理的完整 URL、userinfo、私密覆盖值及其错误上下文不得进入文件日志、内存调试日志或诊断导出。
 
 ## 9. fnOS 平台查证规则
 

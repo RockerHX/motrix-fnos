@@ -58,6 +58,8 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `403 Forbidden` | CSRF Token 缺失或错误，或当前凭据无权执行操作 |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
 | `429 Too Many Requests` | 登录失败限速或递增延迟生效 |
+| `502 Bad Gateway` | Aria2 明确拒绝任务代理等运行选项 |
+| `503 Service Unavailable` | Aria2 生命周期转换或运行依赖暂时不可用 |
 | `500 Internal Server Error` | 未预期内部错误 |
 
 `204 No Content` 响应不带 JSON body。
@@ -245,8 +247,9 @@ Session 与 Cookie 约定：
 | `POST` | `/api/tasks/:id/confirm` | `ConfirmTaskFilesRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
-| `POST` | `/api/tasks/:id/redownload` | - | `DownloadTask` |
-| `POST` | `/api/tasks/:id/restore` | - | `DownloadTask` |
+| `POST` | `/api/tasks/:id/redownload` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
+| `POST` | `/api/tasks/:id/restore` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
+| `PUT` | `/api/tasks/:id/proxy` | `UpdateTaskProxyRequest` | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
 
@@ -258,6 +261,8 @@ Session 与 Cookie 约定：
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
 - `POST /api/tasks/:id/redownload` 只允许重新下载 `complete` 任务。服务端先按原来源创建暂停任务并持久化，再暂存旧文件；新任务恢复成功后才清理暂存文件。任一步失败会恢复旧任务和原文件。URL 使用 `addUri`，种子和已确认磁链使用保存的源 metadata 调用 `addTorrent`。
+- 恢复与重新下载可省略请求体；省略或请求体中不提供 `useProxy` 时继承原任务的完整代理绑定。显式改变开关时改用应用代理配置来源；显式值与原值相同则保留旧兼容绑定。
+- 恢复与重新下载必须在创建目录、提交 GID 或暂存旧文件前确认所继承或覆盖的代理可用。校验或应用失败时保持原任务、文件和回收站状态，不得回退为直连。
 - 同一任务已有重新下载操作时，重复请求返回 `409 Conflict`，错误码为 `task_operation_conflict`。
 - 恢复保留本地文件的任务时复用原保存目录和控制文件续传；删除过本地文件的任务重建为从头下载的暂停任务。
 - URL 任务使用原 URL 恢复；种子和已确认磁链优先使用应用私有目录保存的源种子 metadata。磁链缺少 metadata 时重新解析并再次要求确认文件；旧种子 metadata 已丢失时返回 `400 Bad Request` 并保持回收站状态。
@@ -280,7 +285,7 @@ Session 与 Cookie 约定：
   "advancedOptions": {
     "connections": 8,
     "downloadLimitKb": 0,
-    "proxy": ""
+    "useProxy": false
   }
 }
 ```
@@ -290,11 +295,14 @@ Session 与 Cookie 约定：
 - `sourceType` 可选值为 `url` / `magnet`；种子文件通过 `/api/tasks/torrent` 上传，不在 JSON 请求中传 `torrent`。省略时兼容旧请求并按 `url` 处理。
 - `startMode` 可选值为 `now` / `paused`，省略时按 `now` 处理。
 - `category` 是 Motrix 任务标签，默认 `默认`；它不改变保存目录，也不影响侧栏状态分类。
-- `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速；`advancedOptions.proxy` 映射 `all-proxy`。
+- `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速。
+- `advancedOptions.useProxy` 是可选布尔值，缺失时服务端按 `false` 处理。值为 `true` 时任务绑定当前应用代理配置；配置不存在时返回 `400 proxy_not_configured`，并且不创建任务、目录或 Aria2 GID。
+- 旧 `advancedOptions.proxy` 继续兼容：未同时提供 `useProxy` 时，非空原始值作为该任务的私密兼容覆盖并映射 `all-proxy`。同时提供 `useProxy` 与非空 `advancedOptions.proxy` 时返回 `400 proxy_conflict`。
 - `saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
 - 当 `sourceType=magnet` 时，请求中的 `saveDir` 表示授权父目录；成功创建后返回的 `DownloadTask.saveDir` 是后端创建的任务专属子目录。
 - BT 任务返回的 `ownedTaskDir` 是后端创建并持久化的外层任务目录；它独立于会随种子 metadata 更新的 `fileName`，仅用于任务恢复和安全删除。普通 URL 任务为 `null`。
 - `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
+- `aria2Options["all-proxy"]` 遵循与旧 `advancedOptions.proxy` 相同的私密兼容规则；同时提供 `useProxy` 与非空原始代理字段时返回 `400 proxy_conflict`。两个旧原始字段同时存在时沿用既有白名单选项优先级，但只持久化最终生效值。
 - 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
 
 `DownloadTask`：
@@ -316,6 +324,7 @@ Session 与 Cookie 约定：
   "errorCode": null,
   "errorMessage": null,
   "filePath": "/vol1/downloads/file.zip",
+  "useProxy": false,
   "confirmationRequired": false,
   "files": [],
   "createdAt": 1760000000000,
@@ -339,6 +348,7 @@ Session 与 Cookie 约定：
 约定：
 
 - `category` 是任务标签，默认 `默认`。
+- `useProxy` 只表示任务的持久化代理意图；响应不返回代理来源、配置 revision、代理 URL 或兼容覆盖值。
 - `confirmationRequired` 表示任务需要用户确认文件后才能继续下载。
 - `files` 来自 Aria2 `tellStatus` 的运行时文件列表，不写入 SQLite；应用重启后通过 Aria2 session 同步重新填充。
 - `DownloadTaskFile.index` 使用 Aria2 原生 one-based 文件索引，前端不得重排后再提交。
@@ -354,7 +364,7 @@ Session 与 Cookie 约定：
   "advancedOptions": {
     "connections": 8,
     "downloadLimitKb": 0,
-    "proxy": ""
+    "useProxy": false
   }
 }
 ```
@@ -377,6 +387,7 @@ Session 与 Cookie 约定：
 
 - `torrent`：种子文件，大小不得超过 10 MiB。
 - `request`：JSON 字符串，字段为 `saveDir`、`startMode`、`category`、`advancedOptions`。
+- `request.advancedOptions.useProxy` 与 JSON 创建接口语义一致；缺失按 `false`。种子创建、磁链 metadata GID 与确认后的最终 BT GID 必须使用同一代理绑定。
 - `request.saveDir` 表示用户授权的父保存目录；服务端会按种子任务名创建专属子目录，并将 Aria2 下载目录设为该子目录。
 - 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`，`saveDir` 为任务专属子目录。
 - 服务端保留 Aria2 原生上传元数据落盘行为；任务专属子目录内可能出现 hash 命名 `.torrent` 文件，用于保持 Aria2 session 恢复语义，不再额外保存同名 `.torrent` 副本。
@@ -395,6 +406,37 @@ Session 与 Cookie 约定：
 - 后端将选择结果映射为 Aria2 `changeOption(gid, { "select-file": "1,3,5" })`，随后调用 `aria2.unpause` 开始真实 BT 下载。
 - 成功后返回更新后的 `DownloadTask`，其中 `confirmationRequired=false`，任务进入下载中状态。
 - 本接口只负责确认文件并开始下载；磁链解析出的 `.torrent` 元数据由创建磁链任务时的 `bt-save-metadata` 选项触发保存。
+- 服务端在 `unpause` 前对账任务持久化代理意图；代理无法解析或应用时保持暂停并返回结构化错误，不得直连。
+
+`UpdateTaskProxyRequest`：
+
+```json
+{
+  "enabled": true
+}
+```
+
+`TaskProxyOverrideRequest`：
+
+```json
+{
+  "useProxy": true
+}
+```
+
+任务代理切换约定：
+
+- 活动或已暂停且仍有有效 GID 的任务通过受控 `aria2.changeOption` 更新 `all-proxy`；运行中切换可能短暂重建连接，但不删除文件、不更换 Motrix 任务 ID。
+- Aria2 已停止时只保存任务意图，不为切换操作启动引擎。完成和回收站任务也只保存供将来继承的状态。
+- 开启应用代理而配置不存在时返回 `400 proxy_not_configured`。任务不存在返回 `404 task_not_found`；已有互斥操作返回 `409 task_operation_conflict`；生命周期转换返回 `409 runtime_transition`；Aria2 明确拒绝返回 `502 proxy_apply_failed`。
+- 对有效 GID，服务端先应用 Aria2 option 再提交 SQLite；持久化失败时补偿旧 option。RPC 结果未知时保留旧 SQLite 事实及未完成操作，响应不得假装成功。
+- 关闭旧兼容代理后删除私密覆盖并把来源转为应用配置；之后再次开启使用当前应用代理配置。
+
+任务代理持久化约定：
+
+- SQLite schema v4 为 `download_tasks` 增加 `use_proxy INTEGER NOT NULL DEFAULT 0` 与 `proxy_source TEXT NOT NULL DEFAULT 'profile'`。升级前任务统一迁移为关闭，其他任务字段保持不变，重复启动不得重复迁移。
+- 私密表 `task_proxy_overrides(task_id, proxy_url, updated_at)` 只保存旧接口的任务专属代理，`task_id` 为主键并随任务永久删除清理。普通任务读写不得把 `proxy_url` 复制到公开字段、操作记录或日志。
+- SQLite 任务意图是长期事实；Aria2 session 只用于恢复。启动、继续、stale GID 重建、磁链跟随 GID 和空闲重启都必须在 unpause 前按 SQLite 对账 `all-proxy`，失败时保持暂停或进入可诊断错误状态。
 
 ### 4.5 设置
 
@@ -407,6 +449,9 @@ Session 与 Cookie 约定：
 | `GET` | `/api/settings/lan-jsonrpc` | - | `LanJsonRpcStatus` |
 | `PUT` | `/api/settings/lan-jsonrpc` | `UpdateLanJsonRpcRequest` | `LanJsonRpcMutationResponse` |
 | `POST` | `/api/settings/lan-jsonrpc/token` | - | `LanJsonRpcMutationResponse` |
+| `GET` | `/api/settings/proxy` | - | `DownloadProxyStatus` |
+| `PUT` | `/api/settings/proxy` | `UpdateDownloadProxyRequest` | `DownloadProxyMutationResponse` |
+| `DELETE` | `/api/settings/proxy` | - | `204 No Content` |
 
 约定：
 
@@ -419,6 +464,12 @@ Session 与 Cookie 约定：
 - JSON-RPC Token 为空时，`/jsonrpc` 的 `aria2.addUri` 会拒绝添加任务；`aria2.getVersion` 仍可用于连通性测试。
 - 局域网 JSON-RPC 配置使用独立的 `jsonrpc_lan` 持久化记录。首次启用且尚无 Token 时由服务端生成 32 字节随机 Token；关闭入口保留 Token，重新启用不影响已配置客户端。
 - `issuedToken` 只在首次生成或主动轮换时返回一次；普通读取、关闭和使用既有 Token 重新启用时必须为 `null`。任何响应和日志均不得回传或记录旧 Token 原文。
+- 下载代理以独立 `app_config` 键 `download_proxy` 保存规范化 URL、单调递增 revision 和更新时间，不属于公开 `AppConfig`。普通 `/api/settings` 不接收或返回该记录。
+- 代理 URL trim 后最长 2048 字节，使用结构化 URL 解析；只接受 `http`、`https`、`socks4`、`socks5`，要求合法 host 和 port，拒绝 query、fragment 与控制字符。允许 userinfo，但规范化不得改变凭据大小写或含义。
+- 保存相同的规范化 URL 是无变化操作：不增加 revision、不调用 Aria2、不触发任务重连。并发保存按数据库事务串行化 revision。
+- 替换配置本身成功后，不启动已停止的 Aria2。已运行且来源为应用配置的启用任务分别进入 `appliedTaskIds`、`deferredTaskIds` 或脱敏的 `failed`；部分即时应用失败不回滚已保存配置，后续在恢复、继续或显式操作时重新对账。
+- 仍有 `useProxy=true` 且来源为应用配置的任务时，包含完成和回收站任务，清除配置返回 `409 proxy_in_use`。兼容私密覆盖任务不构成引用。成功清除返回 `204 No Content`。
+- 代理设置加载或保存失败使用内部错误码 `proxy_load_failed`、`proxy_save_failed`；任何错误响应、日志和调试记录都不得包含代理原文或凭据。
 
 `AppConfig`：
 
@@ -480,6 +531,49 @@ Session 与 Cookie 约定：
 }
 ```
 
+`DownloadProxyStatus`：
+
+```json
+{
+  "configured": true,
+  "maskedProxyUrl": "http://***:***@proxy.example.com:7890",
+  "revision": 4
+}
+```
+
+未配置时 `configured=false`、`maskedProxyUrl=null`、`revision=0`。用户名和密码统一掩码，响应不得包含 query、fragment 或可还原凭据的信息。
+
+`UpdateDownloadProxyRequest`：
+
+```json
+{
+  "proxyUrl": "http://user:password@proxy.example.com:7890"
+}
+```
+
+`DownloadProxyMutationResponse`：
+
+```json
+{
+  "status": {
+    "configured": true,
+    "maskedProxyUrl": "http://***:***@proxy.example.com:7890",
+    "revision": 4
+  },
+  "appliedTaskIds": [1],
+  "deferredTaskIds": [2],
+  "failed": [
+    {
+      "taskId": 3,
+      "code": "runtime_transition",
+      "message": "Aria2 正在切换运行状态，请稍后重试"
+    }
+  ]
+}
+```
+
+非法 URL 返回 `400 proxy_invalid_url`；错误消息只描述校验规则，不回显输入。`failed` 只包含任务 ID、稳定错误码和脱敏消息。
+
 ### 4.6 调试日志
 
 | 方法 | 路径 | 响应 |
@@ -507,6 +601,7 @@ Session 与 Cookie 约定：
 - `category` 可为 `app`、`task`、`aria2`、`settings`、`storage`、`api`、`runtime`。
 - 应用内调试日志与 `app/data/logs/server.log` 默认只记录关键生命周期、用户操作、状态转换、警告和错误；应用信息、通信检查、设置读取、Aria2 状态、`aria2.getVersion` 和 `aria2.getGlobalOption` 等常规只读成功请求不写文件日志。`server.log` 单文件上限为 10 MiB，保留当前文件和最多 3 个历史文件；fnOS 生命周期脚本和进程标准输出进入同目录的 `lifecycle.log`，默认单文件上限为 1 MiB，也保留最多 3 个历史文件。
 - 文件日志和内存调试日志共用敏感字段脱敏规则：URL 的 query/fragment、Token、密码、Session、CSRF、Cookie、Authorization 和 RPC secret 不写入日志。排障时可用响应头 `X-Request-ID` 将管理 API、SSE 和 JSON-RPC 请求与日志关联。
+- 下载代理 URL、userinfo、兼容私密覆盖、应用配置 revision 与 Aria2 `all-proxy` 值不进入普通操作日志、调试日志或诊断响应；任务相关记录只允许使用 `useProxy` 布尔值。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
 
 ### 4.7 存储目录
@@ -588,6 +683,7 @@ Session 与 Cookie 约定：
 - `lanJsonRpcToken` 由 `/api/settings/lan-jsonrpc` 首次启用时生成，或通过 `/api/settings/lan-jsonrpc/token` 轮换；它只在 `17082` 有效，公网 Token 只在 `17081` 有效。
 - 两类 Token 在服务启动时加载到内存，设置成功后同步更新；所有鉴权方法都使用常量时间比较，请求过程中不得读取 SQLite。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
+- `aria2.addUri` 选项中的旧 `all-proxy` 继续生效，其最终值只进入任务私密覆盖记录；任务响应、SSE 和日志仅暴露 `useProxy=true`。没有 `all-proxy` 的外部创建按 `useProxy=false` 保存。代理值校验失败返回 JSON-RPC `-32602`，不得创建 GID 或任务记录。
 - `aria2.getGlobalOption` 同样要求第一个参数为 `"token:<jsonRpcToken>"`；目录与 Token 在服务启动时加载到内存，并在管理设置保存成功后同步更新，因此重复查询不会读取 SQLite、授权目录文件或唤醒 Aria2。应用数据根目录不会作为外部下载目录返回；没有可用授权目录时 `dir` 为 `""`，发送端应按未指定目录处理。
 - fnOS 在服务运行期间调整授权目录时，外部发送端可能短暂携带上一次查询到的旧默认目录；`aria2.addUri` 仅在该值确实等于服务端曾返回的缓存默认目录时改用当前授权默认目录并刷新缓存。其他未授权目录仍返回 `-32602`。
 - `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的只读兼容结果，在正在停止时使用相同的 `-32004` 错误。
