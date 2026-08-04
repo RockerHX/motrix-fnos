@@ -57,19 +57,26 @@ h2 {
 }
 
 .proxy-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   width: 100%;
+  min-height: 34px;
 }
 
 .proxy-state-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   min-width: 0;
 }
 
-.proxy-state-row > span {
+.proxy-state-text {
   min-width: 0;
+  color: var(--app-text-muted);
+  font-size: 13px;
 }
 
 .form-alert {
@@ -130,10 +137,6 @@ h2 {
     padding-bottom: calc(8px + var(--app-safe-area-bottom));
   }
 
-  .proxy-state-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 
 @media (max-height: 760px) {

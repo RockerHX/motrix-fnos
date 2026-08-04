@@ -24,7 +24,6 @@ import type { UploadFileInfo, UploadOnChange, UploadOnRemove } from "naive-ui";
 import { useI18n } from "../../../i18n";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useTaskCreateForm } from "../composables/useTaskCreateForm";
-import AppIcon from "../../../components/AppIcon.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -205,33 +204,30 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
                 </NGi>
                 <NGi>
                   <NFormItem :label="t('create.advanced.proxy.label')" path="useProxy">
-                    <NSpace vertical class="proxy-control">
+                    <div class="proxy-control">
                       <NSwitch
                         v-model:value="form.useProxy"
                         :disabled="!canUseProxy"
                         :loading="isLoadingProxyStatus"
                         :aria-label="t('create.advanced.proxy.label')"
                       />
-                      <NAlert
+                      <div
                         v-if="hasProxyStatusError || (!isLoadingProxyStatus && !isProxyConfigured)"
-                        :type="hasProxyStatusError ? 'warning' : 'info'"
-                        class="inline-alert proxy-state-alert"
+                        class="proxy-state-row"
+                        data-test="proxy-unavailable-state"
                       >
-                        <div class="proxy-state-row">
-                          <span>
-                            {{
-                              hasProxyStatusError
-                                ? t("create.advanced.proxy.loadFailed")
-                                : t("create.advanced.proxy.notConfigured")
-                            }}
-                          </span>
-                          <NButton text type="primary" @click="openProxySettings">
-                            <template #icon><AppIcon name="settings" :size="14" /></template>
-                            {{ t("create.advanced.proxy.openSettings") }}
-                          </NButton>
-                        </div>
-                      </NAlert>
-                    </NSpace>
+                        <span class="proxy-state-text">
+                          {{
+                            hasProxyStatusError
+                              ? t("create.advanced.proxy.loadFailed")
+                              : t("create.advanced.proxy.notConfigured")
+                          }}
+                        </span>
+                        <NButton text type="primary" size="small" @click="openProxySettings">
+                          {{ t("create.advanced.proxy.openSettings") }}
+                        </NButton>
+                      </div>
+                    </div>
                   </NFormItem>
                 </NGi>
               </NGrid>

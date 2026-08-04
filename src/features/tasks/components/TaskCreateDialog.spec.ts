@@ -340,7 +340,9 @@ describe("TaskCreateDialog", () => {
     mockUseTaskCreateForm.mockReturnValue(unavailableState);
     const { wrapper: unavailableWrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
     expect(unavailableWrapper.get('button[role="switch"]').attributes("disabled")).toBeDefined();
-    expect(unavailableWrapper.text()).toContain("尚未配置下载代理");
+    const unavailableStateRow = unavailableWrapper.get('[data-test="proxy-unavailable-state"]');
+    expect(unavailableStateRow.text()).toContain("尚未配置下载代理");
+    expect(unavailableWrapper.find(".proxy-state-alert").exists()).toBe(false);
 
     await unavailableWrapper.findAll("button").find((button) => button.text() === "前往设置")!.trigger("click");
     expect(unavailableState.openProxySettings).toHaveBeenCalledOnce();
@@ -349,6 +351,11 @@ describe("TaskCreateDialog", () => {
     const options = lastCall?.[0] as { onOpenProxySettings: () => void };
     options.onOpenProxySettings();
     expect(unavailableWrapper.emitted("openSettings")).toHaveLength(1);
+
+    const loadFailedState = createComposableState({ canUseProxy: false, hasProxyStatusError: true });
+    mockUseTaskCreateForm.mockReturnValue(loadFailedState);
+    const { wrapper: loadFailedWrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+    expect(loadFailedWrapper.get('[data-test="proxy-unavailable-state"]').text()).toContain("无法读取下载代理状态");
   });
 
   it("selects and removes torrent files through Naive UI upload", async () => {
@@ -402,6 +409,7 @@ function createComposableState(overrides: {
   isRuntimeExiting?: boolean;
   canUseProxy?: boolean;
   isProxyConfigured?: boolean;
+  hasProxyStatusError?: boolean;
 } = {}) {
   const taskStore = reactive({
     isCreating: overrides.isCreating ?? false,
@@ -438,7 +446,7 @@ function createComposableState(overrides: {
     isMaskClosable: ref(!taskStore.isCreating && !taskStore.isRuntimeExiting),
     isProxyConfigured: ref(overrides.isProxyConfigured ?? true),
     isLoadingProxyStatus: ref(false),
-    hasProxyStatusError: ref(false),
+    hasProxyStatusError: ref(overrides.hasProxyStatusError ?? false),
     canUseProxy: ref(overrides.canUseProxy ?? true),
     selectTorrentFile: vi.fn(),
     submitCreateTask: mockSubmitCreateTask,
