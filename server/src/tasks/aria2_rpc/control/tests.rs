@@ -85,6 +85,63 @@ async fn remove_task_falls_back_to_remove_download_result() {
     mock.abort();
 }
 
+#[tokio::test]
+async fn get_task_options_returns_structured_options() {
+    let mock = MockRpcServer::spawn(vec![MockResponse::Json(json!({
+        "result": { "all-proxy": "http://127.0.0.1:7890/" }
+    }))])
+    .await;
+
+    let options = get_task_options(
+        &Aria2RpcClient::new(),
+        &test_config(mock.port),
+        "gid-1",
+        Some("get-option-test"),
+        None,
+    )
+    .await
+    .expect("task options should load");
+
+    assert_eq!(options["all-proxy"], "http://127.0.0.1:7890/");
+    assert_eq!(
+        *mock.methods.lock().expect("methods should lock"),
+        vec!["aria2.getOption"]
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn task_option_error_does_not_expose_proxy_credentials() {
+    let mock = MockRpcServer::spawn(vec![MockResponse::Json(json!({
+        "error": {
+            "code": 1,
+            "message": "rejected http://proxy-user:proxy-password@proxy.example.com:7890/"
+        }
+    }))])
+    .await;
+    let logs = DebugLogStore::default();
+
+    let error = change_task_options(
+        &Aria2RpcClient::new(),
+        &test_config(mock.port),
+        "gid-1",
+        serde_json::Map::from_iter([(
+            "all-proxy".to_string(),
+            json!("http://proxy-user:proxy-password@proxy.example.com:7890/"),
+        )]),
+        Some(&logs),
+    )
+    .await
+    .expect_err("remote option failure should be sanitized");
+
+    assert!(!error.contains("proxy-user"));
+    assert!(!error.contains("proxy-password"));
+    assert!(logs.list().iter().all(|entry| {
+        !entry.message.contains("proxy-user") && !entry.message.contains("proxy-password")
+    }));
+    mock.abort();
+}
+
 enum MockResponse {
     Json(Value),
     Raw(&'static str),

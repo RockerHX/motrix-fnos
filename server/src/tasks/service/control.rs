@@ -116,6 +116,42 @@ impl<'a> TaskService<'a> {
                 task_operation_context(Some(task_before_resume.clone()), Vec::new()),
             )
             .await?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let mut runtime_task = task_before_resume.clone();
+        runtime_task.proxy_binding = match self.resolve_existing_task_proxy(&runtime_task).await {
+            Ok(binding) => binding,
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "proxy_resolve_failed", &error)
+                    .await;
+                return Err(error);
+            }
+        };
+        match reconcile_task_proxy_option(
+            self.aria2_rpc,
+            config,
+            &runtime_task,
+            Some(&gid),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(true) => operation
+                .context
+                .completed_side_effects
+                .push("proxy_option_reconciled".to_string()),
+            Ok(false) => {}
+            Err(error) if is_stale_aria2_gid_error(&error.to_string()) => {}
+            Err(error) => {
+                let phase = if error.is_outcome_unknown() {
+                    "proxy_reconcile_outcome_unknown"
+                } else {
+                    "proxy_reconcile_failed"
+                };
+                self.fail_task_operation(&mut operation, phase, error.to_string())
+                    .await;
+                return Err(error.to_string());
+            }
+        }
         let mut readded = false;
         let request_id = operation.id.clone();
         let task = match unpause_task_with_request_id(
@@ -162,7 +198,7 @@ impl<'a> TaskService<'a> {
                     self.aria2_rpc,
                     self.download_tasks,
                     config,
-                    task_id,
+                    &runtime_task,
                     Some(self.debug_logs),
                 )
                 .await

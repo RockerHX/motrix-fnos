@@ -1498,6 +1498,7 @@ async fn mock_aria2_rpc(
                 json!({ "result": gid })
             }
         }
+        "aria2.getOption" => json!({ "result": {} }),
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = gid_param(&params);
             state.tasks.lock().expect("tasks should lock").remove(&gid);

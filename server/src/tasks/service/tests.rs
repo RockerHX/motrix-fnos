@@ -830,6 +830,86 @@ async fn update_download_task_proxy_keeps_unknown_compensation_unfinished() {
 }
 
 #[tokio::test]
+async fn resume_download_task_reconciles_proxy_before_unpause() {
+    let mock = ResumeProxyMockAria2Server::spawn(false).await;
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        temp_dir("resume-proxy-reconcile").display().to_string(),
+    );
+    task.use_proxy = true;
+    task.proxy_binding =
+        crate::tasks::TaskProxyBinding::profile(Some("http://127.0.0.1:7890/".to_string()));
+    let fixture = ServiceFixture::new(vec![task], false);
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+
+    let resumed = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect("proxy task should resume");
+
+    assert_eq!(resumed.status, DownloadTaskStatus::Active);
+    assert_eq!(
+        mock.methods(),
+        vec![
+            "aria2.getOption",
+            "aria2.changeOption",
+            "aria2.unpause",
+            "aria2.tellStatus",
+        ]
+    );
+    assert_eq!(
+        mock.change_options()[0]["all-proxy"],
+        "http://127.0.0.1:7890/"
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
+    let mock = ResumeProxyMockAria2Server::spawn(true).await;
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        temp_dir("resume-proxy-reconcile-failure")
+            .display()
+            .to_string(),
+    );
+    task.use_proxy = true;
+    task.proxy_binding =
+        crate::tasks::TaskProxyBinding::profile(Some("http://127.0.0.1:7890/".to_string()));
+    let fixture = ServiceFixture::new(vec![task], false);
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+
+    let error = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("proxy reconcile failure must reject resume");
+
+    assert!(error.contains("更新任务选项失败"));
+    assert_eq!(
+        mock.methods(),
+        vec!["aria2.getOption", "aria2.changeOption"]
+    );
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    let operations = fixture.repository.operations();
+    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
+    assert_eq!(operations[0].phase, "proxy_reconcile_failed");
+    mock.abort();
+}
+
+#[tokio::test]
 async fn pause_download_task_rejects_when_the_same_task_is_operating() {
     let save_dir = temp_dir("service-operation-conflict");
     let fixture = ServiceFixture::new(
@@ -2016,6 +2096,12 @@ struct ProxyOptionMockAria2Server {
     requests: Arc<Mutex<Vec<Value>>>,
 }
 
+struct ResumeProxyMockAria2Server {
+    addr: SocketAddr,
+    handle: tokio::task::JoinHandle<()>,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
 struct TimeoutAfterAddAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
@@ -2257,6 +2343,95 @@ impl ProxyOptionMockAria2Server {
     }
 }
 
+impl ResumeProxyMockAria2Server {
+    async fn spawn(fail_change_option: bool) -> Self {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let captured = captured.clone();
+                async move {
+                    captured
+                        .lock()
+                        .expect("resume proxy requests should lock")
+                        .push(payload.clone());
+                    let method = payload
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    Json(match method {
+                        "aria2.getOption" => json!({ "result": {} }),
+                        "aria2.changeOption" if fail_change_option => json!({
+                            "error": { "code": 1, "message": "cannot change option" }
+                        }),
+                        "aria2.changeOption" | "aria2.unpause" => {
+                            json!({ "result": "gid-1" })
+                        }
+                        "aria2.tellStatus" => json!({
+                            "result": {
+                                "gid": "gid-1",
+                                "status": "active",
+                                "totalLength": "1024",
+                                "completedLength": "256",
+                                "downloadSpeed": "128",
+                                "dir": "/downloads",
+                                "files": []
+                            }
+                        }),
+                        other => json!({
+                            "error": { "message": format!("unexpected method: {other}") }
+                        }),
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("resume proxy mock should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+        }
+    }
+
+    fn methods(&self) -> Vec<String> {
+        self.requests
+            .lock()
+            .expect("resume proxy requests should lock")
+            .iter()
+            .filter_map(|request| request["method"].as_str().map(str::to_string))
+            .collect()
+    }
+
+    fn change_options(&self) -> Vec<serde_json::Map<String, Value>> {
+        self.requests
+            .lock()
+            .expect("resume proxy requests should lock")
+            .iter()
+            .filter(|request| request["method"] == "aria2.changeOption")
+            .filter_map(|request| {
+                request["params"]
+                    .as_array()
+                    .and_then(|params| params.last())
+                    .and_then(Value::as_object)
+                    .cloned()
+            })
+            .collect()
+    }
+
+    fn abort(self) {
+        self.handle.abort();
+    }
+}
+
 async fn mock_aria2_rpc(Json(payload): Json<Value>) -> Json<Value> {
     Json(mock_aria2_response(&payload))
 }
@@ -2284,6 +2459,7 @@ fn mock_aria2_response(payload: &Value) -> Value {
         "aria2.pause" | "aria2.unpause" | "aria2.changeOption" => {
             json!({ "result": "gid-created" })
         }
+        "aria2.getOption" => json!({ "result": {} }),
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = payload
                 .get("params")

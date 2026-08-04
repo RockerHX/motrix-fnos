@@ -4,8 +4,8 @@ use crate::database::task_operations::{list_unfinished_task_operations, update_t
 use crate::database::tasks::persist_download_task_state_with_operation;
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::tasks::{
-    find_aria2_task_for_request, remove_task, task_exists, DownloadTask, DownloadTaskStatus,
-    TaskOperation, TaskOperationStatus, TaskOperationType,
+    find_aria2_task_for_request, reconcile_task_proxy_option, remove_task, task_exists,
+    DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationStatus, TaskOperationType,
 };
 use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -39,12 +39,14 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
             continue;
         }
 
-        let action =
-            if operation.phase == "aria2_outcome_unknown" && operation.context.new_gid.is_none() {
-                reconcile_unknown_aria2_request(state, &mut operation, &tasks).await
-            } else {
-                decide_reconcile_action(&operation, &tasks, &gid_presence)
-            };
+        let action = if operation.operation_type == TaskOperationType::Proxy {
+            reconcile_proxy_operation(state, &operation, &tasks).await
+        } else if operation.phase == "aria2_outcome_unknown" && operation.context.new_gid.is_none()
+        {
+            reconcile_unknown_aria2_request(state, &mut operation, &tasks).await
+        } else {
+            decide_reconcile_action(&operation, &tasks, &gid_presence)
+        };
         let action = match action {
             ReconcileAction::RemoveUnpersistedAria2Task(gid) => {
                 match remove_unpersisted_aria2_task(state, &gid).await {
@@ -74,6 +76,55 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
         .download_tasks
         .with_tasks_mut(|stored| *stored = tasks)?;
     Ok(())
+}
+
+async fn reconcile_proxy_operation(
+    state: &HttpAppState,
+    operation: &TaskOperation,
+    tasks: &[DownloadTask],
+) -> ReconcileAction {
+    let Some(task) = tasks.iter().find(|task| task.id == operation.task_id) else {
+        return ReconcileAction::Fail("代理操作对应的任务已不存在".to_string());
+    };
+    if matches!(
+        task.status,
+        DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
+    ) || task.gid.as_deref().is_none_or(|gid| gid.trim().is_empty())
+    {
+        return ReconcileAction::Complete(
+            "代理操作已按 SQLite 事实保留，将在任务下次运行时应用".to_string(),
+        );
+    }
+
+    let config = match ensure_aria2_ready(state).await {
+        Ok(config) => config,
+        Err(error) => {
+            return ReconcileAction::ManualReview(format!(
+                "启动时无法连接 Aria2 对账任务代理：{}",
+                error
+            ));
+        }
+    };
+    match reconcile_task_proxy_option(
+        &state.aria2_rpc,
+        &config,
+        task,
+        None,
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        Ok(_) => ReconcileAction::Complete("启动时已按 SQLite 事实对账任务代理".to_string()),
+        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error.to_string()) => {
+            ReconcileAction::Complete(
+                "启动时任务 GID 已失效，代理事实将在重建 GID 时应用".to_string(),
+            )
+        }
+        Err(error) => ReconcileAction::ManualReview(format!(
+            "启动时任务代理对账失败：{}；任务保持暂停",
+            error
+        )),
+    }
 }
 
 async fn reconcile_unknown_aria2_request(
@@ -162,6 +213,7 @@ async fn inspect_referenced_gids(
     let gids = operations
         .iter()
         .filter(|operation| operation.status == TaskOperationStatus::InProgress)
+        .filter(|operation| operation.operation_type != TaskOperationType::Proxy)
         .filter_map(operation_gid)
         .map(str::to_string)
         .collect::<BTreeSet<_>>();

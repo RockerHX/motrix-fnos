@@ -20,8 +20,8 @@ pub(crate) use aria2_rpc::task_exists;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
     add_torrent_to_aria2, add_uri_to_aria2, change_task_options,
-    change_task_options_with_request_id, pause_task, pause_task_with_request_id, remove_task,
-    remove_task_with_request_id, unpause_task, unpause_task_with_request_id,
+    change_task_options_with_request_id, get_task_options, pause_task, pause_task_with_request_id,
+    remove_task, remove_task_with_request_id, unpause_task, unpause_task_with_request_id,
     Aria2TaskCreationError, Aria2TaskOptionError,
 };
 pub(crate) use aria2_rpc::{is_aria2_outcome_unknown_error, tell_active_task_activity};
@@ -53,7 +53,10 @@ pub use refresh::{
 };
 pub(crate) use session::find_aria2_task_for_request;
 use session::readd_download_task;
-pub use session::{readd_task_to_aria2, sync_session_tasks_from_aria2};
+pub use session::{
+    readd_task_to_aria2, reconcile_session_task_proxies, reconcile_task_proxy_option,
+    sync_session_tasks_from_aria2,
+};
 use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
 pub use state::{
     list_tasks, mark_magnet_task_reparsing, mark_task_files_confirmed, mark_task_paused,

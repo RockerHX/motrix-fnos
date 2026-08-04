@@ -1,6 +1,10 @@
 use super::*;
+use crate::app::{
+    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+};
 use crate::database::connect_database;
 use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
+use crate::database::tasks::upsert_download_task;
 use crate::tasks::{DownloadTaskFile, DownloadTaskSourceType, TaskOperationContext};
 use std::collections::HashMap;
 
@@ -151,6 +155,63 @@ async fn manual_review_persists_visible_task_error_with_operation() {
     let _ = std::fs::remove_file(path);
 }
 
+#[tokio::test]
+async fn deferred_proxy_operation_reconciles_without_starting_aria2() {
+    let app_data_dir = temp_dir("deferred-proxy");
+    let runtime = ServerRuntimeConfig {
+        database_path: app_data_dir.join("motrix-fnos.sqlite"),
+        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+        app_data_dir: app_data_dir.clone(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
+        aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    let mut task = task_with_gid("gid-unused");
+    task.gid = None;
+    upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    let mut operation = operation(
+        TaskOperationType::Proxy,
+        "aria2_outcome_unknown",
+        None,
+        None,
+        Vec::new(),
+    );
+    operation.context.proxy_enabled = Some(true);
+    begin_task_operation(&state.core.database.pool, &operation)
+        .await
+        .expect("proxy operation should persist");
+
+    reconcile_unfinished_task_operations(&state)
+        .await
+        .expect("deferred proxy operation should reconcile");
+
+    assert!(list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .expect("unfinished operations should list")
+        .is_empty());
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}
+
 fn assert_matches_fail(action: ReconcileAction) {
     assert!(matches!(action, ReconcileAction::Fail(_)));
 }
@@ -218,6 +279,17 @@ fn task_with_gid(gid: &str) -> DownloadTask {
 fn temp_path(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "motrix-fnos-operation-reconcile-{}-{}.sqlite",
+        label,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be valid")
+            .as_nanos()
+    ))
+}
+
+fn temp_dir(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "motrix-fnos-operation-reconcile-{}-{}",
         label,
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

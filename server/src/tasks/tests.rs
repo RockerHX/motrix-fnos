@@ -5,8 +5,8 @@ use super::refresh::{
 use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
 use crate::tasks::aria2_rpc::{
-    build_add_torrent_request, build_add_uri_request, build_gid_control_request,
-    build_tell_many_request, build_tell_status_request,
+    build_add_torrent_request, build_add_uri_request, build_get_option_request,
+    build_gid_control_request, build_tell_many_request, build_tell_status_request,
 };
 use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
@@ -664,6 +664,15 @@ fn tell_many_request_uses_offsets_for_waiting_tasks() {
     assert_eq!(request["method"], "aria2.tellWaiting");
     assert_eq!(request["params"][0], 0);
     assert_eq!(request["params"][1], 1000);
+}
+
+#[test]
+fn get_option_request_targets_one_gid() {
+    let config = test_config();
+    let request = build_get_option_request(&config, "gid-1");
+
+    assert_eq!(request["method"], "aria2.getOption");
+    assert_eq!(request["params"][0], "gid-1");
 }
 
 #[test]

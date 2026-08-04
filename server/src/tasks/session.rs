@@ -3,7 +3,8 @@ use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::{read_saved_torrent_metadata, task_download_dir};
 use crate::tasks::{
-    add_torrent_to_aria2, add_uri_to_aria2, should_force_pause_task_on_startup, Aria2TaskRequest,
+    add_torrent_to_aria2, add_uri_to_aria2, change_task_options_with_request_id, get_task_options,
+    should_force_pause_task_on_startup, Aria2TaskOptionError, Aria2TaskRequest,
     CreateTaskAdvancedOptions, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
     DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState,
 };
@@ -74,6 +75,103 @@ pub async fn sync_session_tasks_from_aria2(
     );
 
     Ok(tasks_snapshot)
+}
+
+pub async fn reconcile_session_task_proxies(
+    tasks: &TaskMemoryState,
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<(), String> {
+    let candidates = crate::tasks::list_tasks(tasks)?
+        .into_iter()
+        .filter(|task| {
+            !matches!(
+                task.status,
+                DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
+            )
+        })
+        .filter(|task| {
+            task.gid
+                .as_deref()
+                .is_some_and(|gid| !gid.trim().is_empty())
+        })
+        .collect::<Vec<_>>();
+    let mut applied = 0_usize;
+    let mut unchanged = 0_usize;
+    let mut stale = 0_usize;
+
+    for task in candidates {
+        match reconcile_task_proxy_option(client, config, &task, None, debug_logs).await {
+            Ok(true) => applied += 1,
+            Ok(false) => unchanged += 1,
+            Err(error) if crate::tasks::is_stale_aria2_gid_error(&error.to_string()) => {
+                stale += 1;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "恢复任务代理状态失败，任务 ID {}：{}",
+                    task.id, error
+                ));
+            }
+        }
+    }
+
+    log_info(
+        debug_logs,
+        "tasks.proxy_reconcile",
+        format!(
+            "任务代理对账完成：应用 {} 个，无变化 {} 个，失效 GID 延后 {} 个",
+            applied, unchanged, stale
+        ),
+    );
+    Ok(())
+}
+
+pub async fn reconcile_task_proxy_option(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    task: &DownloadTask,
+    gid_override: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<bool, Aria2TaskOptionError> {
+    let gid = gid_override
+        .or(task.gid.as_deref())
+        .filter(|gid| !gid.trim().is_empty())
+        .ok_or_else(|| {
+            Aria2TaskOptionError::Failed("任务缺少 Aria2 GID，无法对账代理选项".to_string())
+        })?;
+    let request_id = format!("motrix-fnos-proxy-reconcile-{}", task.id);
+    let current = get_task_options(client, config, gid, Some(&request_id), debug_logs).await?;
+    let target = if task.use_proxy {
+        task.proxy_binding.effective_proxy_url().ok_or_else(|| {
+            Aria2TaskOptionError::Failed("任务要求使用代理，但没有可用的代理配置".to_string())
+        })?
+    } else {
+        ""
+    };
+    let current_proxy = current
+        .get("all-proxy")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if current_proxy == target {
+        return Ok(false);
+    }
+
+    let options = serde_json::Map::from_iter([(
+        "all-proxy".to_string(),
+        serde_json::Value::String(target.to_string()),
+    )]);
+    change_task_options_with_request_id(
+        client,
+        config,
+        gid,
+        options,
+        Some(&format!("{request_id}-apply")),
+        debug_logs,
+    )
+    .await?;
+    Ok(true)
 }
 
 async fn list_current_aria2_tasks(
@@ -257,20 +355,18 @@ pub async fn readd_task_to_aria2(
     client: &Aria2RpcClient,
     tasks: &TaskMemoryState,
     config: &Aria2Config,
-    task_id: u64,
+    task: &DownloadTask,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    let task = crate::tasks::task_snapshot(tasks, task_id)?;
-
-    let new_gid = readd_download_task(client, config, &task, debug_logs).await?;
+    let new_gid = readd_download_task(client, config, task, debug_logs).await?;
 
     tasks.with_tasks_mut(|guard| {
-        let task = guard
+        let stored = guard
             .iter_mut()
-            .find(|task| task.id == task_id)
-            .ok_or_else(|| format!("下载任务不存在：{}", task_id))?;
-        apply_readded_gid(task, &new_gid);
-        Ok(task.clone())
+            .find(|stored| stored.id == task.id)
+            .ok_or_else(|| format!("下载任务不存在：{}", task.id))?;
+        apply_readded_gid(stored, &new_gid);
+        Ok(stored.clone())
     })?
 }
 
@@ -312,8 +408,8 @@ pub(crate) async fn readd_download_task(
         start_mode: DownloadTaskStartMode::Now,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
+        use_proxy: task.use_proxy,
+        proxy_binding: task.proxy_binding.clone(),
     };
     match task.source_type {
         DownloadTaskSourceType::Url => {
@@ -330,6 +426,9 @@ pub(crate) async fn readd_download_task(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 async fn remove_download_result(
     client: &Aria2RpcClient,

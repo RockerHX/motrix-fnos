@@ -55,7 +55,11 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Ok(status) => {
-                match resolve_followed_metadata(client, config, &gid, &status, debug_logs).await {
+                match resolve_followed_metadata(
+                    client, config, &candidate, &gid, &status, debug_logs,
+                )
+                .await
+                {
                     Some(Ok((followed_status, metadata_torrent_path))) => {
                         updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
                             old_gid: gid,

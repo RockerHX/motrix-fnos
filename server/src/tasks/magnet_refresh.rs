@@ -4,6 +4,7 @@ use crate::aria2::Aria2RpcClient;
 pub(super) async fn resolve_followed_metadata(
     client: &Aria2RpcClient,
     config: &Aria2Config,
+    task: &DownloadTask,
     metadata_gid: &str,
     metadata_status: &Aria2TaskStatus,
     debug_logs: Option<&DebugLogStore>,
@@ -19,6 +20,14 @@ pub(super) async fn resolve_followed_metadata(
                 followed_gid, error
             ),
         );
+    }
+    if let Err(error) =
+        reconcile_task_proxy_option(client, config, task, Some(&followed_gid), debug_logs).await
+    {
+        return Some(Err(format!(
+            "磁链后继任务代理对账失败，GID {}：{}",
+            followed_gid, error
+        )));
     }
 
     let followed_status = match tell_status(client, config, &followed_gid, debug_logs).await {

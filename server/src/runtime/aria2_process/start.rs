@@ -8,9 +8,13 @@ use crate::aria2::{
     select_rpc_port_with_saved_runtime, summarize_args, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+use crate::database::tasks::persist_download_task_states;
 use crate::debug_logs::{emit_file_log, DebugLogLevel, DebugLogStore};
 use crate::runtime::Aria2Lease;
 use crate::state::Aria2RuntimeInfo;
+use crate::tasks::{
+    reconcile_session_task_proxies, sync_session_tasks_from_aria2, DownloadTaskStatus,
+};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::ops::Deref;
 use std::process::{Command, Stdio};
@@ -231,6 +235,28 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         }
         return Err(lifecycle_error(state, error));
     }
+    if started_process && has_session_restore_candidates(state)? {
+        let _proxy_update_guard = state.download_proxy_update_lock.lock().await;
+        let tasks = sync_session_tasks_from_aria2(
+            &state.core.download_tasks,
+            &state.aria2_rpc,
+            &config,
+            Some(&state.core.debug_logs),
+        )
+        .await
+        .map_err(|error| lifecycle_error(state, error))?;
+        persist_download_task_states(&state.core.database.pool, &tasks)
+            .await
+            .map_err(|error| lifecycle_error(state, error))?;
+        reconcile_session_task_proxies(
+            &state.core.download_tasks,
+            &state.aria2_rpc,
+            &config,
+            Some(&state.core.debug_logs),
+        )
+        .await
+        .map_err(|error| lifecycle_error(state, error))?;
+    }
     if let Err(error) = state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -238,6 +264,15 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         return Err(lifecycle_error(state, error));
     }
     Ok(config)
+}
+
+fn has_session_restore_candidates(state: &HttpAppState) -> Result<bool, String> {
+    Ok(state.core.download_tasks.list()?.iter().any(|task| {
+        !matches!(
+            task.status,
+            DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
+        )
+    }))
 }
 
 pub async fn start_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {

@@ -122,7 +122,7 @@ pub async fn change_task_options_with_request_id(
                     | Aria2RpcError::HttpStatus(_)
                     | Aria2RpcError::InvalidResponse(_)
             );
-            let message = format!("更新任务选项失败：{}", error);
+            let message = task_option_rpc_error_message("更新任务选项", &error);
             log_error(debug_logs, "aria2.changeOption", &message);
             Err(if outcome_unknown {
                 Aria2TaskOptionError::OutcomeUnknown(message)
@@ -130,6 +130,55 @@ pub async fn change_task_options_with_request_id(
                 Aria2TaskOptionError::Failed(message)
             })
         }
+    }
+}
+
+pub async fn get_task_options(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<serde_json::Map<String, serde_json::Value>, Aria2TaskOptionError> {
+    let request_body = build_get_option_request_with_id(
+        config,
+        gid,
+        request_id.unwrap_or("motrix-fnos-get-option"),
+    );
+    match client
+        .request::<serde_json::Map<String, serde_json::Value>>(config, &request_body)
+        .await
+        .and_then(|response| response.into_optional_result())
+    {
+        Ok(Some(options)) => Ok(options),
+        Ok(None) => Err(Aria2TaskOptionError::Failed(
+            "读取任务选项失败：响应缺少选项".to_string(),
+        )),
+        Err(error) => {
+            let outcome_unknown = matches!(
+                &error,
+                Aria2RpcError::OutcomeUnknown(_)
+                    | Aria2RpcError::HttpStatus(_)
+                    | Aria2RpcError::InvalidResponse(_)
+            );
+            let message = task_option_rpc_error_message("读取任务选项", &error);
+            log_error(debug_logs, "aria2.getOption", &message);
+            Err(if outcome_unknown {
+                Aria2TaskOptionError::OutcomeUnknown(message)
+            } else {
+                Aria2TaskOptionError::Failed(message)
+            })
+        }
+    }
+}
+
+fn task_option_rpc_error_message(action: &str, error: &Aria2RpcError) -> String {
+    match error {
+        Aria2RpcError::Remote(error) => error
+            .code
+            .map(|code| format!("{}失败：Aria2 拒绝请求（代码 {}）", action, code))
+            .unwrap_or_else(|| format!("{}失败：Aria2 拒绝请求", action)),
+        _ => format!("{}失败：{}", action, error),
     }
 }
 
@@ -253,14 +302,6 @@ pub(crate) fn build_gid_control_request(
     })
 }
 
-pub(crate) fn build_change_option_request(
-    config: &Aria2Config,
-    gid: &str,
-    options: serde_json::Map<String, serde_json::Value>,
-) -> serde_json::Value {
-    build_change_option_request_with_id(config, gid, options, "motrix-fnos-change-option")
-}
-
 pub(crate) fn build_change_option_request_with_id(
     config: &Aria2Config,
     gid: &str,
@@ -275,6 +316,27 @@ pub(crate) fn build_change_option_request_with_id(
         "jsonrpc": "2.0",
         "id": request_id,
         "method": "aria2.changeOption",
+        "params": params,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn build_get_option_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
+    build_get_option_request_with_id(config, gid, "motrix-fnos-get-option")
+}
+
+fn build_get_option_request_with_id(
+    config: &Aria2Config,
+    gid: &str,
+    request_id: &str,
+) -> serde_json::Value {
+    let mut params = rpc_params(config);
+    params.push(serde_json::json!(gid));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "aria2.getOption",
         "params": params,
     })
 }
