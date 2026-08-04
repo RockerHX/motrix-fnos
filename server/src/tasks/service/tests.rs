@@ -471,6 +471,365 @@ async fn create_magnet_download_task_persists_proxy_selection() {
 }
 
 #[tokio::test]
+async fn update_download_task_proxy_applies_runtime_option_then_persists() {
+    let mock = ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::Success).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-active").display().to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let task = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect("active task proxy should update");
+
+    assert!(task.use_proxy);
+    assert_eq!(mock.options()[0]["all-proxy"], "http://127.0.0.1:7890/");
+    assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].operation_type, TaskOperationType::Proxy);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert_eq!(operations[0].context.proxy_enabled, Some(true));
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_only_persists_when_runtime_is_stopped() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-stopped").display().to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+
+    let task = fixture
+        .service()
+        .update_download_task_proxy(None, 1, true)
+        .await
+        .expect("stopped runtime should defer proxy application");
+
+    assert!(task.use_proxy);
+    assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Completed
+    );
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_rejects_runtime_transitions() {
+    for phase in [
+        crate::runtime::Aria2LifecyclePhase::Starting,
+        crate::runtime::Aria2LifecyclePhase::Quiescing,
+        crate::runtime::Aria2LifecyclePhase::Stopping,
+    ] {
+        let fixture = ServiceFixture::new(
+            vec![sample_task(
+                1,
+                DownloadTaskStatus::Active,
+                "gid-1",
+                temp_dir("proxy-toggle-transition").display().to_string(),
+            )],
+            false,
+        );
+        fixture
+            .repository
+            .set_download_proxy("http://127.0.0.1:7890");
+        fixture
+            .aria2_lifecycle
+            .set_phase(phase)
+            .expect("lifecycle phase should update");
+
+        let error = fixture
+            .service()
+            .update_download_task_proxy(None, 1, true)
+            .await
+            .expect_err("runtime transition should reject proxy update");
+
+        assert!(error.contains("正在切换运行状态"));
+        assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+        assert!(fixture.repository.operations().is_empty());
+        assert!(fixture.repository.persisted_tasks().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_disables_override_without_runtime() {
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "gid-1",
+        temp_dir("proxy-toggle-complete").display().to_string(),
+    );
+    task.use_proxy = true;
+    task.proxy_binding = crate::tasks::TaskProxyBinding::override_url(
+        "socks5://legacy.example.com:1080".to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let updated = fixture
+        .service()
+        .update_download_task_proxy(None, 1, false)
+        .await
+        .expect("completed override task should disable without runtime");
+
+    assert!(!updated.use_proxy);
+    assert_eq!(
+        updated.proxy_binding.source(),
+        crate::tasks::TaskProxySource::Profile
+    );
+    assert_eq!(updated.proxy_binding.effective_proxy_url(), None);
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_is_idempotent_without_operation() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-idempotent").display().to_string(),
+        )],
+        false,
+    );
+
+    let task = fixture
+        .service()
+        .update_download_task_proxy(None, 1, false)
+        .await
+        .expect("same proxy state should be a no-op");
+
+    assert!(!task.use_proxy);
+    assert!(fixture.repository.operations().is_empty());
+    assert!(fixture.repository.persisted_tasks().is_empty());
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_keeps_old_fact_on_rpc_failure() {
+    let mock = ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::RemoteFailure).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-rpc-failure").display().to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let error = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect_err("remote failure should reject proxy update");
+
+    assert!(error.contains("更新任务选项失败"));
+    assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+    assert!(fixture.repository.persisted_tasks().is_empty());
+    let operations = fixture.repository.operations();
+    let operation = &operations[0];
+    assert_eq!(operation.status, TaskOperationStatus::Failed);
+    assert_eq!(operation.phase, "proxy_apply_failed");
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_leaves_unknown_rpc_operation_unfinished() {
+    let mock = ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::Timeout).await;
+    let mut fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-rpc-unknown").display().to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture.aria2_rpc = crate::aria2::Aria2RpcClient::with_timeouts(
+        Duration::from_secs(1),
+        Duration::from_millis(100),
+    );
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let error = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect_err("timeout should keep proxy operation unfinished");
+
+    assert!(error.contains("结果未知"));
+    assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+    assert!(fixture.repository.persisted_tasks().is_empty());
+    let operations = fixture.repository.operations();
+    let operation = &operations[0];
+    assert_eq!(operation.status, TaskOperationStatus::InProgress);
+    assert_eq!(operation.phase, "aria2_outcome_unknown");
+    assert_eq!(operation.context.proxy_enabled, Some(true));
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_compensates_runtime_after_persist_failure() {
+    let mock = ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::Success).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-persist-failure")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture.repository.fail_persist_on_call(1);
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let error = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect_err("persist failure should reject proxy update");
+
+    assert!(error.contains("已恢复 Aria2 原代理选项"));
+    assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+    let options = mock.options();
+    assert_eq!(options.len(), 2);
+    assert_eq!(options[0]["all-proxy"], "http://127.0.0.1:7890/");
+    assert_eq!(options[1]["all-proxy"], "");
+    let operations = fixture.repository.operations();
+    let operation = &operations[0];
+    assert_eq!(operation.status, TaskOperationStatus::Failed);
+    assert_eq!(operation.phase, "task_persist_failed_compensated");
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_marks_failed_compensation_for_manual_review() {
+    let mock =
+        ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::SuccessThenRemoteFailure).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-compensation-failure")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture.repository.fail_persist_on_call(1);
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let error = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect_err("failed compensation should reject proxy update");
+
+    assert!(error.contains("恢复 Aria2 原代理选项失败"));
+    assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations[0].status, TaskOperationStatus::ManualReview);
+    assert_eq!(operations[0].phase, "proxy_compensation_failed");
+
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_download_task_proxy_keeps_unknown_compensation_unfinished() {
+    let mock = ProxyOptionMockAria2Server::spawn(ProxyOptionMockMode::SuccessThenTimeout).await;
+    let mut fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            temp_dir("proxy-toggle-compensation-unknown")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
+    fixture.repository.fail_persist_on_call(1);
+    fixture.aria2_rpc = crate::aria2::Aria2RpcClient::with_timeouts(
+        Duration::from_secs(1),
+        Duration::from_millis(100),
+    );
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let error = fixture
+        .service()
+        .update_download_task_proxy(Some(&test_config(mock.addr.port(), "secret")), 1, true)
+        .await
+        .expect_err("unknown compensation should reject proxy update");
+
+    assert!(error.contains("恢复 Aria2 原代理选项的结果未知"));
+    assert!(!fixture.tasks.list().expect("tasks should list")[0].use_proxy);
+    let operations = fixture.repository.operations();
+    assert_eq!(operations[0].status, TaskOperationStatus::InProgress);
+    assert_eq!(operations[0].phase, "proxy_compensation_outcome_unknown");
+    assert_eq!(operations[0].context.proxy_enabled, Some(false));
+
+    mock.abort();
+}
+
+#[tokio::test]
 async fn pause_download_task_rejects_when_the_same_task_is_operating() {
     let save_dir = temp_dir("service-operation-conflict");
     let fixture = ServiceFixture::new(
@@ -850,6 +1209,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         next_task_id: AtomicU64::new(1),
         debug_logs: DebugLogStore::default(),
         aria2_rpc: crate::aria2::Aria2RpcClient::new(),
+        aria2_lifecycle: Arc::new(crate::runtime::Aria2LifecycleCoordinator::default()),
         shutdown: ShutdownState::new(),
         app_data_dir: fixture.app_data_dir.clone(),
         proxy_update_lock: tokio::sync::Mutex::new(()),
@@ -1436,6 +1796,7 @@ struct ServiceFixture {
     next_task_id: AtomicU64,
     debug_logs: DebugLogStore,
     aria2_rpc: crate::aria2::Aria2RpcClient,
+    aria2_lifecycle: Arc<crate::runtime::Aria2LifecycleCoordinator>,
     shutdown: ShutdownState,
     app_data_dir: PathBuf,
     proxy_update_lock: tokio::sync::Mutex<()>,
@@ -1454,6 +1815,7 @@ impl ServiceFixture {
             next_task_id: AtomicU64::new(1),
             debug_logs: DebugLogStore::default(),
             aria2_rpc: crate::aria2::Aria2RpcClient::new(),
+            aria2_lifecycle: Arc::new(crate::runtime::Aria2LifecycleCoordinator::default()),
             shutdown,
             app_data_dir: temp_dir("service-app-data"),
             proxy_update_lock: tokio::sync::Mutex::new(()),
@@ -1468,6 +1830,7 @@ impl ServiceFixture {
             &self.app_data_dir,
             &self.debug_logs,
             &self.aria2_rpc,
+            &self.aria2_lifecycle,
             &self.proxy_update_lock,
             RuntimeGuard::new(&self.shutdown),
         )
@@ -1638,6 +2001,21 @@ struct MockAria2Server {
     handle: tokio::task::JoinHandle<()>,
 }
 
+#[derive(Clone, Copy)]
+enum ProxyOptionMockMode {
+    Success,
+    RemoteFailure,
+    Timeout,
+    SuccessThenRemoteFailure,
+    SuccessThenTimeout,
+}
+
+struct ProxyOptionMockAria2Server {
+    addr: SocketAddr,
+    handle: tokio::task::JoinHandle<()>,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
 struct TimeoutAfterAddAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
@@ -1806,6 +2184,79 @@ impl MockAria2Server {
     }
 }
 
+impl ProxyOptionMockAria2Server {
+    async fn spawn(mode: ProxyOptionMockMode) -> Self {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let captured = captured.clone();
+                async move {
+                    let request_number = {
+                        let mut requests =
+                            captured.lock().expect("proxy option requests should lock");
+                        requests.push(payload.clone());
+                        requests.len()
+                    };
+                    match (mode, request_number) {
+                        (ProxyOptionMockMode::Success, _)
+                        | (ProxyOptionMockMode::SuccessThenRemoteFailure, 1)
+                        | (ProxyOptionMockMode::SuccessThenTimeout, 1) => {
+                            Json(json!({ "result": "gid-1" }))
+                        }
+                        (ProxyOptionMockMode::RemoteFailure, _)
+                        | (ProxyOptionMockMode::SuccessThenRemoteFailure, _) => Json(json!({
+                            "error": { "code": 1, "message": "cannot change option" }
+                        })),
+                        (ProxyOptionMockMode::Timeout, _)
+                        | (ProxyOptionMockMode::SuccessThenTimeout, _) => {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            Json(json!({ "result": "gid-1" }))
+                        }
+                    }
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("proxy option mock should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+        }
+    }
+
+    fn options(&self) -> Vec<serde_json::Map<String, Value>> {
+        self.requests
+            .lock()
+            .expect("proxy option requests should lock")
+            .iter()
+            .filter(|request| {
+                request.get("method").and_then(Value::as_str) == Some("aria2.changeOption")
+            })
+            .filter_map(|request| {
+                request
+                    .get("params")
+                    .and_then(Value::as_array)
+                    .and_then(|params| params.iter().rev().find_map(Value::as_object))
+                    .cloned()
+            })
+            .collect()
+    }
+
+    fn abort(self) {
+        self.handle.abort();
+    }
+}
+
 async fn mock_aria2_rpc(Json(payload): Json<Value>) -> Json<Value> {
     Json(mock_aria2_response(&payload))
 }
@@ -1830,7 +2281,9 @@ fn mock_aria2_response(payload: &Value) -> Value {
     match method {
         "aria2.addUri" => json!({ "result": "gid-created" }),
         "aria2.addTorrent" => json!({ "result": "gid-torrent" }),
-        "aria2.pause" | "aria2.unpause" => json!({ "result": "gid-created" }),
+        "aria2.pause" | "aria2.unpause" | "aria2.changeOption" => {
+            json!({ "result": "gid-created" })
+        }
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = payload
                 .get("params")

@@ -61,6 +61,11 @@ pub(super) struct ConfirmTaskFilesRequest {
     pub(super) selected_file_indexes: Vec<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct UpdateTaskProxyRequest {
+    pub(super) enabled: bool,
+}
+
 pub(super) enum ListTasksFilter {
     Visible,
     Removed,

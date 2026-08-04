@@ -19,9 +19,10 @@ use crate::tasks::files::find_single_torrent_file;
 pub(crate) use aria2_rpc::task_exists;
 use aria2_rpc::tell_status;
 pub use aria2_rpc::{
-    add_torrent_to_aria2, add_uri_to_aria2, change_task_options, pause_task,
-    pause_task_with_request_id, remove_task, remove_task_with_request_id, unpause_task,
-    unpause_task_with_request_id, Aria2TaskCreationError,
+    add_torrent_to_aria2, add_uri_to_aria2, change_task_options,
+    change_task_options_with_request_id, pause_task, pause_task_with_request_id, remove_task,
+    remove_task_with_request_id, unpause_task, unpause_task_with_request_id,
+    Aria2TaskCreationError, Aria2TaskOptionError,
 };
 pub(crate) use aria2_rpc::{is_aria2_outcome_unknown_error, tell_active_task_activity};
 pub use files::{delete_task_files, validate_task_files};
@@ -59,7 +60,7 @@ pub use state::{
     mark_task_paused_by_gid, mark_task_redownloaded, mark_task_removed, mark_task_restored,
     mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record, replace_task_snapshot,
     set_task_metadata_torrent_path, store_created_task, store_created_task_with_id, task_gid,
-    task_snapshot, TaskMemoryState,
+    task_snapshot, update_task_proxy_state, TaskMemoryState,
 };
 use status::Aria2TaskStatus;
 use std::path::{Path, PathBuf};

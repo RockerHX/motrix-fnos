@@ -407,6 +407,19 @@ pub fn replace_task_snapshot(
     Ok(())
 }
 
+pub fn update_task_proxy_state(
+    tasks: &TaskMemoryState,
+    task_id: u64,
+    use_proxy: bool,
+    proxy_binding: crate::tasks::TaskProxyBinding,
+) -> Result<DownloadTask, String> {
+    update_task(tasks, task_id, |task| {
+        task.use_proxy = use_proxy;
+        task.proxy_binding = proxy_binding;
+        Ok(())
+    })
+}
+
 pub fn mark_task_redownloaded(
     tasks: &TaskMemoryState,
     task_id: u64,

@@ -14,6 +14,7 @@ pub enum TaskOperationType {
     Delete,
     Restore,
     PermanentDelete,
+    Proxy,
 }
 
 impl TaskOperationType {
@@ -27,6 +28,7 @@ impl TaskOperationType {
             Self::Delete => "delete",
             Self::Restore => "restore",
             Self::PermanentDelete => "permanent_delete",
+            Self::Proxy => "proxy",
         }
     }
 
@@ -40,6 +42,7 @@ impl TaskOperationType {
             "delete" => Ok(Self::Delete),
             "restore" => Ok(Self::Restore),
             "permanent_delete" => Ok(Self::PermanentDelete),
+            "proxy" => Ok(Self::Proxy),
             _ => Err(format!("未知任务操作类型：{}", value)),
         }
     }
@@ -90,6 +93,8 @@ pub struct TaskOperationContext {
     pub critical_paths: Vec<String>,
     #[serde(default)]
     pub completed_side_effects: Vec<String>,
+    #[serde(default)]
+    pub proxy_enabled: Option<bool>,
     pub task_snapshot: Option<DownloadTask>,
 }
 

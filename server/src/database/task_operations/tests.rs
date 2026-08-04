@@ -21,6 +21,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                 aria2_request: None,
                 critical_paths: vec!["/downloads/archive.zip".to_string()],
                 completed_side_effects: vec!["old_task_paused".to_string()],
+                proxy_enabled: None,
                 task_snapshot: None,
             };
             let mut operation = TaskOperation::with_id(
@@ -50,6 +51,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                         "old_task_paused".to_string(),
                         "new_task_created".to_string(),
                     ],
+                    proxy_enabled: None,
                     task_snapshot: None,
                 },
             );

@@ -1,6 +1,7 @@
 use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::runtime::Aria2LifecycleCoordinator;
 use crate::state::ShutdownState;
 use crate::tasks::files::{
     archive_task_torrent_metadata, cleanup_empty_torrent_task_dir, read_saved_torrent_metadata,
@@ -67,6 +68,7 @@ pub struct TaskService<'a> {
     app_data_dir: &'a Path,
     debug_logs: &'a DebugLogStore,
     aria2_rpc: &'a Aria2RpcClient,
+    aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
     proxy_update_lock: &'a tokio::sync::Mutex<()>,
     runtime_guard: RuntimeGuard<'a>,
 }
@@ -79,6 +81,7 @@ impl<'a> TaskService<'a> {
         app_data_dir: &'a Path,
         debug_logs: &'a DebugLogStore,
         aria2_rpc: &'a Aria2RpcClient,
+        aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
         proxy_update_lock: &'a tokio::sync::Mutex<()>,
         runtime_guard: RuntimeGuard<'a>,
     ) -> Self {
@@ -89,6 +92,7 @@ impl<'a> TaskService<'a> {
             app_data_dir,
             debug_logs,
             aria2_rpc,
+            aria2_lifecycle,
             proxy_update_lock,
             runtime_guard,
         }
@@ -370,6 +374,7 @@ pub(super) fn task_operation_context(
         aria2_request: None,
         critical_paths,
         completed_side_effects: Vec::new(),
+        proxy_enabled: None,
         task_snapshot,
     }
 }

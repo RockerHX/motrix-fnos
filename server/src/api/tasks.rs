@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
+use crate::runtime::broadcast_tasks_snapshot;
 use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
@@ -10,7 +11,7 @@ use crate::tasks::{
 };
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks", get(list_tasks).post(create_task))
         .route("/tasks/batch", post(create_batch_tasks))
         .route("/tasks/:id/confirm", post(confirm_task_files))
+        .route("/tasks/:id/proxy", put(update_task_proxy))
         .route("/tasks/:id/pause", post(pause_task))
         .route("/tasks/:id/resume", post(resume_task))
         .route("/tasks/:id/redownload", post(redownload_task))
@@ -210,6 +212,22 @@ async fn pause_task(
     context.finish(task)
 }
 
+async fn update_task_proxy(
+    State(state): State<Arc<HttpAppState>>,
+    Path(task_id): Path<u64>,
+    ApiJson(payload): ApiJson<UpdateTaskProxyRequest>,
+) -> Result<Json<DownloadTask>, ApiError> {
+    let service = task_service(&state);
+    let config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
+    let task = service
+        .update_download_task_proxy(config.as_ref(), task_id, payload.enabled)
+        .await
+        .map_err(classify_task_proxy_error)?;
+    broadcast_tasks_snapshot(&state)
+        .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+    Ok(Json(task))
+}
+
 async fn confirm_task_files(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
@@ -301,6 +319,7 @@ fn task_service(state: &HttpAppState) -> TaskService<'_> {
         &state.core.app_data_dir,
         &state.core.debug_logs,
         &state.aria2_rpc,
+        &state.aria2_lifecycle,
         &state.download_proxy_update_lock,
         RuntimeGuard::new(&state.core.shutdown),
     )
@@ -410,6 +429,31 @@ fn classify_task_error(error: String) -> ApiError {
         return ApiError::bad_request("task_operation_failed", error);
     }
     ApiError::internal("task_operation_failed", error)
+}
+
+fn classify_task_proxy_error(error: String) -> ApiError {
+    if error.contains("应用正在退出") {
+        return ApiError::conflict("runtime_exiting", error);
+    }
+    if error.contains("下载任务不存在") {
+        return ApiError::not_found("task_not_found", error);
+    }
+    if error.contains("已有操作正在进行") {
+        return ApiError::conflict("task_operation_conflict", error);
+    }
+    if error.contains("正在切换运行状态")
+        || error.contains("生命周期请求被拒绝")
+        || error.contains("生命周期转换超时")
+    {
+        return ApiError::conflict("runtime_transition", error);
+    }
+    if error.contains("未配置下载代理") {
+        return ApiError::bad_request("proxy_not_configured", error);
+    }
+    if error.contains("更新任务选项失败") {
+        return ApiError::bad_gateway("proxy_apply_failed", error);
+    }
+    ApiError::internal("task_proxy_update_failed", error)
 }
 
 fn is_proxy_request_error(error: &str) -> bool {

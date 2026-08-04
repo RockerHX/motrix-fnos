@@ -56,6 +56,7 @@ pub(super) async fn add_uri(
         &state.core.app_data_dir,
         &state.core.debug_logs,
         &state.aria2_rpc,
+        &state.aria2_lifecycle,
         &state.download_proxy_update_lock,
         RuntimeGuard::new(&state.core.shutdown),
     );

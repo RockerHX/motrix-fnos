@@ -180,6 +180,7 @@ fn operation(
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
+            proxy_enabled: None,
             task_snapshot: None,
         },
     )

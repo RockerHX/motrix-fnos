@@ -3,13 +3,14 @@ mod create;
 pub(crate) mod query;
 mod transport;
 
+#[cfg(test)]
+pub(crate) use control::build_change_option_request;
 pub(crate) use control::is_aria2_outcome_unknown_error;
-pub(crate) use control::{
-    build_change_option_request, build_gid_control_request, send_gid_control_request,
-};
+pub(crate) use control::{build_gid_control_request, send_gid_control_request};
 pub use control::{
-    change_task_options, pause_task, pause_task_with_request_id, remove_task,
-    remove_task_with_request_id, unpause_task, unpause_task_with_request_id,
+    change_task_options, change_task_options_with_request_id, pause_task,
+    pause_task_with_request_id, remove_task, remove_task_with_request_id, unpause_task,
+    unpause_task_with_request_id, Aria2TaskOptionError,
 };
 pub use create::{add_torrent_to_aria2, add_uri_to_aria2, Aria2TaskCreationError};
 #[cfg(test)]

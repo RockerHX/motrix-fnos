@@ -19,7 +19,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tower::ServiceExt;
 
@@ -365,6 +365,237 @@ async fn create_route_checks_proxy_before_starting_aria2() {
         .expect("process lock should succeed")
         .is_none());
     assert!(!save_dir.exists());
+}
+
+#[tokio::test]
+async fn update_proxy_route_persists_without_starting_aria2() {
+    let state = test_state().await;
+    let task = sample_task(1, DownloadTaskStatus::Active);
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    crate::database::settings::replace_download_proxy_config(
+        &state.core.database.pool,
+        "http://127.0.0.1:7890/".to_string(),
+        1,
+    )
+    .await
+    .expect("proxy profile should save");
+    let app = test_router(state.clone());
+
+    let updated = response_json::<DownloadTask>(
+        app.oneshot(json_request(
+            "PUT",
+            "/api/tasks/1/proxy",
+            &json!({ "enabled": true }),
+        ))
+        .await
+        .expect("proxy update response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert!(updated.use_proxy);
+    assert!(state.aria2_runtime_snapshot().is_none());
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    let stored = crate::database::tasks::list_download_tasks(&state.core.database.pool)
+        .await
+        .expect("stored tasks should load");
+    assert!(stored[0].use_proxy);
+}
+
+#[tokio::test]
+async fn update_proxy_route_applies_active_task_and_maps_rpc_failure() {
+    let mock = MockAria2Server::spawn().await;
+    let (state, child_pid) = ready_state(&mock).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+    let task = sample_task(1, DownloadTaskStatus::Active);
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    crate::database::settings::replace_download_proxy_config(
+        &state.core.database.pool,
+        "http://127.0.0.1:7890/".to_string(),
+        1,
+    )
+    .await
+    .expect("proxy profile should save");
+    let app = test_router(state.clone());
+
+    let updated = response_json::<DownloadTask>(
+        app.clone()
+            .oneshot(json_request(
+                "PUT",
+                "/api/tasks/1/proxy",
+                &json!({ "enabled": true }),
+            ))
+            .await
+            .expect("proxy enable response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert!(updated.use_proxy);
+
+    mock.state.fail_change_option.store(true, Ordering::SeqCst);
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "PUT",
+            "/api/tasks/1/proxy",
+            &json!({ "enabled": false }),
+        ))
+        .await
+        .expect("proxy disable failure response should succeed"),
+        StatusCode::BAD_GATEWAY,
+    )
+    .await;
+    assert_eq!(error.code, "proxy_apply_failed");
+    assert!(state.core.download_tasks.list().expect("tasks should list")[0].use_proxy);
+
+    cleanup_state(&state, child_pid);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn update_proxy_route_rejects_runtime_transition() {
+    let state = test_state().await;
+    let task = sample_task(1, DownloadTaskStatus::Active);
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    crate::database::settings::replace_download_proxy_config(
+        &state.core.database.pool,
+        "http://127.0.0.1:7890/".to_string(),
+        1,
+    )
+    .await
+    .expect("proxy profile should save");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Starting)
+        .expect("lifecycle should start transitioning");
+    let app = test_router(state);
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "PUT",
+            "/api/tasks/1/proxy",
+            &json!({ "enabled": true }),
+        ))
+        .await
+        .expect("runtime transition response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+
+    assert_eq!(error.code, "runtime_transition");
+}
+
+#[tokio::test]
+async fn update_proxy_route_cleans_legacy_override_when_disabled() {
+    let state = test_state().await;
+    let mut task = sample_task(1, DownloadTaskStatus::Complete);
+    task.use_proxy = true;
+    task.proxy_binding = crate::tasks::TaskProxyBinding::override_url(
+        "socks5://legacy.example.com:1080".to_string(),
+    );
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("legacy proxy task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    let app = test_router(state.clone());
+
+    let updated = response_json::<DownloadTask>(
+        app.oneshot(json_request(
+            "PUT",
+            "/api/tasks/1/proxy",
+            &json!({ "enabled": false }),
+        ))
+        .await
+        .expect("proxy disable response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert!(!updated.use_proxy);
+    let override_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM task_proxy_overrides WHERE task_id = 1")
+            .fetch_one(&state.core.database.pool)
+            .await
+            .expect("private proxy override count should load");
+    assert_eq!(override_count, 0);
+    let source: String = sqlx::query_scalar("SELECT proxy_source FROM download_tasks WHERE id = 1")
+        .fetch_one(&state.core.database.pool)
+        .await
+        .expect("proxy source should load");
+    assert_eq!(source, "profile");
+}
+
+#[tokio::test]
+async fn update_proxy_route_returns_structured_errors() {
+    let state = test_state().await;
+    let task = sample_task(1, DownloadTaskStatus::Active);
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .expect("task should persist");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task state should update");
+    let app = test_router(state.clone());
+
+    let missing_profile = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(json_request(
+                "PUT",
+                "/api/tasks/1/proxy",
+                &json!({ "enabled": true }),
+            ))
+            .await
+            .expect("missing proxy response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(missing_profile.code, "proxy_not_configured");
+
+    let missing_task = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "PUT",
+            "/api/tasks/999/proxy",
+            &json!({ "enabled": true }),
+        ))
+        .await
+        .expect("missing task response should succeed"),
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    assert_eq!(missing_task.code, "task_not_found");
 }
 
 #[tokio::test]
@@ -1162,6 +1393,7 @@ impl MockAria2Server {
 struct MockAria2State {
     next_gid: AtomicU64,
     request_count: AtomicU64,
+    fail_change_option: AtomicBool,
     tasks: Mutex<HashMap<String, MockTask>>,
 }
 
@@ -1260,7 +1492,11 @@ async fn mock_aria2_rpc(
         }
         "aria2.changeOption" => {
             let gid = gid_param(&params);
-            json!({ "result": gid })
+            if state.fail_change_option.load(Ordering::SeqCst) {
+                json!({ "error": { "code": 1, "message": "cannot change option" } })
+            } else {
+                json!({ "result": gid })
+            }
         }
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = gid_param(&params);
