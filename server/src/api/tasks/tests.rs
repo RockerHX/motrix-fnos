@@ -932,6 +932,8 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some(format!("/downloads/archive-{id}.zip")),
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),

@@ -196,6 +196,10 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 3,
         name: "task_query_indexes",
     },
+    SchemaMigration {
+        version: 4,
+        name: "task_proxy_state",
+    },
 ];
 
 async fn apply_schema_migration(
@@ -206,8 +210,31 @@ async fn apply_schema_migration(
         1 => migrate_legacy_download_tasks(transaction).await,
         2 => create_task_operations_schema(transaction).await,
         3 => create_task_query_indexes(transaction).await,
+        4 => create_task_proxy_schema(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn create_task_proxy_schema(transaction: &mut Transaction<'_, Sqlite>) -> Result<(), String> {
+    if download_tasks_column_count(transaction, "use_proxy").await? == 0 {
+        sqlx::query("ALTER TABLE download_tasks ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("迁移任务代理开关字段失败：{}", error))?;
+    }
+    if download_tasks_column_count(transaction, "proxy_source").await? == 0 {
+        sqlx::query(
+            "ALTER TABLE download_tasks ADD COLUMN proxy_source TEXT NOT NULL DEFAULT 'profile'",
+        )
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("迁移任务代理来源字段失败：{}", error))?;
+    }
+    sqlx::query(TASK_PROXY_OVERRIDES_SCHEMA)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("创建任务私密代理覆盖表失败：{}", error))?;
+    Ok(())
 }
 
 async fn create_task_query_indexes(
@@ -354,6 +381,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         error_code TEXT,
         error_message TEXT,
         file_path TEXT,
+        use_proxy INTEGER NOT NULL DEFAULT 0,
+        proxy_source TEXT NOT NULL DEFAULT 'profile',
         confirmation_required INTEGER NOT NULL DEFAULT 0,
         metadata_torrent_path TEXT,
         files_deleted INTEGER NOT NULL DEFAULT 0,
@@ -405,7 +434,16 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "#,
     TASK_OPERATIONS_SCHEMA_STATEMENTS[0],
     TASK_OPERATIONS_SCHEMA_STATEMENTS[1],
+    TASK_PROXY_OVERRIDES_SCHEMA,
 ];
+
+const TASK_PROXY_OVERRIDES_SCHEMA: &str = r#"
+    CREATE TABLE IF NOT EXISTS task_proxy_overrides (
+        task_id INTEGER PRIMARY KEY,
+        proxy_url TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+    )
+    "#;
 
 const TASK_OPERATIONS_SCHEMA_STATEMENTS: &[&str] = &[
     r#"

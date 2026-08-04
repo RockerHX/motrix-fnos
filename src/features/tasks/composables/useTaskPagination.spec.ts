@@ -75,6 +75,7 @@ function createTasks(count: number): DownloadTask[] {
     errorCode: null,
     errorMessage: null,
     filePath: null,
+    useProxy: false,
     metadataTorrentPath: null,
     confirmationRequired: false,
     files: [],

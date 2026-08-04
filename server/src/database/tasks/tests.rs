@@ -1,5 +1,8 @@
 use super::*;
 use crate::database::connect_database;
+use crate::database::settings::{
+    set_app_config_value, StoredDownloadProxyConfig, DOWNLOAD_PROXY_CONFIG_KEY,
+};
 use crate::database::task_operations::begin_task_operation;
 use crate::tasks::{TaskOperationContext, TaskOperationType};
 
@@ -44,6 +47,133 @@ fn repository_inserts_updates_and_lists_tasks() {
             );
             assert_eq!(tasks[0].selected_file_indexes, [1, 3]);
             assert_eq!(max_id, task.id);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_persists_private_override_and_injects_profile_without_serializing_urls() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-proxy-persistence-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            set_app_config_value(
+                &database.pool,
+                DOWNLOAD_PROXY_CONFIG_KEY,
+                &StoredDownloadProxyConfig {
+                    proxy_url: "http://profile-user:profile-pass@profile.example:7890".to_string(),
+                    revision: 1,
+                    updated_at: 1,
+                },
+            )
+            .await
+            .expect("profile should save");
+
+            let mut task = sample_task();
+            task.use_proxy = true;
+            task.proxy_binding = TaskProxyBinding::override_url(
+                "socks5://override-user:override-pass@override.example:1080".to_string(),
+            );
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("override task should persist");
+
+            let stored_override: String =
+                sqlx::query_scalar("SELECT proxy_url FROM task_proxy_overrides WHERE task_id = ?")
+                    .bind(task.id as i64)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("private override should exist");
+            assert_eq!(
+                stored_override,
+                "socks5://override-user:override-pass@override.example:1080"
+            );
+
+            let loaded = list_download_tasks(&database.pool)
+                .await
+                .expect("override task should load")
+                .remove(0);
+            assert!(loaded.use_proxy);
+            assert_eq!(loaded.proxy_binding.source(), TaskProxySource::Override);
+            assert_eq!(
+                loaded.proxy_binding.effective_proxy_url(),
+                Some("socks5://override-user:override-pass@override.example:1080")
+            );
+            let public_json = serde_json::to_string(&loaded).expect("task should serialize");
+            assert!(public_json.contains("\"useProxy\":true"));
+            assert!(!public_json.contains("override-user"));
+            assert!(!public_json.contains("proxyBinding"));
+            assert!(!format!("{loaded:?}").contains("override-pass"));
+
+            task.proxy_binding = TaskProxyBinding::profile(Some(
+                "http://profile-user:profile-pass@profile.example:7890".to_string(),
+            ));
+            task.updated_at += 1;
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("profile task should persist");
+            let override_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM task_proxy_overrides WHERE task_id = ?")
+                    .bind(task.id as i64)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("override count should be readable");
+            assert_eq!(override_count, 0);
+            let loaded = list_download_tasks(&database.pool)
+                .await
+                .expect("profile task should load")
+                .remove(0);
+            assert_eq!(loaded.proxy_binding.source(), TaskProxySource::Profile);
+            assert_eq!(
+                loaded.proxy_binding.effective_proxy_url(),
+                Some("http://profile-user:profile-pass@profile.example:7890")
+            );
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_rolls_back_task_when_private_override_persistence_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-proxy-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            sqlx::query(
+                "CREATE TRIGGER fail_proxy_override BEFORE INSERT ON task_proxy_overrides BEGIN SELECT RAISE(FAIL, 'forced proxy override failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+            let mut task = sample_task();
+            task.use_proxy = true;
+            task.proxy_binding =
+                TaskProxyBinding::override_url("http://proxy.example:7890".to_string());
+
+            let error = upsert_download_task(&database.pool, &task)
+                .await
+                .expect_err("override failure should roll back task");
+            assert!(error.contains("forced proxy override failure"));
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be readable");
+            assert_eq!(task_count, 0);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -211,6 +341,9 @@ fn repository_deletes_task_record_history_and_errors() {
             task.status = DownloadTaskStatus::Error;
             task.error_code = Some("3".to_string());
             task.error_message = Some("Resource not found".to_string());
+            task.use_proxy = true;
+            task.proxy_binding =
+                TaskProxyBinding::override_url("http://proxy.example:7890".to_string());
 
             upsert_download_task(&database.pool, &task)
                 .await
@@ -236,11 +369,17 @@ fn repository_deletes_task_record_history_and_errors() {
                 .fetch_one(&database.pool)
                 .await
                 .expect("error count should be read");
+            let proxy_override_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM task_proxy_overrides")
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("proxy override count should be read");
 
             assert!(deleted);
             assert!(tasks.is_empty());
             assert_eq!(history_count, 0);
             assert_eq!(error_count, 0);
+            assert_eq!(proxy_override_count, 0);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -370,6 +509,8 @@ fn sample_task() -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some("/downloads/file.zip".to_string()),
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),

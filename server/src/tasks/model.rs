@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 pub const DEFAULT_TASK_CATEGORY: &str = "默认";
 
@@ -98,6 +99,10 @@ pub struct DownloadTask {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub file_path: Option<String>,
+    #[serde(default)]
+    pub use_proxy: bool,
+    #[serde(skip, default)]
+    pub proxy_binding: TaskProxyBinding,
     pub metadata_torrent_path: Option<String>,
     #[serde(default)]
     pub files_deleted: bool,
@@ -107,6 +112,100 @@ pub struct DownloadTask {
     pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct SensitiveProxyUrl(String);
+
+impl SensitiveProxyUrl {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SensitiveProxyUrl {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SensitiveProxyUrl([REDACTED])")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TaskProxySource {
+    #[default]
+    Profile,
+    Override,
+}
+
+impl TaskProxySource {
+    pub fn as_storage_value(self) -> &'static str {
+        match self {
+            Self::Profile => "profile",
+            Self::Override => "override",
+        }
+    }
+
+    pub fn from_storage_value(value: &str) -> Self {
+        match value {
+            "override" => Self::Override,
+            _ => Self::Profile,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct TaskProxyBinding {
+    source: TaskProxySource,
+    effective_proxy_url: Option<SensitiveProxyUrl>,
+}
+
+impl TaskProxyBinding {
+    pub fn profile(proxy_url: Option<String>) -> Self {
+        Self {
+            source: TaskProxySource::Profile,
+            effective_proxy_url: proxy_url.map(SensitiveProxyUrl::new),
+        }
+    }
+
+    pub fn override_url(proxy_url: String) -> Self {
+        Self {
+            source: TaskProxySource::Override,
+            effective_proxy_url: Some(SensitiveProxyUrl::new(proxy_url)),
+        }
+    }
+
+    pub fn from_persisted(source: TaskProxySource, proxy_url: Option<String>) -> Self {
+        Self {
+            source,
+            effective_proxy_url: proxy_url.map(SensitiveProxyUrl::new),
+        }
+    }
+
+    pub fn source(&self) -> TaskProxySource {
+        self.source
+    }
+
+    pub fn effective_proxy_url(&self) -> Option<&str> {
+        self.effective_proxy_url
+            .as_ref()
+            .map(SensitiveProxyUrl::expose)
+    }
+}
+
+impl fmt::Debug for TaskProxyBinding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskProxyBinding")
+            .field("source", &self.source)
+            .field(
+                "effective_proxy_url",
+                &self.effective_proxy_url.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

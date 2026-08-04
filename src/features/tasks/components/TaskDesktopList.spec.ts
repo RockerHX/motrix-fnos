@@ -80,6 +80,7 @@ function createTask(id: number, fileName: string): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: `/downloads/${fileName}`,
+    useProxy: false,
     metadataTorrentPath: null,
     confirmationRequired: false,
     files: [],

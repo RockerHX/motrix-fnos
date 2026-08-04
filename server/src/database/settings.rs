@@ -3,6 +3,22 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const DOWNLOAD_PROXY_CONFIG_KEY: &str = "download_proxy";
+
+#[derive(Clone, Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredDownloadProxyConfig {
+    pub proxy_url: String,
+    pub revision: u64,
+    pub updated_at: u64,
+}
+
+pub async fn get_download_proxy_config(
+    pool: &SqlitePool,
+) -> Result<Option<StoredDownloadProxyConfig>, String> {
+    get_app_config_value(pool, DOWNLOAD_PROXY_CONFIG_KEY).await
+}
+
 pub async fn get_app_config_value<T>(pool: &SqlitePool, key: &str) -> Result<Option<T>, String>
 where
     T: DeserializeOwned,

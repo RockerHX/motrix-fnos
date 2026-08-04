@@ -401,6 +401,8 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: None,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),

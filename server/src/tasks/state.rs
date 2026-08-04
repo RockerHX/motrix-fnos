@@ -1,6 +1,6 @@
 use crate::tasks::{
     should_pause_task_on_exit, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask,
+    DownloadTaskStatus, PreparedDownloadTask, TaskProxyBinding,
 };
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -127,6 +127,8 @@ pub fn store_created_task_with_id(
         error_code: None,
         error_message: None,
         file_path,
+        use_proxy: false,
+        proxy_binding: TaskProxyBinding::default(),
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),

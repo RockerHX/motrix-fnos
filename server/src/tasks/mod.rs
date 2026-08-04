@@ -30,7 +30,8 @@ pub use model::{
     is_pending_magnet_metadata_task, should_force_pause_task_on_startup, should_pause_task_on_exit,
     CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
     DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
+    DownloadTaskStatus, PreparedDownloadTask, SensitiveProxyUrl, TaskProxyBinding, TaskProxySource,
+    DEFAULT_TASK_CATEGORY,
 };
 pub use operation::{
     Aria2TaskRequest, TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType,

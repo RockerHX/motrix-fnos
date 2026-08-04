@@ -46,6 +46,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: "/downloads/ubuntu.iso",
+    useProxy: false,
     metadataTorrentPath: null,
     confirmationRequired: false,
     files: [],

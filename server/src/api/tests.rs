@@ -1591,6 +1591,8 @@ fn active_task_for_stop() -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some("/tmp/downloads/active.zip".to_string()),
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
         files_deleted: false,
         selected_file_indexes: Vec::new(),

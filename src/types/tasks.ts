@@ -26,6 +26,7 @@ export interface DownloadTask {
   errorCode?: string | null;
   errorMessage?: string | null;
   filePath?: string | null;
+  useProxy: boolean;
   metadataTorrentPath?: string | null;
   confirmationRequired: boolean;
   files: DownloadTaskFile[];

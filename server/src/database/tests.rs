@@ -219,6 +219,7 @@ fn connect_database_creates_required_tables() {
                 "web_auth_config",
                 "schema_migrations",
                 "task_operations",
+                "task_proxy_overrides",
             ] {
                 let exists: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -248,6 +249,8 @@ fn connect_database_creates_required_tables() {
                 "files_deleted",
                 "selected_file_indexes",
                 "owned_task_dir",
+                "use_proxy",
+                "proxy_source",
             ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
@@ -417,6 +420,8 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 "files_deleted",
                 "selected_file_indexes",
                 "owned_task_dir",
+                "use_proxy",
+                "proxy_source",
             ] {
                 let column_count: i64 = sqlx::query_scalar(
                     "SELECT COUNT(*) FROM pragma_table_info('download_tasks') WHERE name = ?",
@@ -437,6 +442,20 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     .await
                     .expect("migrated source types should be readable");
             assert_eq!(source_types, ["url", "torrent", "magnet"]);
+            let proxy_states: Vec<(i64, String)> = sqlx::query_as(
+                "SELECT use_proxy, proxy_source FROM download_tasks ORDER BY id",
+            )
+            .fetch_all(&database.pool)
+            .await
+            .expect("migrated proxy states should be readable");
+            assert_eq!(
+                proxy_states,
+                [
+                    (0, "profile".to_string()),
+                    (0, "profile".to_string()),
+                    (0, "profile".to_string()),
+                ]
+            );
 
             let migrations: Vec<(i64, String)> = sqlx::query_as(
                 "SELECT version, name FROM schema_migrations ORDER BY version",
@@ -450,6 +469,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     (1, "legacy_download_tasks_baseline".to_string()),
                     (2, "task_operations".to_string()),
                     (3, "task_query_indexes".to_string()),
+                    (4, "task_proxy_state".to_string()),
                 ]
             );
 
@@ -462,8 +482,133 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .fetch_one(&reopened.pool)
                 .await
                 .expect("migration record count should be readable");
-            assert_eq!(migration_count, 3);
+            assert_eq!(migration_count, 4);
             assert_task_query_indexes(&reopened.pool).await;
+            reopened.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn connect_database_migrates_1_8_x_task_schema_to_proxy_state_v4() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-v3-proxy-migrate-test-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                .expect("sqlite options should build")
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .expect("1.8.x database should connect");
+            sqlx::query(
+                r#"
+                CREATE TABLE download_tasks (
+                    id INTEGER PRIMARY KEY,
+                    url TEXT NOT NULL,
+                    source_type TEXT NOT NULL DEFAULT 'url',
+                    file_name TEXT NOT NULL,
+                    save_dir TEXT NOT NULL,
+                    owned_task_dir TEXT,
+                    category TEXT NOT NULL DEFAULT '默认',
+                    gid TEXT,
+                    status TEXT NOT NULL,
+                    total_length INTEGER NOT NULL DEFAULT 0,
+                    completed_length INTEGER NOT NULL DEFAULT 0,
+                    download_speed INTEGER NOT NULL DEFAULT 0,
+                    error_code TEXT,
+                    error_message TEXT,
+                    file_path TEXT,
+                    confirmation_required INTEGER NOT NULL DEFAULT 0,
+                    metadata_torrent_path TEXT,
+                    files_deleted INTEGER NOT NULL DEFAULT 0,
+                    selected_file_indexes TEXT NOT NULL DEFAULT '[]',
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("1.8.x download tasks table should create");
+            sqlx::query(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)",
+            )
+            .execute(&pool)
+            .await
+            .expect("migration table should create");
+            for (version, name) in [
+                (1_i64, "legacy_download_tasks_baseline"),
+                (2_i64, "task_operations"),
+                (3_i64, "task_query_indexes"),
+            ] {
+                sqlx::query(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, 1)",
+                )
+                .bind(version)
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("existing migration should insert");
+            }
+            sqlx::query(
+                r#"
+                INSERT INTO download_tasks (
+                    id, url, file_name, save_dir, status, created_at, updated_at
+                ) VALUES (7, 'https://example.com/archive.zip', 'archive.zip', '/downloads', 'paused', 1, 2)
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("existing task should insert");
+            pool.close().await;
+
+            let database = connect_database(path.clone())
+                .await
+                .expect("1.8.x database should migrate");
+            let task: (i64, String, String, i64, String) = sqlx::query_as(
+                "SELECT id, url, status, use_proxy, proxy_source FROM download_tasks WHERE id = 7",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("migrated task should remain readable");
+            assert_eq!(
+                task,
+                (
+                    7,
+                    "https://example.com/archive.zip".to_string(),
+                    "paused".to_string(),
+                    0,
+                    "profile".to_string(),
+                )
+            );
+            let migration_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 4 AND name = 'task_proxy_state'",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("v4 migration should be recorded");
+            assert_eq!(migration_count, 1);
+            database.pool.close().await;
+
+            let reopened = connect_database(path.clone())
+                .await
+                .expect("migrated database should reopen");
+            let migration_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 4",
+            )
+            .fetch_one(&reopened.pool)
+            .await
+            .expect("v4 migration count should be readable");
+            assert_eq!(migration_count, 1);
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);
         });
