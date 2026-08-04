@@ -25,24 +25,46 @@ describe("useTaskCreateSubmission", () => {
     taskStore.createTask.mockResolvedValue(undefined);
   });
 
-  it("submits URL, torrent and magnet sources through their store methods", async () => {
+  it("submits single URL, batch URL, torrent and magnet sources with the proxy selection", async () => {
     const setup = createSubmission();
+    setup.form.useProxy = true;
     setup.form.urls = "https://example.com/file.iso";
     setup.form.saveDir = "/downloads";
     await setup.submission.submitCreateTask();
-    expect(taskStore.createBatchTasks).toHaveBeenCalledOnce();
+    expect(taskStore.createBatchTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        urls: ["https://example.com/file.iso"],
+        advancedOptions: expect.objectContaining({ useProxy: true }),
+      }),
+    );
+
+    setup.form.urls = "https://example.com/a.iso\nhttps://example.com/b.iso";
+    await setup.submission.submitCreateTask();
+    expect(taskStore.createBatchTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        urls: ["https://example.com/a.iso", "https://example.com/b.iso"],
+        advancedOptions: expect.objectContaining({ useProxy: true }),
+      }),
+    );
 
     setup.activeInputType.value = "torrent";
     setup.form.torrentFile = new File(["torrent"], "example.torrent");
     setup.form.saveDir = "/downloads";
     await setup.submission.submitCreateTask();
-    expect(taskStore.createTorrentTask).toHaveBeenCalledOnce();
+    expect(taskStore.createTorrentTask).toHaveBeenCalledWith(
+      expect.objectContaining({ advancedOptions: expect.objectContaining({ useProxy: true }) }),
+    );
 
     setup.activeInputType.value = "magnet";
     setup.form.magnet = " magnet:?xt=urn:btih:test ";
     setup.form.saveDir = "/downloads";
     await setup.submission.submitCreateTask();
-    expect(taskStore.createTask).toHaveBeenCalledWith(expect.objectContaining({ url: "magnet:?xt=urn:btih:test" }));
+    expect(taskStore.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "magnet:?xt=urn:btih:test",
+        advancedOptions: expect.objectContaining({ useProxy: true }),
+      }),
+    );
   });
 
   it("keeps the dialog open and records partial batch failures", async () => {

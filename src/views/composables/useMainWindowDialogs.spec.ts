@@ -35,8 +35,11 @@ describe("useMainWindowDialogs", () => {
     expect(dialogs.showAbout.value).toBe(false);
     expect(dialogs.showSettings.value).toBe(false);
 
+    dialogs.showCreateDialog.value = true;
+
     dialogs.openSettingsFromJsonRpcGuide();
     expect(dialogs.showJsonRpcGuide.value).toBe(false);
+    expect(dialogs.showCreateDialog.value).toBe(false);
     expect(dialogs.showSettings.value).toBe(true);
     expect(dialogs.showAbout.value).toBe(false);
   });

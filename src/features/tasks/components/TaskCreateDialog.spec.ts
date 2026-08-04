@@ -155,6 +155,30 @@ vi.mock("naive-ui", async () => {
       },
     }),
     NSpace: slotStub("n-space"),
+    NSwitch: defineComponent({
+      name: "NSwitchStub",
+      inheritAttrs: false,
+      props: {
+        value: { type: Boolean, default: false },
+        disabled: { type: Boolean, default: false },
+        loading: { type: Boolean, default: false },
+      },
+      emits: ["update:value"],
+      setup(props, { emit, attrs }) {
+        return () =>
+          h("button", {
+            ...attrs,
+            type: "button",
+            role: "switch",
+            "aria-checked": String(props.value),
+            disabled: props.disabled,
+            "data-loading": String(props.loading),
+            onClick: () => {
+              if (!props.disabled) emit("update:value", !props.value);
+            },
+          });
+      },
+    }),
     NTabPane: slotStub("n-tab-pane"),
     NTabs: slotStub("n-tabs"),
     NUpload: defineComponent({
@@ -290,16 +314,41 @@ describe("TaskCreateDialog", () => {
     expect(wrapper.text()).toContain("表单错误");
     expect(wrapper.text()).toContain("目录读取失败");
 
-    const buttons = wrapper.findAll("button");
-    expect(buttons[buttons.length - 1]?.attributes("disabled")).toBeDefined();
+    const submitButton = wrapper.findAll("button").find((button) => button.text() === "开始下载");
+    expect(submitButton?.attributes("disabled")).toBeDefined();
 
-    await buttons[0]!.trigger("click");
-    await buttons[1]!.trigger("click");
+    await wrapper.get('button[aria-label="关闭"]').trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "取消")!.trigger("click");
     await wrapper.get('[data-test="n-form"]').trigger("submit");
     await flushPromises();
 
     expect(mockCloseDialog).toHaveBeenCalledTimes(2);
     expect(mockSubmitCreateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("controls proxy selection and opens settings when no proxy is configured", async () => {
+    const configuredState = createComposableState();
+    mockUseTaskCreateForm.mockReturnValue(configuredState);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+
+    const proxySwitch = wrapper.get('button[role="switch"]');
+    expect(proxySwitch.attributes("disabled")).toBeUndefined();
+    await proxySwitch.trigger("click");
+    expect(configuredState.form.useProxy).toBe(true);
+
+    const unavailableState = createComposableState({ canUseProxy: false, isProxyConfigured: false });
+    mockUseTaskCreateForm.mockReturnValue(unavailableState);
+    const { wrapper: unavailableWrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+    expect(unavailableWrapper.get('button[role="switch"]').attributes("disabled")).toBeDefined();
+    expect(unavailableWrapper.text()).toContain("尚未配置下载代理");
+
+    await unavailableWrapper.findAll("button").find((button) => button.text() === "前往设置")!.trigger("click");
+    expect(unavailableState.openProxySettings).toHaveBeenCalledOnce();
+
+    const lastCall = mockUseTaskCreateForm.mock.calls[mockUseTaskCreateForm.mock.calls.length - 1];
+    const options = lastCall?.[0] as { onOpenProxySettings: () => void };
+    options.onOpenProxySettings();
+    expect(unavailableWrapper.emitted("openSettings")).toHaveLength(1);
   });
 
   it("selects and removes torrent files through Naive UI upload", async () => {
@@ -351,6 +400,8 @@ function createComposableState(overrides: {
   accessiblePathsError?: string;
   isCreating?: boolean;
   isRuntimeExiting?: boolean;
+  canUseProxy?: boolean;
+  isProxyConfigured?: boolean;
 } = {}) {
   const taskStore = reactive({
     isCreating: overrides.isCreating ?? false,
@@ -370,7 +421,7 @@ function createComposableState(overrides: {
       category: "默认",
       connections: 16,
       downloadLimitKb: 0,
-      proxy: "",
+      useProxy: false,
     }),
     activeInputType: ref("url"),
     formErrorMessage: ref(overrides.formErrorMessage ?? ""),
@@ -385,6 +436,10 @@ function createComposableState(overrides: {
     accessiblePathOptions: ref([{ label: "/downloads", value: "/downloads" }]),
     canSubmit: ref(overrides.canSubmit ?? true),
     isMaskClosable: ref(!taskStore.isCreating && !taskStore.isRuntimeExiting),
+    isProxyConfigured: ref(overrides.isProxyConfigured ?? true),
+    isLoadingProxyStatus: ref(false),
+    hasProxyStatusError: ref(false),
+    canUseProxy: ref(overrides.canUseProxy ?? true),
     selectTorrentFile: vi.fn(),
     submitCreateTask: mockSubmitCreateTask,
     closeDialog: () => {
@@ -392,5 +447,6 @@ function createComposableState(overrides: {
         mockCloseDialog();
       }
     },
+    openProxySettings: vi.fn(),
   };
 }

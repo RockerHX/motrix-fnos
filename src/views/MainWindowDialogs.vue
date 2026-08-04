@@ -50,6 +50,7 @@ const emit = defineEmits<{
     :show="props.showCreateDialog"
     @update:show="emit('update:showCreateDialog', $event)"
     @created="emit('taskCreated')"
+    @open-settings="emit('openSettings')"
   />
   <AboutDialog
     :show="props.showAbout"

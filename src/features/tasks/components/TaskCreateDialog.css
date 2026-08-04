@@ -56,6 +56,22 @@ h2 {
   word-break: break-word;
 }
 
+.proxy-control {
+  width: 100%;
+}
+
+.proxy-state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.proxy-state-row > span {
+  min-width: 0;
+}
+
 .form-alert {
   margin-top: 16px;
   word-break: break-word;
@@ -112,6 +128,11 @@ h2 {
     margin-top: 18px;
     padding-top: 14px;
     padding-bottom: calc(8px + var(--app-safe-area-bottom));
+  }
+
+  .proxy-state-row {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

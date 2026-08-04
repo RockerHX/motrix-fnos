@@ -42,6 +42,7 @@ export function useMainWindowDialogs({ taskStore, toolbar, message, t }: UseMain
   }
 
   function openSettings() {
+    showCreateDialog.value = false;
     closeSecondaryDialogs();
     showSettings.value = true;
   }
@@ -52,8 +53,7 @@ export function useMainWindowDialogs({ taskStore, toolbar, message, t }: UseMain
   }
 
   function openSettingsFromJsonRpcGuide() {
-    closeSecondaryDialogs();
-    showSettings.value = true;
+    openSettings();
   }
 
   function openCreateDialog() {

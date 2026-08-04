@@ -15,6 +15,7 @@ import {
   NModal,
   NSelect,
   NSpace,
+  NSwitch,
   NTabPane,
   NUpload,
   NTabs,
@@ -23,6 +24,7 @@ import type { UploadFileInfo, UploadOnChange, UploadOnRemove } from "naive-ui";
 import { useI18n } from "../../../i18n";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useTaskCreateForm } from "../composables/useTaskCreateForm";
+import AppIcon from "../../../components/AppIcon.vue";
 
 const props = defineProps<{
   show: boolean;
@@ -31,6 +33,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
   created: [];
+  openSettings: [];
 }>();
 
 const { t } = useI18n();
@@ -52,13 +55,19 @@ const {
   accessiblePathOptions,
   canSubmit,
   isMaskClosable,
+  isProxyConfigured,
+  isLoadingProxyStatus,
+  hasProxyStatusError,
+  canUseProxy,
   selectTorrentFile,
   submitCreateTask,
   closeDialog,
+  openProxySettings,
 } = useTaskCreateForm({
   show: toRef(props, "show"),
   onClose: () => emit("update:show", false),
   onCreated: () => emit("created"),
+  onOpenProxySettings: () => emit("openSettings"),
 });
 
 const selectedTorrentFileName = computed(() => form.torrentFile?.name || t("create.torrent.notSelected"));
@@ -195,8 +204,34 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
                   </NFormItem>
                 </NGi>
                 <NGi>
-                  <NFormItem :label="t('create.advanced.proxy.label')" path="proxy">
-                    <NInput v-model:value="form.proxy" :placeholder="t('create.advanced.proxy.placeholder')" />
+                  <NFormItem :label="t('create.advanced.proxy.label')" path="useProxy">
+                    <NSpace vertical class="proxy-control">
+                      <NSwitch
+                        v-model:value="form.useProxy"
+                        :disabled="!canUseProxy"
+                        :loading="isLoadingProxyStatus"
+                        :aria-label="t('create.advanced.proxy.label')"
+                      />
+                      <NAlert
+                        v-if="hasProxyStatusError || (!isLoadingProxyStatus && !isProxyConfigured)"
+                        :type="hasProxyStatusError ? 'warning' : 'info'"
+                        class="inline-alert proxy-state-alert"
+                      >
+                        <div class="proxy-state-row">
+                          <span>
+                            {{
+                              hasProxyStatusError
+                                ? t("create.advanced.proxy.loadFailed")
+                                : t("create.advanced.proxy.notConfigured")
+                            }}
+                          </span>
+                          <NButton text type="primary" @click="openProxySettings">
+                            <template #icon><AppIcon name="settings" :size="14" /></template>
+                            {{ t("create.advanced.proxy.openSettings") }}
+                          </NButton>
+                        </div>
+                      </NAlert>
+                    </NSpace>
                   </NFormItem>
                 </NGi>
               </NGrid>
