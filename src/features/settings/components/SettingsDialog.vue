@@ -19,6 +19,8 @@ import type { AppConfig } from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
 import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
 import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
+import ProxySettings from "./ProxySettings.vue";
+import { useDownloadProxyStore } from "../stores/downloadProxyStore";
 
 const props = defineProps<{
   show: boolean;
@@ -31,6 +33,7 @@ const emit = defineEmits<{
 
 const message = useMessage();
 const settingsStore = useSettingsStore();
+const downloadProxyStore = useDownloadProxyStore();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const form = reactive({
@@ -73,10 +76,12 @@ const defaultDownloadDirMessage = computed(() => {
 const canSave = computed(
   () =>
     !settingsStore.isSaving &&
+    !downloadProxyStore.isSaving &&
     !settingsStore.isLoading &&
     !settingsStore.isLoadingAccessiblePaths &&
     !isDefaultDownloadDirUnauthorized.value,
 );
+const isSettingsSaving = computed(() => settingsStore.isSaving || downloadProxyStore.isSaving);
 
 watch(
   () => props.show,
@@ -144,8 +149,8 @@ function kbToBytes(value: number) {
     :show="show"
     :title="t('settings.title')"
     width="720px"
-    :mask-closable="!settingsStore.isSaving"
-    :close-disabled="settingsStore.isSaving"
+    :mask-closable="!isSettingsSaving"
+    :close-disabled="isSettingsSaving"
     @update:show="emit('update:show', $event)"
   >
     <NForm
@@ -203,6 +208,7 @@ function kbToBytes(value: number) {
         </div>
       </section>
 
+      <ProxySettings :active="show" />
       <WebAuthSettings />
       <JsonRpcTokenSettings :active="show" @open-guide="emit('openRpcGuide')" />
       <LanJsonRpcSettings :active="show" @open-guide="emit('openRpcGuide')" />
@@ -210,7 +216,7 @@ function kbToBytes(value: number) {
 
     <template #footer>
       <AppDialogActions>
-        <NButton :disabled="settingsStore.isSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
+        <NButton :disabled="isSettingsSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
         <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
           {{ t("common.save") }}
         </NButton>

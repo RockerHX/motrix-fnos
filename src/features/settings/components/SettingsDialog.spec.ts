@@ -146,6 +146,16 @@ vi.mock("./LanJsonRpcSettings.vue", async () => {
   };
 });
 
+vi.mock("./ProxySettings.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return {
+    default: defineComponent({
+      name: "ProxySettingsStub",
+      setup: () => () => h("div", "下载代理专用设置"),
+    }),
+  };
+});
+
 import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 
@@ -161,6 +171,7 @@ describe("SettingsDialog", () => {
     expect(wrapper.text()).toContain("设置");
     expect(wrapper.text()).toContain("默认下载目录");
     expect(wrapper.text()).toContain("Web 管理安全");
+    expect(wrapper.text()).toContain("下载代理专用设置");
     expect(wrapper.text()).toContain("JSON-RPC Token 专用设置");
     expect(wrapper.text()).toContain("保存");
     expect(wrapper.get('[data-test="app-dialog-actions"]').text()).toContain("保存");
