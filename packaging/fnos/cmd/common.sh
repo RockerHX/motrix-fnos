@@ -66,6 +66,30 @@ process_start_time() {
   awk '{print $22}' "${stat_file}"
 }
 
+process_uid() {
+  pid="$1"
+  status_file="${PROC_ROOT}/${pid}/status"
+  [ -r "${status_file}" ] || return 1
+  awk '$1 == "Uid:" { print $2; exit }' "${status_file}"
+}
+
+process_matches_current_uid() {
+  pid="$1"
+  current_uid=$(id -u 2>/dev/null || true)
+  actual_uid=$(process_uid "${pid}" || true)
+  [ -n "${current_uid}" ] || return 1
+  # 测试替身和部分非 Linux proc 实现没有 status 文件；真实 proc 有 UID 时必须严格核对。
+  [ -z "${actual_uid}" ] || [ "${actual_uid}" = "${current_uid}" ]
+}
+
+process_is_alive() {
+  pid="$1"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null
+}
+
 canonical_file_path() {
   path="$1"
   directory=$(dirname -- "${path}")
@@ -111,6 +135,7 @@ is_running_pid() {
 
   # PID 可能被系统复用；停止或报告运行中前，必须同时确认可执行文件，并在有记录时核对进程启动时间。
   process_matches_executable "${pid}" "${SERVER_BIN}" || return 1
+  process_matches_current_uid "${pid}" || return 1
 
   if [ -f "${PID_START_FILE}" ]; then
     recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
@@ -126,12 +151,13 @@ is_managed_server_instance() {
   case "${pid}" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  kill -0 "${pid}" 2>/dev/null || return 1
+  process_is_alive "${pid}" || return 1
   [ -f "${PID_START_FILE}" ] || return 1
 
   recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
   actual_start_time=$(process_start_time "${pid}") || return 1
   [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
+  process_matches_current_uid "${pid}" || return 1
   process_matches_executable "${pid}" "${SERVER_BIN}"
 }
 
@@ -140,7 +166,8 @@ is_unverifiable_server_instance() {
   case "${pid}" in
     ''|*[!0-9]*) return 1 ;;
   esac
-  kill -0 "${pid}" 2>/dev/null || return 1
+  process_is_alive "${pid}" || return 1
+  process_matches_current_uid "${pid}" || return 1
   [ ! -f "${PID_START_FILE}" ] || return 1
   process_matches_executable "${pid}" "${SERVER_BIN}"
 }
@@ -286,8 +313,20 @@ aria2_runtime_process_is_owned() {
     ''|*[!0-9]*) return 1 ;;
   esac
   [ -n "${secret}" ] || return 1
-  kill -0 "${pid}" 2>/dev/null || return 1
+  process_is_alive "${pid}" || return 1
+  process_matches_current_uid "${pid}" || return 1
   process_matches_executable "${pid}" "${ARIA2_BIN}" || return 1
+
+  recorded_start_time=$(read_runtime_json_number "processStartTime" || true)
+  if [ -n "${recorded_start_time}" ]; then
+    actual_start_time=$(process_start_time "${pid}" || true)
+    [ -n "${actual_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
+  fi
+  recorded_uid=$(read_runtime_json_number "processUid" || true)
+  if [ -n "${recorded_uid}" ]; then
+    actual_uid=$(process_uid "${pid}" || true)
+    [ -n "${actual_uid}" ] && [ "${recorded_uid}" = "${actual_uid}" ] || return 1
+  fi
 
   command_line_file="${PROC_ROOT}/${pid}/cmdline"
   [ -r "${command_line_file}" ] || return 1
@@ -433,6 +472,82 @@ clear_stale_pid() {
   if [ -f "${PID_FILE}" ] && { [ -z "${pid}" ] || ! is_running_pid "${pid}"; }; then
     remove_pid_record
   fi
+}
+
+stop_managed_server_for_startup() {
+  pid="$1"
+  if ! stop_managed_server_stage "${pid}" "SIGINT" "${STOP_INT_ATTEMPTS}"; then
+    if ! stop_managed_server_stage "${pid}" "SIGTERM" "${STOP_TERM_ATTEMPTS}"; then
+      if ! stop_managed_server_stage "${pid}" "SIGKILL" "${STOP_KILL_ATTEMPTS}"; then
+        log_msg "启动对账无法停止已确认归属的 motrix-fnos-server，PID ${pid}"
+        return 1
+      fi
+    fi
+  fi
+  remove_pid_record
+  log_msg "启动对账已清理 motrix-fnos-server 孤儿进程，PID ${pid}"
+}
+
+reconcile_startup_aria2_orphan() {
+  [ -e "${ARIA2_RUNTIME_FILE}" ] || return 0
+
+  pid=$(aria2_runtime_pid || true)
+  case "${pid}" in
+    ''|*[!0-9]*)
+      log_msg "Aria2 运行态记录缺少可核对的 PID，拒绝启动并保留记录"
+      return 1
+      ;;
+  esac
+
+  if ! process_is_alive "${pid}"; then
+    rm -f "${ARIA2_RUNTIME_FILE}"
+    log_msg "启动对账发现 Aria2 进程已退出，已清理陈旧运行态记录"
+    return 0
+  fi
+
+  if ! aria2_runtime_process_is_owned; then
+    log_msg "启动对账无法证明 Aria2 PID ${pid} 属于本应用，拒绝发送信号并保留运行态记录"
+    return 1
+  fi
+
+  if ! stop_owned_aria2_sidecar; then
+    log_msg "启动对账清理 Aria2 孤儿进程失败，保留运行态记录"
+    return 1
+  fi
+  log_msg "启动对账已清理 Aria2 孤儿进程，PID ${pid}"
+}
+
+reconcile_startup_orphans() {
+  pid=$(read_pid || true)
+  if [ -n "${pid}" ]; then
+    if process_is_alive "${pid}"; then
+      if ! is_managed_server_instance "${pid}"; then
+        log_msg "启动对账无法证明 server PID ${pid} 属于本应用，拒绝启动并保留运行态记录"
+        return 1
+      fi
+
+      if readiness_request; then
+        # 就绪实例仍由当前 server 使用，不能把它的 Aria2 runtime 当作孤儿清理。
+        return 0
+      else
+        readiness_status=$?
+      fi
+      if [ "${readiness_status}" -eq 127 ]; then
+        log_msg "启动对账无法执行 server 就绪探测，拒绝停止 PID ${pid}"
+        return 1
+      fi
+
+      log_msg "启动对账发现 server PID ${pid} 身份匹配但服务未就绪，开始有界回收"
+      stop_managed_server_for_startup "${pid}" || return 1
+    else
+      remove_pid_record
+      log_msg "启动对账发现 server PID ${pid} 已退出，已清理陈旧运行态记录"
+    fi
+  elif [ -f "${PID_START_FILE}" ]; then
+    rm -f "${PID_START_FILE}"
+  fi
+
+  reconcile_startup_aria2_orphan
 }
 
 require_file() {

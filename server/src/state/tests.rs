@@ -88,6 +88,8 @@ fn runtime_record_round_trips_and_removes() {
         aria2_session_path: Some("/tmp/motrix-fnos/aria2/aria2.session".to_string()),
         aria2_log_path: Some("/tmp/motrix-fnos/aria2/aria2.log".to_string()),
         launch_args: Some(vec!["--enable-rpc=true".to_string()]),
+        process_start_time: None,
+        process_uid: None,
     };
 
     write_aria2_runtime_record(&path, &runtime).expect("runtime should write");

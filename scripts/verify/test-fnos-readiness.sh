@@ -3,7 +3,12 @@
 set -eu
 
 TEST_ROOT=$(mktemp -d)
+ORPHAN_PID=""
 cleanup() {
+  if [ -n "${ORPHAN_PID}" ]; then
+    kill -KILL "${ORPHAN_PID}" 2>/dev/null || true
+    wait "${ORPHAN_PID}" 2>/dev/null || true
+  fi
   rm -rf "${TEST_ROOT}"
 }
 trap cleanup EXIT INT TERM
@@ -166,9 +171,21 @@ test -e "${PID_START_FILE}"
 
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
-write_pid_record "$$"
+sleep 30 &
+ORPHAN_PID=$!
+mkdir -p "${PROC_FIXTURE}/${ORPHAN_PID}"
+ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/${ORPHAN_PID}/exe"
+printf '%s\n' "${ORPHAN_PID} (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4343" > "${PROC_FIXTURE}/${ORPHAN_PID}/stat"
+printf '%s\n' "${ORPHAN_PID}" > "${PID_FILE}"
+printf '%s\n' "4343" > "${PID_START_FILE}"
 run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/start"
 test "${script_status}" -eq 1
-grep -q "进程存在但服务未就绪" "${OUTPUT_FILE}"
+grep -q "启动失败" "${OUTPUT_FILE}"
+if kill -0 "${ORPHAN_PID}" 2>/dev/null; then
+  echo "启动对账失败时不应遗留已确认归属的未就绪进程" >&2
+  exit 1
+fi
+wait "${ORPHAN_PID}" 2>/dev/null || true
+ORPHAN_PID=""
 
 echo "FPK 服务就绪脚本测试通过。"

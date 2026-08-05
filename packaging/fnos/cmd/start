@@ -7,9 +7,13 @@ set -eu
 prepare_runtime_dirs
 write_accessible_paths_file
 export_runtime_env
-clear_stale_pid
 require_file "${SERVER_BIN}" "server 二进制"
 require_file "${ARIA2_BIN}" "Aria2 sidecar"
+if ! reconcile_startup_orphans; then
+  echo "Motrix 启动对账失败：存在无法证明归属的残留进程或运行态记录" >&2
+  exit 1
+fi
+clear_stale_pid
 
 existing_pid=$(read_pid || true)
 if [ -n "${existing_pid}" ] && is_running_pid "${existing_pid}"; then
