@@ -16,6 +16,7 @@ const steps = quick
       { title: "Rust 格式检查", command: "cargo", args: ["fmt", "--manifest-path", "server/Cargo.toml", "--all", "--", "--check"], detail: "检查 Rust 源码格式" },
       { title: "构建与发布脚本测试", command: packageManager, args: ["run", "test:scripts"], detail: "收集 Node.js 测试" },
       { title: "FPK 进程身份校验测试", command: "sh", args: ["scripts/verify/test-fnos-process-identity.sh"], detail: "运行进程身份 Shell 场景" },
+      { title: "FPK 停止卸载收敛测试", command: "sh", args: ["scripts/verify/test-fnos-lifecycle-stop.sh"], detail: "运行信号升级与卸载失败关闭场景" },
       { title: "FPK 服务就绪脚本测试", command: "sh", args: ["scripts/verify/test-fnos-readiness.sh"], detail: "运行服务就绪 Shell 场景" },
       { title: "Rust 测试（warnings as errors）", command: "node", args: ["scripts/verify/run-rust-tests.mjs"], detail: "收集 Rust 测试目标" },
       { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], detail: "准备 Cargo 编译", activity: cargoProgressDetail },

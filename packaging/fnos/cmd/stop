@@ -11,31 +11,48 @@ clear_stale_pid
 pid=$(read_pid || true)
 if [ -z "${pid}" ]; then
   remove_pid_record
-  log_msg "motrix-fnos-server 未运行，无需停止"
-  echo "motrix-fnos-server 未运行"
-  exit 0
+  if stop_owned_aria2_sidecar; then
+    log_msg "motrix-fnos-server 未运行，无需停止"
+    echo "motrix-fnos-server 未运行"
+    exit 0
+  fi
+  log_msg "motrix-fnos-server 未运行，但 Aria2 sidecar 未能安全停止"
+  echo "motrix-fnos-server 未运行，但 Aria2 sidecar 未能安全停止" >&2
+  exit 1
 fi
 
-if ! is_running_pid "${pid}"; then
+if is_unverifiable_server_instance "${pid}"; then
+  log_msg "motrix-fnos-server PID ${pid} 缺少启动时间记录，拒绝发送信号"
+  echo "motrix-fnos-server 停止失败：PID ${pid} 缺少启动时间记录" >&2
+  exit 1
+fi
+
+if ! is_managed_server_instance "${pid}"; then
   remove_pid_record
   log_msg "检测到陈旧 PID 文件，已清理：${pid}"
   echo "motrix-fnos-server 未运行（已清理陈旧 PID）"
   exit 0
 fi
 
-log_msg "准备停止 motrix-fnos-server，PID ${pid}"
-kill -INT "${pid}"
+log_msg "准备停止 motrix-fnos-server，PID ${pid}，依次执行 SIGINT、SIGTERM、SIGKILL"
 
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  if ! is_running_pid "${pid}"; then
-    remove_pid_record
-    log_msg "motrix-fnos-server 已停止，PID ${pid}"
-    echo "motrix-fnos-server 已停止，PID ${pid}"
-    exit 0
+if ! stop_managed_server_stage "${pid}" "SIGINT" "${STOP_INT_ATTEMPTS}"; then
+  if ! stop_managed_server_stage "${pid}" "SIGTERM" "${STOP_TERM_ATTEMPTS}"; then
+    if ! stop_managed_server_stage "${pid}" "SIGKILL" "${STOP_KILL_ATTEMPTS}"; then
+      log_msg "motrix-fnos-server 在所有停止阶段后仍未退出，PID ${pid}"
+      echo "motrix-fnos-server 停止失败，PID ${pid}" >&2
+      exit 1
+    fi
   fi
-  sleep 1
-done
+fi
 
-log_msg "motrix-fnos-server 停止超时，PID ${pid}"
-echo "motrix-fnos-server 停止超时，PID ${pid}" >&2
-exit 1
+if ! stop_owned_aria2_sidecar; then
+  log_msg "motrix-fnos-server 已退出，但 Aria2 sidecar 未能安全停止"
+  echo "motrix-fnos-server 已退出，但 Aria2 sidecar 未能安全停止" >&2
+  exit 1
+fi
+
+remove_pid_record
+log_msg "motrix-fnos-server 与所属 Aria2 sidecar 已停止，PID ${pid}"
+echo "motrix-fnos-server 已停止，PID ${pid}"
+exit 0

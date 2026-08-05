@@ -15,6 +15,7 @@ RUNTIME_DIR="${PKG_VAR}/run"
 LOG_DIR="${PKG_VAR}/logs"
 PID_FILE="${RUNTIME_DIR}/motrix-fnos-server.pid"
 PID_START_FILE="${RUNTIME_DIR}/motrix-fnos-server.starttime"
+ARIA2_RUNTIME_FILE="${APP_DATA_DIR}/aria2-runtime.json"
 SERVER_LOG="${LOG_DIR}/server.log"
 LIFECYCLE_LOG="${LOG_DIR}/lifecycle.log"
 LIFECYCLE_LOG_MAX_BYTES=${MOTRIX_FNOS_LIFECYCLE_LOG_MAX_BYTES:-1048576}
@@ -31,6 +32,10 @@ PROCESS_IDENTITY_ATTEMPTS=${MOTRIX_FNOS_PROCESS_IDENTITY_ATTEMPTS:-20}
 PROCESS_IDENTITY_RETRY_SECONDS=${MOTRIX_FNOS_PROCESS_IDENTITY_RETRY_SECONDS:-0.1}
 START_CLEANUP_ATTEMPTS=${MOTRIX_FNOS_START_CLEANUP_ATTEMPTS:-20}
 START_CLEANUP_RETRY_SECONDS=${MOTRIX_FNOS_START_CLEANUP_RETRY_SECONDS:-0.1}
+STOP_INT_ATTEMPTS=${MOTRIX_FNOS_STOP_INT_ATTEMPTS:-12}
+STOP_TERM_ATTEMPTS=${MOTRIX_FNOS_STOP_TERM_ATTEMPTS:-4}
+STOP_KILL_ATTEMPTS=${MOTRIX_FNOS_STOP_KILL_ATTEMPTS:-2}
+STOP_RETRY_SECONDS=${MOTRIX_FNOS_STOP_RETRY_SECONDS:-1}
 CURL_BIN=${MOTRIX_FNOS_CURL_BIN:-curl}
 WGET_BIN=${MOTRIX_FNOS_WGET_BIN:-wget}
 
@@ -78,6 +83,14 @@ process_executable_path() {
   canonical_file_path "${executable_path}"
 }
 
+process_matches_executable() {
+  pid="$1"
+  expected_path="$2"
+  expected_executable=$(canonical_file_path "${expected_path}") || return 1
+  actual_executable=$(process_executable_path "${pid}") || return 1
+  [ "${actual_executable}" = "${expected_executable}" ]
+}
+
 write_pid_record() {
   pid="$1"
   start_time=$(process_start_time "${pid}") || return 1
@@ -97,15 +110,39 @@ is_running_pid() {
   kill -0 "${pid}" 2>/dev/null || return 1
 
   # PID 可能被系统复用；停止或报告运行中前，必须同时确认可执行文件，并在有记录时核对进程启动时间。
-  expected_executable=$(canonical_file_path "${SERVER_BIN}") || return 1
-  actual_executable=$(process_executable_path "${pid}") || return 1
-  [ "${actual_executable}" = "${expected_executable}" ] || return 1
+  process_matches_executable "${pid}" "${SERVER_BIN}" || return 1
 
   if [ -f "${PID_START_FILE}" ]; then
     recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
     actual_start_time=$(process_start_time "${pid}") || return 1
     [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
   fi
+}
+
+# 停止和卸载只接受完整的 PID、启动时间和可执行文件三重身份；
+# status 为兼容既有记录仍可使用 is_running_pid 的宽松判断。
+is_managed_server_instance() {
+  pid="$1"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null || return 1
+  [ -f "${PID_START_FILE}" ] || return 1
+
+  recorded_start_time=$(tr -d '[:space:]' < "${PID_START_FILE}")
+  actual_start_time=$(process_start_time "${pid}") || return 1
+  [ -n "${recorded_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
+  process_matches_executable "${pid}" "${SERVER_BIN}"
+}
+
+is_unverifiable_server_instance() {
+  pid="$1"
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null || return 1
+  [ ! -f "${PID_START_FILE}" ] || return 1
+  process_matches_executable "${pid}" "${SERVER_BIN}"
 }
 
 # 新启动的后台进程可能仍处于 nohup -> server 的 exec 窗口。此时可执行文件尚不匹配，
@@ -169,6 +206,162 @@ terminate_recorded_process() {
 
   kill -KILL "${pid}" 2>/dev/null || true
   wait_for_recorded_process_exit "${pid}"
+}
+
+wait_for_managed_server_exit() {
+  pid="$1"
+  attempts="$2"
+  attempt=1
+  while [ "${attempt}" -le "${attempts}" ]; do
+    if ! is_managed_server_instance "${pid}"; then
+      return 0
+    fi
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      sleep "${STOP_RETRY_SECONDS}"
+    fi
+    attempt=$((attempt + 1))
+  done
+  ! is_managed_server_instance "${pid}"
+}
+
+stop_managed_server_stage() {
+  pid="$1"
+  signal_name="$2"
+  attempts="$3"
+
+  if ! is_managed_server_instance "${pid}"; then
+    return 0
+  fi
+
+  log_msg "向 motrix-fnos-server 发送 ${signal_name}，PID ${pid}"
+  if ! kill "-${signal_name#SIG}" "${pid}" 2>/dev/null; then
+    if ! is_managed_server_instance "${pid}"; then
+      return 0
+    fi
+    log_msg "向 motrix-fnos-server 发送 ${signal_name} 失败，PID ${pid}"
+    return 1
+  fi
+
+  if wait_for_managed_server_exit "${pid}" "${attempts}"; then
+    log_msg "motrix-fnos-server 在 ${signal_name} 阶段后已退出，PID ${pid}"
+    return 0
+  fi
+
+  log_msg "motrix-fnos-server 在 ${signal_name} 阶段超时，PID ${pid}"
+  return 1
+}
+
+read_runtime_json_number() {
+  field_name="$1"
+  [ -r "${ARIA2_RUNTIME_FILE}" ] || return 1
+  sed -n "s/^[[:space:]]*\"${field_name}\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p" "${ARIA2_RUNTIME_FILE}" | sed -n '1p'
+}
+
+read_runtime_json_string() {
+  field_name="$1"
+  [ -r "${ARIA2_RUNTIME_FILE}" ] || return 1
+  sed -n "s/^[[:space:]]*\"${field_name}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\"[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p" "${ARIA2_RUNTIME_FILE}" | sed -n '1p'
+}
+
+aria2_runtime_pid() {
+  read_runtime_json_number "pid"
+}
+
+aria2_runtime_process_is_alive() {
+  pid=$(aria2_runtime_pid || true)
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "${pid}" 2>/dev/null
+}
+
+aria2_runtime_process_is_owned() {
+  pid=$(aria2_runtime_pid || true)
+  port=$(read_runtime_json_number "actualPort" || true)
+  secret=$(read_runtime_json_string "rpcSecret" || true)
+  case "${pid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  case "${port}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ -n "${secret}" ] || return 1
+  kill -0 "${pid}" 2>/dev/null || return 1
+  process_matches_executable "${pid}" "${ARIA2_BIN}" || return 1
+
+  command_line_file="${PROC_ROOT}/${pid}/cmdline"
+  [ -r "${command_line_file}" ] || return 1
+  command_line=$(tr '\000' ' ' < "${command_line_file}")
+  case "${command_line}" in
+    *"--rpc-listen-port=${port}"*"--rpc-secret=${secret}"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+wait_for_owned_aria2_exit() {
+  attempts="$1"
+  attempt=1
+  while [ "${attempt}" -le "${attempts}" ]; do
+    if ! aria2_runtime_process_is_owned; then
+      return 0
+    fi
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      sleep "${STOP_RETRY_SECONDS}"
+    fi
+    attempt=$((attempt + 1))
+  done
+  ! aria2_runtime_process_is_owned
+}
+
+stop_owned_aria2_sidecar() {
+  if [ ! -e "${ARIA2_RUNTIME_FILE}" ]; then
+    return 0
+  fi
+
+  if ! aria2_runtime_process_is_alive; then
+    rm -f "${ARIA2_RUNTIME_FILE}"
+    log_msg "Aria2 运行态已无存活进程，已清理运行态记录"
+    return 0
+  fi
+
+  pid=$(aria2_runtime_pid || true)
+  if ! aria2_runtime_process_is_owned; then
+    log_msg "Aria2 运行态 PID ${pid:-未知} 仍存活但归属无法确认，拒绝发送信号"
+    return 1
+  fi
+
+  log_msg "向已确认归属的 Aria2 sidecar 发送 SIGTERM，PID ${pid}"
+  kill -TERM "${pid}" 2>/dev/null || true
+  if ! wait_for_owned_aria2_exit "${STOP_TERM_ATTEMPTS}"; then
+    if ! aria2_runtime_process_is_owned; then
+      rm -f "${ARIA2_RUNTIME_FILE}"
+      return 0
+    fi
+    log_msg "Aria2 sidecar 在 SIGTERM 阶段超时，发送 SIGKILL，PID ${pid}"
+    kill -KILL "${pid}" 2>/dev/null || true
+    if ! wait_for_owned_aria2_exit "${STOP_KILL_ATTEMPTS}"; then
+      log_msg "Aria2 sidecar 在 SIGKILL 阶段后仍存活，PID ${pid}"
+      return 1
+    fi
+  fi
+
+  rm -f "${ARIA2_RUNTIME_FILE}"
+  log_msg "Aria2 sidecar 已停止，PID ${pid}"
+}
+
+ensure_uninstall_processes_stopped() {
+  pid=$(read_pid || true)
+  if [ -n "${pid}" ]; then
+    if is_managed_server_instance "${pid}" || is_unverifiable_server_instance "${pid}"; then
+      return 1
+    fi
+  fi
+
+  if [ -e "${ARIA2_RUNTIME_FILE}" ] && aria2_runtime_process_is_alive; then
+    return 1
+  fi
+
+  return 0
 }
 
 readiness_url() {
