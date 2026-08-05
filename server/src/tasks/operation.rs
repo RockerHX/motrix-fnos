@@ -3,6 +3,8 @@ use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub const FILE_CLEANUP_PENDING_PHASE: &str = "file_cleanup_pending";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskOperationType {
@@ -92,6 +94,8 @@ pub struct TaskOperationContext {
     #[serde(default)]
     pub critical_paths: Vec<String>,
     #[serde(default)]
+    pub file_cleanup_paths: Vec<String>,
+    #[serde(default)]
     pub completed_side_effects: Vec<String>,
     #[serde(default)]
     pub proxy_enabled: Option<bool>,
@@ -176,6 +180,19 @@ impl TaskOperation {
     pub fn require_manual_review(&mut self, phase: impl Into<String>, message: impl Into<String>) {
         self.phase = phase.into();
         self.status = TaskOperationStatus::ManualReview;
+        self.error_message = Some(message.into());
+        self.updated_at = current_timestamp_ms();
+    }
+
+    pub fn is_file_cleanup_pending(&self) -> bool {
+        self.operation_type == TaskOperationType::Delete
+            && self.phase == FILE_CLEANUP_PENDING_PHASE
+            && self.status.is_unfinished()
+    }
+
+    pub fn retain_file_cleanup_pending(&mut self, message: impl Into<String>) {
+        self.phase = FILE_CLEANUP_PENDING_PHASE.to_string();
+        self.status = TaskOperationStatus::InProgress;
         self.error_message = Some(message.into());
         self.updated_at = current_timestamp_ms();
     }

@@ -1,7 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::runtime::broadcast_tasks_snapshot;
+use crate::runtime::{broadcast_tasks_snapshot, spawn_file_cleanup_worker};
 use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
@@ -301,7 +301,11 @@ async fn delete_task(
         )
         .await
         .map_err(classify_task_error)?;
-    context.finish(task)
+    let response = context.finish(task)?;
+    if query.delete_files.unwrap_or(false) {
+        spawn_file_cleanup_worker(Arc::clone(&state));
+    }
+    Ok(response)
 }
 
 async fn permanently_delete_task(
@@ -407,6 +411,9 @@ fn classify_task_error(error: String) -> ApiError {
     }
     if error.contains("已有操作正在进行") {
         return ApiError::conflict("task_operation_conflict", error);
+    }
+    if error.contains("file_cleanup_pending") {
+        return ApiError::conflict("file_cleanup_pending", error);
     }
     if error.contains("代理选择冲突") {
         return ApiError::bad_request("proxy_conflict", error);

@@ -237,6 +237,7 @@ fn operation(
             new_gid: new_gid.map(str::to_string),
             aria2_request: None,
             critical_paths: Vec::new(),
+            file_cleanup_paths: Vec::new(),
             completed_side_effects: completed_side_effects
                 .into_iter()
                 .map(str::to_string)

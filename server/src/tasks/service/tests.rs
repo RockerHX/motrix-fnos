@@ -1,7 +1,9 @@
 use super::*;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::database::settings::StoredDownloadProxyConfig;
-use crate::tasks::{DownloadTaskFile, TaskOperation, TaskOperationStatus, TaskOperationType};
+use crate::tasks::{
+    DownloadTaskFile, TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType,
+};
 use axum::async_trait;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -1045,7 +1047,7 @@ async fn delete_download_task_marks_removed_and_persists() {
 }
 
 #[tokio::test]
-async fn delete_with_files_commits_staged_files_after_task_state_persists() {
+async fn delete_with_files_queues_staged_files_after_task_state_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-files");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1072,11 +1074,21 @@ async fn delete_with_files_commits_staged_files_after_task_state_persists() {
     assert!(!file_path.exists());
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
-    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
-    assert!(operations[0]
+    assert_eq!(
+        operations[0].phase,
+        crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE
+    );
+    assert_eq!(operations[0].status, TaskOperationStatus::InProgress);
+    assert!(!operations[0]
         .context
         .completed_side_effects
         .contains(&"task_files_deleted".to_string()));
+    let cleanup_path = operations[0]
+        .context
+        .file_cleanup_paths
+        .first()
+        .expect("cleanup path should persist");
+    assert!(std::path::Path::new(cleanup_path).is_dir());
 
     mock.abort();
 }
@@ -1154,6 +1166,39 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
     assert_eq!(operations[0].phase, "task_remove_needs_reconcile");
 
     mock.abort();
+}
+
+#[tokio::test]
+async fn restore_rejects_while_file_cleanup_is_pending() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "old-gid",
+            temp_dir("restore-file-cleanup-pending")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+    fixture.repository.add_operation(TaskOperation::with_id(
+        "pending-file-cleanup",
+        1,
+        TaskOperationType::Delete,
+        crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE,
+        TaskOperationContext::default(),
+    ));
+
+    let error = fixture
+        .service()
+        .restore_removed_task(&test_config(1, "secret"), 1, None)
+        .await
+        .expect_err("restore should wait for file cleanup");
+
+    assert!(error.contains("file_cleanup_pending"));
+    assert!(
+        fixture.tasks.list().expect("tasks should list")[0].status == DownloadTaskStatus::Removed
+    );
 }
 
 #[tokio::test]
@@ -2200,6 +2245,14 @@ struct FakeRepositoryState {
 }
 
 impl FakeTaskRepository {
+    fn add_operation(&self, operation: TaskOperation) {
+        self.state
+            .lock()
+            .expect("repository state should lock")
+            .operations
+            .push(operation);
+    }
+
     fn set_download_proxy(&self, proxy_url: &str) {
         self.state
             .lock()
@@ -2320,7 +2373,15 @@ impl TaskRepository for Arc<FakeTaskRepository> {
     }
 
     async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String> {
-        Ok(Vec::new())
+        Ok(self
+            .state
+            .lock()
+            .expect("repository state should lock")
+            .operations
+            .iter()
+            .filter(|operation| operation.status.is_unfinished())
+            .cloned()
+            .collect())
     }
 
     async fn delete_task_record_with_operation(

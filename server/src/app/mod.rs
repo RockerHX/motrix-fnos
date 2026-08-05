@@ -177,6 +177,7 @@ pub struct HttpAppState {
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     listeners_ready: AtomicBool,
+    file_cleanup_worker_running: AtomicBool,
 }
 
 impl HttpAppState {
@@ -205,6 +206,7 @@ impl HttpAppState {
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             listeners_ready: AtomicBool::new(false),
+            file_cleanup_worker_running: AtomicBool::new(false),
         }
     }
 
@@ -349,6 +351,17 @@ impl HttpAppState {
                 timestamp: current_timestamp_ms(),
             }));
     }
+
+    pub(crate) fn try_start_file_cleanup_worker(&self) -> bool {
+        self.file_cleanup_worker_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(crate) fn finish_file_cleanup_worker(&self) {
+        self.file_cleanup_worker_running
+            .store(false, Ordering::Release);
+    }
 }
 
 pub async fn bootstrap_http_app_state(
@@ -377,6 +390,7 @@ pub async fn bootstrap_http_app_state(
     state.remember_json_rpc_token(&json_rpc_token);
     *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
+    crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state));
 
     Ok(state)
 }

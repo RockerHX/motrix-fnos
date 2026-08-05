@@ -33,6 +33,15 @@ fn task_operation_conflict_maps_to_conflict_response() {
 }
 
 #[test]
+fn file_cleanup_pending_maps_to_conflict_response() {
+    let error = classify_task_error(
+        "任务文件仍在后台清理，暂不能执行此操作（file_cleanup_pending）".to_string(),
+    );
+
+    assert_eq!(error.status(), StatusCode::CONFLICT);
+}
+
+#[test]
 fn restore_and_redownload_proxy_override_body_is_optional() {
     assert!(parse_task_proxy_override_body(b"")
         .expect("empty body should inherit task proxy")

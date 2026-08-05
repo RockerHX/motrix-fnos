@@ -14,6 +14,7 @@ impl<'a> TaskService<'a> {
         if snapshot.status != DownloadTaskStatus::Removed {
             return Err("只有回收站任务可以恢复".to_string());
         }
+        self.ensure_file_cleanup_not_pending(task_id).await?;
         let resolved_proxy = self
             .resolve_recreated_task_proxy(&snapshot, use_proxy_override)
             .await?;

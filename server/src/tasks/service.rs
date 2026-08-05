@@ -7,6 +7,7 @@ use crate::tasks::files::{
     archive_task_torrent_metadata, cleanup_empty_torrent_task_dir, read_saved_torrent_metadata,
     remove_restore_metadata, save_restore_torrent_metadata, task_download_dir,
 };
+use crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE;
 use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, find_aria2_task_for_request,
@@ -362,6 +363,22 @@ impl<'a> TaskService<'a> {
     pub fn list_removed_download_tasks(&self) -> Result<Vec<DownloadTask>, String> {
         query::list_removed_download_tasks(self)
     }
+
+    pub(super) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
+        let pending = self
+            .repository
+            .list_unfinished_operations()
+            .await?
+            .into_iter()
+            .any(|operation| operation.task_id == task_id && operation.is_file_cleanup_pending());
+        if pending {
+            return Err(format!(
+                "任务文件仍在后台清理，暂不能执行此操作（{}）",
+                FILE_CLEANUP_PENDING_PHASE
+            ));
+        }
+        Ok(())
+    }
 }
 
 pub(super) fn task_operation_context(
@@ -373,6 +390,7 @@ pub(super) fn task_operation_context(
         new_gid: None,
         aria2_request: None,
         critical_paths,
+        file_cleanup_paths: Vec::new(),
         completed_side_effects: Vec::new(),
         proxy_enabled: None,
         task_snapshot,

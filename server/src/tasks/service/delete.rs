@@ -1,5 +1,6 @@
 use super::*;
 use crate::tasks::files::{stage_task_files, StagedTaskFiles};
+use crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE;
 
 impl<'a> TaskService<'a> {
     pub async fn delete_download_task(
@@ -11,6 +12,7 @@ impl<'a> TaskService<'a> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        self.ensure_file_cleanup_not_pending(task_id).await?;
         let mut operation = self
             .begin_task_operation(
                 task_id,
@@ -117,6 +119,9 @@ impl<'a> TaskService<'a> {
                 .critical_paths
                 .push(staged_files.backup_dir().display().to_string());
             context
+                .file_cleanup_paths
+                .push(staged_files.backup_dir().display().to_string());
+            context
                 .completed_side_effects
                 .push("task_files_staged".to_string());
             if let Err(error) = self
@@ -143,7 +148,15 @@ impl<'a> TaskService<'a> {
                 .await);
         }
         if let Err(error) = self
-            .persist_task_with_operation(&task, &mut operation, "task_removed")
+            .persist_task_with_operation(
+                &task,
+                &mut operation,
+                if staged.is_some() {
+                    FILE_CLEANUP_PENDING_PHASE
+                } else {
+                    "task_removed"
+                },
+            )
             .await
         {
             return Err(self
@@ -151,33 +164,20 @@ impl<'a> TaskService<'a> {
                 .await);
         }
         remove_magnet_metadata_dir(self.app_data_dir, &task_before_delete);
-        if let Some(staged) = staged {
-            if let Err(error) = staged.commit() {
-                operation.require_manual_review("file_cleanup_pending", error.clone());
-                if let Err(update_error) = self.repository.update_operation(&operation).await {
-                    self.debug_logs.error(
-                        "tasks.operation",
-                        format!(
-                            "任务文件暂存清理失败且未能更新操作记录，operationId {}：{}",
-                            operation.id, update_error
-                        ),
-                    );
-                }
-                self.debug_logs.warn(
-                    "tasks.control",
-                    format!(
-                        "任务记录已删除，但暂存文件尚未清理，ID {}：{}",
-                        task_id, error
-                    ),
-                );
-            } else {
-                operation
-                    .context
-                    .completed_side_effects
-                    .push("task_files_deleted".to_string());
-                self.complete_task_operation(&mut operation, "completed")
-                    .await;
-            }
+        if staged.is_some() {
+            self.debug_logs.info(
+                "tasks.control",
+                format!(
+                    "任务文件已暂存，交由后台清理，ID {}，暂存目录 {}",
+                    task_id,
+                    operation
+                        .context
+                        .file_cleanup_paths
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or("-")
+                ),
+            );
         } else {
             self.complete_task_operation(&mut operation, "completed")
                 .await;
@@ -201,6 +201,7 @@ impl<'a> TaskService<'a> {
         if task.status != DownloadTaskStatus::Removed {
             return Err("只有已删除任务可以永久删除".to_string());
         }
+        self.ensure_file_cleanup_not_pending(task_id).await?;
 
         let mut operation = self
             .begin_task_operation(

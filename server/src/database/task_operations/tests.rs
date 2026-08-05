@@ -20,6 +20,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                 new_gid: None,
                 aria2_request: None,
                 critical_paths: vec!["/downloads/archive.zip".to_string()],
+                file_cleanup_paths: Vec::new(),
                 completed_side_effects: vec!["old_task_paused".to_string()],
                 proxy_enabled: None,
                 task_snapshot: None,
@@ -47,6 +48,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                     new_gid: Some("new-gid".to_string()),
                     aria2_request: None,
                     critical_paths: vec!["/downloads/archive.zip".to_string()],
+                    file_cleanup_paths: Vec::new(),
                     completed_side_effects: vec![
                         "old_task_paused".to_string(),
                         "new_task_created".to_string(),

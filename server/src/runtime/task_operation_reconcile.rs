@@ -25,7 +25,11 @@ enum ReconcileAction {
 }
 
 pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Result<(), String> {
-    let operations = list_unfinished_task_operations(&state.core.database.pool).await?;
+    let operations = list_unfinished_task_operations(&state.core.database.pool)
+        .await?
+        .into_iter()
+        .filter(|operation| !operation.is_file_cleanup_pending())
+        .collect::<Vec<_>>();
     if operations.is_empty() {
         return Ok(());
     }

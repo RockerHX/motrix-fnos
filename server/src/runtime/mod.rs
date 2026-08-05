@@ -1,4 +1,5 @@
 pub mod aria2_process;
+pub(crate) mod file_cleanup;
 pub mod lifecycle;
 pub mod shutdown;
 pub mod task_monitor;
@@ -10,6 +11,7 @@ pub use aria2_process::{
     start_process, stop_aria2, stop_process, stop_process_with_timeout, Aria2ProcessStatus,
     Aria2StopError, ManagedAria2Process, ReadyAria2, ResolvedAria2Binary,
 };
+pub(crate) use file_cleanup::spawn_file_cleanup_worker;
 pub use lifecycle::{
     Aria2ActivitySignals, Aria2ActivitySnapshot, Aria2Lease, Aria2LeaseKind,
     Aria2LifecycleCoordinator, Aria2LifecycleCoordinatorSnapshot, Aria2LifecyclePhase,

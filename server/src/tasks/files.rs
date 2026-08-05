@@ -1,6 +1,6 @@
 use crate::tasks::{is_pending_magnet_metadata_task, DownloadTask, PreparedDownloadTask};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RESTORE_METADATA_ROOT: &str = "task-metadata";
@@ -66,6 +66,66 @@ impl StagedTaskFiles {
             )
         })
     }
+}
+
+pub(crate) fn cleanup_staged_task_file_path(task_id: u64, path: &str) -> Result<(), String> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return Err(format!(
+            "拒绝清理非绝对路径的任务暂存目录：{}",
+            path.display()
+        ));
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::CurDir))
+    {
+        return Err(format!(
+            "拒绝清理包含相对路径组件的任务暂存目录：{}",
+            path.display()
+        ));
+    }
+
+    let expected_prefix = format!("{}-{}-", REDOWNLOAD_BACKUP_PREFIX, task_id);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("任务暂存目录名称无效：{}", path.display()))?;
+    let suffix = name
+        .strip_prefix(&expected_prefix)
+        .filter(|suffix| !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()))
+        .ok_or_else(|| {
+            format!(
+                "拒绝清理不属于任务 {} 的暂存目录：{}",
+                task_id,
+                path.display()
+            )
+        })?;
+    let _ = suffix;
+
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "读取任务暂存目录失败：{}（{}）",
+                path.display(),
+                error
+            ));
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "拒绝清理符号链接形式的任务暂存目录：{}",
+            path.display()
+        ));
+    }
+    if !metadata.is_dir() {
+        return Err(format!("任务暂存路径不是目录：{}", path.display()));
+    }
+
+    fs::remove_dir_all(path)
+        .map_err(|error| format!("清理任务暂存文件失败：{}（{}）", path.display(), error))
 }
 
 pub(crate) fn stage_task_files(task: &DownloadTask) -> Result<Option<StagedTaskFiles>, String> {
