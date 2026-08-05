@@ -1,7 +1,7 @@
 use super::status::process_status;
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::HttpAppState;
-use crate::aria2::{save_session, terminate_process};
+use crate::aria2::save_session;
 use crate::database::tasks::persist_download_task_states;
 use crate::debug_logs::DebugLogStore;
 use crate::runtime::{Aria2ActivitySignals, Aria2ActivitySnapshot, Aria2LifecyclePhase};
@@ -9,6 +9,7 @@ use crate::tasks::{list_tasks, tell_active_task_activity, DownloadTask, Download
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Aria2StopError {
@@ -74,8 +75,7 @@ fn stop_process_with_timeout_inner(
                     );
                 }
             }
-            child.wait();
-            if !wait_until_process_exits(pid, process_exit_timeout) && !terminate_process(pid) {
+            if !child.wait_for_exit(process_exit_timeout)? {
                 let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
                 if let Some(debug_logs) = debug_logs {
                     debug_logs.error("aria2", &error);
@@ -105,8 +105,82 @@ pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Aria
 
 pub(crate) async fn stop_aria2_after_shutdown(
     state: &HttpAppState,
+    deadline: Instant,
 ) -> Result<Aria2ProcessStatus, Aria2StopError> {
-    stop_aria2_inner(state, false).await
+    stop_aria2_after_shutdown_until(state, deadline).await
+}
+
+async fn stop_aria2_after_shutdown_until(
+    state: &HttpAppState,
+    deadline: Instant,
+) -> Result<Aria2ProcessStatus, Aria2StopError> {
+    let _operation =
+        tokio::time::timeout_at(deadline, state.aria2_lifecycle.lock_lifecycle_operation())
+            .await
+            .map_err(|_| {
+                Aria2StopError::Failed("退出总预算耗尽，未能取得 Aria2 生命周期锁".to_string())
+            })?;
+    let quiescing = state
+        .aria2_lifecycle
+        .begin_quiescing()
+        .map_err(Aria2StopError::Busy)?;
+    if !tokio::time::timeout_at(
+        deadline,
+        current_activity_snapshot(state, Some(&state.core.debug_logs)),
+    )
+    .await
+    .map_err(|_| Aria2StopError::Failed("退出总预算耗尽，未能确认 Aria2 活动状态".to_string()))?
+    .map_err(Aria2StopError::Failed)?
+    .is_idle()
+    {
+        return Err(Aria2StopError::Busy(
+            "Aria2 仍有活动或在途操作，暂不能停止".to_string(),
+        ));
+    }
+    if !tokio::time::timeout_at(
+        deadline,
+        current_activity_snapshot(state, Some(&state.core.debug_logs)),
+    )
+    .await
+    .map_err(|_| Aria2StopError::Failed("退出总预算耗尽，未能再次确认 Aria2 活动状态".to_string()))?
+    .map_err(Aria2StopError::Failed)?
+    .is_idle()
+    {
+        return Err(Aria2StopError::Busy(
+            "Aria2 仍有活动或在途操作，暂不能停止".to_string(),
+        ));
+    }
+    let permit = state
+        .aria2_lifecycle
+        .acquire_stop_permit(quiescing)
+        .map_err(Aria2StopError::Busy)?;
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() {
+        return Err(Aria2StopError::Failed(
+            "退出总预算耗尽，未执行 Aria2 进程停止".to_string(),
+        ));
+    }
+    let process_exit_timeout = remaining.min(state.aria2_lifecycle.policy().process_exit_timeout);
+
+    match stop_process_with_timeout(
+        &state.aria2_process,
+        &state.core.debug_logs,
+        process_exit_timeout,
+    ) {
+        Ok(status) => {
+            state.clear_aria2_runtime();
+            permit
+                .complete(Aria2LifecyclePhase::Stopped)
+                .map_err(Aria2StopError::Failed)?;
+            Ok(status)
+        }
+        Err(error) => {
+            permit
+                .complete(Aria2LifecyclePhase::Faulted)
+                .map_err(Aria2StopError::Failed)?;
+            Err(Aria2StopError::Failed(error))
+        }
+    }
 }
 
 async fn stop_aria2_inner(
@@ -277,47 +351,4 @@ fn is_bt_activity_candidate(task: &DownloadTask) -> bool {
             task.source_type,
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
         )
-}
-
-#[cfg(unix)]
-fn process_is_running(pid: u32) -> bool {
-    std::process::Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-#[cfg(unix)]
-fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if !process_is_running(pid) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    !process_is_running(pid)
-}
-
-#[cfg(windows)]
-fn process_is_running(pid: u32) -> bool {
-    std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .output()
-        .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
-        .unwrap_or(false)
-}
-
-#[cfg(windows)]
-fn wait_until_process_exits(pid: u32, timeout: Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    while std::time::Instant::now() < deadline {
-        if !process_is_running(pid) {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    !process_is_running(pid)
 }

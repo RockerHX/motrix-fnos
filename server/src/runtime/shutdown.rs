@@ -6,34 +6,96 @@ use crate::tasks::{
     should_pause_task_on_exit,
 };
 use std::sync::Arc;
+use tokio::time::{timeout_at, Duration, Instant};
+
+pub(crate) const SHUTDOWN_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn run_shutdown_cleanup(state: &Arc<HttpAppState>) {
+    let deadline = Instant::now() + SHUTDOWN_TOTAL_TIMEOUT;
+    let _ = run_shutdown_cleanup_until(state, deadline).await;
+}
+
+pub(crate) async fn run_shutdown_cleanup_until(
+    state: &Arc<HttpAppState>,
+    deadline: Instant,
+) -> bool {
     state
         .core
         .debug_logs
         .info("runtime.exit", "开始执行统一退出流程");
 
     // 顺序不可互换：先同步最新进度，再暂停并持久化未完成任务，随后保存 session，最后才停止 Aria2；各阶段失败均按最后已知状态降级继续退出。
-    sync_tasks_before_exit(state).await;
-    pause_unfinished_tasks_before_exit(state).await;
-    save_aria2_session_before_exit(state).await;
+    if !run_shutdown_stage(
+        state,
+        deadline,
+        "同步任务状态",
+        sync_tasks_before_exit(state),
+    )
+    .await
+    {
+        return false;
+    }
+    if !run_shutdown_stage(
+        state,
+        deadline,
+        "暂停并持久化未完成任务",
+        pause_unfinished_tasks_before_exit(state),
+    )
+    .await
+    {
+        return false;
+    }
+    if !run_shutdown_stage(
+        state,
+        deadline,
+        "保存 Aria2 session",
+        save_aria2_session_before_exit(state),
+    )
+    .await
+    {
+        return false;
+    }
 
     // 只有确认 Aria2 已停止后才能清除运行态；失败时保留 PID/端口/secret，供下次启动识别并定向清理。
-    match super::aria2_process::stop_aria2_after_shutdown(state).await {
-        Ok(status) => {
-            state.core.debug_logs.info(
-                "runtime.exit",
-                format!("退出流程已停止 Aria2：{}", status.message),
-            );
+    run_shutdown_stage(state, deadline, "停止 Aria2", async {
+        match super::aria2_process::stop_aria2_after_shutdown(state, deadline).await {
+            Ok(status) => {
+                state.core.debug_logs.info(
+                    "runtime.exit",
+                    format!("退出流程已停止 Aria2：{}", status.message),
+                );
+            }
+            Err(error) => {
+                state.core.debug_logs.warn(
+                    "runtime.exit",
+                    format!(
+                        "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
+                        error
+                    ),
+                );
+            }
         }
-        Err(error) => {
+    })
+    .await
+}
+
+async fn run_shutdown_stage<F>(
+    state: &Arc<HttpAppState>,
+    deadline: Instant,
+    stage: &str,
+    operation: F,
+) -> bool
+where
+    F: std::future::Future<Output = ()>,
+{
+    match timeout_at(deadline, operation).await {
+        Ok(()) => true,
+        Err(_) => {
             state.core.debug_logs.warn(
                 "runtime.exit",
-                format!(
-                    "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
-                    error
-                ),
+                format!("退出总预算耗尽，未完成阶段：{}", stage),
             );
+            false
         }
     }
 }

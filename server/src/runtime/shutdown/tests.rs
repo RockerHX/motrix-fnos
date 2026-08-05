@@ -15,6 +15,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_aria2() {
@@ -84,6 +85,38 @@ async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
     assert_eq!(mock.save_session_calls(), 1);
 
     state.aria2_process.clear_poison();
+    crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test cleanup should stop the child process");
+    state.clear_aria2_runtime();
+    mock.abort();
+}
+
+#[tokio::test]
+async fn shutdown_cleanup_stops_at_shared_deadline_when_aria2_rpc_hangs() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
+        .expect("tasks should lock");
+    mock.set_response_delay(Duration::from_secs(1));
+    state.request_shutdown("测试退出总预算");
+
+    let started_at = Instant::now();
+    let completed = run_shutdown_cleanup_until(
+        &state,
+        tokio::time::Instant::now() + Duration::from_millis(80),
+    )
+    .await;
+
+    assert!(!completed);
+    assert!(started_at.elapsed() < Duration::from_millis(400));
+    assert!(state.aria2_runtime_snapshot().is_some());
+    assert!(state.core.debug_logs.list().iter().any(|entry| {
+        entry.module == "runtime.exit" && entry.message.contains("退出总预算耗尽")
+    }));
+
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
     state.clear_aria2_runtime();
@@ -380,13 +413,15 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 }
 
 fn temp_dir(label: &str) -> PathBuf {
+    static NEXT_TEMP_DIR_ID: AtomicU64 = AtomicU64::new(0);
     std::env::temp_dir().join(format!(
-        "motrix-fnos-{}-{}",
+        "motrix-fnos-{}-{}-{}",
         label,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be valid")
-            .as_nanos()
+            .as_nanos(),
+        NEXT_TEMP_DIR_ID.fetch_add(1, Ordering::SeqCst),
     ))
 }
 
@@ -450,6 +485,12 @@ impl MockAria2Server {
         self.state.fail_save_session.store(true, Ordering::SeqCst);
     }
 
+    fn set_response_delay(&self, delay: Duration) {
+        self.state
+            .response_delay_ms
+            .store(delay.as_millis() as u64, Ordering::SeqCst);
+    }
+
     fn enable_bt_upload(&self) {
         self.state.bt_upload_active.store(true, Ordering::SeqCst);
     }
@@ -466,6 +507,7 @@ struct MockAria2State {
     save_session_calls: AtomicU64,
     fail_save_session: AtomicBool,
     bt_upload_active: AtomicBool,
+    response_delay_ms: AtomicU64,
 }
 
 impl Default for MockAria2State {
@@ -486,6 +528,7 @@ impl Default for MockAria2State {
             save_session_calls: AtomicU64::new(0),
             fail_save_session: AtomicBool::new(false),
             bt_upload_active: AtomicBool::new(false),
+            response_delay_ms: AtomicU64::new(0),
         }
     }
 }
@@ -501,6 +544,10 @@ async fn mock_aria2_rpc(
     State(state): State<Arc<MockAria2State>>,
     Json(payload): Json<Value>,
 ) -> Json<Value> {
+    let response_delay_ms = state.response_delay_ms.load(Ordering::SeqCst);
+    if response_delay_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(response_delay_ms)).await;
+    }
     let method = payload
         .get("method")
         .and_then(Value::as_str)

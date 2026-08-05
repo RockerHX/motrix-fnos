@@ -26,6 +26,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch, RwLock};
+use tokio::time::{timeout_at, Duration, Instant};
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
 pub const HTTP_ADDR_ENV: &str = "MOTRIX_FNOS_HTTP_ADDR";
@@ -694,6 +695,24 @@ async fn serve_http_listeners<F>(
 where
     F: Future<Output = Result<String, String>>,
 {
+    serve_http_listeners_with_shutdown_timeout(
+        state,
+        listeners,
+        shutdown_signal,
+        crate::runtime::SHUTDOWN_TOTAL_TIMEOUT,
+    )
+    .await
+}
+
+async fn serve_http_listeners_with_shutdown_timeout<F>(
+    state: Arc<HttpAppState>,
+    listeners: HttpListeners,
+    shutdown_signal: F,
+    shutdown_timeout: Duration,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<String, String>>,
+{
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let management_server = axum::serve(
         listeners.management,
@@ -757,46 +776,60 @@ where
         ),
     };
 
+    let shutdown_deadline = Instant::now() + shutdown_timeout;
     state.request_shutdown(reason);
-    crate::runtime::run_shutdown_cleanup(&state).await;
     let _ = shutdown_sender.send(true);
+    let _ = crate::runtime::run_shutdown_cleanup_until(&state, shutdown_deadline).await;
 
-    let remaining_error = match trigger {
-        HttpStopTrigger::Signal(_) => {
-            let (management_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
-                &mut management_server,
-                &mut jsonrpc_server,
-                &mut lan_jsonrpc_server
+    let remaining_error = match timeout_at(shutdown_deadline, async {
+        match trigger {
+            HttpStopTrigger::Signal(_) => {
+                let (management_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
+                    &mut management_server,
+                    &mut jsonrpc_server,
+                    &mut lan_jsonrpc_server
+                );
+                combine_server_errors([
+                    ("管理 HTTP 服务", management_result),
+                    ("JSON-RPC HTTP 服务", jsonrpc_result),
+                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+                ])
+            }
+            HttpStopTrigger::Management(_) => {
+                let (jsonrpc_result, lan_jsonrpc_result) =
+                    tokio::join!(&mut jsonrpc_server, &mut lan_jsonrpc_server);
+                combine_server_errors([
+                    ("JSON-RPC HTTP 服务", jsonrpc_result),
+                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+                ])
+            }
+            HttpStopTrigger::JsonRpc(_) => {
+                let (management_result, lan_jsonrpc_result) =
+                    tokio::join!(&mut management_server, &mut lan_jsonrpc_server);
+                combine_server_errors([
+                    ("管理 HTTP 服务", management_result),
+                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+                ])
+            }
+            HttpStopTrigger::LanJsonRpc(_) => {
+                let (management_result, jsonrpc_result) =
+                    tokio::join!(&mut management_server, &mut jsonrpc_server);
+                combine_server_errors([
+                    ("管理 HTTP 服务", management_result),
+                    ("JSON-RPC HTTP 服务", jsonrpc_result),
+                ])
+            }
+        }
+    })
+    .await
+    {
+        Ok(error) => error,
+        Err(_) => {
+            state.core.debug_logs.warn(
+                "runtime.exit",
+                "HTTP 服务排空超过退出总时限，强制结束 server 进程",
             );
-            combine_server_errors([
-                ("管理 HTTP 服务", management_result),
-                ("JSON-RPC HTTP 服务", jsonrpc_result),
-                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
-            ])
-        }
-        HttpStopTrigger::Management(_) => {
-            let (jsonrpc_result, lan_jsonrpc_result) =
-                tokio::join!(&mut jsonrpc_server, &mut lan_jsonrpc_server);
-            combine_server_errors([
-                ("JSON-RPC HTTP 服务", jsonrpc_result),
-                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
-            ])
-        }
-        HttpStopTrigger::JsonRpc(_) => {
-            let (management_result, lan_jsonrpc_result) =
-                tokio::join!(&mut management_server, &mut lan_jsonrpc_server);
-            combine_server_errors([
-                ("管理 HTTP 服务", management_result),
-                ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
-            ])
-        }
-        HttpStopTrigger::LanJsonRpc(_) => {
-            let (management_result, jsonrpc_result) =
-                tokio::join!(&mut management_server, &mut jsonrpc_server);
-            combine_server_errors([
-                ("管理 HTTP 服务", management_result),
-                ("JSON-RPC HTTP 服务", jsonrpc_result),
-            ])
+            Some("HTTP 服务排空超过退出总时限".to_string())
         }
     };
 

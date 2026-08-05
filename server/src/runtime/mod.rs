@@ -16,6 +16,7 @@ pub use lifecycle::{
     Aria2LifecyclePolicy, Aria2LifecycleSnapshot, Aria2QuiescingGuard, Aria2StopPermit,
 };
 pub use shutdown::run_shutdown_cleanup;
+pub(crate) use shutdown::{run_shutdown_cleanup_until, SHUTDOWN_TOTAL_TIMEOUT};
 pub(crate) use task_monitor::current_tasks_snapshot;
 pub use task_monitor::{
     broadcast_tasks_snapshot, monitor_tasks_once, spawn_task_monitor, visible_tasks_snapshot,

@@ -15,6 +15,7 @@ pub use ports::{
     rpc_port_candidates, rpc_ports_exhausted_message, select_available_rpc_port,
     select_rpc_port_with_saved_runtime,
 };
+#[cfg(test)]
 pub(crate) use process_probe::terminate_process;
 pub(crate) use rpc::Aria2RpcError;
 pub use rpc::{ping_rpc, Aria2RpcClient, Aria2RpcStatus};
