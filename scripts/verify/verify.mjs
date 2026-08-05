@@ -5,10 +5,6 @@ import { cargoProgressDetail, runCommandWithProgress } from "../lib/command-prog
 
 const quick = process.argv.includes("--quick");
 const packageManager = resolvePackageManager();
-const rustEnv = {
-  ...process.env,
-  RUSTFLAGS: appendRustDenyWarnings(process.env.RUSTFLAGS),
-};
 
 const steps = quick
   ? [
@@ -21,8 +17,8 @@ const steps = quick
       { title: "构建与发布脚本测试", command: packageManager, args: ["run", "test:scripts"], detail: "收集 Node.js 测试" },
       { title: "FPK 进程身份校验测试", command: "sh", args: ["scripts/verify/test-fnos-process-identity.sh"], detail: "运行进程身份 Shell 场景" },
       { title: "FPK 服务就绪脚本测试", command: "sh", args: ["scripts/verify/test-fnos-readiness.sh"], detail: "运行服务就绪 Shell 场景" },
-      { title: "Rust 测试（warnings as errors）", command: "node", args: ["scripts/verify/run-rust-tests.mjs"], env: rustEnv, detail: "收集 Rust 测试目标" },
-      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], env: rustEnv, detail: "准备 Cargo 编译", activity: cargoProgressDetail },
+      { title: "Rust 测试（warnings as errors）", command: "node", args: ["scripts/verify/run-rust-tests.mjs"], detail: "收集 Rust 测试目标" },
+      { title: "Rust 编译（warnings as errors）", command: "cargo", args: ["build", "--manifest-path", "server/Cargo.toml"], detail: "准备 Cargo 编译", activity: cargoProgressDetail },
       { title: "前端单元测试", command: packageManager, args: ["run", "test:unit"], detail: "收集 Vitest 测试文件" },
       { title: "前端类型检查与构建", command: packageManager, args: ["run", "build"], detail: "准备前端类型检查" },
     ];
@@ -67,14 +63,6 @@ function resolveCommand(command) {
     return `${command}.cmd`;
   }
   return command;
-}
-
-function appendRustDenyWarnings(value = "") {
-  const flags = value.split(/\s+/).filter(Boolean);
-  if (!flags.includes("-D") || !flags.includes("warnings")) {
-    flags.push("-D", "warnings");
-  }
-  return flags.join(" ");
 }
 
 function formatDuration(milliseconds) {

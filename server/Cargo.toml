@@ -3,6 +3,9 @@ name = "motrix-fnos-server"
 version = "1.8.5"
 edition = "2021"
 
+[lints.rust]
+warnings = "deny"
+
 [lib]
 name = "motrix_fnos_server"
 path = "src/lib.rs"
@@ -27,3 +30,9 @@ tower-http = { version = "0.6", features = ["fs", "limit", "timeout"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
