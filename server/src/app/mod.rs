@@ -390,7 +390,7 @@ pub async fn bootstrap_http_app_state(
     state.remember_json_rpc_token(&json_rpc_token);
     *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
-    crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state));
+    crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
 
     Ok(state)
 }

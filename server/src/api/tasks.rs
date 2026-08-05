@@ -303,7 +303,7 @@ async fn delete_task(
         .map_err(classify_task_error)?;
     let response = context.finish(task)?;
     if query.delete_files.unwrap_or(false) {
-        spawn_file_cleanup_worker(Arc::clone(&state));
+        spawn_file_cleanup_worker(Arc::clone(&state)).await;
     }
     Ok(response)
 }

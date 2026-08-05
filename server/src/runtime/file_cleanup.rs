@@ -5,7 +5,26 @@ use crate::tasks::TaskOperation;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub(crate) fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
+pub(crate) async fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
+    let has_pending_cleanup = match list_unfinished_task_operations(&state.core.database.pool).await
+    {
+        Ok(operations) => operations
+            .into_iter()
+            .any(|operation| operation.is_file_cleanup_pending()),
+        Err(error) => {
+            state.core.debug_logs.warn(
+                "tasks.file_cleanup",
+                format!(
+                    "检查待清理任务文件失败，将在下次启动或操作时重试：{}",
+                    error
+                ),
+            );
+            return;
+        }
+    };
+    if !has_pending_cleanup {
+        return;
+    }
     if !state.try_start_file_cleanup_worker() {
         return;
     }

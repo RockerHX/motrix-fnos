@@ -198,6 +198,35 @@ fn bootstrap_http_app_state_restores_database_state() {
 }
 
 #[tokio::test]
+async fn bootstrap_without_pending_file_cleanup_keeps_state_exclusively_owned() {
+    let app_data_dir = std::env::temp_dir().join(format!(
+        "motrix-fnos-bootstrap-no-file-cleanup-{}",
+        now_ms()
+    ));
+    let runtime = ServerRuntimeConfig {
+        database_path: app_data_dir.join(DATABASE_FILE_NAME),
+        accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        app_data_dir: app_data_dir.clone(),
+        http_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+
+    let mut state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+
+    assert!(std::sync::Arc::get_mut(&mut state).is_some());
+
+    state.core.database.pool.close().await;
+    drop(state);
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}
+
+#[tokio::test]
 async fn bootstrap_reconciles_prepared_operation_without_starting_aria2() {
     let app_data_dir =
         std::env::temp_dir().join(format!("motrix-fnos-bootstrap-prepared-{}", now_ms()));
