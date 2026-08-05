@@ -130,7 +130,7 @@ fn source_buckets_are_isolated_and_expire() {
             .expect("failure should record"),
         Some(30)
     );
-    assert_eq!(limiter.source_bucket_count(), 2);
+    assert_eq!(source_bucket_count(&limiter), 2);
 
     now.store(FAILURE_WINDOW_MS, Ordering::Relaxed);
     assert_eq!(
@@ -139,7 +139,7 @@ fn source_buckets_are_isolated_and_expire() {
             .expect("limit should read"),
         None
     );
-    assert_eq!(limiter.source_bucket_count(), 1);
+    assert_eq!(source_bucket_count(&limiter), 1);
 }
 
 #[test]
@@ -178,7 +178,16 @@ fn source_bucket_count_is_bounded() {
             None
         );
     }
-    assert!(limiter.source_bucket_count() <= MAX_SOURCE_BUCKETS);
+    assert!(source_bucket_count(&limiter) <= MAX_SOURCE_BUCKETS);
+}
+
+fn source_bucket_count(limiter: &LoginRateLimiter) -> usize {
+    limiter
+        .state
+        .lock()
+        .expect("rate limiter state should lock")
+        .sources
+        .len()
 }
 
 fn test_limiter() -> (LoginRateLimiter, Arc<AtomicU64>) {

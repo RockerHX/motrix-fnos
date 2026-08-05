@@ -3,8 +3,6 @@ mod create;
 pub(crate) mod query;
 mod transport;
 
-#[cfg(test)]
-pub(crate) use control::build_get_option_request;
 pub(crate) use control::is_aria2_outcome_unknown_error;
 pub(crate) use control::{build_gid_control_request, send_gid_control_request};
 pub use control::{
@@ -13,8 +11,6 @@ pub use control::{
     unpause_task_with_request_id, Aria2TaskOptionError,
 };
 pub use create::{add_torrent_to_aria2, add_uri_to_aria2, Aria2TaskCreationError};
-#[cfg(test)]
-pub(crate) use create::{build_add_torrent_request, build_add_uri_request};
 pub(crate) use create::{build_add_torrent_request_with_id, build_add_uri_request_with_id};
 pub(crate) use query::{
     build_tell_many_request, build_tell_status_request, task_exists, tell_active_task_activity,

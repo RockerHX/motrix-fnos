@@ -320,11 +320,6 @@ pub(crate) fn build_change_option_request_with_id(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn build_get_option_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
-    build_get_option_request_with_id(config, gid, "motrix-fnos-get-option")
-}
-
 fn build_get_option_request_with_id(
     config: &Aria2Config,
     gid: &str,

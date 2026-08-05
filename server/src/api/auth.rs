@@ -19,14 +19,6 @@ use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
 
-#[cfg(test)]
-pub fn routes() -> Router<Arc<HttpAppState>> {
-    Router::new()
-        .merge(public_routes())
-        .merge(session_routes())
-        .merge(admin_routes())
-}
-
 pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/auth/status", get(status))

@@ -455,17 +455,8 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 }
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
+    let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
     state.clear_aria2_runtime();
-    if let Some(mut child) = state
-        .aria2_process
-        .lock()
-        .expect("process lock should succeed")
-        .take()
-    {
-        let pid = child.id();
-        let _ = child.kill();
-        let _ = crate::aria2::terminate_process(pid);
-    }
 }
 
 fn temp_dir(label: &str) -> PathBuf {

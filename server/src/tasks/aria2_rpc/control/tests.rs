@@ -9,6 +9,14 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+#[test]
+fn get_option_request_targets_one_gid() {
+    let request = build_get_option_request_with_id(&test_config(6800), "gid-1", "test-get-option");
+
+    assert_eq!(request["method"], "aria2.getOption");
+    assert_eq!(request["params"][0], "gid-1");
+}
+
 #[tokio::test]
 async fn gid_control_rejects_empty_result() {
     let mock = MockRpcServer::spawn(vec![MockResponse::Json(json!({ "result": "" }))]).await;

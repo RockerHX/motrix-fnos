@@ -105,15 +105,6 @@ impl LoginRateLimiter {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn source_bucket_count(&self) -> usize {
-        self.state
-            .lock()
-            .expect("rate limiter state should lock")
-            .sources
-            .len()
-    }
-
     fn with_clock(clock: Clock) -> Self {
         Self {
             state: Arc::new(Mutex::new(LoginRateLimiterState::default())),

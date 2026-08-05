@@ -31,11 +31,6 @@ pub(super) async fn handle_jsonrpc_payload_with_access(
     }
 }
 
-#[cfg(test)]
-pub(super) async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: Value) -> Value {
-    handle_jsonrpc_payload_with_access(state, JsonRpcAccess::Proxy, payload).await
-}
-
 async fn handle_jsonrpc_request(
     state: &Arc<HttpAppState>,
     access: JsonRpcAccess,
@@ -102,15 +97,6 @@ pub(super) async fn execute_method_with_access(
             "Method not found: {method}"
         ))),
     }
-}
-
-#[cfg(test)]
-pub(super) async fn execute_method(
-    state: &Arc<HttpAppState>,
-    method: &str,
-    params: &Value,
-) -> Result<Value, RpcFault> {
-    execute_method_with_access(state, JsonRpcAccess::Proxy, method, params).await
 }
 
 async fn get_global_option(

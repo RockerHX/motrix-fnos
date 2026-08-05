@@ -71,7 +71,7 @@ fn restore_and_redownload_proxy_override_body_is_optional() {
 #[tokio::test]
 async fn create_and_refresh_then_list_routes_work_with_ready_aria2() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -131,14 +131,14 @@ async fn create_and_refresh_then_list_routes_work_with_ready_aria2() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].status, DownloadTaskStatus::Active);
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn create_route_starts_paused_magnet_metadata_resolution() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-magnet-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -174,14 +174,14 @@ async fn create_route_starts_paused_magnet_metadata_resolution() {
         .join("task-1")
         .is_dir());
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn confirm_task_files_route_validates_selection_and_starts_task() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-confirm-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -262,14 +262,14 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
     assert_eq!(confirmed.gid.as_deref(), Some("gid-2"));
     assert!(!confirmed.confirmation_required);
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn create_route_accepts_category_and_advanced_options() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-advanced-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -307,14 +307,14 @@ async fn create_route_accepts_category_and_advanced_options() {
             .expect("private proxy override should load");
     assert_eq!(stored_override.as_deref(), Some("http://127.0.0.1:7890/"));
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn create_route_returns_structured_proxy_errors_without_side_effects() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-proxy-validation");
     let save_dir_text = save_dir.display().to_string();
@@ -365,7 +365,7 @@ async fn create_route_returns_structured_proxy_errors_without_side_effects() {
         .expect("tasks should list")
         .is_empty());
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
@@ -452,7 +452,7 @@ async fn update_proxy_route_persists_without_starting_aria2() {
 #[tokio::test]
 async fn update_proxy_route_applies_active_task_and_maps_rpc_failure() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -504,7 +504,7 @@ async fn update_proxy_route_applies_active_task_and_maps_rpc_failure() {
     assert_eq!(error.code, "proxy_apply_failed");
     assert!(state.core.download_tasks.list().expect("tasks should list")[0].use_proxy);
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
@@ -637,7 +637,7 @@ async fn update_proxy_route_returns_structured_errors() {
 #[tokio::test]
 async fn create_batch_route_returns_created_and_failed_items() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-batch-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -674,14 +674,14 @@ async fn create_batch_route_returns_created_and_failed_items() {
     assert!(result.created[0].use_proxy);
     assert_eq!(result.failed[0].input, "ftp://example.com/archive-b.zip");
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn create_batch_route_returns_bad_request_when_all_items_fail() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-batch-failed-downloads")
         .display()
@@ -707,7 +707,7 @@ async fn create_batch_route_returns_bad_request_when_all_items_fail() {
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.failed[0].input, "ftp://example.com/archive.zip");
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
@@ -751,7 +751,7 @@ async fn create_batch_reports_proxy_preflight_failure_per_item_without_starting_
 #[tokio::test]
 async fn create_torrent_route_accepts_multipart_upload() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-torrent-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -780,14 +780,14 @@ async fn create_torrent_route_accepts_multipart_upload() {
     );
     assert_eq!(created.status, DownloadTaskStatus::Paused);
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
 #[tokio::test]
 async fn pause_resume_and_delete_routes_update_task_state() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-downloads").display().to_string();
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
@@ -945,7 +945,7 @@ async fn pause_resume_and_delete_routes_update_task_state() {
     .await;
     assert!(removed_list.is_empty());
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
@@ -1062,7 +1062,7 @@ async fn list_tasks_returns_memory_snapshot_when_aria2_is_stopped() {
 #[tokio::test]
 async fn list_tasks_does_not_refresh_or_persist_when_aria2_is_ready() {
     let mock = MockAria2Server::spawn().await;
-    let (state, child_pid) = ready_state(&mock).await;
+    let state = ready_state(&mock).await;
     let persisted = sample_task(1, DownloadTaskStatus::Paused);
     crate::database::tasks::upsert_download_task(&state.core.database.pool, &persisted)
         .await
@@ -1105,7 +1105,7 @@ async fn list_tasks_does_not_refresh_or_persist_when_aria2_is_ready() {
     assert_eq!(stored[0].status, DownloadTaskStatus::Paused);
     assert_eq!(stored[0].updated_at, persisted.updated_at);
 
-    cleanup_state(&state, child_pid);
+    cleanup_state(&state);
     mock.abort();
 }
 
@@ -1215,7 +1215,7 @@ fn write_accessible_paths(state: &Arc<HttpAppState>, paths: &[String]) {
     .expect("accessible paths should write");
 }
 
-async fn ready_state(mock: &MockAria2Server) -> (Arc<HttpAppState>, u32) {
+async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
     let state = test_state().await;
     let child = spawn_sleep_child();
     let child_pid = child.id();
@@ -1240,20 +1240,12 @@ async fn ready_state(mock: &MockAria2Server) -> (Arc<HttpAppState>, u32) {
         Aria2BinarySource::ExternalPath,
     ));
 
-    (state, child_pid)
+    state
 }
 
-fn cleanup_state(state: &Arc<HttpAppState>, child_pid: u32) {
+fn cleanup_state(state: &Arc<HttpAppState>) {
+    let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
     state.clear_aria2_runtime();
-    if let Some(mut child) = state
-        .aria2_process
-        .lock()
-        .expect("process lock should succeed")
-        .take()
-    {
-        let _ = child.kill();
-    }
-    let _ = crate::aria2::terminate_process(child_pid);
 }
 
 async fn response_json<T: DeserializeOwned>(response: Response, expected_status: StatusCode) -> T {

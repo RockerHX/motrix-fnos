@@ -13,10 +13,17 @@ use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+fn test_routes() -> Router<Arc<HttpAppState>> {
+    Router::new()
+        .merge(public_routes())
+        .merge(session_routes())
+        .merge(admin_routes())
+}
+
 #[tokio::test]
 async fn auth_api_supports_setup_logout_password_and_protection_lifecycle() {
     let state = test_state("lifecycle").await;
-    let router = routes().with_state(state.clone());
+    let router = test_routes().with_state(state.clone());
 
     let initial = send(&router, "GET", "/auth/status", None, None, None).await;
     assert_eq!(initial.status(), StatusCode::OK);
@@ -117,7 +124,7 @@ async fn auth_api_supports_setup_logout_password_and_protection_lifecycle() {
 #[tokio::test]
 async fn secure_cookie_setting_applies_to_login_password_change_and_logout() {
     let state = test_state_with_cookie_secure("secure-cookie", true).await;
-    let router = routes().with_state(state);
+    let router = test_routes().with_state(state);
 
     let setup = send(
         &router,
@@ -191,7 +198,7 @@ async fn secure_cookie_setting_applies_to_login_password_change_and_logout() {
 #[tokio::test]
 async fn login_uses_generic_errors_and_rate_limit() {
     let state = test_state("rate-limit").await;
-    let router = routes().with_state(state);
+    let router = test_routes().with_state(state);
     let setup = send(
         &router,
         "POST",
@@ -233,7 +240,7 @@ async fn login_uses_generic_errors_and_rate_limit() {
 #[tokio::test]
 async fn login_rate_limit_isolated_by_connect_source() {
     let state = test_state("rate-limit-source").await;
-    let router = routes().with_state(state);
+    let router = test_routes().with_state(state);
     let setup = send_from(
         &router,
         "POST",

@@ -5,7 +5,6 @@ use super::refresh::{
 use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
 use crate::tasks::aria2_rpc::{
-    build_add_torrent_request, build_add_uri_request, build_get_option_request,
     build_gid_control_request, build_tell_many_request, build_tell_status_request,
 };
 use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
@@ -664,15 +663,6 @@ fn tell_many_request_uses_offsets_for_waiting_tasks() {
     assert_eq!(request["method"], "aria2.tellWaiting");
     assert_eq!(request["params"][0], 0);
     assert_eq!(request["params"][1], 1000);
-}
-
-#[test]
-fn get_option_request_targets_one_gid() {
-    let config = test_config();
-    let request = build_get_option_request(&config, "gid-1");
-
-    assert_eq!(request["method"], "aria2.getOption");
-    assert_eq!(request["params"][0], "gid-1");
 }
 
 #[test]
@@ -1590,170 +1580,6 @@ fn default_download_dir_uses_downloads_under_home() {
     let dir = default_download_dir().expect("default download dir should resolve");
 
     assert!(dir.ends_with("Downloads"));
-}
-
-#[test]
-fn add_uri_request_contains_url_and_options() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "https://example.com/file.zip".to_string(),
-            file_name: "custom.zip".to_string(),
-            output_file_name: Some("custom.zip".to_string()),
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Url,
-            start_mode: DownloadTaskStartMode::Now,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::from_iter([
-                (
-                    "split".to_string(),
-                    serde_json::Value::String("8".to_string()),
-                ),
-                (
-                    "max-connection-per-server".to_string(),
-                    serde_json::Value::String("8".to_string()),
-                ),
-                (
-                    "max-download-limit".to_string(),
-                    serde_json::Value::String("524288".to_string()),
-                ),
-            ]),
-            use_proxy: true,
-            proxy_binding: TaskProxyBinding::profile(Some("http://127.0.0.1:7890".to_string())),
-        },
-    );
-
-    assert_eq!(request["method"], "aria2.addUri");
-    assert_eq!(request["params"][0][0], "https://example.com/file.zip");
-    assert_eq!(request["params"][1]["dir"], "/downloads");
-    assert_eq!(request["params"][1]["out"], "custom.zip");
-    assert_eq!(request["params"][1]["split"], "8");
-    assert_eq!(request["params"][1]["max-connection-per-server"], "8");
-    assert_eq!(request["params"][1]["max-download-limit"], "524288");
-    assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
-    assert_eq!(request["params"][1]["pause"], "false");
-}
-
-#[test]
-fn add_uri_request_does_not_force_inferred_display_name_as_output() {
-    let task = prepare_task(CreateDownloadTaskRequest {
-        url: "https://example.com/download?id=123".to_string(),
-        file_name: None,
-        save_dir: Some(temp_download_dir("inferred-output")),
-        source_type: DownloadTaskSourceType::Url,
-        start_mode: DownloadTaskStartMode::Now,
-        category: None,
-        advanced_options: CreateTaskAdvancedOptions::default(),
-        aria2_options: serde_json::Map::new(),
-    })
-    .expect("URL task should be prepared");
-
-    assert_eq!(task.file_name, "download");
-    assert_eq!(task.output_file_name, None);
-    let request = build_add_uri_request(&test_config(), &task);
-    assert!(request["params"][1].get("out").is_none());
-}
-
-#[test]
-fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "magnet:?xt=urn:btih:test".to_string(),
-            file_name: "磁力链接任务".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: Some("/app-data/magnet-metadata/task-1".to_string()),
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Magnet,
-            start_mode: DownloadTaskStartMode::Paused,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-            use_proxy: false,
-            proxy_binding: TaskProxyBinding::default(),
-        },
-    );
-
-    assert_eq!(request["method"], "aria2.addUri");
-    assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
-    assert_eq!(
-        request["params"][1]["dir"],
-        "/app-data/magnet-metadata/task-1"
-    );
-    assert_eq!(request["params"][1]["pause"], "false");
-    assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
-    assert!(request["params"][1].get("all-proxy").is_none());
-    assert!(request["params"][1]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
-    assert!(request["params"][1].get("out").is_none());
-}
-
-#[test]
-fn add_uri_request_sets_pause_metadata_for_started_magnet() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "magnet:?xt=urn:btih:test".to_string(),
-            file_name: "磁力链接任务".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Magnet,
-            start_mode: DownloadTaskStartMode::Now,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-            use_proxy: false,
-            proxy_binding: TaskProxyBinding::default(),
-        },
-    );
-
-    assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
-    assert_eq!(request["params"][1]["pause"], "false");
-    assert!(request["params"][1]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
-}
-
-#[test]
-fn add_torrent_request_contains_base64_payload_and_options() {
-    let request = build_add_torrent_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "torrent:example.torrent".to_string(),
-            file_name: "example".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Url,
-            start_mode: DownloadTaskStartMode::Paused,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-            use_proxy: false,
-            proxy_binding: TaskProxyBinding::default(),
-        },
-        b"torrent-bytes",
-    );
-
-    assert_eq!(request["method"], "aria2.addTorrent");
-    assert_eq!(request["params"][0], "dG9ycmVudC1ieXRlcw==");
-    assert_eq!(request["params"][1], serde_json::json!([]));
-    assert_eq!(request["params"][2]["dir"], "/downloads");
-    assert_eq!(request["params"][2]["pause"], "true");
-    assert_eq!(request["params"][2]["pause-metadata"], "true");
-    assert_eq!(request["params"][2]["seed-time"], "0");
-    assert!(request["params"][2]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
 }
 
 #[test]

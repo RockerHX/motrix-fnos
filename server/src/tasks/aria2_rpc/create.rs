@@ -159,14 +159,6 @@ pub async fn add_torrent_to_aria2(
     Ok(gid)
 }
 
-#[cfg(test)]
-pub(crate) fn build_add_uri_request(
-    config: &Aria2Config,
-    task: &PreparedDownloadTask,
-) -> serde_json::Value {
-    build_add_uri_request_with_id(config, task, "motrix-fnos-add-uri")
-}
-
 pub(crate) fn build_add_uri_request_with_id(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
@@ -231,15 +223,6 @@ fn apply_default_bt_seed_behavior(options: &mut serde_json::Map<String, serde_js
         .or_insert_with(|| serde_json::json!("0"));
 }
 
-#[cfg(test)]
-pub(crate) fn build_add_torrent_request(
-    config: &Aria2Config,
-    task: &PreparedDownloadTask,
-    torrent_data: &[u8],
-) -> serde_json::Value {
-    build_add_torrent_request_with_id(config, task, torrent_data, "motrix-fnos-add-torrent")
-}
-
 pub(crate) fn build_add_torrent_request_with_id(
     config: &Aria2Config,
     task: &PreparedDownloadTask,
@@ -298,3 +281,6 @@ fn apply_task_proxy_option(
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

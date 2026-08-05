@@ -1,9 +1,7 @@
 use super::add_uri::{authorized_save_dir, parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
-use super::methods::{
-    execute_method, execute_method_with_access, handle_jsonrpc_payload,
-    handle_jsonrpc_payload_with_access,
-};
+use super::methods::{execute_method_with_access, handle_jsonrpc_payload_with_access};
+use super::types::RpcFault;
 use super::JsonRpcAccess;
 use crate::app::HttpAppState;
 use crate::app::{
@@ -30,6 +28,18 @@ use tokio::time::timeout;
 use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+async fn handle_jsonrpc_payload(state: &Arc<HttpAppState>, payload: Value) -> Value {
+    handle_jsonrpc_payload_with_access(state, JsonRpcAccess::Proxy, payload).await
+}
+
+async fn execute_method(
+    state: &Arc<HttpAppState>,
+    method: &str,
+    params: &Value,
+) -> Result<Value, RpcFault> {
+    execute_method_with_access(state, JsonRpcAccess::Proxy, method, params).await
+}
 
 #[test]
 fn validate_add_uri_token_rejects_empty_configured_token() {
