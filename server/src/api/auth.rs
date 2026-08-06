@@ -19,6 +19,11 @@ use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
 
+#[derive(Clone)]
+pub(crate) struct EventAuthContext {
+    session_id: String,
+}
+
 pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/auth/status", get(status))
@@ -49,13 +54,36 @@ pub(crate) async fn management_auth(
 
 pub(crate) async fn event_auth(
     State(state): State<Arc<HttpAppState>>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_context_request(&state, request.headers(), false, false).await {
-        Ok(()) => next.run(request).await,
+    match authorize_event_request(&state, request.headers()).await {
+        Ok(context) => {
+            request.extensions_mut().insert(context);
+            next.run(request).await
+        }
         Err(error) => error.into_response(),
     }
+}
+
+pub(crate) async fn event_context_is_authorized(
+    state: &HttpAppState,
+    context: &EventAuthContext,
+) -> bool {
+    let Ok(auth_state) = load_auth_state(state).await else {
+        return false;
+    };
+    if auth_state.setup_required {
+        return false;
+    }
+    let Ok(Some(session)) = state
+        .auth
+        .sessions
+        .validate_without_activity(&context.session_id, auth_state.auth_version)
+    else {
+        return false;
+    };
+    !auth_state.enabled || session.kind == SessionKind::Admin
 }
 
 pub(crate) async fn session_auth(
@@ -368,6 +396,24 @@ async fn authorize_context_request(
         validate_csrf(state, headers, &auth_state, &session)?;
     }
     Ok(())
+}
+
+async fn authorize_event_request(
+    state: &HttpAppState,
+    headers: &HeaderMap,
+) -> Result<EventAuthContext, ApiError> {
+    let auth_state = load_auth_state(state).await?;
+    if auth_state.setup_required {
+        return Err(authentication_required());
+    }
+    let session =
+        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    if auth_state.enabled && session.kind != SessionKind::Admin {
+        return Err(authentication_required());
+    }
+    Ok(EventAuthContext {
+        session_id: session.id,
+    })
 }
 
 fn validate_csrf(

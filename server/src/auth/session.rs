@@ -94,6 +94,23 @@ impl SessionStore {
         id: &str,
         auth_version: u64,
     ) -> Result<Option<ValidatedSession>, SessionError> {
+        self.validate_with_activity(id, auth_version, true)
+    }
+
+    pub(crate) fn validate_without_activity(
+        &self,
+        id: &str,
+        auth_version: u64,
+    ) -> Result<Option<ValidatedSession>, SessionError> {
+        self.validate_with_activity(id, auth_version, false)
+    }
+
+    fn validate_with_activity(
+        &self,
+        id: &str,
+        auth_version: u64,
+        refresh_activity: bool,
+    ) -> Result<Option<ValidatedSession>, SessionError> {
         let now = (self.clock)();
         let mut sessions = self
             .sessions
@@ -107,7 +124,9 @@ impl SessionStore {
             sessions.remove(id);
             return Ok(None);
         }
-        session.last_active_at_ms = now;
+        if refresh_activity {
+            session.last_active_at_ms = now;
+        }
         Ok(Some(ValidatedSession {
             id: id.to_string(),
             csrf_token: URL_SAFE_NO_PAD.encode(session.csrf_token),

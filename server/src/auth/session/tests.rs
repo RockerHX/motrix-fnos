@@ -68,6 +68,27 @@ fn enforces_idle_and_absolute_expiration_with_activity_refresh() {
 }
 
 #[test]
+fn validation_without_activity_does_not_extend_idle_timeout() {
+    let now = Arc::new(AtomicU64::new(1_000));
+    let clock_now = now.clone();
+    let store = SessionStore::with_clock(Arc::new(move || clock_now.load(Ordering::Relaxed)));
+    let session = store
+        .create(SessionKind::Admin, 7)
+        .expect("session should create");
+
+    now.store(10 * 60 * 1_000, Ordering::Relaxed);
+    assert!(store
+        .validate_without_activity(&session.id, 7)
+        .expect("validation should run")
+        .is_some());
+    now.store(30 * 60 * 1_000 + 1_000, Ordering::Relaxed);
+    assert!(store
+        .validate_without_activity(&session.id, 7)
+        .expect("validation should run")
+        .is_none());
+}
+
+#[test]
 fn rejects_auth_version_changes_and_cross_session_csrf() {
     let store = SessionStore::new();
     let first = store
@@ -87,7 +108,7 @@ fn rejects_auth_version_changes_and_cross_session_csrf() {
         .validate_csrf(&first.id, 3, "invalid")
         .expect("csrf should validate"));
     assert!(store
-        .validate(&first.id, 4)
+        .validate_without_activity(&first.id, 4)
         .expect("validation should run")
         .is_none());
     assert!(store
