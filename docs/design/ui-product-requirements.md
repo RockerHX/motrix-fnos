@@ -2,7 +2,7 @@
 
 > 状态：已确认，作为当前 UI 产品需求来源
 > 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）
-> 事实来源：当前 `src/`、`docs/architecture.md`、`docs/api-contract.md`、`docs/development-plan.md`
+> 事实来源：当前 `src/`、`docs/architecture.md`、`docs/api-contract.md`
 > 边界：本文定义 UI 展示与体验需求，不替代架构、接口契约或开发计划。
 
 ## 1. 需求标记

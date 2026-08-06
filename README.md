@@ -34,8 +34,7 @@ FPK 按设备 CPU 架构分别发布：
 ## 技术文档
 
 - [架构与职责边界](docs/architecture.md)
-- [当前开发阶段](docs/development-plan.md)
-- [后续开发计划清单](docs/future-development-plan.md)
+- [开发计划与后续事项](docs/future-development-plan.md)
 - [HTTP、SSE 与 JSON-RPC 接口](docs/api-contract.md)
 - [开发脚本与命令说明](docs/development-scripts.md)
 - [FPK 构建、验证与发布](docs/fpk-packaging.md)

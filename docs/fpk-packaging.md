@@ -395,8 +395,7 @@ appcenter-cli list
 ## 相关文档
 
 - 长期架构：`docs/architecture.md`
-- 当前阶段状态：`docs/development-plan.md`
-- 后续开发清单：`docs/future-development-plan.md`
+- 开发计划与后续清单：`docs/future-development-plan.md`
 - 接口契约：`docs/api-contract.md`
 
 ## GitHub Actions 自动发版流程
