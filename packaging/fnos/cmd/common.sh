@@ -318,15 +318,17 @@ aria2_runtime_process_is_owned() {
   process_matches_executable "${pid}" "${ARIA2_BIN}" || return 1
 
   recorded_start_time=$(read_runtime_json_number "processStartTime" || true)
-  if [ -n "${recorded_start_time}" ]; then
-    actual_start_time=$(process_start_time "${pid}" || true)
-    [ -n "${actual_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
-  fi
+  case "${recorded_start_time}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  actual_start_time=$(process_start_time "${pid}" || true)
+  [ -n "${actual_start_time}" ] && [ "${recorded_start_time}" = "${actual_start_time}" ] || return 1
   recorded_uid=$(read_runtime_json_number "processUid" || true)
-  if [ -n "${recorded_uid}" ]; then
-    actual_uid=$(process_uid "${pid}" || true)
-    [ -n "${actual_uid}" ] && [ "${recorded_uid}" = "${actual_uid}" ] || return 1
-  fi
+  case "${recorded_uid}" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  actual_uid=$(process_uid "${pid}" || true)
+  [ -n "${actual_uid}" ] && [ "${recorded_uid}" = "${actual_uid}" ] || return 1
 
   command_line_file="${PROC_ROOT}/${pid}/cmdline"
   [ -r "${command_line_file}" ] || return 1

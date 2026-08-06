@@ -69,6 +69,7 @@ write_proc_fixture() {
   mkdir -p "${PROC_FIXTURE}/${process_pid}"
   ln -s "${executable}" "${PROC_FIXTURE}/${process_pid}/exe"
   printf '%s\n' "${process_pid} (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ${start_time}" > "${PROC_FIXTURE}/${process_pid}/stat"
+  printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/${process_pid}/status"
   if [ -n "${command_line}" ]; then
     printf '%s\000' ${command_line} > "${PROC_FIXTURE}/${process_pid}/cmdline"
   fi
@@ -113,6 +114,31 @@ cat > "${ARIA2_RUNTIME_FILE}" <<EOF
   "pid": ${SIDECAR_PID},
   "actualPort": 16800,
   "rpcSecret": "test-secret"
+}
+EOF
+if aria2_runtime_process_is_owned; then
+  echo "缺少 Aria2 启动时间和 UID 时不得确认归属" >&2
+  exit 1
+fi
+cat > "${ARIA2_RUNTIME_FILE}" <<EOF
+{
+  "pid": ${SIDECAR_PID},
+  "actualPort": 16800,
+  "rpcSecret": "test-secret",
+  "processStartTime": 5252
+}
+EOF
+if aria2_runtime_process_is_owned; then
+  echo "缺少 Aria2 UID 时不得确认归属" >&2
+  exit 1
+fi
+cat > "${ARIA2_RUNTIME_FILE}" <<EOF
+{
+  "pid": ${SIDECAR_PID},
+  "actualPort": 16800,
+  "rpcSecret": "test-secret",
+  "processStartTime": 5252,
+  "processUid": $(id -u)
 }
 EOF
 "$(dirname -- "$0")/../../packaging/fnos/cmd/stop" > "${TEST_ROOT}/sidecar-stop-output" 2>&1
