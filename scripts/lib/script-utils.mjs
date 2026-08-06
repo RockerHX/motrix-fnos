@@ -261,9 +261,9 @@ export function validateFpkRuntimeEnvScript(content, expectedJsonRpcAddr, expect
   if (!content.includes('export MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"')) {
     throw new Error('cmd/common.sh 未导出 MOTRIX_FNOS_JSONRPC_ADDR');
   }
-  const lanDefaultLine = `LAN_JSONRPC_ADDR=\${MOTRIX_FNOS_LAN_JSONRPC_ADDR:-"${expectedLanJsonRpcAddr}"}`;
-  if (!content.includes(lanDefaultLine)) {
-    throw new Error(`cmd/common.sh 缺少局域网 JSON-RPC 默认值 ${expectedLanJsonRpcAddr}`);
+  const lanFixedLine = `LAN_JSONRPC_ADDR="${expectedLanJsonRpcAddr}"`;
+  if (!content.includes(lanFixedLine)) {
+    throw new Error(`cmd/common.sh 必须固定局域网 JSON-RPC 地址为 ${expectedLanJsonRpcAddr}`);
   }
   if (!content.includes('export MOTRIX_FNOS_LAN_JSONRPC_ADDR="${LAN_JSONRPC_ADDR}"')) {
     throw new Error('cmd/common.sh 未导出 MOTRIX_FNOS_LAN_JSONRPC_ADDR');

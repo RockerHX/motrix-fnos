@@ -302,12 +302,12 @@ test('FPK 端口隔离只允许公开管理端口', () => {
 });
 
 test('FPK 运行脚本必须导出两个 JSON-RPC 监听地址', () => {
-  const script = 'JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}\nexport MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"\nLAN_JSONRPC_ADDR=${MOTRIX_FNOS_LAN_JSONRPC_ADDR:-"0.0.0.0:17082"}\nexport MOTRIX_FNOS_LAN_JSONRPC_ADDR="${LAN_JSONRPC_ADDR}"\n';
+  const script = 'JSONRPC_ADDR=${MOTRIX_FNOS_JSONRPC_ADDR:-"127.0.0.1:17081"}\nexport MOTRIX_FNOS_JSONRPC_ADDR="${JSONRPC_ADDR}"\nLAN_JSONRPC_ADDR="0.0.0.0:17082"\nexport MOTRIX_FNOS_LAN_JSONRPC_ADDR="${LAN_JSONRPC_ADDR}"\n';
 
   assert.doesNotThrow(() => validateFpkRuntimeEnvScript(script, '127.0.0.1:17081', '0.0.0.0:17082'));
   assert.throws(() => validateFpkRuntimeEnvScript(script.replace('127.0.0.1', '0.0.0.0'), '127.0.0.1:17081', '0.0.0.0:17082'), /缺少 JSON-RPC 回环默认值/);
   assert.throws(() => validateFpkRuntimeEnvScript(script.replace('export MOTRIX_FNOS_JSONRPC_ADDR', 'export OTHER_ADDR'), '127.0.0.1:17081', '0.0.0.0:17082'), /未导出/);
-  assert.throws(() => validateFpkRuntimeEnvScript(script.replace('0.0.0.0:17082', '127.0.0.1:17082'), '127.0.0.1:17081', '0.0.0.0:17082'), /缺少局域网 JSON-RPC 默认值/);
+  assert.throws(() => validateFpkRuntimeEnvScript(script.replace('0.0.0.0:17082', '127.0.0.1:17082'), '127.0.0.1:17081', '0.0.0.0:17082'), /必须固定局域网 JSON-RPC 地址/);
   assert.throws(() => validateFpkRuntimeEnvScript(script.replace('export MOTRIX_FNOS_LAN_JSONRPC_ADDR', 'export OTHER_LAN_ADDR'), '127.0.0.1:17081', '0.0.0.0:17082'), /未导出/);
 });
 

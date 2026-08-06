@@ -58,10 +58,10 @@ test "${MOTRIX_FNOS_LAN_JSONRPC_ADDR}" = "0.0.0.0:17082"
   export_runtime_env
   test "${HTTP_ADDR}" = "127.0.0.1:27080"
   test "${JSONRPC_ADDR}" = "127.0.0.1:27081"
-  test "${LAN_JSONRPC_ADDR}" = "127.0.0.1:27082"
+  test "${LAN_JSONRPC_ADDR}" = "0.0.0.0:17082"
   test "${MOTRIX_FNOS_HTTP_ADDR}" = "127.0.0.1:27080"
   test "${MOTRIX_FNOS_JSONRPC_ADDR}" = "127.0.0.1:27081"
-  test "${MOTRIX_FNOS_LAN_JSONRPC_ADDR}" = "127.0.0.1:27082"
+  test "${MOTRIX_FNOS_LAN_JSONRPC_ADDR}" = "0.0.0.0:17082"
 )
 
 prepare_runtime_dirs
