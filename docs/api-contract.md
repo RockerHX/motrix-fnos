@@ -35,12 +35,12 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用浏览器原生 `EventSource`。
-- 错误提示优先展示响应体中的 `message`。
+- 错误提示优先展示响应体中的 `message`；响应体不符合统一错误结构时按 HTTP 状态码展示通用错误。
 - 下载保存目录只允许从后端返回的 fnOS 已授权目录中选择；Web UI 不提供任意本地路径选择器。
 
 ## 3. 错误响应
 
-统一错误响应：
+由业务 handler 返回的错误使用统一 JSON 响应：
 
 ```json
 {
@@ -56,13 +56,18 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 | `400 Bad Request` | 请求参数非法或业务校验失败 |
 | `401 Unauthorized` | 管理 Session 缺失、无效或过期；不得返回 SPA HTML |
 | `403 Forbidden` | CSRF Token 缺失或错误，或当前凭据无权执行操作 |
+| `404 Not Found` | `/api` 下不存在的路径；可能不带 JSON body |
+| `408 Request Timeout` | 请求在资源限制层超时；可能不带 JSON body |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
+| `413 Payload Too Large` | 请求体超过接口大小限制；可能不带 JSON body |
 | `429 Too Many Requests` | 登录失败限速或递增延迟生效 |
 | `502 Bad Gateway` | Aria2 明确拒绝任务代理等运行选项 |
 | `503 Service Unavailable` | Aria2 生命周期转换或运行依赖暂时不可用 |
 | `500 Internal Server Error` | 未预期内部错误 |
 
 `204 No Content` 响应不带 JSON body。
+
+`404`、`408` 与 `413` 由路由或资源限制层在进入业务 handler 前生成，不保证返回 `{ "code", "message" }`。调用方必须按 HTTP 状态码处理这三类响应。
 
 ## 4. HTTP API
 
