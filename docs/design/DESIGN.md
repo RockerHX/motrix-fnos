@@ -60,9 +60,8 @@ spacing:
 
 # Design System: Motrix fnOS
 
-> 状态：已确认；Stitch 单页 PoC 已完成可实现性评审，现有母版需按 logo 蓝色主题复核或修订后再由用户确认
-> 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）  
-> 实现边界：Vue 3 + Naive UI；不得以视觉稿改变业务架构。
+> 状态：当前界面的视觉与组件规则；不规划整体 UI 重设计。
+> 实现边界：Vue 3 + Naive UI；不得以视觉调整改变业务架构。
 
 ## 1. Visual Theme & Atmosphere
 
@@ -96,25 +95,7 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 | `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
 | `--color-accent-soft` | `#1E3A5F` | 选中背景 |
 
-### 2.2 Light theme
-
-| Token | Value | Role |
-| --- | --- | --- |
-| `--color-shell` | `#DCEBFA` | 应用外壳与侧栏底色 |
-| `--color-canvas` | `#F4F8FD` | 主内容画布 |
-| `--color-surface` | `#FFFFFF` | 弹窗、输入、任务边界 |
-| `--color-surface-raised` | `#EDF4FD` | hover、选中与浮层 |
-| `--color-border` | `#B8C8DE` | 结构边框 |
-| `--color-border-subtle` | `#D5E2F1` | 分隔线和弱边框 |
-| `--color-text-primary` | `#102846` | 主标题和关键数值 |
-| `--color-text-secondary` | `#304A67` | 正文和次要字段 |
-| `--color-text-muted` | `#4C6B92` | 辅助说明和占位符 |
-| `--color-accent` | `#3374DB` | 主操作、进度和焦点 |
-| `--color-accent-hover` | `#5DA9FF` | 强调色 hover |
-| `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
-| `--color-accent-soft` | `#DCEBFA` | 选中背景 |
-
-### 2.3 Shared status colors
+### 2.2 Shared status colors
 
 | Semantic role | Dark | Light | Usage |
 | --- | --- | --- | --- |
@@ -125,12 +106,12 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 状态必须同时使用文字或图标；禁止只靠颜色表达。焦点环使用主题强调色并提供至少 `2px` 可见轮廓。
 
-### 2.4 Logo 蓝色主题迁移结果（2026-07-22）
+### 2.3 Logo 蓝色主题迁移结果（2026-07-22）
 
 - 已将运行时品牌色迁移为 logo 蓝色体系：`#3374DB` 用于主操作、链接、进度和焦点，`#5DA9FF` 用于 hover，`#285BAE` 用于 pressed，`#1E3A5F` / `#102846` 用于结构区域和选中背景。
 - 组件品牌色统一通过全局 token 与 Naive UI 主色覆盖消费；组件样式继续维护在同目录外部 scoped CSS 文件中。
 - 成功、警告、危险和信息色保持独立语义，不因品牌迁移改为蓝色。
-- 当前应用仍固定使用深色 Naive UI 主题；本轮未新增运行时浅色主题切换。浅色蓝色表仅作为后续主题实现规范。
+- 当前应用固定使用深色 Naive UI 主题，未提供运行时浅色主题切换。
 
 ## 3. Typography Rules
 
@@ -151,12 +132,10 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 ## 5. Component Stylings
 
-Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运行时组件。最终实现继续使用 Vue 3 + Naive UI：按钮、菜单、进度、标签、提示、弹窗、表单、选择器、开关和布局应优先映射到对应 Naive UI 组件，通过项目主题 token 和少量外层 CSS 完成视觉定制。
+现有界面继续使用 Vue 3 + Naive UI：按钮、菜单、进度、标签、提示、弹窗、表单、选择器、开关和布局应优先映射到对应 Naive UI 组件，通过项目主题 token 和少量外层 CSS 完成视觉定制。
 
-- Stitch 生成的 HTML、CSS、Tailwind class、Material Symbols、字体或图标引用只用于评审，不得复制为实现依赖或视为组件规范。
-- 设计稿必须保留标准组件语义、键盘行为、focus、disabled、loading 和 ARIA 可表达性；不能只依赖静态图形模拟交互控件。
-- 只有 Naive UI 缺少合适原语且现有主题 CSS 无法完成时，才评估自定义组件；评审时必须明确说明原因，不得由 Stitch 产物隐式决定。
-- Stitch 与 Figma 验收关注视觉层级、信息结构、状态和尺寸；具体 Naive UI 组件映射在获批后的实现计划中确认。
+- 实现必须保留标准组件语义、键盘行为、focus、disabled、loading 和 ARIA 可表达性；不能只依赖静态图形模拟交互控件。
+- 只有 Naive UI 缺少合适原语且现有主题 CSS 无法完成时，才评估自定义组件，并明确记录原因。
 
 - **导航**：当前项使用浅强调背景、强调色图标和高对比文字；hover 不改变布局尺寸。
 - **工具栏**：主创建按钮使用强调色，批量操作使用次级/图标按钮；禁用原因可通过 title 或邻近状态理解。
@@ -194,7 +173,7 @@ Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运�
 - **Compact desktop `768–1023px`**：保留桌面外壳语义，减少 gutter，任务元数据允许重排。
 - **Desktop `>= 1024px`**：固定侧栏和工具栏，任务信息横向组织。
 - 设计验收至少覆盖 `390×844`、`1024×768`、`1440×900`。
-- 所有主题和语言组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
+- 当前深色主题及中英文组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
 
 ## 8. Motion & Interaction
 
@@ -218,20 +197,12 @@ Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运�
 - JSON-RPC Token 区域只显示配置状态和服务端掩码；生成或轮换时原文只存在于未保存输入框，保存后立即清空。
 - 清除 JSON-RPC Token 使用二次确认，明确说明公网 `aria2.addUri` 将不可用，但不得展示旧 Token 原文。
 
-## 9. Theme Behavior
-
-- 主题选项仅为 `dark` 和 `light`，默认 `dark`。
-- 主题选择属于长期 UI 偏好；当前不保留预设接口，代码实施时按实际状态模型重新设计持久化接口和迁移策略。
-- 首屏应在应用数据可用前使用默认深色，加载偏好后稳定切换，避免反复闪烁。
-- Naive UI theme 与应用 CSS token 必须由同一主题状态驱动。
-- 两个主题具有相同信息结构、尺寸、状态色语义和交互能力。
-
-## 10. Anti-Patterns (Banned)
+## 9. Anti-Patterns (Banned)
 
 - 不新增搜索、右键菜单、底部状态栏、做种分类、任务详情抽屉等候选功能。
 - 不使用 Hero、宣传文案、玻璃拟态、霓虹发光、紫蓝渐变、噪点、浮动装饰物。
 - 不使用纯黑 `#000000`、纯白大面积高亮、过饱和蓝色或多品牌强调色。
 - 不使用超大圆角、嵌套卡片、等宽三卡片营销布局或无意义徽标。
 - 不引入新的动画库、字体包、Tabler Icons 之外的通用图标库或非标准 canvas 控件。
-- 不把 Stitch 生成的 Tailwind、Material Symbols、任意第三方组件或静态 HTML 当作项目实现方案。
+- 不以未经评审的第三方组件或静态 HTML 替代项目现有 Vue + Naive UI 实现。
 - 不用静态假按钮表现未实现功能；候选需求只能出现在独立说明区。
