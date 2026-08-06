@@ -137,6 +137,8 @@ server/
         control.rs
         delete.rs
         magnet.rs
+        proxy.rs
+        restore.rs
     aria2/
     config/
     database/
@@ -151,7 +153,7 @@ server/
 - `auth/` 负责 Web 管理密码、服务端 Session、CSRF 校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
 - 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
 - `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
-- `tasks/service.rs` 只保留 `TaskService` 依赖注入、运行态守卫和查询委托；创建、查询、控制、删除与磁链确认流程分别由 `tasks/service/` 子模块承载。
+- `tasks/service.rs` 负责 `TaskService` 依赖注入、运行态守卫，以及跨流程共享的任务操作记录、Aria2 创建与未知结果对账、回滚辅助；创建、查询、控制、删除、磁链确认、代理切换与回收站恢复流程分别由 `tasks/service/` 子模块承载。
 - 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
 ## 7. 数据流与事件流

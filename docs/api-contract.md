@@ -94,7 +94,7 @@ FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录�
 
 约定：
 
-- `setupRequired=true` 时，除 `status`、`setup` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
+- `setupRequired=true` 时，除 `GET /api/auth/status`、`POST /api/auth/setup`、`GET /api/app/ready` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
 - `csrfToken` 只在当前浏览器具备管理访问权时返回；未登录且保护已启用时为 `null`。保护关闭时，服务端可为匿名管理浏览器签发短期访问上下文并返回对应 CSRF Token。
 - 前端不得把 CSRF Token 写入持久存储；Session 失效后必须丢弃旧 Token。
 - 鉴权配置读取失败时 `status` 安全失败，不得把 `enabled` 自动降级为 `false`。
@@ -643,6 +643,7 @@ Session 与 Cookie 约定：
 
 ```json
 {
+  "revision": 1,
   "tasks": []
 }
 ```
@@ -717,6 +718,6 @@ Session 与 Cookie 约定：
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
-- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`。
+- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
 - 局域网入口关闭时所有请求返回 404；开启时只接受 RFC1918 IPv4 真实对端。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
