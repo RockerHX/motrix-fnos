@@ -5,7 +5,7 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 
 pid=$(read_pid || true)
-if [ -n "${pid}" ] && is_running_pid "${pid}"; then
+if [ -n "${pid}" ] && is_managed_server_instance "${pid}"; then
   if readiness_request; then
     echo "motrix-fnos-server 运行中且服务就绪，PID ${pid}"
     exit 0

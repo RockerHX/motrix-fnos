@@ -144,8 +144,8 @@ is_running_pid() {
   fi
 }
 
-# 停止和卸载只接受完整的 PID、启动时间和可执行文件三重身份；
-# status 为兼容既有记录仍可使用 is_running_pid 的宽松判断。
+# 停止、卸载和 status 只接受 PID、启动时间、UID 和可执行文件均匹配的进程；
+# is_running_pid 仅供兼容的运行态检查使用。
 is_managed_server_instance() {
   pid="$1"
   case "${pid}" in

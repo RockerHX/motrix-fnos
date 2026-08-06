@@ -171,6 +171,12 @@ test -e "${PID_START_FILE}"
 
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
+rm "${PID_START_FILE}"
+assert_status_keeps_data_tree_unchanged run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/status"
+test "${script_status}" -eq 3
+grep -q "未运行" "${OUTPUT_FILE}"
+test -e "${PID_FILE}"
+test ! -e "${PID_START_FILE}"
 sleep 30 &
 ORPHAN_PID=$!
 mkdir -p "${PROC_FIXTURE}/${ORPHAN_PID}"
