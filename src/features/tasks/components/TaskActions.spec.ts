@@ -550,7 +550,6 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorMessage: null,
     filePath: "/downloads/file.iso",
     useProxy: false,
-    metadataTorrentPath: null,
     confirmationRequired: false,
     files: [],
     createdAt: 1,

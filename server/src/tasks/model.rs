@@ -103,10 +103,11 @@ pub struct DownloadTask {
     pub use_proxy: bool,
     #[serde(skip, default)]
     pub proxy_binding: TaskProxyBinding,
+    #[serde(skip, default)]
     pub metadata_torrent_path: Option<String>,
-    #[serde(default)]
+    #[serde(skip, default)]
     pub files_deleted: bool,
-    #[serde(default)]
+    #[serde(skip, default)]
     pub selected_file_indexes: Vec<u32>,
     pub confirmation_required: bool,
     pub files: Vec<DownloadTaskFile>,

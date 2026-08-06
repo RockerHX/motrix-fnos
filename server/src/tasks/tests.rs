@@ -73,6 +73,20 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
 }
 
 #[test]
+fn download_task_serialization_hides_internal_recovery_fields() {
+    let mut task = sample_task(None, temp_download_dir("public-task"));
+    task.metadata_torrent_path = Some("/private/metadata.torrent".to_string());
+    task.files_deleted = true;
+    task.selected_file_indexes = vec![1, 3];
+
+    let serialized = serde_json::to_value(task).expect("task should serialize");
+
+    assert!(serialized.get("metadataTorrentPath").is_none());
+    assert!(serialized.get("filesDeleted").is_none());
+    assert!(serialized.get("selectedFileIndexes").is_none());
+}
+
+#[test]
 fn prepare_task_accepts_https_url() {
     let task = prepare_task(CreateDownloadTaskRequest {
         url: " https://example.com/file.zip?token=1 ".to_string(),

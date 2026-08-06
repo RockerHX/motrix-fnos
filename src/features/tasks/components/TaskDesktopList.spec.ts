@@ -81,7 +81,6 @@ function createTask(id: number, fileName: string): DownloadTask {
     errorMessage: null,
     filePath: `/downloads/${fileName}`,
     useProxy: false,
-    metadataTorrentPath: null,
     confirmationRequired: false,
     files: [],
     createdAt: 1,
