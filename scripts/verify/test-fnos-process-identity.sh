@@ -26,6 +26,7 @@ EOF
 chmod +x "${SERVER_FIXTURE}" "${OTHER_FIXTURE}"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 printf '%s\n' "$$ (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4242" > "${PROC_FIXTURE}/$$/stat"
+printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/$$/status"
 
 MOTRIX_FNOS_SERVER_BIN="${SERVER_FIXTURE}"
 MOTRIX_FNOS_PROC_ROOT="${PROC_FIXTURE}"
@@ -68,6 +69,21 @@ prepare_runtime_dirs
 write_pid_record "$$"
 is_running_pid "$$"
 
+rm "${PROC_FIXTURE}/$$/status"
+if is_running_pid "$$"; then
+  echo "无法读取进程 UID 时不应识别为 Motrix 进程" >&2
+  exit 1
+fi
+test_process_uid=$(id -u)
+foreign_uid=$((test_process_uid + 1))
+printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "${foreign_uid}" "${foreign_uid}" "${foreign_uid}" "${foreign_uid}" > "${PROC_FIXTURE}/$$/status"
+if is_running_pid "$$"; then
+  echo "进程 UID 不匹配时不应识别为 Motrix 进程" >&2
+  exit 1
+fi
+printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/$$/status"
+is_running_pid "$$"
+
 rm "${PROC_FIXTURE}/$$/exe"
 ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 is_recorded_process_instance "$$"
@@ -105,6 +121,7 @@ ORPHAN_PID=$!
 mkdir -p "${PROC_FIXTURE}/${ORPHAN_PID}"
 ln -s "${OTHER_FIXTURE}" "${PROC_FIXTURE}/${ORPHAN_PID}/exe"
 printf '%s\n' "${ORPHAN_PID} (nohup) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5151" > "${PROC_FIXTURE}/${ORPHAN_PID}/stat"
+printf 'Name:\tnohup\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/${ORPHAN_PID}/status"
 printf '%s\n' "${ORPHAN_PID}" > "${PID_FILE}"
 printf '%s\n' "5151" > "${PID_START_FILE}"
 if is_running_pid "${ORPHAN_PID}"; then

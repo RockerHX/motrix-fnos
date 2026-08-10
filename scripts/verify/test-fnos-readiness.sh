@@ -65,6 +65,7 @@ export MOTRIX_FNOS_TEST_READY_STATUS_FILE MOTRIX_FNOS_TEST_ARIA2_CALLS
 mkdir -p "${PROC_FIXTURE}/$$"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/$$/exe"
 printf '%s\n' "$$ (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4242" > "${PROC_FIXTURE}/$$/stat"
+printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/$$/status"
 
 . "$(dirname -- "$0")/../../packaging/fnos/cmd/common.sh"
 
@@ -182,6 +183,7 @@ ORPHAN_PID=$!
 mkdir -p "${PROC_FIXTURE}/${ORPHAN_PID}"
 ln -s "${SERVER_FIXTURE}" "${PROC_FIXTURE}/${ORPHAN_PID}/exe"
 printf '%s\n' "${ORPHAN_PID} (motrix-fnos-server) S 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4343" > "${PROC_FIXTURE}/${ORPHAN_PID}/stat"
+printf 'Name:\tmotrix-fnos\nUid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "${PROC_FIXTURE}/${ORPHAN_PID}/status"
 printf '%s\n' "${ORPHAN_PID}" > "${PID_FILE}"
 printf '%s\n' "4343" > "${PID_START_FILE}"
 run_script "$(dirname -- "$0")/../../packaging/fnos/cmd/start"

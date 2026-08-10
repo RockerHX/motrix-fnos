@@ -78,8 +78,8 @@ process_matches_current_uid() {
   current_uid=$(id -u 2>/dev/null || true)
   actual_uid=$(process_uid "${pid}" || true)
   [ -n "${current_uid}" ] || return 1
-  # 测试替身和部分非 Linux proc 实现没有 status 文件；真实 proc 有 UID 时必须严格核对。
-  [ -z "${actual_uid}" ] || [ "${actual_uid}" = "${current_uid}" ]
+  [ -n "${actual_uid}" ] || return 1
+  [ "${actual_uid}" = "${current_uid}" ]
 }
 
 process_is_alive() {
