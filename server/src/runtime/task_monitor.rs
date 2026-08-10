@@ -205,7 +205,10 @@ fn tasks_snapshot(
         .tasks_snapshot_revision
         .lock()
         .map_err(|_| "无法读取任务快照版本".to_string())?;
-    let tasks = visible_tasks_snapshot(state)?;
+    let tasks = visible_tasks_snapshot(state)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
     if advance_revision {
         *revision = revision
             .checked_add(1)

@@ -1,7 +1,7 @@
 use super::bad_request_with_log;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::tasks::{CreateTaskAdvancedOptions, DownloadTask, DownloadTaskStartMode};
+use crate::tasks::{CreateTaskAdvancedOptions, DownloadTaskStartMode, PublicDownloadTask};
 use axum::extract::Multipart;
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +33,7 @@ pub(super) struct CreateBatchDownloadTasksRequest {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateBatchDownloadTasksResponse {
-    pub(super) created: Vec<DownloadTask>,
+    pub(super) created: Vec<PublicDownloadTask>,
     pub(super) failed: Vec<CreateBatchDownloadTaskFailure>,
 }
 

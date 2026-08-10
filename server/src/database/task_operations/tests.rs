@@ -80,6 +80,24 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
 }
 
 #[test]
+fn task_operation_context_serialization_preserves_recovery_fields() {
+    let mut task = sample_task(7);
+    task.metadata_torrent_path = Some("/private/metadata-7.torrent".to_string());
+    task.files_deleted = true;
+    task.selected_file_indexes = vec![1, 3, 5];
+    let context = TaskOperationContext {
+        task_snapshot: Some(task.clone()),
+        ..TaskOperationContext::default()
+    };
+
+    let serialized = serialize_context(&context).expect("operation context should serialize");
+    let restored: TaskOperationContext =
+        serde_json::from_str(&serialized).expect("operation context should deserialize");
+
+    assert_eq!(restored.task_snapshot, Some(task));
+}
+
+#[test]
 fn task_state_and_operation_update_commit_or_rollback_together() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")

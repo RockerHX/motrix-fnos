@@ -5,7 +5,7 @@ use crate::app::{
 };
 use crate::config::aria2::Aria2BinarySource;
 use crate::runtime::ManagedAria2Process;
-use crate::tasks::{DownloadTaskFile, DownloadTaskStatus};
+use crate::tasks::{DownloadTask, DownloadTaskFile, DownloadTaskStatus};
 use axum::response::Response;
 use axum::routing::post;
 use axum::{
@@ -1057,6 +1057,43 @@ async fn list_tasks_returns_memory_snapshot_when_aria2_is_stopped() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].status, DownloadTaskStatus::Active);
     assert!(state.aria2_runtime_snapshot().is_none());
+}
+
+#[tokio::test]
+async fn list_tasks_hides_internal_recovery_fields() {
+    let state = test_state().await;
+    let mut task = sample_task(1, DownloadTaskStatus::Paused);
+    task.proxy_binding = crate::tasks::TaskProxyBinding::override_url(
+        "http://private-user:private-pass@proxy.example:7890".to_string(),
+    );
+    task.metadata_torrent_path = Some("/private/metadata.torrent".to_string());
+    task.files_deleted = true;
+    task.selected_file_indexes = vec![1, 3];
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("tasks should lock");
+    let app = test_router(state);
+
+    let listed = response_json::<Vec<Value>>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    let task = listed.first().expect("task should be returned");
+
+    assert!(task.get("proxyBinding").is_none());
+    assert!(task.get("metadataTorrentPath").is_none());
+    assert!(task.get("filesDeleted").is_none());
+    assert!(task.get("selectedFileIndexes").is_none());
 }
 
 #[tokio::test]

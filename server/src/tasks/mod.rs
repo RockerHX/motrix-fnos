@@ -6,6 +6,7 @@ pub mod operation;
 pub mod options;
 pub mod prepare;
 pub mod progress;
+pub mod public;
 mod refresh;
 pub mod repository;
 pub mod service;
@@ -46,6 +47,7 @@ use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, apply_magnet_metadata_confirmation,
     is_aria2_status_error, parse_aria2_u64,
 };
+pub use public::PublicDownloadTask;
 use refresh::task_status_error;
 pub use refresh::{
     is_stale_aria2_gid_error, refresh_tasks_from_aria2, should_readd_task_after_resume_error,

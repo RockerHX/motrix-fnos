@@ -6,8 +6,8 @@ use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
 use crate::tasks::service::{RuntimeGuard, TaskService};
 use crate::tasks::{
-    CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTask,
-    DownloadTaskSourceType,
+    CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
+    PublicDownloadTask,
 };
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
@@ -45,26 +45,26 @@ pub fn torrent_routes() -> Router<Arc<HttpAppState>> {
 async fn list_tasks(
     State(state): State<Arc<HttpAppState>>,
     Query(query): Query<ListTasksQuery>,
-) -> Result<Json<Vec<DownloadTask>>, ApiError> {
+) -> Result<Json<Vec<PublicDownloadTask>>, ApiError> {
     let service = task_service(&state);
     if matches!(query.filter()?, ListTasksFilter::Removed) {
         let tasks = service
             .list_removed_download_tasks()
             .map_err(classify_task_error)?;
-        return Ok(Json(tasks));
+        return Ok(Json(tasks.into_iter().map(Into::into).collect()));
     }
 
     // 退出期间只读取最后已知配置，不能为了列表查询重新启动已经进入清理流程的 Aria2。
     let tasks = service
         .list_download_task_snapshot()
         .map_err(classify_task_error)?;
-    Ok(Json(tasks))
+    Ok(Json(tasks.into_iter().map(Into::into).collect()))
 }
 
 async fn create_task(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<CreateDownloadTaskRequest>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     validate_create_preconditions(&state, payload.save_dir.as_deref())?;
     task_service(&state)
         .validate_create_task_proxy(&payload.advanced_options, &payload.aria2_options)
@@ -146,7 +146,7 @@ async fn create_batch_tasks(
             .create_download_task(&context.config, request)
             .await
         {
-            Ok(task) => created.push(task),
+            Ok(task) => created.push(task.into()),
             Err(error) => failed.push(CreateBatchDownloadTaskFailure {
                 input: url,
                 message: error,
@@ -173,7 +173,7 @@ async fn create_batch_tasks(
 async fn create_torrent_task(
     State(state): State<Arc<HttpAppState>>,
     multipart: Multipart,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let upload = parse_torrent_multipart(multipart, &state).await?;
     validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
     task_service(&state)
@@ -203,7 +203,7 @@ async fn create_torrent_task(
 async fn pause_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service
@@ -217,7 +217,7 @@ async fn update_task_proxy(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<UpdateTaskProxyRequest>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let service = task_service(&state);
     let config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
     let task = service
@@ -226,14 +226,14 @@ async fn update_task_proxy(
         .map_err(classify_task_proxy_error)?;
     broadcast_tasks_snapshot(&state)
         .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
-    Ok(Json(task))
+    Ok(Json(task.into()))
 }
 
 async fn confirm_task_files(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<ConfirmTaskFilesRequest>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service
@@ -246,7 +246,7 @@ async fn confirm_task_files(
 async fn resume_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service
@@ -260,7 +260,7 @@ async fn redownload_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
     body: Bytes,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
@@ -275,7 +275,7 @@ async fn restore_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
     body: Bytes,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
@@ -290,7 +290,7 @@ async fn delete_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
-) -> Result<Json<DownloadTask>, ApiError> {
+) -> Result<Json<PublicDownloadTask>, ApiError> {
     let context = TaskMutationContext::prepare(&state).await?;
     let task = context
         .service

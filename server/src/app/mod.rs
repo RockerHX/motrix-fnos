@@ -13,8 +13,9 @@ use crate::settings::service::{
 };
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::storage::{default_download_dir, load_accessible_paths};
-use crate::tasks::DownloadTask;
-use crate::tasks::{is_pending_magnet_metadata_task, DownloadTaskStatus};
+use crate::tasks::{
+    is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus, PublicDownloadTask,
+};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -122,7 +123,7 @@ pub struct RuntimeExitingPayload {
 #[serde(rename_all = "camelCase")]
 pub struct TasksSnapshotPayload {
     pub revision: u64,
-    pub tasks: Vec<DownloadTask>,
+    pub tasks: Vec<PublicDownloadTask>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

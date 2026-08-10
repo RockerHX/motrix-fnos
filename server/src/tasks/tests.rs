@@ -73,14 +73,19 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
 }
 
 #[test]
-fn download_task_serialization_hides_internal_recovery_fields() {
+fn public_download_task_serialization_hides_internal_recovery_fields() {
     let mut task = sample_task(None, temp_download_dir("public-task"));
+    task.proxy_binding = TaskProxyBinding::override_url(
+        "http://private-user:private-pass@proxy.example:7890".to_string(),
+    );
     task.metadata_torrent_path = Some("/private/metadata.torrent".to_string());
     task.files_deleted = true;
     task.selected_file_indexes = vec![1, 3];
 
-    let serialized = serde_json::to_value(task).expect("task should serialize");
+    let serialized =
+        serde_json::to_value(PublicDownloadTask::from(task)).expect("public task should serialize");
 
+    assert!(serialized.get("proxyBinding").is_none());
     assert!(serialized.get("metadataTorrentPath").is_none());
     assert!(serialized.get("filesDeleted").is_none());
     assert!(serialized.get("selectedFileIndexes").is_none());

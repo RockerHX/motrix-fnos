@@ -30,10 +30,17 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
+    let mut task = sample_task();
+    task.proxy_binding = crate::tasks::TaskProxyBinding::override_url(
+        "http://private-user:private-pass@proxy.example:7890".to_string(),
+    );
+    task.metadata_torrent_path = Some("/private/metadata.torrent".to_string());
+    task.files_deleted = true;
+    task.selected_file_indexes = vec![1, 3];
     state
         .core
         .download_tasks
-        .with_tasks_mut(|tasks| tasks.push(sample_task()))
+        .with_tasks_mut(|tasks| tasks.push(task))
         .expect("tasks should lock");
     broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
     let (app, session_id) = authenticated_events_app(state.clone()).await;
@@ -55,6 +62,10 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert!(text.contains("event: tasks.snapshot"));
     assert!(text.contains("\"archive.zip\""));
     assert!(text.contains("\"revision\":1"));
+    assert!(!text.contains("proxyBinding"));
+    assert!(!text.contains("metadataTorrentPath"));
+    assert!(!text.contains("filesDeleted"));
+    assert!(!text.contains("selectedFileIndexes"));
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(state
         .aria2_process
