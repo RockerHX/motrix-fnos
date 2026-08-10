@@ -39,7 +39,7 @@
     "@tabler/icons-vue": "^3.46.0",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
-    "vue": "^3.5.40"
+    "vue": "^3.5.41"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
