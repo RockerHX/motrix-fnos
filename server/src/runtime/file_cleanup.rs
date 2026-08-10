@@ -4,13 +4,13 @@ use crate::tasks::files::cleanup_staged_task_file_path;
 use crate::tasks::TaskOperation;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
+
+const FILE_CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 pub(crate) async fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
-    let has_pending_cleanup = match list_unfinished_task_operations(&state.core.database.pool).await
-    {
-        Ok(operations) => operations
-            .into_iter()
-            .any(|operation| operation.is_file_cleanup_pending()),
+    let has_pending_cleanup = match has_pending_file_cleanup(&state).await {
+        Ok(has_pending_cleanup) => has_pending_cleanup,
         Err(error) => {
             state.core.debug_logs.warn(
                 "tasks.file_cleanup",
@@ -26,18 +26,56 @@ pub(crate) async fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
         return;
     }
     if !state.try_start_file_cleanup_worker() {
+        state.notify_file_cleanup_worker();
         return;
     }
 
     tokio::spawn(async move {
-        if let Err(error) = run_file_cleanup_once(&state).await {
-            state.core.debug_logs.warn(
-                "tasks.file_cleanup",
-                format!("后台任务文件清理未完成：{}", error),
-            );
-        }
-        state.finish_file_cleanup_worker();
+        run_file_cleanup_worker(state).await;
     });
+}
+
+async fn run_file_cleanup_worker(state: Arc<HttpAppState>) {
+    loop {
+        match run_file_cleanup_once(&state).await {
+            Ok(()) => {
+                state.finish_file_cleanup_worker();
+                match has_pending_file_cleanup(&state).await {
+                    Ok(false) => return,
+                    Ok(true) => {}
+                    Err(error) => {
+                        state.core.debug_logs.warn(
+                            "tasks.file_cleanup",
+                            format!("复查待清理任务文件失败，将在后台重试：{}", error),
+                        );
+                    }
+                }
+
+                if state.try_start_file_cleanup_worker() {
+                    continue;
+                }
+                state.notify_file_cleanup_worker();
+                return;
+            }
+            Err(error) => {
+                state.core.debug_logs.warn(
+                    "tasks.file_cleanup",
+                    format!("后台任务文件清理未完成，将自动重试：{}", error),
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(FILE_CLEANUP_RETRY_DELAY) => {}
+                    _ = state.wait_for_file_cleanup_worker_notification() => {}
+                }
+            }
+        }
+    }
+}
+
+async fn has_pending_file_cleanup(state: &HttpAppState) -> Result<bool, String> {
+    Ok(list_unfinished_task_operations(&state.core.database.pool)
+        .await?
+        .into_iter()
+        .any(|operation| operation.is_file_cleanup_pending()))
 }
 
 pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), String> {
@@ -60,7 +98,7 @@ pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), St
             if let Err(error) = process_file_cleanup_operation(state, operation).await {
                 state.core.debug_logs.warn(
                     "tasks.file_cleanup",
-                    format!("任务文件清理暂未完成，将在下次启动或操作时重试：{}", error),
+                    format!("任务文件清理暂未完成，将在后台重试：{}", error),
                 );
                 if first_error.is_none() {
                     first_error = Some(error);

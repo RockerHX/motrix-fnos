@@ -7,6 +7,7 @@ use crate::tasks::{TaskOperation, TaskOperationContext, TaskOperationStatus, Tas
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -61,6 +62,25 @@ async fn worker_keeps_failed_cleanup_in_progress_and_retries_later() {
         .await
         .expect("unfinished operations should list")
         .is_empty());
+    close_state(state, &root).await;
+}
+
+#[tokio::test]
+async fn running_worker_is_notified_to_retry_failed_cleanup() {
+    let root = temp_dir("worker-notify");
+    let backup = root.join(".motrix-redownload-backup-11-500");
+    std::fs::create_dir_all(&root).expect("root should create");
+    std::fs::write(&backup, b"not a directory").expect("invalid backup path should write");
+    let state = state_with_operation(&root, 11, backup.clone()).await;
+
+    spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    wait_for_cleanup_error(&state).await;
+
+    std::fs::remove_file(&backup).expect("invalid backup path should remove");
+    std::fs::create_dir(&backup).expect("backup directory should recreate");
+    spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    wait_for_worker_completion(&state, &backup).await;
+
     close_state(state, &root).await;
 }
 
@@ -157,6 +177,42 @@ async fn close_state(state: Arc<HttpAppState>, root: &Path) {
     state.core.database.pool.close().await;
     drop(state);
     let _ = std::fs::remove_dir_all(root);
+}
+
+async fn wait_for_cleanup_error(state: &HttpAppState) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let operations = list_unfinished_task_operations(&state.core.database.pool)
+                .await
+                .expect("unfinished operations should list");
+            if operations
+                .first()
+                .and_then(|operation| operation.error_message.as_deref())
+                .is_some()
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("worker should record the first cleanup failure");
+}
+
+async fn wait_for_worker_completion(state: &Arc<HttpAppState>, backup: &Path) {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let unfinished = list_unfinished_task_operations(&state.core.database.pool)
+                .await
+                .expect("unfinished operations should list");
+            if !backup.exists() && unfinished.is_empty() && Arc::strong_count(state) == 1 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("notified worker should complete cleanup");
 }
 
 fn temp_dir(label: &str) -> PathBuf {

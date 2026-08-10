@@ -178,6 +178,7 @@ pub struct HttpAppState {
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     listeners_ready: AtomicBool,
     file_cleanup_worker_running: AtomicBool,
+    file_cleanup_worker_notify: tokio::sync::Notify,
 }
 
 impl HttpAppState {
@@ -207,6 +208,7 @@ impl HttpAppState {
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             listeners_ready: AtomicBool::new(false),
             file_cleanup_worker_running: AtomicBool::new(false),
+            file_cleanup_worker_notify: tokio::sync::Notify::new(),
         }
     }
 
@@ -361,6 +363,14 @@ impl HttpAppState {
     pub(crate) fn finish_file_cleanup_worker(&self) {
         self.file_cleanup_worker_running
             .store(false, Ordering::Release);
+    }
+
+    pub(crate) fn notify_file_cleanup_worker(&self) {
+        self.file_cleanup_worker_notify.notify_one();
+    }
+
+    pub(crate) async fn wait_for_file_cleanup_worker_notification(&self) {
+        self.file_cleanup_worker_notify.notified().await;
     }
 }
 
