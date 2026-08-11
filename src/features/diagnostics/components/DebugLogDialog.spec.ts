@@ -193,11 +193,12 @@ describe("DebugLogDialog", () => {
     });
     await flushPromises();
 
-    await clickButton(wrapper, "清空");
+    await clickButton(wrapper, "清空应用内调试记录");
     await flushPromises();
 
     expect(debugLogService.clearDebugLogs).toHaveBeenCalledOnce();
     expect(messageApi.success).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain("此处只清空应用内调试记录，不会释放 Aria2 原生日志文件空间。");
   });
 
   it("allows safe close while clearing is in flight", async () => {
@@ -210,7 +211,7 @@ describe("DebugLogDialog", () => {
     });
     await flushPromises();
 
-    await clickButton(wrapper, "清空");
+    await clickButton(wrapper, "清空应用内调试记录");
     await nextTick();
     await wrapper.get('[data-test="n-modal"]').trigger("click");
 

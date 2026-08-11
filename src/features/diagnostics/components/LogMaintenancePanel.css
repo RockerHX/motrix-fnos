@@ -1,0 +1,58 @@
+.log-maintenance-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--app-color-border-subtle);
+}
+
+.log-maintenance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-maintenance-eyebrow {
+  margin: 0 0 4px;
+  color: var(--app-text-accent-soft);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.log-maintenance-description,
+.log-maintenance-loading,
+.log-maintenance-error {
+  margin: 0;
+  white-space: normal;
+}
+
+.log-maintenance-description,
+.log-maintenance-loading {
+  color: var(--app-text-secondary);
+}
+
+.log-maintenance-error {
+  color: var(--app-text-danger);
+}
+
+.log-maintenance-actions {
+  margin-top: 2px;
+}
+
+@media (max-width: 767px) {
+  .log-maintenance-panel {
+    padding: 16px 0;
+  }
+
+  .log-maintenance-actions :deep(.n-button) {
+    width: 100%;
+  }
+}

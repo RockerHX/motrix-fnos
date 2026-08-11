@@ -8,6 +8,7 @@ import { computed, ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
 import Aria2LogModePanel from "./Aria2LogModePanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
+import LogMaintenancePanel from "./LogMaintenancePanel.vue";
 import { useI18n } from "../../../i18n";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
@@ -39,6 +40,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const lanJsonRpcStore = useLanJsonRpcStore();
 const showDebugLogs = ref(false);
+const logMaintenanceRef = ref<InstanceType<typeof LogMaintenancePanel> | null>(null);
 const { isExporting, exportDiagnosticBundle } = useDiagnosticBundleExport();
 const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
 const diagnosticMetrics = computed<AppMetricItem[]>(() => [
@@ -109,7 +111,22 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
   emit("engineStatusUpdated", status);
 }
 
+async function refreshLogUsage() {
+  const panel = logMaintenanceRef.value as { refresh?: () => Promise<void> } | null;
+  await panel?.refresh?.();
+}
+
+async function exportBundleAndRefresh() {
+  await exportDiagnosticBundle();
+  await refreshLogUsage();
+}
+
 function updateLogMode() {
+  emit("refreshStatus");
+  void refreshLogUsage();
+}
+
+function updateLogUsage() {
   emit("refreshStatus");
 }
 </script>
@@ -125,7 +142,7 @@ function updateLogMode() {
     <template #header-extra>
       <NSpace>
         <NButton secondary @click="emit('openRpcGuide')">{{ t("diagnostics.jsonRpcGuide") }}</NButton>
-        <NButton secondary :loading="isExporting" @click="exportDiagnosticBundle">
+        <NButton secondary :loading="isExporting" @click="exportBundleAndRefresh">
           <template #icon><AppIcon name="download" :size="16" /></template>
           {{ t("diagnostics.bundle.export") }}
         </NButton>
@@ -136,6 +153,13 @@ function updateLogMode() {
     <AppMetricGrid class="diagnostics-metrics" :items="diagnosticMetrics" :desktop-columns="2" :mobile-columns="1" />
 
     <Aria2LogModePanel :active="props.show" @updated="updateLogMode" />
+
+    <LogMaintenancePanel
+      ref="logMaintenanceRef"
+      :active="props.show"
+      :aria2-running="props.aria2Process?.running ?? null"
+      @updated="updateLogUsage"
+    />
 
     <EngineStatusPanel @status-updated="updateEngineStatus" />
   </AppDialog>

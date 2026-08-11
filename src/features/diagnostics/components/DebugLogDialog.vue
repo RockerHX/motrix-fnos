@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { NButton, NCard, NInput, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
+import { NAlert, NButton, NCard, NInput, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
@@ -116,6 +116,10 @@ async function scrollToBottom() {
       </template>
 
       <AppMetricGrid class="log-metrics" :items="logSummaryItems" :desktop-columns="5" :mobile-columns="1" />
+
+      <NAlert class="debug-log-storage-note" type="info" :show-icon="false">
+        {{ t("logs.storageNote") }}
+      </NAlert>
 
       <div class="log-filters">
         <NInput v-model:value="searchText" clearable :placeholder="t('logs.searchPlaceholder')" />

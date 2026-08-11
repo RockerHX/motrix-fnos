@@ -125,6 +125,10 @@ function mountDialog(show = true) {
           template: "<button data-test='aria2-log-mode-updated' @click='$emit(\"updated\")'>aria2-log-mode-stub</button>",
         },
         EngineStatusPanel: { template: "<div>engine-status-stub</div>" },
+        LogMaintenancePanel: {
+          props: ["active", "aria2Running"],
+          template: "<div data-test='log-maintenance-stub'>log-maintenance-stub</div>",
+        },
         DebugLogDialog: { props: ["show"], template: "<div v-if='show'>debug-log-stub</div>" },
       },
     },

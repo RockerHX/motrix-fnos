@@ -22,3 +22,26 @@ export interface Aria2LogModeStatus {
   maxFileCount: number;
   appliesOnNextStart: boolean;
 }
+
+export interface LogFileUsage {
+  currentBytes: number;
+  historyBytes: number;
+  totalBytes: number;
+  currentFileCount: number;
+  historyFileCount: number;
+  totalFileCount: number;
+}
+
+export interface DiagnosticsLogUsage {
+  aria2: LogFileUsage;
+  server: LogFileUsage;
+  lifecycle: LogFileUsage;
+  totalBytes: number;
+  totalFileCount: number;
+  aria2LogMode: Aria2LogModeStatus;
+}
+
+export interface Aria2LogCleanupResponse {
+  reclaimedBytes: number;
+  usage: DiagnosticsLogUsage;
+}
