@@ -1,6 +1,7 @@
 use crate::app::HttpAppState;
 use crate::aria2::{
     change_global_log_level, Aria2LogLevel, Aria2LogModeChange, Aria2LogModeWorkerAction,
+    Aria2RpcError,
 };
 use crate::runtime::{process_status, Aria2LifecyclePhase};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ const RESTORE_RETRY_DELAY: Duration = Duration::from_secs(30);
 pub(crate) enum Aria2LogModeUpdateError {
     Conflict(String),
     Failed(String),
+    OutcomeUnknown(String),
 }
 
 pub(crate) async fn update_aria2_log_mode(
@@ -35,10 +37,17 @@ pub(crate) async fn update_aria2_log_mode(
     }
 
     if detailed {
-        match apply_log_level_if_running(state, Aria2LogLevel::Debug).await? {
-            ApplyLogLevelResult::Applied | ApplyLogLevelResult::NotRunning => {
+        match apply_log_level_if_running(state, Aria2LogLevel::Debug).await {
+            Ok(ApplyLogLevelResult::Applied | ApplyLogLevelResult::NotRunning) => {
                 state.aria2_log_mode.enable_detailed();
             }
+            Err(Aria2LogModeUpdateError::OutcomeUnknown(error)) => {
+                state.aria2_log_mode.disable_detailed();
+                drop(_operation);
+                spawn_aria2_log_mode_worker(Arc::clone(state));
+                return Err(Aria2LogModeUpdateError::OutcomeUnknown(error));
+            }
+            Err(error) => return Err(error),
         }
     } else {
         let change = state.aria2_log_mode.disable_detailed();
@@ -113,7 +122,11 @@ async fn apply_and_record(state: &Arc<HttpAppState>, change: Aria2LogModeChange)
         Ok(ApplyLogLevelResult::Applied | ApplyLogLevelResult::NotRunning) => {
             state.aria2_log_mode.mark_applied(change);
         }
-        Err(Aria2LogModeUpdateError::Conflict(error) | Aria2LogModeUpdateError::Failed(error)) => {
+        Err(
+            Aria2LogModeUpdateError::Conflict(error)
+            | Aria2LogModeUpdateError::Failed(error)
+            | Aria2LogModeUpdateError::OutcomeUnknown(error),
+        ) => {
             state.core.debug_logs.warn(
                 "aria2.log_mode",
                 format!("恢复普通 Aria2 日志失败，将自动重试：{error}"),
@@ -159,7 +172,13 @@ async fn apply_log_level_if_running(
     change_global_log_level(&state.aria2_rpc, &state.aria2_config(), level)
         .await
         .map_err(|error| {
-            Aria2LogModeUpdateError::Failed(format!("修改 Aria2 日志级别失败：{error}"))
+            let message = format!("修改 Aria2 日志级别失败：{error}");
+            match error {
+                Aria2RpcError::OutcomeUnknown(_) => {
+                    Aria2LogModeUpdateError::OutcomeUnknown(message)
+                }
+                _ => Aria2LogModeUpdateError::Failed(message),
+            }
         })?;
     Ok(ApplyLogLevelResult::Applied)
 }

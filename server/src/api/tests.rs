@@ -7,7 +7,10 @@ use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::aria2::{Aria2ConfigStatus, Aria2LogLevel, Aria2LogModeStatus, Aria2RpcStatus};
+use crate::aria2::{
+    Aria2ConfigStatus, Aria2LogLevel, Aria2LogModeStatus, Aria2LogModeWorkerAction, Aria2RpcClient,
+    Aria2RpcStatus,
+};
 use crate::auth::SessionKind;
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
@@ -1314,6 +1317,93 @@ async fn diagnostics_log_mode_updates_confirmed_running_sidecar_through_private_
     assert_eq!(requests[0]["method"], "aria2.changeGlobalOption");
     assert_eq!(requests[0]["params"][0], "token:mode-secret");
     assert_eq!(requests[0]["params"][1]["log-level"], "debug");
+
+    if let Some(mut process) = state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .take()
+    {
+        process.kill().expect("test child should stop");
+    }
+    server.abort();
+}
+
+#[tokio::test]
+async fn diagnostics_log_mode_schedules_warn_restore_when_enable_outcome_is_unknown() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock address should exist")
+        .port();
+    let server = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(|| async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                axum::Json(json!({ "result": "OK" }))
+            }),
+        );
+        axum::serve(listener, app)
+            .await
+            .expect("mock server should stop cleanly");
+    });
+
+    let mut state = test_state(None).await;
+    let mutable_state =
+        std::sync::Arc::get_mut(&mut state).expect("state should be uniquely owned");
+    mutable_state.base_aria2_config.rpc_port = port;
+    mutable_state.aria2_rpc =
+        Aria2RpcClient::with_timeouts(Duration::from_millis(20), Duration::from_millis(20));
+    let child = spawn_sleep_child();
+    let pid = child.id();
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, port, "mode-secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should save");
+    *state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed") = Some(crate::runtime::ManagedAria2Process::new(
+        child,
+        crate::config::aria2::Aria2BinarySource::Sidecar,
+    ));
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should enter ready");
+
+    let error = response_json::<ErrorResponse>(
+        management_router(state.clone())
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "PUT",
+                    "/api/diagnostics/aria2-log-mode",
+                    &json!({ "detailed": true }),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::SERVICE_UNAVAILABLE,
+    )
+    .await;
+
+    assert_eq!(error.code, "aria2_log_mode_update_failed");
+    assert_eq!(state.aria2_log_mode.current_level(), Aria2LogLevel::Warn);
+    assert_eq!(
+        state.aria2_log_mode.worker_action(),
+        Some(Aria2LogModeWorkerAction::RetryRestore)
+    );
 
     if let Some(mut process) = state
         .aria2_process

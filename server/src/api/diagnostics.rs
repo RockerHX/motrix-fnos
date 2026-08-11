@@ -165,7 +165,8 @@ fn classify_log_mode_error(error: Aria2LogModeUpdateError) -> ApiError {
         Aria2LogModeUpdateError::Conflict(message) => {
             ApiError::conflict("aria2_log_mode_conflict", message)
         }
-        Aria2LogModeUpdateError::Failed(message) => {
+        Aria2LogModeUpdateError::Failed(message)
+        | Aria2LogModeUpdateError::OutcomeUnknown(message) => {
             ApiError::service_unavailable("aria2_log_mode_update_failed", message)
         }
     }
