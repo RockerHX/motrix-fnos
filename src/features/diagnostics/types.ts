@@ -11,3 +11,14 @@ export interface DebugLogEntry {
   message: string;
   repeatCount: number;
 }
+
+export type Aria2LogLevel = "warn" | "debug";
+
+export interface Aria2LogModeStatus {
+  mode: Aria2LogLevel;
+  detailed: boolean;
+  detailedUntilMs: number | null;
+  maxFileSizeBytes: number;
+  maxFileCount: number;
+  appliesOnNextStart: boolean;
+}

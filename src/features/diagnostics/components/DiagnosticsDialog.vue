@@ -5,6 +5,7 @@ import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
 import type { AppMetricItem } from "../../../components/ui/appMetric";
 import { computed, ref, watch } from "vue";
 import EngineStatusPanel from "../../../components/EngineStatusPanel.vue";
+import Aria2LogModePanel from "./Aria2LogModePanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
 import { useI18n } from "../../../i18n";
 import type { AppInfo, BackendPing } from "../../../types/app";
@@ -104,6 +105,10 @@ function updateShow(show: boolean) {
 function updateEngineStatus(status: EngineStatusSnapshot) {
   emit("engineStatusUpdated", status);
 }
+
+function updateLogMode() {
+  emit("refreshStatus");
+}
 </script>
 
 <template>
@@ -122,6 +127,8 @@ function updateEngineStatus(status: EngineStatusSnapshot) {
     </template>
 
     <AppMetricGrid class="diagnostics-metrics" :items="diagnosticMetrics" :desktop-columns="2" :mobile-columns="1" />
+
+    <Aria2LogModePanel :active="props.show" @updated="updateLogMode" />
 
     <EngineStatusPanel @status-updated="updateEngineStatus" />
   </AppDialog>

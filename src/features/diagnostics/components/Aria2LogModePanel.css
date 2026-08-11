@@ -1,0 +1,70 @@
+.aria2-log-mode-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 20px 0;
+  border-top: 1px solid var(--app-color-border-subtle);
+  border-bottom: 1px solid var(--app-color-border-subtle);
+}
+
+.aria2-log-mode-header,
+.aria2-log-mode-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aria2-log-mode-eyebrow {
+  margin: 0 0 4px;
+  color: var(--app-text-accent-soft);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.aria2-log-mode-description,
+.aria2-log-mode-meta,
+.aria2-log-mode-error {
+  margin: 0;
+  white-space: normal;
+}
+
+.aria2-log-mode-description,
+.aria2-log-mode-meta {
+  color: var(--app-text-secondary);
+}
+
+.aria2-log-mode-meta {
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.aria2-log-mode-error {
+  color: var(--app-text-danger);
+}
+
+.aria2-log-mode-actions {
+  margin-top: 2px;
+}
+
+@media (max-width: 767px) {
+  .aria2-log-mode-panel {
+    padding: 16px 0;
+  }
+
+  .aria2-log-mode-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .aria2-log-mode-actions :deep(.n-button) {
+    width: 100%;
+  }
+}

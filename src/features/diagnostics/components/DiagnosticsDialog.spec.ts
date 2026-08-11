@@ -54,6 +54,16 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
   });
 
+  it("refreshes diagnostics status after the log mode changes", async () => {
+    const { wrapper } = mountDialog(false);
+
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+    await wrapper.get('[data-test="aria2-log-mode-updated"]').trigger("click");
+
+    expect(wrapper.emitted("refreshStatus")).toHaveLength(2);
+  });
+
   it("opens debug logs and emits close event", async () => {
     const { wrapper } = mountDialog();
 
@@ -86,6 +96,12 @@ function mountDialog(show = true) {
     },
     global: {
       stubs: {
+        Aria2LogModePanel: {
+          name: "Aria2LogModePanelStub",
+          props: ["active"],
+          emits: ["updated"],
+          template: "<button data-test='aria2-log-mode-updated' @click='$emit(\"updated\")'>aria2-log-mode-stub</button>",
+        },
         EngineStatusPanel: { template: "<div>engine-status-stub</div>" },
         DebugLogDialog: { props: ["show"], template: "<div v-if='show'>debug-log-stub</div>" },
       },
