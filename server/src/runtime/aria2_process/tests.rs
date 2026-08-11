@@ -202,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps({
             "jsonrpc": "2.0",
             "id": payload.get("id"),
-            "result": {"version": "2.4.9"},
+            "result": {"version": "2.5.5"},
         }).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -333,7 +333,7 @@ async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {
     Json(json!({
         "jsonrpc": "2.0",
         "id": "motrix-fnos-version-check",
-        "result": { "version": "2.4.9" }
+        "result": { "version": "2.5.5" }
     }))
 }
 

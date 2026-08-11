@@ -205,7 +205,7 @@ async fn exercise_idle_window(
             .expect("JSON-RPC body should read"),
     )
     .expect("JSON-RPC response should parse");
-    assert_eq!(payload["result"]["version"], "2.4.9");
+    assert_eq!(payload["result"]["version"], "2.5.5");
 
     let response = jsonrpc
         .clone()
@@ -252,7 +252,7 @@ async fn spawn_mock_aria2() -> (u16, tokio::task::JoinHandle<()>) {
                 axum::Json(json!({
                     "jsonrpc": "2.0",
                     "id": "motrix-fnos-version-check",
-                    "result": { "version": "2.4.9" }
+                    "result": { "version": "2.5.5" }
                 }))
             }),
         );

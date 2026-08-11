@@ -51,7 +51,7 @@ async fn ping_rpc_accepts_version_and_sends_configured_token() {
             let captured = captured_for_handler.clone();
             async move {
                 *captured.lock().expect("captured payload should lock") = Some(payload);
-                Json(json!({ "result": { "version": "2.4.9" } }))
+                Json(json!({ "result": { "version": "2.5.5" } }))
             }
         }),
     ))
@@ -62,7 +62,7 @@ async fn ping_rpc_accepts_version_and_sends_configured_token() {
     let status = ping_rpc(&Aria2RpcClient::new(), &config, None).await;
 
     assert!(status.connected);
-    assert_eq!(status.version.as_deref(), Some("2.4.9"));
+    assert_eq!(status.version.as_deref(), Some("2.5.5"));
     assert_eq!(
         captured
             .lock()

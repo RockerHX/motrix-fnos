@@ -765,7 +765,7 @@ async fn aria2_rpc_status_does_not_probe_stopped_or_unconfirmed_runtime() {
                 let requests = requests_for_handler.clone();
                 async move {
                     requests.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(json!({ "result": { "version": "2.4.9" } }))
+                    axum::Json(json!({ "result": { "version": "2.5.5" } }))
                 }
             }),
         );

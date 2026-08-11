@@ -392,7 +392,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
                 axum::Json(json!({
                     "jsonrpc": "2.0",
                     "id": "motrix-fnos-version-check",
-                    "result": { "version": "2.4.9" }
+                    "result": { "version": "2.5.5" }
                 }))
             }),
         );
@@ -428,7 +428,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
         let result = execute_method(&state, "aria2.getVersion", &json!([]))
             .await
             .expect("running Aria2 should return its version");
-        assert_eq!(result["version"], "2.4.9");
+        assert_eq!(result["version"], "2.5.5");
         assert_eq!(result["enabledFeatures"], json!([]));
     }
     assert_eq!(capture.contents(), "");
@@ -441,7 +441,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     let cached_result = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
         .expect("stopped Aria2 should return the last observed version");
-    assert_eq!(cached_result["version"], "2.4.9");
+    assert_eq!(cached_result["version"], "2.5.5");
     assert_eq!(cached_result["enabledFeatures"], json!([]));
 
     server.abort();
@@ -890,7 +890,7 @@ async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consist
                 let requests = requests_for_handler.clone();
                 async move {
                     requests.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(json!({ "result": { "version": "2.4.9" } }))
+                    axum::Json(json!({ "result": { "version": "2.5.5" } }))
                 }
             }),
         );
@@ -1243,7 +1243,7 @@ async fn lifecycle_race_rpc(
 ) -> axum::Json<Value> {
     match payload.get("method").and_then(Value::as_str) {
         Some("aria2.getVersion") => axum::Json(json!({
-            "result": { "version": "2.4.9" }
+            "result": { "version": "2.5.5" }
         })),
         Some("aria2.addUri") => {
             state.add_uri_started.notify_one();
@@ -1263,7 +1263,7 @@ async fn protocol_regression_rpc(axum::Json(payload): axum::Json<Value>) -> axum
     match payload.get("method").and_then(Value::as_str) {
         Some("aria2.addUri") => axum::Json(json!({ "result": "gid-protocol" })),
         Some("aria2.getVersion") => axum::Json(json!({
-            "result": { "version": "2.4.9" }
+            "result": { "version": "2.5.5" }
         })),
         Some(method) => axum::Json(json!({
             "error": { "message": format!("unexpected method: {method}") }
