@@ -15,6 +15,7 @@ pub(crate) const SERVER_LOG_BUNDLE_MAX_BYTES: usize = 4 * 1024 * 1024;
 pub(crate) const LIFECYCLE_LOG_BUNDLE_MAX_BYTES: usize = 2 * 1024 * 1024;
 const APP_DEBUG_LOG_BUNDLE_MAX_BYTES: usize = 512 * 1024;
 const SUMMARY_BUNDLE_MAX_BYTES: usize = 64 * 1024;
+const HISTORY_LOG_MIN_TAIL_BYTES: usize = 256 * 1024;
 
 const SERVER_LOG_FILES: &[(&str, &str)] = &[
     ("logs/server.log", "logs/server.log"),
@@ -61,6 +62,12 @@ struct BundleBudget {
 struct SanitizedTail {
     contents: String,
     bytes_read: usize,
+}
+
+struct AvailableLogFile<'a> {
+    relative_path: &'a str,
+    archive_path: &'a str,
+    bytes: usize,
 }
 
 pub(crate) fn build_diagnostic_bundle(state: &HttpAppState) -> Result<Vec<u8>, String> {
@@ -157,17 +164,38 @@ fn append_log_group(
     budget: &mut BundleBudget,
 ) {
     let mut group_remaining = max_bytes.min(budget.remaining);
-    for (relative_path, archive_path) in files {
+    let available = files
+        .iter()
+        .filter_map(|(relative_path, archive_path)| {
+            let file = open_regular_file(app_data_dir, relative_path)?;
+            let bytes = usize::try_from(file.metadata().ok()?.len()).ok()?;
+            Some(AvailableLogFile {
+                relative_path,
+                archive_path,
+                bytes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for (index, file) in available.iter().enumerate() {
         if group_remaining == 0 || budget.remaining == 0 {
             break;
         }
-        let Some(tail) = read_sanitized_tail(app_data_dir, relative_path, group_remaining) else {
+        let reserved_for_later = available[index + 1..]
+            .iter()
+            .map(|later| later.bytes.min(HISTORY_LOG_MIN_TAIL_BYTES))
+            .sum::<usize>()
+            .min(group_remaining);
+        let file_limit = group_remaining
+            .saturating_sub(reserved_for_later)
+            .min(file.bytes);
+        let Some(tail) = read_sanitized_tail(app_data_dir, file.relative_path, file_limit) else {
             continue;
         };
         group_remaining = group_remaining.saturating_sub(tail.bytes_read);
         budget.remaining = budget.remaining.saturating_sub(tail.bytes_read);
         entries.push(ArchiveEntry {
-            name: (*archive_path).to_string(),
+            name: file.archive_path.to_string(),
             contents: tail.contents,
         });
     }

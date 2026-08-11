@@ -84,6 +84,7 @@ fn diagnostic_bundle_limits_total_input_and_keeps_latest_log_tails() {
             "a".repeat(ARIA2_LOG_BUNDLE_MAX_BYTES)
         ),
     );
+    write_file(&root.join("aria2/aria2.1.log"), "aria2-history-tail\n");
     write_file(
         &root.join("logs/server.log"),
         &format!(
@@ -91,12 +92,17 @@ fn diagnostic_bundle_limits_total_input_and_keeps_latest_log_tails() {
             "s".repeat(SERVER_LOG_BUNDLE_MAX_BYTES)
         ),
     );
+    write_file(&root.join("logs/server.log.1"), "server-history-tail\n");
     write_file(
         &root.join("logs/lifecycle.log"),
         &format!(
             "lifecycle-head\n{}lifecycle-tail\n",
             "l".repeat(LIFECYCLE_LOG_BUNDLE_MAX_BYTES)
         ),
+    );
+    write_file(
+        &root.join("logs/lifecycle.log.1"),
+        "lifecycle-history-tail\n",
     );
 
     let entries = unzip(
@@ -111,6 +117,9 @@ fn diagnostic_bundle_limits_total_input_and_keeps_latest_log_tails() {
     assert!(entry(&entries, "logs/aria2/aria2.log").contains("aria2-tail"));
     assert!(entry(&entries, "logs/server.log").contains("server-tail"));
     assert!(entry(&entries, "logs/lifecycle.log").contains("lifecycle-tail"));
+    assert!(entry(&entries, "logs/aria2/aria2.1.log").contains("aria2-history-tail"));
+    assert!(entry(&entries, "logs/server.log.1").contains("server-history-tail"));
+    assert!(entry(&entries, "logs/lifecycle.log.1").contains("lifecycle-history-tail"));
     assert!(!entry(&entries, "logs/aria2/aria2.log").contains("aria2-head"));
     remove_temp_dir(root);
 }
