@@ -634,7 +634,111 @@ Session 与 Cookie 约定：
 - 已确认运行且处于 `Ready` 的 sidecar 由服务端私有回环 RPC 调用 `aria2.changeGlobalOption` 即时切换；停止时不启动引擎，`appliesOnNextStart=true` 表示将在下一次受控启动时生效。启动或停止转换中返回 `409 aria2_log_mode_conflict`。
 - 外部 JSON-RPC 白名单不包含 `aria2.changeGlobalOption`，也不提供日志模式、日志清理或诊断导出方法。任何模式下单文件大小与保留数量均不放宽。
 
-### 4.8 存储目录
+### 4.8 日志占用、清理与诊断包
+
+| 方法 | 路径 | 请求 | 响应 |
+| --- | --- | --- | --- |
+| `GET` | `/api/diagnostics/logs` | - | `DiagnosticsLogUsage` |
+| `DELETE` | `/api/diagnostics/aria2-logs` | - | `Aria2LogCleanupResponse` |
+| `GET` | `/api/diagnostics/diagnostic-bundle` | - | `application/zip` attachment |
+
+`DiagnosticsLogUsage` 不返回绝对路径：
+
+```json
+{
+  "aria2": {
+    "currentBytes": 10485760,
+    "historyBytes": 20971520,
+    "totalBytes": 31457280,
+    "currentFileCount": 1,
+    "historyFileCount": 2,
+    "totalFileCount": 3
+  },
+  "server": {
+    "currentBytes": 1024,
+    "historyBytes": 0,
+    "totalBytes": 1024,
+    "currentFileCount": 1,
+    "historyFileCount": 0,
+    "totalFileCount": 1
+  },
+  "lifecycle": {
+    "currentBytes": 0,
+    "historyBytes": 0,
+    "totalBytes": 0,
+    "currentFileCount": 0,
+    "historyFileCount": 0,
+    "totalFileCount": 0
+  },
+  "totalBytes": 31458304,
+  "totalFileCount": 4,
+  "aria2LogMode": {
+    "mode": "warn",
+    "detailed": false,
+    "detailedUntilMs": null,
+    "maxFileSizeBytes": 10485760,
+    "maxFileCount": 3,
+    "appliesOnNextStart": false
+  }
+}
+```
+
+清理成功响应：
+
+```json
+{
+  "reclaimedBytes": 31457280,
+  "usage": {
+    "aria2": {
+      "currentBytes": 0,
+      "historyBytes": 0,
+      "totalBytes": 0,
+      "currentFileCount": 0,
+      "historyFileCount": 0,
+      "totalFileCount": 0
+    },
+    "server": {
+      "currentBytes": 1024,
+      "historyBytes": 0,
+      "totalBytes": 1024,
+      "currentFileCount": 1,
+      "historyFileCount": 0,
+      "totalFileCount": 1
+    },
+    "lifecycle": {
+      "currentBytes": 0,
+      "historyBytes": 0,
+      "totalBytes": 0,
+      "currentFileCount": 0,
+      "historyFileCount": 0,
+      "totalFileCount": 0
+    },
+    "totalBytes": 1024,
+    "totalFileCount": 1,
+    "aria2LogMode": {
+      "mode": "warn",
+      "detailed": false,
+      "detailedUntilMs": null,
+      "maxFileSizeBytes": 10485760,
+      "maxFileCount": 3,
+      "appliesOnNextStart": false
+    }
+  }
+}
+```
+
+约定：
+
+- 三个接口都要求有效的 Web 管理 Session；`DELETE` 还要求 CSRF Token。它们不注册到任何 JSON-RPC listener。
+- 占用统计只读取应用数据目录内固定的普通文件：Aria2 当前日志及兼容的新旧轮转命名、`logs/server.log(.1-.3)` 和 `logs/lifecycle.log(.1-.3)`。符号链接、未知文件和下载目录均不计入，也不返回应用数据目录的绝对路径。
+- 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
+- Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
+- 诊断包文件名固定为 `motrix-fnos-diagnostic-bundle.zip`，在内存中生成，不在应用数据目录长期落盘。ZIP 至少包含 `summary.json` 和 `logs/app-debug.jsonl`，并按存在情况加入 `logs/server.log(.1-.3)`、`logs/lifecycle.log(.1-.3)` 及 `logs/aria2/` 下的新旧命名 Aria2 日志尾部。
+- 诊断包总未压缩输入预算为 16 MiB；Aria2、server、lifecycle 分组预算分别为 10 MiB、4 MiB、2 MiB，应用内调试记录最多 512 KiB，摘要最多 64 KiB。所有文本逐行复用服务端脱敏规则并优先保留最新尾部。
+- 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、Token、Cookie、Session 或 CSRF 数据；只读取固定目录内普通文件并拒绝符号链接。
+- `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
+
+### 4.9 存储目录
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |

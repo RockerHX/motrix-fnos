@@ -323,14 +323,16 @@ rtk packaging/fnos/cmd/stop
 
 `/api/app/ready` 表示 Rust 管理与 JSON-RPC listener 已绑定、启动门禁已完成且服务未进入退出状态。SQLite 初始化仍由启动门禁保证，但每次 ready 请求不再执行实时数据库查询。
 
-常看两个位置：
+常看位置：
 
 - Rust 业务日志：`packaging/fnos/app/data/logs/server.log`，单文件上限 10 MiB，保留当前文件和最多 3 个轮转文件（`.1`～`.3`）。
 - 生命周期日志：`packaging/fnos/app/data/logs/lifecycle.log`，记录启动脚本和进程标准输出，单文件默认上限 1 MiB，保留最多 3 个轮转文件。
-- Aria2 原生日志：运行时应用数据目录下的 `aria2/aria2.log`，默认级别为 `warn`，单文件上限 10 MiB，总计最多保留当前文件和 2 个历史文件；它不属于管理面板当前展示的应用内调试记录。
+- Aria2 原生日志：运行时 `$TRIM_PKGVAR/aria2/aria2.log`（常见为 `/vol1/@appdata/motrix/aria2/aria2.log`），默认级别为 `warn`，单文件上限 10 MiB，总计最多保留当前文件和 2 个历史文件；spdlog 使用 `aria2.1.log`、`aria2.2.log` 等命名，升级维护同时兼容旧 `aria2.log.1`、`aria2.log.2` 命名。
 - PID：`packaging/fnos/app/data/run/motrix-fnos-server.pid`
 - 进程启动时间：`packaging/fnos/app/data/run/motrix-fnos-server.starttime`，与 `/proc/<pid>/exe` 一起用于防止 PID 复用误判。
 - 新进程启动后允许 `nohup` 到 server 可执行文件存在短暂、有限的 exec 过渡窗口；过渡期间使用 PID 启动时间确认仍是本次创建的进程。启动失败时只终止启动时间匹配的进程实例，确认退出后才删除 PID 记录，避免遗留继续占用服务端口的孤儿进程。
+
+启动门禁在完成现有孤儿进程对账后、任何 Aria2 可能启动前维护旧原生日志。只有能够确认 sidecar 未运行、生命周期已停止且内存/磁盘运行态均不存在时，才把超过 10 MiB 的旧 `aria2.log` 原子收敛为最后 10 MiB，并在新旧命名中总计只保留两份历史日志。门禁无法证明安全时只记录警告并跳过，不会为了清理日志停止或唤醒 Aria2。
 
 ## 最小排障
 
@@ -341,6 +343,18 @@ rtk packaging/fnos/cmd/stop
 - 同一 `motrix` 身份升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
 - 从旧 `motrix.fnos` 安装切换后看不到原数据：这是应用身份变化的预期结果，不属于普通升级；新应用不会自动读取旧身份的 `TRIM_PKGVAR`
 - 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”
+
+### 无需 SSH 的日志排障
+
+普通用户优先在已登录的 Motrix 管理面板完成以下流程，无需访问 `$TRIM_PKGVAR`：
+
+1. 打开“诊断”，先查看 Aria2、Rust 服务、生命周期和日志总占用；达到 80 MiB 预警线时会显示明确警告。
+2. 问题难以复现时，在操作前开启“详细日志（30 分钟）”。该模式只把 Aria2 文件日志临时切换为 `debug`，30 分钟后自动恢复 `warn`，单文件 10 MiB 和最多 3 个文件的上限不会变化。
+3. 重现问题后立即点击“导出诊断包”，将下载的 `motrix-fnos-diagnostic-bundle.zip` 随 GitHub Issue 提交。诊断包包含版本/运行状态摘要、应用内调试记录，以及 Rust、生命周期和 Aria2 日志尾部；所有文本会再次脱敏。
+4. 需要释放 Aria2 日志空间时先停止引擎，再点击“清理 Aria2 日志”并二次确认。运行中、切换中或归属无法确认时界面禁用操作，服务端也会返回 `409 aria2_log_in_use`，不会自动停止引擎。
+5. 调试日志窗口中的“清空应用内调试记录”只清空内存记录，不会释放 Aria2 原生日志文件空间；磁盘占用以诊断页指标为准。
+
+诊断 ZIP 在内存中生成，不创建长期临时文件。它不会包含 SQLite、session、运行态 JSON、设置原文、密码、Token、Cookie、CSRF 或用户下载文件；固定日志输入总计最多 16 MiB，并拒绝符号链接。若升级前已有 50 GiB 等超限 `aria2.log`，下一次安全启动会保留最后 10 MiB；停止引擎后也可用手动按钮清空全部已识别 Aria2 日志。
 
 ## 数据保留与卸载向导
 
