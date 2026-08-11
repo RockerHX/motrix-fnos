@@ -734,6 +734,7 @@ Session 与 Cookie 约定：
 - 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
 - Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
 - 诊断包文件名固定为 `motrix-fnos-diagnostic-bundle.zip`，在内存中生成，不在应用数据目录长期落盘。ZIP 至少包含 `summary.json` 和 `logs/app-debug.jsonl`，并按存在情况加入 `logs/server.log(.1-.3)`、`logs/lifecycle.log(.1-.3)` 及 `logs/aria2/` 下的新旧命名 Aria2 日志尾部。
+- 诊断包生成使用独立并发门禁，同一时间只处理一个导出请求；已有导出任务运行时返回 `429 diagnostic_bundle_busy` 和 `Retry-After: 1`。
 - 诊断包总未压缩输入预算为 16 MiB；Aria2、server、lifecycle 分组预算分别为 10 MiB、4 MiB、2 MiB，应用内调试记录最多 512 KiB，摘要最多 64 KiB。所有文本逐行复用服务端脱敏规则并优先保留最新尾部。
 - 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、Token、Cookie、Session 或 CSRF 数据；只读取固定目录内普通文件并拒绝符号链接。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。

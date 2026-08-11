@@ -14,6 +14,10 @@ use axum::routing::{delete, get};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+const DIAGNOSTIC_BUNDLE_CONCURRENCY: usize = 1;
+static DIAGNOSTIC_BUNDLE_SLOTS: Semaphore = Semaphore::const_new(DIAGNOSTIC_BUNDLE_CONCURRENCY);
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
@@ -104,7 +108,27 @@ async fn delete_aria2_logs(
 async fn get_diagnostic_bundle(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Response, ApiError> {
-    let bundle = crate::diagnostics::build_diagnostic_bundle(&state).map_err(|error| {
+    let permit = DIAGNOSTIC_BUNDLE_SLOTS.try_acquire().map_err(|_| {
+        ApiError::too_many_requests(
+            "diagnostic_bundle_busy",
+            "已有诊断包正在生成，请稍后重试",
+            1,
+        )
+    })?;
+    let bundle_state = Arc::clone(&state);
+    let bundle = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        crate::diagnostics::build_diagnostic_bundle(&bundle_state)
+    })
+    .await
+    .map_err(|error| {
+        state
+            .core
+            .debug_logs
+            .error("diagnostics.bundle", format!("生成诊断包任务异常：{error}"));
+        ApiError::internal("diagnostic_bundle_failed", "生成诊断包失败，请稍后重试")
+    })?
+    .map_err(|error| {
         state
             .core
             .debug_logs
@@ -171,3 +195,6 @@ fn classify_log_mode_error(error: Aria2LogModeUpdateError) -> ApiError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
