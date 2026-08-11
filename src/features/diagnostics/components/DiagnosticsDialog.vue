@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NSpace } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
+import AppIcon from "../../../components/AppIcon.vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
 import type { AppMetricItem } from "../../../components/ui/appMetric";
 import { computed, ref, watch } from "vue";
@@ -12,6 +13,7 @@ import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
 import { useLanJsonRpcStore } from "../../settings/stores/lanJsonRpcStore";
 import { lanJsonRpcEndpoint } from "../../settings/utils/lanJsonRpcEndpoint";
+import { useDiagnosticBundleExport } from "../composables/useDiagnosticBundleExport";
 
 type EngineStatusSnapshot = {
   process: Aria2ProcessStatus;
@@ -37,6 +39,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const lanJsonRpcStore = useLanJsonRpcStore();
 const showDebugLogs = ref(false);
+const { isExporting, exportDiagnosticBundle } = useDiagnosticBundleExport();
 const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
 const diagnosticMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
@@ -122,6 +125,10 @@ function updateLogMode() {
     <template #header-extra>
       <NSpace>
         <NButton secondary @click="emit('openRpcGuide')">{{ t("diagnostics.jsonRpcGuide") }}</NButton>
+        <NButton secondary :loading="isExporting" @click="exportDiagnosticBundle">
+          <template #icon><AppIcon name="download" :size="16" /></template>
+          {{ t("diagnostics.bundle.export") }}
+        </NButton>
         <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
       </NSpace>
     </template>

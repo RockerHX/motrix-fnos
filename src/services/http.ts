@@ -24,6 +24,7 @@ interface RequestOptions extends HttpRequestOptions {
   body?: unknown;
   rawBody?: BodyInit;
   headers?: HeadersInit;
+  responseType?: "blob";
 }
 
 let csrfTokenProvider: (() => string | null) | null = null;
@@ -57,11 +58,10 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     return undefined as T;
   }
 
-  const contentType = response.headers.get("content-type") || "";
-  const isJson = contentType.includes("application/json");
-  const payload = isJson ? ((await response.json()) as unknown) : await response.text();
-
   if (!response.ok) {
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
+    const payload = isJson ? ((await response.json()) as unknown) : await response.text();
     const errorPayload = isApiErrorResponse(payload)
       ? payload
       : {
@@ -80,6 +80,12 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     throw error;
   }
 
+  if (options.responseType === "blob") {
+    return (await response.blob()) as T;
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json") ? ((await response.json()) as unknown) : await response.text();
   return payload as T;
 }
 
@@ -98,6 +104,10 @@ function isApiErrorResponse(payload: unknown): payload is ApiErrorResponse {
 
 export function httpGet<T>(path: string, options: HttpRequestOptions = {}) {
   return request<T>("GET", path, options);
+}
+
+export function httpGetBlob(path: string, options: HttpRequestOptions = {}) {
+  return request<Blob>("GET", path, { ...options, responseType: "blob" });
 }
 
 export function httpPost<T>(path: string, body?: unknown, options: HttpRequestOptions = {}) {

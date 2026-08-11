@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const diagnosticBundleExport = vi.hoisted(() => ({ exportDiagnosticBundle: vi.fn() }));
 
 vi.mock("../../settings/services/lanJsonRpcService", () => ({
   getLanJsonRpcStatus: vi.fn(async () => ({ enabled: true, configured: true, maskedToken: "••••••••1234", port: 17082 })),
@@ -33,11 +35,23 @@ vi.mock("../../../components/ui/AppDialog.vue", async () => {
   };
 });
 
+vi.mock("../composables/useDiagnosticBundleExport", async () => {
+  const { ref } = await import("vue");
+  return {
+    useDiagnosticBundleExport: () => ({
+      isExporting: ref(false),
+      exportDiagnosticBundle: diagnosticBundleExport.exportDiagnosticBundle,
+    }),
+  };
+});
+
 import DiagnosticsDialog from "./DiagnosticsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import type { AppInfo, BackendPing } from "../../../types/app";
 
 describe("DiagnosticsDialog", () => {
+  beforeEach(() => vi.clearAllMocks());
+
   it("renders diagnostics status and emits refresh when opened", async () => {
     const { wrapper } = mountDialog(false);
 
@@ -73,6 +87,14 @@ describe("DiagnosticsDialog", () => {
 
     expect(wrapper.text()).toContain("debug-log-stub");
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
+  it("exports a diagnostic bundle through the authenticated client", async () => {
+    const { wrapper } = mountDialog();
+
+    await wrapper.findAll("button").find((button) => button.text() === "导出诊断包")!.trigger("click");
+
+    expect(diagnosticBundleExport.exportDiagnosticBundle).toHaveBeenCalledOnce();
   });
 
   it("opens the independent RPC guide from diagnostics", async () => {

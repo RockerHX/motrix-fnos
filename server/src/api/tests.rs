@@ -15,15 +15,17 @@ use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use crate::test_support::TestTracingCapture;
 use axum::body::to_bytes;
 use axum::extract::ConnectInfo;
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use axum::http::StatusCode;
 use axum::routing::get;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::io::{Cursor, Read};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tower::ServiceExt;
+use zip::ZipArchive;
 
 #[tokio::test]
 async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
@@ -778,6 +780,123 @@ async fn diagnostics_log_mode_requires_session_and_csrf_and_does_not_start_stopp
     assert_eq!(disabled.mode, Aria2LogLevel::Warn);
     assert!(!disabled.detailed);
     assert!(disabled.detailed_until_ms.is_none());
+}
+
+#[tokio::test]
+async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs() {
+    let state = raw_test_state(None).await;
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("logs"))
+        .expect("logs directory should create");
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("aria2"))
+        .expect("aria2 directory should create");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/server.log"),
+        "password=server-secret https://example.com/file?token=url-secret\n",
+    )
+    .expect("server log should write");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/lifecycle.log"),
+        "Authorization: Bearer lifecycle-secret\n",
+    )
+    .expect("lifecycle log should write");
+    std::fs::write(
+        state.runtime.app_data_dir.join("aria2/aria2.log"),
+        "rpc-secret=aria2-secret\n",
+    )
+    .expect("aria2 log should write");
+    state
+        .core
+        .debug_logs
+        .error("api.bundle_test", "token=debug-secret");
+    let app = management_router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/diagnostic-bundle")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    let session = state
+        .auth
+        .sessions
+        .create(SessionKind::Admin, configured.auth_version)
+        .expect("admin session should create");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/diagnostic-bundle")
+                .header("cookie", format!("motrix_web_session={}", session.id))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/zip")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename=\"motrix-fnos-diagnostic-bundle.zip\"")
+    );
+
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("bundle body should read");
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("bundle should be a valid zip");
+    let mut names = Vec::new();
+    let mut contents = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("zip entry should open");
+        names.push(entry.name().to_string());
+        entry
+            .read_to_string(&mut contents)
+            .expect("zip entry should be text");
+    }
+
+    for expected in [
+        "summary.json",
+        "logs/app-debug.jsonl",
+        "logs/server.log",
+        "logs/lifecycle.log",
+        "logs/aria2/aria2.log",
+    ] {
+        assert!(
+            names.iter().any(|name| name == expected),
+            "missing {expected}"
+        );
+    }
+    assert!(!names.iter().any(|name| name.contains("sqlite")));
+    for secret in [
+        "server-secret",
+        "url-secret",
+        "lifecycle-secret",
+        "aria2-secret",
+        "debug-secret",
+    ] {
+        assert!(!contents.contains(secret), "secret leaked: {secret}");
+    }
+    assert!(contents.contains("[REDACTED]"));
 }
 
 #[tokio::test]

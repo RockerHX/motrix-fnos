@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   httpDelete,
   httpGet,
+  httpGetBlob,
   httpPost,
   httpPostFormData,
   httpPut,
@@ -82,6 +83,27 @@ describe("http client", () => {
     await expect(httpPut("/api/settings", {})).resolves.toBe("ready");
   });
 
+  it("returns authenticated binary downloads as Blob values", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([80, 75, 3, 4]), {
+        status: 200,
+        headers: { "content-type": "application/zip" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const blob = await httpGetBlob("/api/diagnostics/diagnostic-bundle");
+
+    expect(blob.type).toBe("application/zip");
+    await expect(blob.arrayBuffer()).resolves.toEqual(new Uint8Array([80, 75, 3, 4]).buffer);
+    expect(fetchMock).toHaveBeenCalledWith("/api/diagnostics/diagnostic-bundle", {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {},
+      body: undefined,
+    });
+  });
+
   it("throws structured API errors", async () => {
     vi.stubGlobal(
       "fetch",
@@ -149,6 +171,21 @@ describe("http client", () => {
     expect(unauthorized).toHaveBeenCalledOnce();
 
     await expect(httpPost("/api/auth/login", { password: "wrong" }, { handleUnauthorized: false })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(unauthorized).toHaveBeenCalledOnce();
+  });
+
+  it("keeps unauthorized handling for binary downloads", async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse({ code: "authentication_required", message: "请先登录" }, 401)),
+    );
+
+    await expect(httpGetBlob("/api/diagnostics/diagnostic-bundle")).rejects.toMatchObject({
+      code: "authentication_required",
       status: 401,
     });
     expect(unauthorized).toHaveBeenCalledOnce();
