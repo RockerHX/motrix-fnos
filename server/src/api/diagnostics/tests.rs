@@ -1,11 +1,16 @@
-use super::DIAGNOSTIC_BUNDLE_SLOTS;
+use super::try_acquire_diagnostic_bundle_slot;
+use axum::http::StatusCode;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
-#[tokio::test]
-async fn diagnostic_bundle_allows_only_one_generation_at_a_time() {
-    let first = DIAGNOSTIC_BUNDLE_SLOTS
-        .try_acquire()
+#[test]
+fn diagnostic_bundle_allows_only_one_generation_at_a_time() {
+    let slots = Arc::new(Semaphore::new(1));
+    let first = try_acquire_diagnostic_bundle_slot(Arc::clone(&slots))
         .expect("first bundle slot should be available");
-    assert!(DIAGNOSTIC_BUNDLE_SLOTS.try_acquire().is_err());
+    let error = try_acquire_diagnostic_bundle_slot(Arc::clone(&slots))
+        .expect_err("second bundle slot should be rejected");
+    assert_eq!(error.status(), StatusCode::TOO_MANY_REQUESTS);
     drop(first);
-    assert!(DIAGNOSTIC_BUNDLE_SLOTS.try_acquire().is_ok());
+    assert!(try_acquire_diagnostic_bundle_slot(slots).is_ok());
 }

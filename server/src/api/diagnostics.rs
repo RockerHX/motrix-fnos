@@ -13,11 +13,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Semaphore;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const DIAGNOSTIC_BUNDLE_CONCURRENCY: usize = 1;
-static DIAGNOSTIC_BUNDLE_SLOTS: Semaphore = Semaphore::const_new(DIAGNOSTIC_BUNDLE_CONCURRENCY);
+static DIAGNOSTIC_BUNDLE_SLOTS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(DIAGNOSTIC_BUNDLE_CONCURRENCY)));
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
@@ -108,13 +109,8 @@ async fn delete_aria2_logs(
 async fn get_diagnostic_bundle(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Response, ApiError> {
-    let permit = DIAGNOSTIC_BUNDLE_SLOTS.try_acquire().map_err(|_| {
-        ApiError::too_many_requests(
-            "diagnostic_bundle_busy",
-            "已有诊断包正在生成，请稍后重试",
-            1,
-        )
-    })?;
+    let permit =
+        try_acquire_diagnostic_bundle_slot(Arc::clone(LazyLock::force(&DIAGNOSTIC_BUNDLE_SLOTS)))?;
     let bundle_state = Arc::clone(&state);
     let bundle = tokio::task::spawn_blocking(move || {
         let _permit = permit;
@@ -144,6 +140,18 @@ async fn get_diagnostic_bundle(
         HeaderValue::from_static("attachment; filename=\"motrix-fnos-diagnostic-bundle.zip\""),
     );
     Ok(response)
+}
+
+fn try_acquire_diagnostic_bundle_slot(
+    slots: Arc<Semaphore>,
+) -> Result<OwnedSemaphorePermit, ApiError> {
+    slots.try_acquire_owned().map_err(|_| {
+        ApiError::too_many_requests(
+            "diagnostic_bundle_busy",
+            "已有诊断包正在生成，请稍后重试",
+            1,
+        )
+    })
 }
 
 async fn put_aria2_log_mode(
