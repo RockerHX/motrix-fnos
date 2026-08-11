@@ -91,6 +91,21 @@ fn process_args_include_session_paths_when_configured() {
     assert!(args.contains(&"--save-session=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
     assert!(args.contains(&"--dht-file-path=/tmp/motrix-fnos/aria2/dht.dat".to_string()));
     assert!(args.contains(&"--log=/tmp/motrix-fnos/aria2/aria2.log".to_string()));
+
+    let log_args = args
+        .iter()
+        .filter(|arg| arg.starts_with("--log-") || arg.starts_with("--log="))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        log_args,
+        vec![
+            "--log-level=warn",
+            "--log-max-size=10M",
+            "--log-max-files=3",
+            "--log=/tmp/motrix-fnos/aria2/aria2.log",
+        ]
+    );
 }
 
 #[test]

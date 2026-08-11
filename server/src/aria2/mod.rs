@@ -1,5 +1,6 @@
 mod args;
 mod config_status;
+mod logging;
 mod options;
 mod ports;
 mod process_probe;
@@ -10,6 +11,9 @@ mod sidecar;
 
 pub use args::{process_args, summarize_args};
 pub use config_status::Aria2ConfigStatus;
+pub use logging::{
+    ARIA2_LOG_LEVEL, ARIA2_LOG_MAX_BYTES, ARIA2_LOG_MAX_FILES, ARIA2_LOG_MAX_SIZE_MIB,
+};
 pub use options::{apply_global_options, global_options_from_values, Aria2GlobalOptions};
 pub use ports::{
     rpc_port_candidates, rpc_ports_exhausted_message, select_available_rpc_port,

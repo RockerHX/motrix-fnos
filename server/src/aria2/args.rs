@@ -1,6 +1,8 @@
 use crate::config::aria2::Aria2Config;
 use std::path::PathBuf;
 
+use super::{ARIA2_LOG_LEVEL, ARIA2_LOG_MAX_FILES, ARIA2_LOG_MAX_SIZE_MIB};
+
 pub(super) fn detect_ca_certificate_path() -> Option<PathBuf> {
     ca_certificate_candidates()
         .into_iter()
@@ -40,6 +42,9 @@ pub fn process_args(config: &Aria2Config) -> Vec<String> {
         "--save-session-interval=30".to_string(),
         "--force-save=true".to_string(),
         "--console-log-level=warn".to_string(),
+        format!("--log-level={ARIA2_LOG_LEVEL}"),
+        format!("--log-max-size={ARIA2_LOG_MAX_SIZE_MIB}M"),
+        format!("--log-max-files={ARIA2_LOG_MAX_FILES}"),
     ];
 
     if let Some(session_path) = config.session_path.as_deref() {

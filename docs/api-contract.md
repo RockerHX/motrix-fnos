@@ -605,6 +605,7 @@ Session 与 Cookie 约定：
 
 - `category` 可为 `app`、`task`、`aria2`、`settings`、`storage`、`api`、`runtime`。
 - 应用内调试日志与 `app/data/logs/server.log` 默认只记录关键生命周期、用户操作、状态转换、警告和错误；应用信息、通信检查、设置读取、Aria2 状态、`aria2.getVersion` 和 `aria2.getGlobalOption` 等常规只读成功请求不写文件日志。`server.log` 单文件上限为 10 MiB，保留当前文件和最多 3 个历史文件；fnOS 生命周期脚本和进程标准输出进入同目录的 `lifecycle.log`，默认单文件上限为 1 MiB，也保留最多 3 个历史文件。
+- Aria2 原生日志位于应用数据目录的 `aria2/aria2.log`，与应用内调试日志相互独立。默认只记录 `warn` 及以上事件，单文件上限为 10 MiB，总计最多保留 3 个文件（当前文件和 2 个历史文件）。
 - 文件日志和内存调试日志共用敏感字段脱敏规则：URL 的 query/fragment、Token、密码、Session、CSRF、Cookie、Authorization 和 RPC secret 不写入日志。排障时可用响应头 `X-Request-ID` 将管理 API、SSE 和 JSON-RPC 请求与日志关联。
 - 下载代理 URL、userinfo、兼容私密覆盖、应用配置 revision 与 Aria2 `all-proxy` 值不进入普通操作日志、调试日志或诊断响应；任务相关记录只允许使用 `useProxy` 布尔值。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
