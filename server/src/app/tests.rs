@@ -1,4 +1,5 @@
 use super::*;
+use crate::aria2::ARIA2_LOG_MAX_BYTES;
 use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
 use crate::database::tasks::list_download_tasks;
 use crate::database::tasks::upsert_download_task;
@@ -220,6 +221,53 @@ async fn bootstrap_without_pending_file_cleanup_keeps_state_exclusively_owned() 
         .expect("state should bootstrap");
 
     assert!(std::sync::Arc::get_mut(&mut state).is_some());
+
+    state.core.database.pool.close().await;
+    drop(state);
+    let _ = std::fs::remove_dir_all(app_data_dir);
+}
+
+#[tokio::test]
+async fn bootstrap_trims_oversized_aria2_log_without_starting_aria2() {
+    let app_data_dir = std::env::temp_dir().join(format!(
+        "motrix-fnos-bootstrap-log-maintenance-{}",
+        now_ms()
+    ));
+    let log_path = app_data_dir.join("aria2").join("aria2.log");
+    std::fs::create_dir_all(log_path.parent().expect("log should have parent"))
+        .expect("log directory should create");
+    let log = std::fs::File::create(&log_path).expect("log should create");
+    log.set_len(ARIA2_LOG_MAX_BYTES + 1)
+        .expect("log should size");
+    drop(log);
+    let runtime = ServerRuntimeConfig {
+        database_path: app_data_dir.join(DATABASE_FILE_NAME),
+        accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        app_data_dir: app_data_dir.clone(),
+        http_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
+        aria2_path: None,
+        trusted_proxy_ips: Vec::new(),
+        web_cookie_secure: false,
+    };
+
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+
+    assert_eq!(
+        std::fs::metadata(&log_path)
+            .expect("log should exist")
+            .len(),
+        ARIA2_LOG_MAX_BYTES
+    );
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    assert!(state.aria2_runtime_snapshot().is_none());
 
     state.core.database.pool.close().await;
     drop(state);

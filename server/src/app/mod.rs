@@ -402,6 +402,8 @@ pub async fn bootstrap_http_app_state(
         .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
     state.remember_json_rpc_token(&json_rpc_token);
     *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
+    // cmd/start 已完成孤儿进程对账；必须在未完成操作可能唤醒 Aria2 前收敛旧日志。
+    crate::runtime::maintain_startup_aria2_logs(&state).await;
     crate::runtime::reconcile_unfinished_task_operations(&state).await?;
     crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
 
