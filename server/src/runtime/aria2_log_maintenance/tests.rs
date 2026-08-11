@@ -80,6 +80,83 @@ fn maintenance_keeps_two_newest_known_history_logs_across_both_naming_schemes() 
     remove_temp_dir(root);
 }
 
+#[test]
+fn log_usage_counts_fixed_logs_and_both_aria2_rotation_naming_schemes() {
+    let root = temp_dir("usage");
+    fs::create_dir_all(root.join(ARIA2_RUNTIME_DIR_NAME)).expect("aria2 directory should create");
+    fs::create_dir_all(root.join(APPLICATION_LOG_DIRECTORY_NAME))
+        .expect("application logs directory should create");
+    let files = [
+        ("aria2/aria2.log", b"aria2-current".as_slice()),
+        ("aria2/aria2.1.log", b"aria2-spdlog".as_slice()),
+        ("aria2/aria2.log.1", b"aria2-legacy".as_slice()),
+        ("logs/server.log", b"server-current".as_slice()),
+        ("logs/server.log.1", b"server-history".as_slice()),
+        ("logs/lifecycle.log", b"lifecycle-current".as_slice()),
+        ("logs/lifecycle.log.2", b"lifecycle-history".as_slice()),
+    ];
+    for (relative_path, contents) in files {
+        fs::write(root.join(relative_path), contents).expect("log should write");
+    }
+    fs::write(root.join("aria2/unrelated.log"), b"ignored").expect("unrelated file should write");
+
+    let usage = collect_log_usage(&root).expect("usage should collect");
+
+    assert_eq!(usage.aria2.current_bytes, 13);
+    assert_eq!(usage.aria2.history_bytes, 24);
+    assert_eq!(usage.aria2.current_file_count, 1);
+    assert_eq!(usage.aria2.history_file_count, 2);
+    assert_eq!(usage.server.current_bytes, 14);
+    assert_eq!(usage.server.history_bytes, 14);
+    assert_eq!(usage.lifecycle.current_bytes, 17);
+    assert_eq!(usage.lifecycle.history_bytes, 17);
+    assert_eq!(usage.total_bytes, 99);
+    assert_eq!(usage.total_file_count, 7);
+    remove_temp_dir(root);
+}
+
+#[test]
+fn log_usage_tolerates_missing_log_directories() {
+    let root = temp_dir("usage-missing");
+    fs::create_dir_all(&root).expect("application data directory should create");
+
+    assert_eq!(
+        collect_log_usage(&root).expect("usage should collect"),
+        LogUsageSnapshot::default()
+    );
+    remove_temp_dir(root);
+}
+
+#[test]
+fn clear_removes_only_recognized_regular_aria2_logs() {
+    let root = temp_dir("clear");
+    let log_dir = root.join(ARIA2_RUNTIME_DIR_NAME);
+    fs::create_dir_all(&log_dir).expect("log directory should create");
+    for (name, contents) in [
+        (ARIA2_LOG_FILE_NAME, "current"),
+        ("aria2.1.log", "spdlog"),
+        ("aria2.log.1", "legacy"),
+    ] {
+        fs::write(log_dir.join(name), contents).expect("log should write");
+    }
+    fs::write(log_dir.join("unrelated.log"), "keep").expect("unrelated file should write");
+
+    let report = clear_aria2_log_files(&root).expect("clear should succeed");
+
+    assert_eq!(report.removed_current_bytes, 7);
+    assert_eq!(report.removed_history_bytes, 12);
+    assert_eq!(report.removed_history_files, 2);
+    assert_eq!(report.reclaimed_bytes(), 19);
+    assert!(!log_dir.join(ARIA2_LOG_FILE_NAME).exists());
+    assert!(!log_dir.join("aria2.1.log").exists());
+    assert!(!log_dir.join("aria2.log.1").exists());
+    assert_eq!(
+        fs::read_to_string(log_dir.join("unrelated.log")).expect("unrelated file should remain"),
+        "keep"
+    );
+    remove_temp_dir(root);
+}
+
 #[cfg(unix)]
 #[test]
 fn maintenance_refuses_to_follow_symbolic_links() {
@@ -105,6 +182,34 @@ fn maintenance_refuses_to_follow_symbolic_links() {
             .len(),
         ARIA2_LOG_MAX_BYTES + 1
     );
+    remove_temp_dir(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn log_usage_skips_symbolic_linked_directories_and_files() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("usage-symlink");
+    let outside = root.join("outside");
+    fs::create_dir_all(&outside).expect("outside directory should create");
+    fs::write(outside.join(ARIA2_LOG_FILE_NAME), b"outside-aria2")
+        .expect("outside aria2 log should write");
+    fs::create_dir_all(root.join("logs")).expect("logs directory should create");
+    fs::write(root.join("logs/server.log"), b"server").expect("server log should write");
+    symlink(&outside, root.join(ARIA2_RUNTIME_DIR_NAME)).expect("aria2 symlink should create");
+    symlink(
+        outside.join(ARIA2_LOG_FILE_NAME),
+        root.join("logs/lifecycle.log"),
+    )
+    .expect("lifecycle symlink should create");
+
+    let usage = collect_log_usage(&root).expect("usage should collect");
+
+    assert_eq!(usage.aria2, LogFileUsage::default());
+    assert_eq!(usage.lifecycle, LogFileUsage::default());
+    assert_eq!(usage.server.current_bytes, 6);
+    assert_eq!(usage.total_bytes, 6);
     remove_temp_dir(root);
 }
 

@@ -1,5 +1,6 @@
 use super::*;
 use crate::api::app::{AppInfo, AppReadiness, BackendPing};
+use crate::api::diagnostics::{Aria2LogCleanupResponse, DiagnosticsLogUsageResponse};
 use crate::api::error::ErrorResponse;
 use crate::api::settings::{JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus};
 use crate::api::storage::AccessiblePathsResponse;
@@ -897,6 +898,305 @@ async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs(
         assert!(!contents.contains(secret), "secret leaked: {secret}");
     }
     assert!(contents.contains("[REDACTED]"));
+}
+
+#[tokio::test]
+async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy() {
+    let state = raw_test_state(None).await;
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("aria2"))
+        .expect("aria2 directory should create");
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("logs"))
+        .expect("logs directory should create");
+    for (relative_path, contents) in [
+        ("aria2/aria2.log", b"aria2-current".as_slice()),
+        ("aria2/aria2.1.log", b"aria2-spdlog".as_slice()),
+        ("aria2/aria2.log.1", b"aria2-legacy".as_slice()),
+        ("logs/server.log", b"server-current".as_slice()),
+        ("logs/server.log.1", b"server-history".as_slice()),
+        ("logs/lifecycle.log", b"lifecycle-current".as_slice()),
+    ] {
+        std::fs::write(state.runtime.app_data_dir.join(relative_path), contents)
+            .expect("log should write");
+    }
+    let app = management_router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/logs")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let session = state
+        .auth
+        .sessions
+        .create(SessionKind::Admin, configured.auth_version)
+        .expect("admin session should create");
+    let usage = response_json::<DiagnosticsLogUsageResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/logs")
+                .header("cookie", format!("motrix_web_session={}", session.id))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(usage.aria2.current_bytes, 13);
+    assert_eq!(usage.aria2.history_bytes, 24);
+    assert_eq!(usage.server.total_bytes, 28);
+    assert_eq!(usage.lifecycle.total_bytes, 17);
+    assert_eq!(usage.total_bytes, 82);
+    assert_eq!(usage.total_file_count, 6);
+    assert_eq!(usage.aria2_log_mode.mode, Aria2LogLevel::Warn);
+    assert!(!serde_json::to_string(&usage)
+        .expect("usage should serialize")
+        .contains(state.runtime.app_data_dir.to_string_lossy().as_ref()));
+}
+
+#[tokio::test]
+async fn diagnostics_aria2_log_cleanup_requires_csrf_and_returns_latest_usage() {
+    let state = raw_test_state(None).await;
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    let log_dir = state.runtime.app_data_dir.join("aria2");
+    std::fs::create_dir_all(&log_dir).expect("aria2 directory should create");
+    for (name, contents) in [
+        ("aria2.log", b"current".as_slice()),
+        ("aria2.1.log", b"spdlog".as_slice()),
+        ("aria2.log.1", b"legacy".as_slice()),
+    ] {
+        std::fs::write(log_dir.join(name), contents).expect("log should write");
+    }
+    std::fs::write(log_dir.join("unrelated.log"), b"keep").expect("unrelated file should write");
+    let app = management_router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/diagnostics/aria2-logs")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let session = state
+        .auth
+        .sessions
+        .create(SessionKind::Admin, configured.auth_version)
+        .expect("admin session should create");
+    let missing_csrf = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/diagnostics/aria2-logs")
+                .header("cookie", format!("motrix_web_session={}", session.id))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+
+    let response = response_json::<Aria2LogCleanupResponse>(
+        app.oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/diagnostics/aria2-logs")
+                .header("cookie", format!("motrix_web_session={}", session.id))
+                .header("x-csrf-token", session.csrf_token)
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(response.reclaimed_bytes, 19);
+    assert_eq!(response.usage.aria2.total_bytes, 0);
+    assert_eq!(response.usage.aria2.total_file_count, 0);
+    assert!(!log_dir.join("aria2.log").exists());
+    assert!(!log_dir.join("aria2.1.log").exists());
+    assert!(!log_dir.join("aria2.log.1").exists());
+    assert_eq!(
+        std::fs::read_to_string(log_dir.join("unrelated.log"))
+            .expect("unrelated file should remain"),
+        "keep"
+    );
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
+#[tokio::test]
+async fn diagnostics_aria2_log_cleanup_rejects_running_transitioning_and_unverified_runtime() {
+    let state = test_state(None).await;
+    let log_path = state.runtime.app_data_dir.join("aria2/aria2.log");
+    std::fs::create_dir_all(log_path.parent().expect("log should have parent"))
+        .expect("aria2 directory should create");
+    std::fs::write(&log_path, b"current").expect("log should write");
+    let child = spawn_sleep_child();
+    *state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed") = Some(crate::runtime::ManagedAria2Process::new(
+        child,
+        crate::config::aria2::Aria2BinarySource::Sidecar,
+    ));
+    let app = management_router(state.clone());
+
+    let running = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                authorized_request(
+                    &state,
+                    "DELETE",
+                    "/api/diagnostics/aria2-logs",
+                    Body::empty(),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+    assert_eq!(running.code, "aria2_log_in_use");
+    assert!(log_path.exists());
+
+    if let Some(mut process) = state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .take()
+    {
+        process.kill().expect("test child should stop");
+    }
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Starting)
+        .expect("lifecycle should enter starting");
+    let transitioning = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                authorized_request(
+                    &state,
+                    "DELETE",
+                    "/api/diagnostics/aria2-logs",
+                    Body::empty(),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+    assert_eq!(transitioning.code, "aria2_log_in_use");
+    assert!(log_path.exists());
+
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopped)
+        .expect("lifecycle should stop");
+    std::fs::write(&state.core.aria2_runtime_path, "{}").expect("runtime record should write");
+    let unverified = response_json::<ErrorResponse>(
+        app.oneshot(
+            authorized_request(
+                &state,
+                "DELETE",
+                "/api/diagnostics/aria2-logs",
+                Body::empty(),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+    assert_eq!(unverified.code, "aria2_log_in_use");
+    assert!(log_path.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn diagnostics_log_usage_and_cleanup_refuse_symbolic_linked_aria2_logs() {
+    use std::os::unix::fs::symlink;
+
+    let state = test_state(None).await;
+    let outside = temp_dir("diagnostics-log-symlink-outside");
+    std::fs::create_dir_all(&outside).expect("outside directory should create");
+    let outside_log = outside.join("aria2.log");
+    std::fs::write(&outside_log, b"outside").expect("outside log should write");
+    symlink(&outside, state.runtime.app_data_dir.join("aria2"))
+        .expect("aria2 directory symlink should create");
+    let app = management_router(state.clone());
+
+    let usage = response_json::<DiagnosticsLogUsageResponse>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/diagnostics/logs")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(usage.aria2.total_bytes, 0);
+
+    let cleanup = response_json::<ErrorResponse>(
+        app.oneshot(
+            authorized_request(
+                &state,
+                "DELETE",
+                "/api/diagnostics/aria2-logs",
+                Body::empty(),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::INTERNAL_SERVER_ERROR,
+    )
+    .await;
+    assert_eq!(cleanup.code, "aria2_log_cleanup_failed");
+    assert_eq!(
+        std::fs::read_to_string(outside_log).expect("outside log should remain"),
+        "outside"
+    );
 }
 
 #[tokio::test]
