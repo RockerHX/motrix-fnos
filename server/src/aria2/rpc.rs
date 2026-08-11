@@ -123,6 +123,18 @@ pub(crate) enum Aria2RpcError {
     MissingResult,
 }
 
+impl Aria2RpcError {
+    pub(crate) fn write_outcome_is_unknown(&self) -> bool {
+        matches!(
+            self,
+            Self::OutcomeUnknown(_)
+                | Self::HttpStatus(_)
+                | Self::InvalidResponse(_)
+                | Self::MissingResult
+        )
+    }
+}
+
 impl fmt::Display for Aria2RpcError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

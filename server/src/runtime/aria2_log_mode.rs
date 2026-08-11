@@ -1,7 +1,6 @@
 use crate::app::HttpAppState;
 use crate::aria2::{
     change_global_log_level, Aria2LogLevel, Aria2LogModeChange, Aria2LogModeWorkerAction,
-    Aria2RpcError,
 };
 use crate::runtime::{process_status, Aria2LifecyclePhase};
 use std::sync::Arc;
@@ -173,11 +172,10 @@ async fn apply_log_level_if_running(
         .await
         .map_err(|error| {
             let message = format!("修改 Aria2 日志级别失败：{error}");
-            match error {
-                Aria2RpcError::OutcomeUnknown(_) => {
-                    Aria2LogModeUpdateError::OutcomeUnknown(message)
-                }
-                _ => Aria2LogModeUpdateError::Failed(message),
+            if error.write_outcome_is_unknown() {
+                Aria2LogModeUpdateError::OutcomeUnknown(message)
+            } else {
+                Aria2LogModeUpdateError::Failed(message)
             }
         })?;
     Ok(ApplyLogLevelResult::Applied)

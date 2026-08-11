@@ -220,6 +220,29 @@ async fn rpc_client_classifies_timeout_as_unknown_outcome() {
     handle.abort();
 }
 
+#[test]
+fn rpc_write_outcome_classification_is_conservative_after_delivery() {
+    for error in [
+        Aria2RpcError::OutcomeUnknown("timeout".to_string()),
+        Aria2RpcError::HttpStatus(StatusCode::INTERNAL_SERVER_ERROR),
+        Aria2RpcError::InvalidResponse("truncated json".to_string()),
+        Aria2RpcError::MissingResult,
+    ] {
+        assert!(error.write_outcome_is_unknown());
+    }
+
+    for error in [
+        Aria2RpcError::Lifecycle("stopping".to_string()),
+        Aria2RpcError::ConnectionFailed("refused".to_string()),
+        Aria2RpcError::Remote(Aria2RpcServerError {
+            code: Some(1),
+            message: "rejected".to_string(),
+        }),
+    ] {
+        assert!(!error.write_outcome_is_unknown());
+    }
+}
+
 #[tokio::test]
 async fn rpc_client_classifies_disconnect_as_unknown_outcome() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
