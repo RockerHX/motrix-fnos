@@ -6,7 +6,7 @@ use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::aria2::{Aria2ConfigStatus, Aria2RpcStatus};
+use crate::aria2::{Aria2ConfigStatus, Aria2LogLevel, Aria2LogModeStatus, Aria2RpcStatus};
 use crate::auth::SessionKind;
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
@@ -665,6 +665,246 @@ async fn aria2_routes_return_status_payloads() {
     .await;
     assert!(!rpc.connected);
     assert!(rpc.version.is_none());
+}
+
+#[tokio::test]
+async fn diagnostics_log_mode_requires_session_and_csrf_and_does_not_start_stopped_aria2() {
+    let state = test_state(None).await;
+    let app = management_router(state.clone());
+
+    let initial = response_json::<Aria2LogModeStatus>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/diagnostics/aria2-log-mode")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(initial.mode, Aria2LogLevel::Warn);
+    assert!(!initial.detailed);
+    assert_eq!(initial.max_file_size_bytes, 10 * 1024 * 1024);
+    assert_eq!(initial.max_file_count, 3);
+
+    let no_session = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(json_request(
+                "PUT",
+                "/api/diagnostics/aria2-log-mode",
+                &json!({ "detailed": true }),
+            ))
+            .await
+            .expect("response should succeed"),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    assert_eq!(no_session.code, "authentication_required");
+
+    let auth_state = state
+        .auth
+        .service
+        .state()
+        .await
+        .expect("auth state should load");
+    let session = state
+        .auth
+        .sessions
+        .create(SessionKind::AnonymousManagement, auth_state.auth_version)
+        .expect("session should create");
+    let no_csrf = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/diagnostics/aria2-log-mode")
+                    .header("content-type", "application/json")
+                    .header("cookie", format!("motrix_web_session={}", session.id))
+                    .body(Body::from(json!({ "detailed": true }).to_string()))
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+    assert_eq!(no_csrf.code, "csrf_invalid");
+
+    let enabled = response_json::<Aria2LogModeStatus>(
+        app.clone()
+            .oneshot(
+                authorized_json_request(
+                    &state,
+                    "PUT",
+                    "/api/diagnostics/aria2-log-mode",
+                    &json!({ "detailed": true }),
+                )
+                .await,
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(enabled.mode, Aria2LogLevel::Debug);
+    assert!(enabled.detailed);
+    assert!(enabled.detailed_until_ms.is_some());
+    assert!(enabled.applies_on_next_start);
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    assert!(state.aria2_runtime_snapshot().is_none());
+
+    let disabled = response_json::<Aria2LogModeStatus>(
+        app.oneshot(
+            authorized_json_request(
+                &state,
+                "PUT",
+                "/api/diagnostics/aria2-log-mode",
+                &json!({ "detailed": false }),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(disabled.mode, Aria2LogLevel::Warn);
+    assert!(!disabled.detailed);
+    assert!(disabled.detailed_until_ms.is_none());
+}
+
+#[tokio::test]
+async fn diagnostics_log_mode_rejects_lifecycle_transitions_without_changing_mode() {
+    let state = test_state(None).await;
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Starting)
+        .expect("lifecycle should enter starting");
+    let app = management_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(
+            authorized_json_request(
+                &state,
+                "PUT",
+                "/api/diagnostics/aria2-log-mode",
+                &json!({ "detailed": true }),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::CONFLICT,
+    )
+    .await;
+
+    assert_eq!(error.code, "aria2_log_mode_conflict");
+    assert_eq!(state.aria2_log_mode.current_level(), Aria2LogLevel::Warn);
+}
+
+#[tokio::test]
+async fn diagnostics_log_mode_updates_confirmed_running_sidecar_through_private_rpc() {
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = requests.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock address should exist")
+        .port();
+    let server = tokio::spawn(async move {
+        let app = axum::Router::new().route(
+            "/jsonrpc",
+            axum::routing::post(move |axum::Json(payload): axum::Json<serde_json::Value>| {
+                let captured = captured.clone();
+                async move {
+                    captured
+                        .lock()
+                        .expect("captured requests should lock")
+                        .push(payload);
+                    axum::Json(json!({ "result": "OK" }))
+                }
+            }),
+        );
+        axum::serve(listener, app)
+            .await
+            .expect("mock server should stop cleanly");
+    });
+
+    let mut state = test_state(None).await;
+    std::sync::Arc::get_mut(&mut state)
+        .expect("state should be uniquely owned")
+        .base_aria2_config
+        .rpc_port = port;
+    let child = spawn_sleep_child();
+    let pid = child.id();
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, port, "mode-secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should save");
+    *state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed") = Some(crate::runtime::ManagedAria2Process::new(
+        child,
+        crate::config::aria2::Aria2BinarySource::Sidecar,
+    ));
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should enter ready");
+
+    let app = management_router(state.clone());
+    let response = response_json::<Aria2LogModeStatus>(
+        app.oneshot(
+            authorized_json_request(
+                &state,
+                "PUT",
+                "/api/diagnostics/aria2-log-mode",
+                &json!({ "detailed": true }),
+            )
+            .await,
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(response.mode, Aria2LogLevel::Debug);
+    assert!(!response.applies_on_next_start);
+    let requests = requests
+        .lock()
+        .expect("captured requests should lock")
+        .clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "aria2.changeGlobalOption");
+    assert_eq!(requests[0]["params"][0], "token:mode-secret");
+    assert_eq!(requests[0]["params"][1]["log-level"], "debug");
+
+    if let Some(mut process) = state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .take()
+    {
+        process.kill().expect("test child should stop");
+    }
+    server.abort();
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1573,6 +1813,22 @@ fn temp_dir(label: &str) -> PathBuf {
 }
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(unix)]
+fn spawn_sleep_child() -> std::process::Child {
+    std::process::Command::new("sh")
+        .args(["-c", "sleep 30"])
+        .spawn()
+        .expect("sleep child should spawn")
+}
+
+#[cfg(windows)]
+fn spawn_sleep_child() -> std::process::Child {
+    std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
+        .spawn()
+        .expect("sleep child should spawn")
+}
 
 fn active_task_for_stop() -> DownloadTask {
     DownloadTask {

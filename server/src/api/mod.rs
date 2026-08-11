@@ -2,6 +2,7 @@ mod app;
 mod aria2;
 mod auth;
 mod debug_logs;
+mod diagnostics;
 pub mod error;
 mod events;
 mod extract;
@@ -115,6 +116,7 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
         .merge(settings::routes())
         .merge(storage::routes())
         .merge(debug_logs::routes())
+        .merge(diagnostics::routes())
         .merge(tasks::routes())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

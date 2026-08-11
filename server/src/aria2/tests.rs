@@ -119,6 +119,18 @@ fn summarized_process_args_redact_rpc_secret() {
 }
 
 #[test]
+fn process_args_can_use_temporary_detailed_log_level_without_relaxing_rotation_limits() {
+    let mut config = test_config(None);
+    config.log_path = Some("/tmp/motrix-fnos/aria2/aria2.log".to_string());
+
+    let args = process_args_with_log_level(&config, Aria2LogLevel::Debug);
+
+    assert!(args.contains(&"--log-level=debug".to_string()));
+    assert!(args.contains(&"--log-max-size=10M".to_string()));
+    assert!(args.contains(&"--log-max-files=3".to_string()));
+}
+
+#[test]
 fn rpc_port_candidates_use_primary_then_fallback_range() {
     let candidates = rpc_port_candidates();
 

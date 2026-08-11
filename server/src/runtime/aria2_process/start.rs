@@ -4,8 +4,9 @@ use super::stop::stop_process;
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
-    generate_rpc_secret, ping_rpc, process_args, rpc_ports_exhausted_message, runtime_config,
-    select_rpc_port_with_saved_runtime, summarize_args, SavedAria2Runtime,
+    generate_rpc_secret, ping_rpc, process_args_with_log_level, rpc_ports_exhausted_message,
+    runtime_config, select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel,
+    SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::database::tasks::persist_download_task_states;
@@ -26,6 +27,16 @@ pub fn start_process(
     runtime: &ServerRuntimeConfig,
     config: &Aria2Config,
     debug_logs: &DebugLogStore,
+) -> Result<Aria2ProcessStatus, String> {
+    start_process_with_log_level(process, runtime, config, debug_logs, Aria2LogLevel::Warn)
+}
+
+fn start_process_with_log_level(
+    process: &Mutex<Option<ManagedAria2Process>>,
+    runtime: &ServerRuntimeConfig,
+    config: &Aria2Config,
+    debug_logs: &DebugLogStore,
+    log_level: Aria2LogLevel,
 ) -> Result<Aria2ProcessStatus, String> {
     let mut guard = process.lock().map_err(|_| {
         debug_logs.error("aria2", "无法写入 Aria2 进程状态");
@@ -58,7 +69,7 @@ pub fn start_process(
         return Err(error);
     }
 
-    let args = process_args(config);
+    let args = process_args_with_log_level(config, log_level);
     log_start_summary(debug_logs, config, &args);
     let resolved = resolve_aria2_binary(runtime, config)?;
     let child = Command::new(&resolved.path)
@@ -171,11 +182,16 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             Ok(config) => config,
             Err(error) => return Err(lifecycle_error(state, error)),
         };
-        let status = match start_process(
+        if let Some(expired) = state.aria2_log_mode.expire_if_due() {
+            state.aria2_log_mode.mark_applied(expired);
+        }
+        let log_level = state.aria2_log_mode.current_level();
+        let status = match start_process_with_log_level(
             &state.aria2_process,
             &state.runtime,
             &config,
             &state.core.debug_logs,
+            log_level,
         ) {
             Ok(status) => status,
             Err(error) => {
@@ -191,7 +207,12 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                 "Aria2 启动成功但未返回有效进程身份".to_string(),
             ));
         };
-        let runtime = state.build_aria2_runtime_info(pid, &config, source, process_args(&config));
+        let runtime = state.build_aria2_runtime_info(
+            pid,
+            &config,
+            source,
+            process_args_with_log_level(&config, log_level),
+        );
         if let Err(error) = state.set_aria2_runtime(runtime) {
             let stop_error = stop_process(&state.aria2_process, &state.core.debug_logs).err();
             state.clear_aria2_runtime();

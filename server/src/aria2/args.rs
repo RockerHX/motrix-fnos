@@ -1,7 +1,7 @@
 use crate::config::aria2::Aria2Config;
 use std::path::PathBuf;
 
-use super::{ARIA2_LOG_LEVEL, ARIA2_LOG_MAX_FILES, ARIA2_LOG_MAX_SIZE_MIB};
+use super::{Aria2LogLevel, ARIA2_LOG_MAX_FILES, ARIA2_LOG_MAX_SIZE_MIB};
 
 pub(super) fn detect_ca_certificate_path() -> Option<PathBuf> {
     ca_certificate_candidates()
@@ -26,6 +26,10 @@ fn ca_certificate_candidates() -> Vec<PathBuf> {
 }
 
 pub fn process_args(config: &Aria2Config) -> Vec<String> {
+    process_args_with_log_level(config, Aria2LogLevel::Warn)
+}
+
+pub fn process_args_with_log_level(config: &Aria2Config, log_level: Aria2LogLevel) -> Vec<String> {
     let mut args = vec![
         "--enable-rpc=true".to_string(),
         format!("--rpc-listen-port={}", config.rpc_port),
@@ -42,7 +46,7 @@ pub fn process_args(config: &Aria2Config) -> Vec<String> {
         "--save-session-interval=30".to_string(),
         "--force-save=true".to_string(),
         "--console-log-level=warn".to_string(),
-        format!("--log-level={ARIA2_LOG_LEVEL}"),
+        format!("--log-level={}", log_level.as_aria2_option()),
         format!("--log-max-size={ARIA2_LOG_MAX_SIZE_MIB}M"),
         format!("--log-max-files={ARIA2_LOG_MAX_FILES}"),
     ];

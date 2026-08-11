@@ -153,6 +153,22 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
 }
 
 #[tokio::test]
+async fn change_global_option_remains_rejected_by_public_jsonrpc_whitelist() {
+    let state = test_state().await;
+
+    let error = execute_method(
+        &state,
+        "aria2.changeGlobalOption",
+        &json!([{"log-level": "debug"}]),
+    )
+    .await
+    .expect_err("public JSON-RPC must not change Aria2 log mode");
+
+    assert_eq!(error.code, -32601);
+    assert_eq!(error.message, "Method not found: aria2.changeGlobalOption");
+}
+
+#[tokio::test]
 async fn token_validation_uses_memory_after_database_is_closed() {
     let state = test_state().await;
     state.remember_json_rpc_token("public-secret");

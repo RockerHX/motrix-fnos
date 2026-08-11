@@ -230,5 +230,31 @@ pub async fn ping_rpc(
     }
 }
 
+pub(crate) async fn change_global_log_level(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    level: crate::aria2::Aria2LogLevel,
+) -> Result<(), Aria2RpcError> {
+    let mut params = Vec::new();
+    if !config.rpc_secret.is_empty() {
+        params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
+    }
+    params.push(serde_json::json!({
+        "log-level": level.as_aria2_option(),
+    }));
+
+    let request_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "motrix-fnos-change-log-level",
+        "method": "aria2.changeGlobalOption",
+        "params": params,
+    });
+    client
+        .request::<serde_json::Value>(config, &request_body)
+        .await?
+        .into_result()
+        .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests;

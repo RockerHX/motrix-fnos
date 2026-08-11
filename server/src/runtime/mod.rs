@@ -1,3 +1,4 @@
+pub(crate) mod aria2_log_mode;
 pub mod aria2_process;
 pub(crate) mod file_cleanup;
 pub mod lifecycle;
@@ -5,6 +6,7 @@ pub mod shutdown;
 pub mod task_monitor;
 mod task_operation_reconcile;
 
+pub(crate) use aria2_log_mode::{update_aria2_log_mode, Aria2LogModeUpdateError};
 pub(crate) use aria2_process::current_activity_snapshot;
 pub use aria2_process::{
     auto_stop_aria2, ensure_aria2_ready, process_status, resolve_aria2_binary, start_aria2,

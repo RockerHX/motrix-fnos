@@ -202,6 +202,7 @@
 - 审查现有启动参数在目标版本中的名称、默认值和语义。
 - 验证 `--console-log-level=warn`、session、DHT、RPC、CA 证书和日志路径参数。
 - 显式使用 `--log-level=warn`、`--log-max-size=10M`、`--log-max-files=3`，为 Aria2 原生日志设置明确的有界保留策略。
+- 仅允许管理面板在内存中临时切换至 `debug` 30 分钟；通过私有回环 RPC 即时生效，停止时下次受控启动生效，外部 JSON-RPC 白名单保持不变。
 - 适配新的 spdlog 轮转文件命名和旧日志历史清理行为。
 - 确保 PID、进程命令行归属判断、RPC secret 和运行态记录仍能识别新版 sidecar。
 - 升级安装不得误删用户下载文件、SQLite、session 或仍有价值的诊断日志。

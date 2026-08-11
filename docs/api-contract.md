@@ -610,7 +610,31 @@ Session 与 Cookie 约定：
 - 下载代理 URL、userinfo、兼容私密覆盖、应用配置 revision 与 Aria2 `all-proxy` 值不进入普通操作日志、调试日志或诊断响应；任务相关记录只允许使用 `useProxy` 布尔值。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
 
-### 4.7 存储目录
+### 4.7 Aria2 详细日志模式
+
+| 方法 | 路径 | 请求 | 响应 |
+| --- | --- | --- | --- |
+| `GET` | `/api/diagnostics/aria2-log-mode` | - | `Aria2LogModeStatus` |
+| `PUT` | `/api/diagnostics/aria2-log-mode` | `{ "detailed": true | false }` | `Aria2LogModeStatus` |
+
+`Aria2LogModeStatus`：
+
+```json
+{
+  "mode": "debug",
+  "detailed": true,
+  "detailedUntilMs": 1783671813000,
+  "maxFileSizeBytes": 10485760,
+  "maxFileCount": 3,
+  "appliesOnNextStart": false
+}
+```
+
+- 详细模式只允许管理面板通过 Web Session 和 CSRF 写接口启用，固定为 `debug` 并在 30 分钟后自动恢复 `warn`；状态只保存在内存，服务重启后必定恢复普通日志。
+- 已确认运行且处于 `Ready` 的 sidecar 由服务端私有回环 RPC 调用 `aria2.changeGlobalOption` 即时切换；停止时不启动引擎，`appliesOnNextStart=true` 表示将在下一次受控启动时生效。启动或停止转换中返回 `409 aria2_log_mode_conflict`。
+- 外部 JSON-RPC 白名单不包含 `aria2.changeGlobalOption`，也不提供日志模式、日志清理或诊断导出方法。任何模式下单文件大小与保留数量均不放宽。
+
+### 4.8 存储目录
 
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |

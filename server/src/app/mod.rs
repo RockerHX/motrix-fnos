@@ -1,4 +1,4 @@
-use crate::aria2::Aria2RpcClient;
+use crate::aria2::{Aria2LogModeCoordinator, Aria2RpcClient};
 use crate::auth::{AuthRuntime, AuthService, ServerProcessLock};
 use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
@@ -170,6 +170,7 @@ pub struct HttpAppState {
     pub aria2_rpc: Aria2RpcClient,
     pub aria2_process: Mutex<Option<ManagedAria2Process>>,
     pub aria2_lifecycle: Arc<Aria2LifecycleCoordinator>,
+    pub aria2_log_mode: Aria2LogModeCoordinator,
     pub runtime_events: RuntimeEventHub,
     pub(crate) tasks_snapshot_revision: Mutex<u64>,
     last_aria2_version: Mutex<Option<String>>,
@@ -200,6 +201,7 @@ impl HttpAppState {
             aria2_rpc: Aria2RpcClient::with_lifecycle(Arc::clone(&aria2_lifecycle)),
             aria2_process: Mutex::new(None),
             aria2_lifecycle,
+            aria2_log_mode: Aria2LogModeCoordinator::default(),
             runtime_events: RuntimeEventHub::new(),
             tasks_snapshot_revision: Mutex::new(0),
             last_aria2_version: Mutex::new(None),

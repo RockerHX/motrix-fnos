@@ -75,6 +75,43 @@ async fn ping_rpc_accepts_version_and_sends_configured_token() {
 }
 
 #[tokio::test]
+async fn change_global_log_level_uses_private_loopback_rpc_payload() {
+    let captured = Arc::new(Mutex::new(None));
+    let captured_for_handler = captured.clone();
+    let (port, handle) = spawn_router(Router::new().route(
+        "/jsonrpc",
+        post(move |Json(payload): Json<Value>| {
+            let captured = captured_for_handler.clone();
+            async move {
+                *captured.lock().expect("captured payload should lock") = Some(payload);
+                Json(json!({ "result": "OK" }))
+            }
+        }),
+    ))
+    .await;
+    let mut config = test_config(port);
+    config.rpc_secret = "private-secret".to_string();
+
+    change_global_log_level(
+        &Aria2RpcClient::new(),
+        &config,
+        crate::aria2::Aria2LogLevel::Debug,
+    )
+    .await
+    .expect("private log level change should succeed");
+
+    let payload = captured
+        .lock()
+        .expect("captured payload should lock")
+        .clone()
+        .expect("payload should be captured");
+    assert_eq!(payload["method"], "aria2.changeGlobalOption");
+    assert_eq!(payload["params"][0], "token:private-secret");
+    assert_eq!(payload["params"][1]["log-level"], "debug");
+    handle.abort();
+}
+
+#[tokio::test]
 async fn ping_rpc_reports_rpc_error() {
     let (config, handle) = config_with_json(json!({
         "error": { "message": "unauthorized" }
