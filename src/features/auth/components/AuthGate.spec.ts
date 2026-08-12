@@ -48,17 +48,17 @@ describe("AuthGate", () => {
     });
     const { wrapper } = mountWithPinia(AuthGate, { pinia });
     const inputs = wrapper.findAll('input[type="password"]');
-    await inputs[0].setValue("short");
-    await inputs[1].setValue("short");
+    await inputs[0].setValue("1234567");
+    await inputs[1].setValue("1234567");
     await wrapper.find("form").trigger("submit");
-    expect(wrapper.text()).toContain("12");
+    expect(wrapper.text()).toContain("8");
     expect(setupAuth).not.toHaveBeenCalled();
 
-    await inputs[0].setValue("correct horse battery");
-    await inputs[1].setValue("correct horse battery");
+    await inputs[0].setValue("12345678");
+    await inputs[1].setValue("12345678");
     await wrapper.find("form").trigger("submit");
     await flushPromises();
-    expect(setupAuth).toHaveBeenCalledWith("correct horse battery");
+    expect(setupAuth).toHaveBeenCalledWith("12345678");
     expect(store.phase).toBe("ready");
   });
 

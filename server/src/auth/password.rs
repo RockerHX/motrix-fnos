@@ -3,7 +3,7 @@ use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, Salt
 use argon2::{Algorithm, Argon2, Version};
 use rand_core::OsRng;
 
-const MIN_PASSWORD_CHARS: usize = 12;
+const MIN_PASSWORD_CHARS: usize = 8;
 const MAX_PASSWORD_CHARS: usize = 128;
 const MAX_PASSWORD_BYTES: usize = 512;
 

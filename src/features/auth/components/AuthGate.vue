@@ -65,7 +65,7 @@ function validateForm() {
   if (!form.password) return t("auth.passwordRequired");
   const charCount = Array.from(form.password).length;
   const byteCount = new TextEncoder().encode(form.password).length;
-  if (charCount < 12 || charCount > 128 || byteCount > 512) return t("auth.passwordLength");
+  if (charCount < 8 || charCount > 128 || byteCount > 512) return t("auth.passwordLength");
   if (isSetup.value && form.password !== form.confirmPassword) return t("auth.passwordMismatch");
   return "";
 }

@@ -60,8 +60,15 @@ describe("WebAuthSettings", () => {
     await wrapper.findAll("button").find((button) => button.text() === "修改密码")!.trigger("click");
     const passwordInputs = wrapper.findAll('input[type="password"]');
     await passwordInputs[0]!.setValue("current password");
-    await passwordInputs[1]!.setValue("new password value");
-    await passwordInputs[2]!.setValue("new password value");
+    await passwordInputs[1]!.setValue("1234567");
+    await passwordInputs[2]!.setValue("1234567");
+
+    await wrapper.get("form").trigger("submit");
+    expect(wrapper.get('[data-test="password-error"]').text()).toContain("8");
+    expect(mockedPassword).not.toHaveBeenCalled();
+
+    await passwordInputs[1]!.setValue("12345678");
+    await passwordInputs[2]!.setValue("12345678");
     mockedPassword.mockResolvedValueOnce(status({ csrfToken: "next-csrf" }));
 
     await wrapper.get("form").trigger("submit");
@@ -69,7 +76,7 @@ describe("WebAuthSettings", () => {
 
     expect(mockedPassword).toHaveBeenCalledWith({
       currentPassword: "current password",
-      newPassword: "new password value",
+      newPassword: "12345678",
     });
     expect(useAuthStore().csrfToken).toBe("next-csrf");
   });

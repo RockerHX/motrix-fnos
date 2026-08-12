@@ -81,7 +81,7 @@ function validatePasswordChange() {
   if (!passwordForm.currentPassword || !passwordForm.newPassword) return t("auth.passwordRequired");
   const charCount = Array.from(passwordForm.newPassword).length;
   const byteCount = new TextEncoder().encode(passwordForm.newPassword).length;
-  if (charCount < 12 || charCount > 128 || byteCount > 512) return t("auth.passwordLength");
+  if (charCount < 8 || charCount > 128 || byteCount > 512) return t("auth.passwordLength");
   if (passwordForm.newPassword !== passwordForm.confirmPassword) return t("auth.passwordMismatch");
   return "";
 }

@@ -5,10 +5,11 @@ const VALID_PASSWORD: &str = "correct horse battery";
 
 #[test]
 fn password_policy_counts_unicode_without_trimming() {
+    assert!(password::validate_password("12345678").is_ok());
     assert!(password::validate_password("十二个字符密码安全测试甲乙").is_ok());
     assert!(password::validate_password("  leading spaces are kept").is_ok());
     assert!(matches!(
-        password::validate_password("short"),
+        password::validate_password("1234567"),
         Err(AuthError::InvalidPassword(_))
     ));
     assert!(matches!(
