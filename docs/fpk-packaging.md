@@ -426,7 +426,7 @@ Actions -> Release FPK -> Run workflow -> 输入 x.y.z
 ```text
 Release FPK
   -> 读取 latest tag..HEAD 的 commit subject/body 与本地文件统计
-  -> 按 commit subject/body 生成确定性分类 CHANGELOG
+  -> 通过 Cloudflare Workers AI 提取、归并、编辑和复核 CHANGELOG
   -> 同步 package / Cargo / FPK manifest / UI cache 版本
   -> 更新 Cargo.lock
   -> x86 / ARM FPK 构建
@@ -437,7 +437,14 @@ Release FPK
   -> 创建或更新 GitHub Release
 ```
 
-自动发版不依赖 GitHub Models 或其他外部模型服务，因此不会因模型退役、限流或临时不可用而中断。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用；否则根据两个版本之间的 Conventional Commit subject/body 生成分类日志。发布正文在创建 Release 前仍会执行严格分类结构校验，格式非法会中止发布。
+自动发版不再包含已退役的 GitHub Models 适配层。若 `CHANGELOG.md` 已包含目标版本的合法条目，workflow 会直接复用且不调用模型；否则通过 Cloudflare Workers AI 的 OpenAI-compatible API 分批提取发布事实，再完成归并、编辑和独立复核。模型、凭证或配额异常会中止发布，并提示人工预写目标版本 CHANGELOG，不会静默退回逐 commit 日志。发布正文在创建 Release 前仍会执行严格分类结构校验，格式非法会中止发布。
+
+仓库需要配置两个 Actions Secrets：
+
+- `CLOUDFLARE_ACCOUNT_ID`：Workers AI 所属账户的 32 位 Account ID。
+- `CLOUDFLARE_API_TOKEN`：只授予该账户 Workers AI Read 与 Edit 权限的自定义 API Token。
+
+默认分析与编辑模型均为 `@cf/openai/gpt-oss-120b`。如需临时更换模型，可修改 workflow 中的 `MOTRIX_RELEASE_ANALYSIS_MODEL` 和 `MOTRIX_RELEASE_EDITOR_MODEL`；不得把 Account ID 或 Token 写入仓库文件。
 
 发版白名单文件：
 
@@ -486,4 +493,4 @@ rtk pnpm run release:prepare <x.y.z>
 rtk git push --atomic origin HEAD v<x.y.z>
 ```
 
-本地命令会复用 `CHANGELOG.md` 中已填写的目标版本条目；如果未填写，会按 commit log 生成确定性草稿。单次原子推送只触发一次 `pre-push` 完整验证，同时发布版本提交和 tag。
+本地命令会复用 `CHANGELOG.md` 中已填写的目标版本条目。未配置 provider 时按 commit log 生成确定性草稿；需要复用 Cloudflare AI 总结时，在本地环境设置 `MOTRIX_RELEASE_CHANGELOG_PROVIDER=cloudflare-workers-ai`、`CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。单次原子推送只触发一次 `pre-push` 完整验证，同时发布版本提交和 tag。

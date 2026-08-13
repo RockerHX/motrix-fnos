@@ -183,7 +183,7 @@ beta 测试版本只用于本地安装验证，不应创建 GitHub Release 或�
 本地正式发布准备命令，默认会：
 
 1. 校验目标是高于当前版本的正式 `x.y.z`；
-2. 复用已有目标版本 CHANGELOG，或按两个版本之间的 commit subject/body 生成确定性的分类发布日志；
+2. 复用已有目标版本 CHANGELOG，或根据配置用 AI 总结两个版本之间的 commit subject/body；未配置 provider 的本地调用生成确定性分类草稿；
 3. 同步版本文件并更新 CHANGELOG；
 4. 暂存固定的发布文件并创建中文 release commit；
 5. 创建 `v<x.y.z>` tag。
@@ -201,7 +201,8 @@ pnpm run release:prepare 1.7.4 --dry-run
 高影响注意事项：
 
 - 命令会拒绝接管无关的脏工作区；执行前先提交、暂存到安全位置或恢复无关改动。
-- 发布日志不依赖外部模型服务：已有合法目标版本条目时直接复用；否则按 commit subject/body 的 Conventional Commit 分类生成确定性草稿。生成后的版本条目仍须通过分类结构校验。
+- 已有合法目标版本条目时直接复用，不调用模型。GitHub Actions 默认通过 Cloudflare Workers AI 生成日志；模型、凭证或配额异常会中止发布，避免静默生成逐 commit 的冗长日志。可提前人工写入目标版本条目绕过模型调用。
+- 仓库 Secrets 需要 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`；自定义 Token 只授予目标账户的 Workers AI Read 与 Edit 权限。本地需要 AI 总结时设置相同变量，并设置 `MOTRIX_RELEASE_CHANGELOG_PROVIDER=cloudflare-workers-ai`。
 - 该命令只用于正式版本，不接受 `-beta`。
 - GitHub Actions 的 Release workflow 仍是远程正式发版入口；本地命令不能替代 Actions 权限、产物上传和双架构发布检查。
 

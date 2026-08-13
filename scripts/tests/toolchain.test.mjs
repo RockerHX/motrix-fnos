@@ -27,12 +27,20 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   assert.match(buildScript, /aarch64-unknown-linux-gnu/);
 });
 
-test('自动发版使用确定性 CHANGELOG，不依赖已退役的 GitHub Models', () => {
+test('自动发版通过 Cloudflare Workers AI 生成 CHANGELOG', () => {
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+  const releasePrepareScript = readFileSync('scripts/release/release-prepare.mjs', 'utf8');
+  const releaseAiScript = readFileSync('scripts/release/release-changelog-ai.mjs', 'utf8');
 
   assert.match(releaseWorkflow, /node scripts\/release\/release-prepare\.mjs "\$\{VERSION\}" --no-commit --no-tag/);
-  assert.doesNotMatch(releaseWorkflow, /github-models|MOTRIX_RELEASE_(?:CHANGELOG_PROVIDER|ANALYSIS_MODEL|EDITOR_MODEL|MODEL_MIN_INTERVAL_MS)/);
+  assert.match(releaseWorkflow, /MOTRIX_RELEASE_CHANGELOG_PROVIDER:\s*cloudflare-workers-ai/);
+  assert.match(releaseWorkflow, /MOTRIX_RELEASE_ANALYSIS_MODEL:\s*"@cf\/openai\/gpt-oss-120b"/);
+  assert.match(releaseWorkflow, /MOTRIX_RELEASE_EDITOR_MODEL:\s*"@cf\/openai\/gpt-oss-120b"/);
+  assert.match(releaseWorkflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+  assert.match(releaseWorkflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.doesNotMatch(releaseWorkflow, /github-models|models\.github\.ai|MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS/);
   assert.doesNotMatch(releaseWorkflow, /^\s*models:\s*read\s*$/m);
+  assert.doesNotMatch(`${releasePrepareScript}\n${releaseAiScript}`, /github-models|models\.github\.ai|gpt-4\.1/);
 });
 
 test('提交、推送、远端验证和发版使用独立验证层级', () => {

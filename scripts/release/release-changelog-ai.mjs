@@ -1,4 +1,4 @@
-import { encodingForModel } from 'js-tiktoken';
+import { getEncoding } from 'js-tiktoken';
 
 export const MODEL_INPUT_TOKEN_BUDGET = 6_000;
 export const MAX_ANALYSIS_CHUNKS = 32;
@@ -16,7 +16,7 @@ const CHAT_TOKEN_OVERHEAD = 32;
 const PUBLIC_CATEGORIES = new Set(['新增', '改进', '修复', '文档']);
 const ANALYSIS_CATEGORIES = new Set([...PUBLIC_CATEGORIES, '内部', '忽略']);
 const CONFIDENCE_LEVELS = new Set(['high', 'medium', 'low']);
-const encoding = encodingForModel('gpt-4.1-mini');
+const encoding = getEncoding('o200k_base');
 
 export class NoReleaseFactsError extends Error {
   constructor(message) {
@@ -42,7 +42,7 @@ export function buildReleaseAnalysisPrompts({ baseRef, changeContext }) {
   }));
 
   if (prompts.length === 0) {
-    throw new Error('没有可供 GitHub Models 分析的发布上下文');
+    throw new Error('没有可供 AI 模型分析的发布上下文');
   }
   if (prompts.length > MAX_ANALYSIS_CHUNKS) {
     throw new Error(
@@ -83,7 +83,9 @@ export async function generateChangelogWithHierarchicalSummary({
 
   let facts = releaseRelevantFacts(mergeFacts(extractedFacts));
   if (facts.length === 0) {
-    throw new NoReleaseFactsError('GitHub Models 没有提取到可写入 Release 的变更事实');
+    throw new NoReleaseFactsError(
+      'AI 模型没有提取到可写入 Release 的变更事实；请确认 commit 信息完整，或提前在 CHANGELOG.md 写入目标版本条目',
+    );
   }
   facts = await reduceFactsToFit({ facts, baseRef, complete, onProgress });
 

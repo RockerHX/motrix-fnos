@@ -38,6 +38,8 @@ test('未配置模型 provider 时 release prepare 使用确定性 commit log', 
     delete env.MOTRIX_RELEASE_CHANGELOG_MODEL;
     delete env.MOTRIX_RELEASE_ANALYSIS_MODEL;
     delete env.MOTRIX_RELEASE_EDITOR_MODEL;
+    delete env.CLOUDFLARE_ACCOUNT_ID;
+    delete env.CLOUDFLARE_API_TOKEN;
     const output = execFileSync(process.execPath, [releasePrepareScript, '1.0.1', '--dry-run'], {
       cwd: repoRoot,
       encoding: 'utf8',
