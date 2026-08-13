@@ -442,9 +442,9 @@ Release FPK
 仓库需要配置两个 Actions Secrets：
 
 - `CLOUDFLARE_ACCOUNT_ID`：Workers AI 所属账户的 32 位 Account ID。
-- `CLOUDFLARE_API_TOKEN`：只授予该账户 Workers AI Read 与 Edit 权限的自定义 API Token。
+- `CLOUDFLARE_API_TOKEN`：授予该账户 Workers AI Read 与 AI Gateway Read 权限的自定义 API Token；只有使用该 Token 创建或修改 Gateway 时才额外需要 AI Gateway Edit。
 
-默认分析与编辑模型均为 `@cf/openai/gpt-oss-120b`。如需临时更换模型，可修改 workflow 中的 `MOTRIX_RELEASE_ANALYSIS_MODEL` 和 `MOTRIX_RELEASE_EDITOR_MODEL`；不得把 Account ID 或 Token 写入仓库文件。
+Cloudflare 中还需创建 ID 为 `motrix-fnos-release` 的 AI Gateway，并将 Workers AI Billing 设为 Standard billing。默认分析与编辑模型均为 `@cf/openai/gpt-oss-120b`，请求通过该 Gateway 执行，强制保留调用元数据并关闭 payload 存储。Actions 的步骤日志与 Job summary 会显示本次 token 和神经元用量、Gateway 当日累计和剩余估算，以及本次发布日志的落库数量；该估算不包含绕过 Gateway 的调用，账户实际余额以 Workers AI Dashboard 为准。如需临时更换模型，可修改 workflow 中的 `MOTRIX_RELEASE_ANALYSIS_MODEL` 和 `MOTRIX_RELEASE_EDITOR_MODEL`；更换后还需为新模型补充神经元费率，不能沿用 `gpt-oss-120b` 的换算。不得把 Account ID 或 Token 写入仓库文件。
 
 发版白名单文件：
 

@@ -38,6 +38,7 @@ test('自动发版通过 Cloudflare Workers AI 生成 CHANGELOG', () => {
   assert.match(releaseWorkflow, /MOTRIX_RELEASE_EDITOR_MODEL:\s*"@cf\/openai\/gpt-oss-120b"/);
   assert.match(releaseWorkflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
   assert.match(releaseWorkflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(releaseWorkflow, /CLOUDFLARE_AI_GATEWAY_ID:\s*motrix-fnos-release/);
   assert.doesNotMatch(releaseWorkflow, /github-models|models\.github\.ai|MOTRIX_RELEASE_MODEL_MIN_INTERVAL_MS/);
   assert.doesNotMatch(releaseWorkflow, /^\s*models:\s*read\s*$/m);
   assert.doesNotMatch(`${releasePrepareScript}\n${releaseAiScript}`, /github-models|models\.github\.ai|gpt-4\.1/);
