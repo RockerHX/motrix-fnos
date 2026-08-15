@@ -15,7 +15,6 @@ pub(crate) const API_TOKEN_ENV: &str = "TRIM_API_TOKEN";
 pub(crate) const GATEWAY_SOCKET_PATH: &str = "/var/run/trim_open_gateway_apiscope.socket";
 const GATEWAY_HTTP_PATH: &str = "/api/v1/trimapp";
 const SHARED_FOLDERS_REQUEST: &str = "trim.file.getSharedAccessibleFolders";
-#[allow(dead_code)]
 const CONVERT_PATH_REQUEST: &str = "trim.file.convertPath";
 const APP_NAME: &str = "motrix";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -29,7 +28,6 @@ pub(crate) struct SharedAccessibleFolders {
     pub(crate) business_code: i64,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PathLanguage {
     ZhCn,
@@ -45,7 +43,6 @@ impl PathLanguage {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SemanticPath {
@@ -53,7 +50,6 @@ pub(crate) struct SemanticPath {
     pub(crate) semantic_path: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ConvertedPaths {
     pub(crate) results: Vec<SemanticPath>,
@@ -159,7 +155,6 @@ impl FnosApiClient {
         })
     }
 
-    #[allow(dead_code)]
     pub(crate) async fn convert_paths(
         &self,
         paths: &[String],
@@ -305,7 +300,6 @@ struct SharedFoldersData {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ConvertPathData {
     status: i64,
     result: Vec<SemanticPath>,

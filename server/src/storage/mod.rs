@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+mod display_paths;
 mod shared_access;
 
+pub(crate) use display_paths::display_paths;
 pub(crate) use shared_access::{refresh_accessible_paths_from_fnos, AccessiblePathsRefreshError};
 
 pub const DATA_ACCESSIBLE_PATHS_ENV: &str = "TRIM_DATA_ACCESSIBLE_PATHS";
@@ -11,6 +13,19 @@ pub const DATA_ACCESSIBLE_PATHS_ENV: &str = "TRIM_DATA_ACCESSIBLE_PATHS";
 #[serde(rename_all = "camelCase")]
 pub struct AccessiblePathsResponse {
     pub paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayPath {
+    pub path: String,
+    pub display_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplayAccessiblePathsResponse {
+    pub paths: Vec<DisplayPath>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

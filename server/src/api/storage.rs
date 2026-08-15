@@ -1,20 +1,52 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::fnos::FnosApiError;
+use crate::fnos::PathLanguage;
 use crate::storage::AccessiblePathsRefreshError;
 pub use crate::storage::AccessiblePathsResponse;
-use axum::extract::State;
+pub use crate::storage::DisplayAccessiblePathsResponse;
+use axum::extract::{Query, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::sync::Arc;
+
+#[derive(Debug, serde::Deserialize, Default)]
+struct DisplayPathsQuery {
+    language: Option<String>,
+}
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/storage/accessible-paths", get(get_accessible_paths))
         .route(
+            "/storage/accessible-paths/display",
+            get(get_display_accessible_paths),
+        )
+        .route(
             "/storage/accessible-paths/refresh",
             post(refresh_accessible_paths),
         )
+}
+
+async fn get_display_accessible_paths(
+    State(state): State<Arc<HttpAppState>>,
+    Query(query): Query<DisplayPathsQuery>,
+) -> Result<Json<DisplayAccessiblePathsResponse>, ApiError> {
+    let language = parse_display_language(query.language.as_deref())?;
+    let paths = load_accessible_paths(&state)?;
+    let paths = state.display_paths(&paths, language).await;
+    Ok(Json(DisplayAccessiblePathsResponse { paths }))
+}
+
+pub(crate) fn parse_display_language(language: Option<&str>) -> Result<PathLanguage, ApiError> {
+    match language.unwrap_or("zh-CN") {
+        "zh-CN" => Ok(PathLanguage::ZhCn),
+        "en-US" => Ok(PathLanguage::EnUs),
+        _ => Err(ApiError::bad_request(
+            "display_language_invalid",
+            "路径展示语言只支持 zh-CN 或 en-US",
+        )),
+    }
 }
 
 async fn refresh_accessible_paths(

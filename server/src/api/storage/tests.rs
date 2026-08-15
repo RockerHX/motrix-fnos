@@ -105,6 +105,126 @@ async fn get_route_keeps_the_existing_paths_only_response() {
 }
 
 #[tokio::test]
+async fn display_route_requires_management_session() {
+    let state = test_state("display-auth").await;
+    let app = management_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/storage/accessible-paths/display?language=zh-CN")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should complete");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn display_route_validates_language_before_calling_fnos() {
+    let state = test_state("display-language").await;
+    let app = routes().with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/storage/accessible-paths/display?language=fr-FR")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should complete");
+    let error = response_json::<ErrorResponse>(response, StatusCode::BAD_REQUEST).await;
+
+    assert_eq!(error.code, "display_language_invalid");
+}
+
+#[tokio::test]
+async fn display_route_converts_only_paths_from_the_current_snapshot() {
+    let _token = test_api_token();
+    let state = test_state("display-success").await;
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        r#"{"paths":["/vol1/downloads","/vol2/media"]}"#,
+    )
+    .expect("snapshot should write");
+    let socket = socket_path("display-success");
+    let server = serve_gateway_response(
+        &socket,
+        "200 OK",
+        r#"{"code":0,"msg":"","data":{"status":0,"result":[{"path":"/vol2/media","semanticPath":"Storage 2/media"},{"path":"/vol1/downloads","semanticPath":"Storage 1/downloads"}]}}"#,
+    )
+    .await;
+    replace_fnos_api_client(
+        &state,
+        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(1), 4096),
+    );
+    let app = routes().with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/storage/accessible-paths/display?language=en-US")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should complete");
+    let paths = response_json::<DisplayAccessiblePathsResponse>(response, StatusCode::OK).await;
+    let request = String::from_utf8(server.await.expect("gateway should finish"))
+        .expect("request should be utf8");
+    let _ = std::fs::remove_file(socket);
+
+    assert_eq!(paths.paths[0].path, "/vol1/downloads");
+    assert_eq!(paths.paths[0].display_path, "Storage 1/downloads");
+    assert_eq!(paths.paths[1].path, "/vol2/media");
+    assert_eq!(paths.paths[1].display_path, "Storage 2/media");
+    assert!(request.contains(r#""path":["/vol1/downloads","/vol2/media"]"#));
+    assert!(request.contains(r#""language":"en-US""#));
+}
+
+#[tokio::test]
+async fn display_route_falls_back_to_real_paths_when_fnos_rejects_the_request() {
+    let _token = test_api_token();
+    let state = test_state("display-fallback").await;
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        r#"{"paths":["/vol1/downloads"]}"#,
+    )
+    .expect("snapshot should write");
+    let socket = socket_path("display-fallback");
+    let server = serve_gateway_response(
+        &socket,
+        "401 Unauthorized",
+        r#"{"code":1000001,"msg":"denied","data":null}"#,
+    )
+    .await;
+    replace_fnos_api_client(
+        &state,
+        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(1), 4096),
+    );
+    let app = routes().with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/storage/accessible-paths/display")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should complete");
+    let paths = response_json::<DisplayAccessiblePathsResponse>(response, StatusCode::OK).await;
+    server.await.expect("gateway should finish");
+    let _ = std::fs::remove_file(socket);
+
+    assert_eq!(paths.paths[0].path, "/vol1/downloads");
+    assert_eq!(paths.paths[0].display_path, "/vol1/downloads");
+}
+
+#[tokio::test]
 async fn refresh_route_persists_official_paths_and_updates_jsonrpc_default() {
     let _token = test_api_token();
     let state = test_state("success").await;
@@ -327,7 +447,33 @@ async fn serve_gateway_responses(
     })
 }
 
+async fn serve_gateway_response(
+    socket: &PathBuf,
+    status: &str,
+    response_body: &str,
+) -> tokio::task::JoinHandle<Vec<u8>> {
+    let _ = std::fs::remove_file(socket);
+    let listener = UnixListener::bind(socket).expect("gateway socket should bind");
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}",
+        response_body.len()
+    );
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("request should connect");
+        let request = read_http_request_bytes(&mut stream).await;
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("response should write");
+        request
+    })
+}
+
 async fn read_http_request(stream: &mut UnixStream) {
+    let _ = read_http_request_bytes(stream).await;
+}
+
+async fn read_http_request_bytes(stream: &mut UnixStream) -> Vec<u8> {
     let mut request = Vec::new();
     let mut buffer = [0_u8; 4096];
     loop {
@@ -347,7 +493,7 @@ async fn read_http_request(stream: &mut UnixStream) {
             })
             .expect("content length should exist");
         if request.len() >= header_end + 4 + content_length {
-            return;
+            return request;
         }
     }
 }

@@ -313,6 +313,19 @@ impl HttpAppState {
         }
     }
 
+    pub(crate) async fn display_paths(
+        &self,
+        paths: &[String],
+        language: crate::fnos::PathLanguage,
+    ) -> Vec<crate::storage::DisplayPath> {
+        let client = self
+            .fnos_api_client
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        crate::storage::display_paths(&client, paths, language).await
+    }
+
     pub(crate) fn remember_json_rpc_token(&self, token: &str) {
         *self
             .json_rpc_token
