@@ -920,6 +920,7 @@ dependencies = [
  "fs2",
  "http-body-util",
  "hyper",
+ "hyper-util",
  "libc",
  "rand_core 0.6.4",
  "reqwest",

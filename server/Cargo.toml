@@ -18,6 +18,7 @@ base64 = "0.22"
 fs2 = "0.4"
 http-body-util = "0.1"
 hyper = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
 libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rand_core = { version = "0.6", features = ["getrandom"] }

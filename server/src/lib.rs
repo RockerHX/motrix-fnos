@@ -6,6 +6,7 @@ pub mod config;
 pub mod database;
 pub mod debug_logs;
 pub mod diagnostics;
+pub mod fnos;
 pub mod runtime;
 pub mod settings;
 pub mod state;
