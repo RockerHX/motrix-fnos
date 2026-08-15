@@ -364,6 +364,10 @@ impl<'a> TaskService<'a> {
         query::list_removed_download_tasks(self)
     }
 
+    pub fn get_download_task(&self, task_id: u64) -> Result<Option<DownloadTask>, String> {
+        query::get_download_task(self, task_id)
+    }
+
     pub(super) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
         let pending = self
             .repository

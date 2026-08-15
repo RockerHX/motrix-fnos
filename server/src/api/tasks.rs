@@ -27,6 +27,7 @@ use request::*;
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/tasks", get(list_tasks).post(create_task))
+        .route("/tasks/:id/file-context", get(get_task_file_context))
         .route("/tasks/batch", post(create_batch_tasks))
         .route("/tasks/:id/confirm", post(confirm_task_files))
         .route("/tasks/:id/proxy", put(update_task_proxy))
@@ -36,6 +37,65 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/tasks/:id/restore", post(restore_task))
         .route("/tasks/:id/permanent", delete(permanently_delete_task))
         .route("/tasks/:id", delete(delete_task))
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct TaskFileContextResponse {
+    save_dir: crate::storage::DisplayPath,
+    file_path: Option<crate::storage::DisplayPath>,
+    actions: crate::tasks::TaskFileActions,
+}
+
+async fn get_task_file_context(
+    State(state): State<Arc<HttpAppState>>,
+    Path(task_id): Path<u64>,
+    Query(query): Query<request::TaskFileContextQuery>,
+) -> Result<Json<TaskFileContextResponse>, ApiError> {
+    let language = super::storage::parse_display_language(query.language.as_deref())?;
+    let task = task_service(&state)
+        .get_download_task(task_id)
+        .map_err(|error| ApiError::internal("task_file_context_failed", error))?
+        .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
+    let accessible_paths =
+        crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+            .map_err(|error| ApiError::internal("task_file_context_failed", error))?;
+    let actions = crate::tasks::task_file_actions(&task, &accessible_paths);
+    let mut real_paths = vec![task.save_dir.clone()];
+    if let Some(file_path) = task
+        .file_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        if !real_paths.iter().any(|path| path == file_path) {
+            real_paths.push(file_path.to_string());
+        }
+    }
+    let display_paths = state.display_paths(&real_paths, language).await;
+    let display_path = |path: &str| {
+        display_paths
+            .iter()
+            .find(|item| item.path == path)
+            .cloned()
+            .unwrap_or_else(|| crate::storage::DisplayPath {
+                path: path.to_string(),
+                display_path: path.to_string(),
+            })
+    };
+    let save_dir = display_path(&task.save_dir);
+    let file_path = task
+        .file_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(display_path);
+
+    Ok(Json(TaskFileContextResponse {
+        save_dir,
+        file_path,
+        actions,
+    }))
 }
 
 pub fn torrent_routes() -> Router<Arc<HttpAppState>> {

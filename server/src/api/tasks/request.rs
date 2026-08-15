@@ -18,6 +18,11 @@ pub(super) struct ListTasksQuery {
     pub(super) status: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub(super) struct TaskFileContextQuery {
+    pub(super) language: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateBatchDownloadTasksRequest {

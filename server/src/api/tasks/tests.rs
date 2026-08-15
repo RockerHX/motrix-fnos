@@ -1219,6 +1219,158 @@ async fn create_route_rejects_unauthorized_save_dir() {
     assert_eq!(error.code, "save_dir_not_authorized");
 }
 
+#[tokio::test]
+async fn file_context_returns_safe_url_targets_and_display_paths() {
+    let state = test_state().await;
+    let root = temp_dir("task-file-context-url");
+    std::fs::create_dir_all(&root).expect("root should exist");
+    let file = root.join("archive.zip");
+    std::fs::write(&file, b"data").expect("file should write");
+    write_accessible_paths(&state, &[root.display().to_string()]);
+    let mut task = sample_task(7, DownloadTaskStatus::Complete);
+    task.save_dir = root.display().to_string();
+    task.file_path = Some(file.display().to_string());
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("tasks should update");
+    let app = test_router(state);
+
+    let context = response_json::<TaskFileContextResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks/7/file-context?language=en-US")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(context.save_dir.path, root.display().to_string());
+    assert_eq!(context.save_dir.display_path, root.display().to_string());
+    assert_eq!(
+        context.file_path.expect("file path should exist").path,
+        file.display().to_string()
+    );
+    assert_eq!(
+        context.actions.availability,
+        crate::tasks::TaskFileAvailability::Available
+    );
+    assert_eq!(
+        context.actions.open_file_path,
+        Some(file.display().to_string())
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn file_context_never_exposes_targets_after_authorization_is_revoked() {
+    let state = test_state().await;
+    let root = temp_dir("task-file-context-revoked");
+    std::fs::create_dir_all(&root).expect("root should exist");
+    let file = root.join("archive.zip");
+    std::fs::write(&file, b"data").expect("file should write");
+    write_accessible_paths(&state, &[]);
+    let mut task = sample_task(8, DownloadTaskStatus::Complete);
+    task.save_dir = root.display().to_string();
+    task.file_path = Some(file.display().to_string());
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("tasks should update");
+    let app = test_router(state);
+
+    let context = response_json::<TaskFileContextResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks/8/file-context")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(
+        context.actions.availability,
+        crate::tasks::TaskFileAvailability::PathUnauthorized
+    );
+    assert!(context.actions.file_manager_path.is_none());
+    assert!(context.actions.open_file_path.is_none());
+    assert!(context.actions.detail_paths.is_empty());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn file_context_rejects_invalid_language_and_unknown_task() {
+    let state = test_state().await;
+    let app = test_router(state);
+
+    let invalid_language = response_json::<ErrorResponse>(
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/tasks/1/file-context?language=fr-FR")
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(invalid_language.code, "display_language_invalid");
+
+    let missing = response_json::<ErrorResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks/999/file-context")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    assert_eq!(missing.code, "task_not_found");
+}
+
+#[tokio::test]
+async fn file_context_fails_closed_when_authorization_snapshot_is_invalid() {
+    let state = test_state().await;
+    std::fs::write(&state.runtime.accessible_paths_path, "not-json")
+        .expect("invalid snapshot should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(9, DownloadTaskStatus::Complete)))
+        .expect("tasks should update");
+    let app = test_router(state);
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/tasks/9/file-context")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::INTERNAL_SERVER_ERROR,
+    )
+    .await;
+
+    assert_eq!(error.code, "task_file_context_failed");
+}
+
 fn test_router(state: Arc<HttpAppState>) -> Router {
     Router::new()
         .nest("/api", routes().merge(torrent_routes()))
