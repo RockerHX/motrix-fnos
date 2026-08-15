@@ -104,6 +104,177 @@ async fn sends_expected_shared_folder_request_without_changing_app_identity() {
 }
 
 #[tokio::test]
+async fn sends_expected_batch_path_conversion_request_with_language() {
+    let path = socket_path("convert-request");
+    let server = serve_once(
+        &path,
+        response(
+            "200 OK",
+            r#"{"code":0,"msg":"","data":{"status":0,"result":[{"path":"/vol1/a","semanticPath":"Storage 1/a"},{"path":"/vol1/b","semanticPath":"Storage 1/b"}]}}"#,
+        ),
+    )
+    .await;
+    let client = FnosApiClient::with_limits(path.clone(), Duration::from_secs(1), 4096);
+
+    let result = client
+        .convert_paths_with_token(
+            Some("test-token"),
+            &["/vol1/a".to_string(), "/vol1/b".to_string()],
+            PathLanguage::EnUs,
+        )
+        .await
+        .expect("conversion should succeed");
+    let request = String::from_utf8(server.await.expect("server should finish"))
+        .expect("request should be utf8");
+    let _ = std::fs::remove_file(path);
+
+    assert_eq!(
+        result.results,
+        vec![
+            SemanticPath {
+                path: "/vol1/a".to_string(),
+                semantic_path: "Storage 1/a".to_string(),
+            },
+            SemanticPath {
+                path: "/vol1/b".to_string(),
+                semantic_path: "Storage 1/b".to_string(),
+            },
+        ]
+    );
+    assert_eq!(result.http_status, 200);
+    assert_eq!(result.business_code, 0);
+    assert!(request.starts_with("POST /api/v1/trimapp HTTP/1.1"));
+    assert!(request.contains(r#""req":"trim.file.convertPath""#));
+    assert!(request.contains(r#""appName":"motrix""#));
+    assert!(request.contains(r#""path":["/vol1/a","/vol1/b"]"#));
+    assert!(request.contains(r#""language":"en-US""#));
+}
+
+#[tokio::test]
+async fn path_conversion_supports_empty_batches_and_both_languages() {
+    for (label, language, expected_language) in [
+        ("convert-zh", PathLanguage::ZhCn, "zh-CN"),
+        ("convert-en", PathLanguage::EnUs, "en-US"),
+    ] {
+        let path = socket_path(label);
+        let server = serve_once(
+            &path,
+            response(
+                "200 OK",
+                r#"{"code":0,"msg":"","data":{"status":0,"result":[]}}"#,
+            ),
+        )
+        .await;
+        let client = FnosApiClient::with_limits(path.clone(), Duration::from_secs(1), 4096);
+
+        let result = client
+            .convert_paths_with_token(Some("test-token"), &[], language)
+            .await
+            .expect("empty conversion should succeed");
+        let request = String::from_utf8(server.await.expect("server should finish"))
+            .expect("request should be utf8");
+        let _ = std::fs::remove_file(path);
+
+        assert!(result.results.is_empty());
+        assert!(request.contains(r#""path":[]"#));
+        assert!(request.contains(&format!(r#""language":"{expected_language}""#)));
+    }
+}
+
+#[tokio::test]
+async fn path_conversion_rejects_status_and_malformed_payloads() {
+    let cases = [
+        (
+            "convert-status",
+            r#"{"code":0,"msg":"","data":{"status":7,"result":[]}}"#,
+            Err(FnosApiError::Rejected {
+                http_status: Some(200),
+                business_code: Some(7),
+            }),
+        ),
+        (
+            "convert-result-missing",
+            r#"{"code":0,"msg":"","data":{"status":0}}"#,
+            Err(FnosApiError::InvalidResponse),
+        ),
+        (
+            "convert-path-missing",
+            r#"{"code":0,"msg":"","data":{"status":0,"result":[{"semanticPath":"Storage 1/a"}]}}"#,
+            Err(FnosApiError::InvalidResponse),
+        ),
+        (
+            "convert-semantic-missing",
+            r#"{"code":0,"msg":"","data":{"status":0,"result":[{"path":"/vol1/a"}]}}"#,
+            Err(FnosApiError::InvalidResponse),
+        ),
+        (
+            "convert-not-json",
+            "not-json",
+            Err(FnosApiError::InvalidResponse),
+        ),
+    ];
+
+    for (label, body, expected) in cases {
+        let path = socket_path(label);
+        let server = serve_once(&path, response("200 OK", body)).await;
+        let client = FnosApiClient::with_limits(path.clone(), Duration::from_secs(1), 4096);
+        let result = client
+            .convert_paths_with_token(
+                Some("test-token"),
+                &["/vol1/a".to_string()],
+                PathLanguage::EnUs,
+            )
+            .await;
+        let _ = server.await;
+        let _ = std::fs::remove_file(path);
+        assert_eq!(result, expected);
+    }
+}
+
+#[tokio::test]
+async fn path_conversion_uses_shared_timeout_and_response_limit() {
+    let timeout_path = socket_path("convert-timeout");
+    let listener = UnixListener::bind(&timeout_path).expect("timeout socket should bind");
+    let waiting_server = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.expect("request should connect");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    });
+    let timeout_client =
+        FnosApiClient::with_limits(timeout_path.clone(), Duration::from_millis(10), 4096);
+    assert_eq!(
+        timeout_client
+            .convert_paths_with_token(
+                Some("test-token"),
+                &["/vol1/a".to_string()],
+                PathLanguage::ZhCn,
+            )
+            .await,
+        Err(FnosApiError::Timeout)
+    );
+    waiting_server.abort();
+    let _ = std::fs::remove_file(timeout_path);
+
+    let large_path = socket_path("convert-large");
+    let server = serve_once(
+        &large_path,
+        response(
+            "200 OK",
+            r#"{"code":0,"msg":"","data":{"status":0,"result":[]}}"#,
+        ),
+    )
+    .await;
+    let large_client = FnosApiClient::with_limits(large_path.clone(), Duration::from_secs(1), 16);
+    assert_eq!(
+        large_client
+            .convert_paths_with_token(Some("test-token"), &[], PathLanguage::ZhCn)
+            .await,
+        Err(FnosApiError::ResponseTooLarge)
+    );
+    let _ = server.await;
+    let _ = std::fs::remove_file(large_path);
+}
+
+#[tokio::test]
 async fn rejects_missing_or_malformed_tokens_before_connecting() {
     let client = FnosApiClient::with_limits(socket_path("token"), Duration::from_secs(1), 4096);
 

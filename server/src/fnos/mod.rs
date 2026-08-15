@@ -15,6 +15,8 @@ pub(crate) const API_TOKEN_ENV: &str = "TRIM_API_TOKEN";
 pub(crate) const GATEWAY_SOCKET_PATH: &str = "/var/run/trim_open_gateway_apiscope.socket";
 const GATEWAY_HTTP_PATH: &str = "/api/v1/trimapp";
 const SHARED_FOLDERS_REQUEST: &str = "trim.file.getSharedAccessibleFolders";
+#[allow(dead_code)]
+const CONVERT_PATH_REQUEST: &str = "trim.file.convertPath";
 const APP_NAME: &str = "motrix";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -23,6 +25,38 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SharedAccessibleFolders {
     pub(crate) paths: Vec<String>,
+    pub(crate) http_status: u16,
+    pub(crate) business_code: i64,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathLanguage {
+    ZhCn,
+    EnUs,
+}
+
+impl PathLanguage {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::EnUs => "en-US",
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SemanticPath {
+    pub(crate) path: String,
+    pub(crate) semantic_path: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConvertedPaths {
+    pub(crate) results: Vec<SemanticPath>,
     pub(crate) http_status: u16,
     pub(crate) business_code: i64,
 }
@@ -100,12 +134,95 @@ impl FnosApiClient {
         token: Option<&str>,
     ) -> Result<SharedAccessibleFolders, FnosApiError> {
         let token = validate_token(token)?;
-        timeout(self.request_timeout, self.query(token))
-            .await
-            .map_err(|_| FnosApiError::Timeout)?
+        timeout(
+            self.request_timeout,
+            self.query_shared_accessible_folders_with_valid_token(token),
+        )
+        .await
+        .map_err(|_| FnosApiError::Timeout)?
     }
 
-    async fn query(&self, token: &str) -> Result<SharedAccessibleFolders, FnosApiError> {
+    async fn query_shared_accessible_folders_with_valid_token(
+        &self,
+        token: &str,
+    ) -> Result<SharedAccessibleFolders, FnosApiError> {
+        let response = self
+            .request(token, SHARED_FOLDERS_REQUEST, serde_json::json!({}))
+            .await?;
+        let data = serde_json::from_value::<SharedFoldersData>(response.data)
+            .map_err(|_| FnosApiError::InvalidResponse)?;
+
+        Ok(SharedAccessibleFolders {
+            paths: data.paths,
+            http_status: response.http_status,
+            business_code: response.business_code,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn convert_paths(
+        &self,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let token = std::env::var(API_TOKEN_ENV).ok();
+        self.convert_paths_with_token(token.as_deref(), paths, language)
+            .await
+    }
+
+    async fn convert_paths_with_token(
+        &self,
+        token: Option<&str>,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let token = validate_token(token)?;
+        timeout(
+            self.request_timeout,
+            self.convert_paths_with_valid_token(token, paths, language),
+        )
+        .await
+        .map_err(|_| FnosApiError::Timeout)?
+    }
+
+    async fn convert_paths_with_valid_token(
+        &self,
+        token: &str,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let response = self
+            .request(
+                token,
+                CONVERT_PATH_REQUEST,
+                serde_json::json!({
+                    "path": paths,
+                    "language": language.as_str(),
+                }),
+            )
+            .await?;
+        let data = serde_json::from_value::<ConvertPathData>(response.data)
+            .map_err(|_| FnosApiError::InvalidResponse)?;
+        if data.status != 0 {
+            return Err(FnosApiError::Rejected {
+                http_status: Some(response.http_status),
+                business_code: Some(data.status),
+            });
+        }
+
+        Ok(ConvertedPaths {
+            results: data.result,
+            http_status: response.http_status,
+            business_code: response.business_code,
+        })
+    }
+
+    async fn request(
+        &self,
+        token: &str,
+        request_name: &str,
+        data: serde_json::Value,
+    ) -> Result<GatewayResponse, FnosApiError> {
         let stream = UnixStream::connect(&self.socket_path)
             .await
             .map_err(classify_socket_error)?;
@@ -122,9 +239,9 @@ impl FnosApiClient {
                 std::process::id(),
                 REQUEST_ID.fetch_add(1, Ordering::Relaxed)
             ),
-            "req": SHARED_FOLDERS_REQUEST,
+            "req": request_name,
             "appName": APP_NAME,
-            "data": {}
+            "data": data
         }))
         .map_err(|_| FnosApiError::InvalidResponse)?;
         let request = Request::builder()
@@ -143,26 +260,35 @@ impl FnosApiClient {
         let http_status = response.status().as_u16();
         let response_body =
             read_limited_body(response.into_body(), self.max_response_bytes).await?;
-        let envelope = serde_json::from_slice::<GatewayEnvelope>(&response_body)
-            .map_err(|_| FnosApiError::InvalidResponse)?;
-
-        if !(200..=299).contains(&http_status) || envelope.code != 0 {
+        let envelope = serde_json::from_slice::<GatewayEnvelope>(&response_body);
+        if !(200..=299).contains(&http_status) {
+            return Err(FnosApiError::Rejected {
+                http_status: Some(http_status),
+                business_code: envelope.ok().map(|value| value.code),
+            });
+        }
+        let envelope = envelope.map_err(|_| FnosApiError::InvalidResponse)?;
+        if envelope.code != 0 {
             return Err(FnosApiError::Rejected {
                 http_status: Some(http_status),
                 business_code: Some(envelope.code),
             });
         }
-        let paths = envelope
-            .data
-            .and_then(|data| data.paths)
-            .ok_or(FnosApiError::InvalidResponse)?;
+        let data = envelope.data.ok_or(FnosApiError::InvalidResponse)?;
 
-        Ok(SharedAccessibleFolders {
-            paths,
+        Ok(GatewayResponse {
             http_status,
             business_code: envelope.code,
+            data,
         })
     }
+}
+
+#[derive(Debug)]
+struct GatewayResponse {
+    http_status: u16,
+    business_code: i64,
+    data: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,12 +296,19 @@ struct GatewayEnvelope {
     code: i64,
     #[serde(rename = "msg")]
     _message: String,
-    data: Option<GatewayData>,
+    data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
-struct GatewayData {
-    paths: Option<Vec<String>>,
+struct SharedFoldersData {
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct ConvertPathData {
+    status: i64,
+    result: Vec<SemanticPath>,
 }
 
 fn validate_token(token: Option<&str>) -> Result<&str, FnosApiError> {
