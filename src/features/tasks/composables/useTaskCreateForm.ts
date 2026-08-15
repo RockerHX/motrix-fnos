@@ -57,6 +57,7 @@ export function useTaskCreateForm({ show, onClose, onCreated, onOpenProxySetting
         form.useProxy = false;
         submission.clearFeedback();
         void saveDirectory.refreshAccessiblePaths();
+        void saveDirectory.detectHostKind();
         void refreshProxyStatus();
       }
     },
@@ -120,6 +121,10 @@ export function useTaskCreateForm({ show, onClose, onCreated, onOpenProxySetting
     accessiblePaths: saveDirectory.accessiblePaths,
     isLoadingAccessiblePaths: saveDirectory.isLoadingAccessiblePaths,
     accessiblePathsError: saveDirectory.accessiblePathsError,
+    hostKind: saveDirectory.hostKind,
+    hostSupportsAuthorization: saveDirectory.hostSupportsAuthorization,
+    isAuthorizingAccessiblePath: saveDirectory.isAuthorizingAccessiblePath,
+    authorizationMessage: saveDirectory.authorizationMessage,
     urlFeedback: validation.urlFeedback,
     urlValidationStatus: validation.urlValidationStatus,
     magnetFeedback: validation.magnetFeedback,
@@ -132,6 +137,7 @@ export function useTaskCreateForm({ show, onClose, onCreated, onOpenProxySetting
     hasProxyStatusError,
     canUseProxy,
     selectTorrentFile,
+    addAccessiblePath: saveDirectory.addAccessiblePath,
     submitCreateTask: submission.submitCreateTask,
     closeDialog,
     openProxySettings,

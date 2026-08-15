@@ -21,6 +21,7 @@ import {
   NTabs,
 } from "naive-ui";
 import type { UploadFileInfo, UploadOnChange, UploadOnRemove } from "naive-ui";
+import AppIcon from "../../../components/AppIcon.vue";
 import { useI18n } from "../../../i18n";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useTaskCreateForm } from "../composables/useTaskCreateForm";
@@ -47,6 +48,10 @@ const {
   accessiblePaths,
   isLoadingAccessiblePaths,
   accessiblePathsError,
+  hostSupportsAuthorization,
+  isAuthorizingAccessiblePath,
+  authorizationMessage,
+  addAccessiblePath,
   urlFeedback,
   urlValidationStatus,
   magnetFeedback,
@@ -172,7 +177,23 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
                 {{ t("create.saveDir.loadFailed", { message: accessiblePathsError }) }}
               </NAlert>
               <NAlert v-else-if="!isLoadingAccessiblePaths && accessiblePaths.length === 0" type="warning" class="inline-alert">
-                {{ t("create.saveDir.empty") }}
+                <NSpace vertical size="small">
+                  <span>{{ t("create.saveDir.empty") }}</span>
+                  <NButton
+                    v-if="hostSupportsAuthorization"
+                    text
+                    type="primary"
+                    size="small"
+                    data-test="add-accessible-path"
+                    :loading="isAuthorizingAccessiblePath"
+                    :disabled="isAuthorizingAccessiblePath"
+                    @click="addAccessiblePath"
+                  >
+                    <template #icon><AppIcon name="plus" :size="15" /></template>
+                    {{ t("settings.accessiblePaths.add") }}
+                  </NButton>
+                  <span v-if="authorizationMessage" class="field-hint">{{ authorizationMessage }}</span>
+                </NSpace>
               </NAlert>
             </NSpace>
           </NFormItem>

@@ -1,7 +1,8 @@
 import { computed, ref } from "vue";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
-import { getAccessiblePaths } from "../../../services/storage";
+import { fnosHost, type FnosHostKind } from "../../../services/fnos";
+import { getAccessiblePaths, refreshAccessiblePaths as refreshAccessiblePathsFromApi } from "../../../services/storage";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import type { TaskCreateFormState } from "./taskCreateFormModel";
 
@@ -13,24 +14,70 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
   const accessiblePaths = ref<string[]>([]);
   const isLoadingAccessiblePaths = ref(false);
   const accessiblePathsError = ref("");
+  const hostKind = ref<FnosHostKind | null>(null);
+  const isAuthorizingAccessiblePath = ref(false);
+  const authorizationMessage = ref("");
+  const hostSupportsAuthorization = computed(() => hostKind.value === "hosted" || hostKind.value === "mobile");
   const accessiblePathOptions = computed(() =>
     accessiblePaths.value.map((path) => ({ label: path, value: path })),
   );
 
-  async function refreshAccessiblePaths() {
+  async function refreshAccessiblePaths(options: { queryOfficial?: boolean } = {}) {
     isLoadingAccessiblePaths.value = true;
     accessiblePathsError.value = "";
+    authorizationMessage.value = "";
 
     try {
-      const [response, config] = await Promise.all([getAccessiblePaths(), settingsStore.loadConfig()]);
+      const pathsRequest = options.queryOfficial ? refreshAccessiblePathsFromApi() : getAccessiblePaths();
+      const [response, config] = await Promise.all([pathsRequest, settingsStore.loadConfig()]);
       accessiblePaths.value = response.paths;
       syncSelectedSaveDir(config.defaultDownloadDir);
+      return true;
     } catch (error) {
       accessiblePaths.value = [];
       form.saveDir = "";
       accessiblePathsError.value = getErrorMessage(error, t("task.operationFailed"));
+      return false;
     } finally {
       isLoadingAccessiblePaths.value = false;
+    }
+  }
+
+  async function detectHostKind() {
+    hostKind.value = await fnosHost.getHostKind();
+    return hostKind.value;
+  }
+
+  async function addAccessiblePath() {
+    if (isAuthorizingAccessiblePath.value || !hostSupportsAuthorization.value) {
+      authorizationMessage.value = t("settings.accessiblePaths.manualHelp");
+      return;
+    }
+
+    isAuthorizingAccessiblePath.value = true;
+    authorizationMessage.value = "";
+    try {
+      const result = await fnosHost.requestSharedFolderAuthorization();
+      if (result.status === "cancelled") return;
+      if (result.status === "admin_required") {
+        authorizationMessage.value = t("settings.accessiblePaths.adminRequired");
+        return;
+      }
+      if (result.status === "unsupported") {
+        authorizationMessage.value = t("settings.accessiblePaths.manualHelp");
+        return;
+      }
+      if (result.status === "failed") {
+        authorizationMessage.value = t("settings.accessiblePaths.failed");
+        return;
+      }
+
+      const refreshed = await refreshAccessiblePaths({ queryOfficial: true });
+      if (!refreshed) {
+        authorizationMessage.value = t("settings.accessiblePaths.stale");
+      }
+    } finally {
+      isAuthorizingAccessiblePath.value = false;
     }
   }
 
@@ -62,8 +109,14 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
     accessiblePaths,
     isLoadingAccessiblePaths,
     accessiblePathsError,
+    hostKind,
+    hostSupportsAuthorization,
+    isAuthorizingAccessiblePath,
+    authorizationMessage,
     accessiblePathOptions,
+    detectHostKind,
     refreshAccessiblePaths,
+    addAccessiblePath,
     rememberSaveDir,
   };
 }

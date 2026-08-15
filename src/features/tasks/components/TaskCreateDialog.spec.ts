@@ -358,6 +358,20 @@ describe("TaskCreateDialog", () => {
     expect(loadFailedWrapper.get('[data-test="proxy-unavailable-state"]').text()).toContain("无法读取下载代理状态");
   });
 
+  it("offers host folder authorization when no confirmed directory is available", async () => {
+    const composableState = createComposableState({
+      accessiblePaths: [],
+      hostSupportsAuthorization: true,
+    });
+    mockUseTaskCreateForm.mockReturnValue(composableState);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+
+    const addButton = wrapper.get('[data-test="add-accessible-path"]');
+    await addButton.trigger("click");
+
+    expect(composableState.addAccessiblePath).toHaveBeenCalledOnce();
+  });
+
   it("selects and removes torrent files through Naive UI upload", async () => {
     const composableState = createComposableState();
     composableState.activeInputType.value = "torrent";
@@ -405,6 +419,8 @@ function createComposableState(overrides: {
   canSubmit?: boolean;
   formErrorMessage?: string;
   accessiblePathsError?: string;
+  accessiblePaths?: string[];
+  hostSupportsAuthorization?: boolean;
   isCreating?: boolean;
   isRuntimeExiting?: boolean;
   canUseProxy?: boolean;
@@ -434,14 +450,20 @@ function createComposableState(overrides: {
     activeInputType: ref("url"),
     formErrorMessage: ref(overrides.formErrorMessage ?? ""),
     batchFailedItems: ref([]),
-    accessiblePaths: ref<string[]>(["/downloads"]),
+    accessiblePaths: ref<string[]>(overrides.accessiblePaths ?? ["/downloads"]),
     isLoadingAccessiblePaths: ref(false),
     accessiblePathsError: ref(overrides.accessiblePathsError ?? ""),
     urlFeedback: ref<string | undefined>(undefined),
     urlValidationStatus: ref<string | undefined>(undefined),
     magnetFeedback: ref<string | undefined>(undefined),
     magnetValidationStatus: ref<string | undefined>(undefined),
-    accessiblePathOptions: ref([{ label: "/downloads", value: "/downloads" }]),
+    accessiblePathOptions: ref(
+      (overrides.accessiblePaths ?? ["/downloads"]).map((path) => ({ label: path, value: path })),
+    ),
+    hostSupportsAuthorization: ref(overrides.hostSupportsAuthorization ?? false),
+    isAuthorizingAccessiblePath: ref(false),
+    authorizationMessage: ref(""),
+    addAccessiblePath: vi.fn(),
     canSubmit: ref(overrides.canSubmit ?? true),
     isMaskClosable: ref(!taskStore.isCreating && !taskStore.isRuntimeExiting),
     isProxyConfigured: ref(overrides.isProxyConfigured ?? true),
