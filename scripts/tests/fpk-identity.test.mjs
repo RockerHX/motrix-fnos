@@ -6,6 +6,7 @@ import { validateFpkAppIdentity } from '../lib/script-utils.mjs';
 test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   const manifestContent = readFileSync('packaging/fnos/manifest.template', 'utf8');
   const uiConfig = JSON.parse(readFileSync('packaging/fnos/app/ui/config', 'utf8'));
+  const resource = JSON.parse(readFileSync('packaging/fnos/config/resource', 'utf8'));
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
 
   assert.doesNotThrow(() =>
@@ -21,6 +22,11 @@ test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   assert.match(releaseWorkflow, /generate-fpk-sbom\.mjs/);
   assert.match(releaseWorkflow, /attest-build-provenance@[0-9a-f]{40}/);
   assert.doesNotMatch(releaseWorkflow, /motrix\.fnos_\$\{VERSION\}/);
+  assert.match(manifestContent, /^micro_app\s*=\s*true$/m);
+  assert.match(manifestContent, /^os_min_version\s*=\s*1\.1\.3100$/m);
+  assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess']);
+  assert.equal(uiConfig['.url']?.['motrix.Application']?.allUsers, false);
+  assert.equal(uiConfig['.url']?.['motrix.Application']?.control?.accessPerm, 'editable');
 });
 
 test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () => {

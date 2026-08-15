@@ -15,4 +15,5 @@ checkport             = true
 desktop_appname       = motrix.Application
 desktop_uidir         = ui
 desktop_applaunchname =
+micro_app             = true
 ctl_stop              = true

@@ -74,6 +74,9 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assert.equal(manifest.version, packageVersion);
   assert.equal(manifest.platform, platform);
   assert.equal(manifest.service_port, '17080');
+  assert.equal(manifest.micro_app, 'true');
+  const resource = JSON.parse(readFileSync(path.join(packageRoot, 'config/resource'), 'utf8'));
+  assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess']);
   const portConfig = readFileSync(path.join(packageRoot, 'MotrixFNOS.sc'), 'utf8');
   assert.match(portConfig, /src\.ports="17080\/tcp,17082\/tcp"/);
   assert.match(portConfig, /dst\.ports="17080\/tcp,17082\/tcp"/);
@@ -104,6 +107,26 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   const uiConfig = JSON.parse(readFileSync(path.join(appRoot, 'ui/config'), 'utf8'));
   assert.equal(uiConfig['.url']?.['motrix.Application']?.port, '17080');
   assert.deepEqual(readdirSync(path.join(appRoot, 'data')), [], 'app/data 不得携带运行时残留');
+  assertFrontendContainsNoFnosApiSecrets(path.join(appRoot, 'ui/dist'));
+}
+
+function assertFrontendContainsNoFnosApiSecrets(root) {
+  const forbidden = ['TRIM_API_TOKEN', 'trim_open_gateway_apiscope.socket', 'Authorization: Bearer'];
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(target);
+      } else if (entry.isFile()) {
+        const content = readFileSync(target);
+        for (const value of forbidden) {
+          assert.equal(content.includes(Buffer.from(value)), false, `Web 产物包含敏感字符串：${value}`);
+        }
+      }
+    }
+  }
 }
 
 function assertRegularFile(root, relativePath) {

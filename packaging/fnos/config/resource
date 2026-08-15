@@ -22,6 +22,9 @@
       }
     ]
   },
+  "api-scope": [
+    "trim.file.sharedAccess"
+  ],
   "systemd-unit": {
   }
 }

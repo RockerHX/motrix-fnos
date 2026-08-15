@@ -11,6 +11,9 @@ importers:
       '@tabler/icons-vue':
         specifier: ^3.46.0
         version: 3.46.0(vue@3.5.41(typescript@5.6.3))
+      '@trimjs/web-app':
+        specifier: 0.4.2
+        version: 0.4.2
       naive-ui:
         specifier: ^2.44.1
         version: 2.44.1(vue@3.5.41(typescript@5.6.3))
@@ -647,6 +650,9 @@ packages:
 
   '@tabler/icons@3.46.0':
     resolution: {integrity: sha512-f2RYFl3fzPwj5WO82x6en0dmkjefxEfOm16D1ByM6cj/McNiwOkL4VaPUoP9VVIrXAD9WnTSVFr70px703b//A==}
+
+  '@trimjs/web-app@0.4.2':
+    resolution: {integrity: sha512-apVkaOCIPjC/8hOBcr2FiaYhGGQwnf8wxZTrGDnA8o64t+nlfLpyC8Tv1zyTvx9ZbAns8RnkSJ0kZcHRITTOkA==}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -1956,6 +1962,8 @@ snapshots:
       vue: 3.5.41(typescript@5.6.3)
 
   '@tabler/icons@3.46.0': {}
+
+  '@trimjs/web-app@0.4.2': {}
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
