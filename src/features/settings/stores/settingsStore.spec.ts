@@ -1,16 +1,21 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { language } from "../../../i18n";
-import { getAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
+import { getAccessiblePaths, getDisplayAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
 import type { AppConfig } from "../../../types/settings";
 import { useSettingsStore } from "./settingsStore";
 
-vi.mock("../../../services/storage", () => ({ getAccessiblePaths: vi.fn(), refreshAccessiblePaths: vi.fn() }));
+vi.mock("../../../services/storage", () => ({
+  getAccessiblePaths: vi.fn(),
+  getDisplayAccessiblePaths: vi.fn(),
+  refreshAccessiblePaths: vi.fn(),
+}));
 vi.mock("../../../services/settings", () => ({ getAppConfig: vi.fn(), saveAppConfig: vi.fn() }));
 
 const mockedGetAccessiblePaths = vi.mocked(getAccessiblePaths);
 const mockedRefreshAccessiblePaths = vi.mocked(refreshAccessiblePaths);
+const mockedGetDisplayAccessiblePaths = vi.mocked(getDisplayAccessiblePaths);
 const mockedGetAppConfig = vi.mocked(getAppConfig);
 const mockedSaveAppConfig = vi.mocked(saveAppConfig);
 
@@ -18,6 +23,7 @@ describe("settingsStore", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    mockedGetDisplayAccessiblePaths.mockResolvedValue({ paths: [] });
   });
 
   it("loads config, normalizes language and restores loading state", async () => {
@@ -55,8 +61,40 @@ describe("settingsStore", () => {
     await expect(store.loadAccessiblePaths()).resolves.toEqual(["/vol1/downloads"]);
 
     expect(store.accessiblePaths).toEqual(["/vol1/downloads"]);
+    expect(mockedGetDisplayAccessiblePaths).toHaveBeenCalledWith("zh-CN");
     expect(store.accessiblePathsError).toBe("");
     expect(store.isLoadingAccessiblePaths).toBe(false);
+  });
+
+  it("keeps real paths as values while aligning semantic labels", async () => {
+    const store = useSettingsStore();
+    mockedGetAccessiblePaths.mockResolvedValueOnce({ paths: ["/vol1/a", "/vol1/b", "/vol1/c"] });
+    mockedGetDisplayAccessiblePaths.mockResolvedValueOnce({
+      paths: [
+        { path: "/vol1/b", displayPath: "存储空间1/b" },
+        { path: "/vol1/a", displayPath: "存储空间1/a" },
+        { path: "/vol1/c", displayPath: "" },
+      ],
+    });
+
+    await store.loadAccessiblePaths();
+
+    expect(store.accessiblePaths).toEqual(["/vol1/a", "/vol1/b", "/vol1/c"]);
+    expect(store.displayAccessiblePaths).toEqual([
+      { path: "/vol1/a", displayPath: "存储空间1/a" },
+      { path: "/vol1/b", displayPath: "存储空间1/b" },
+      { path: "/vol1/c", displayPath: "/vol1/c" },
+    ]);
+  });
+
+  it("falls back to real labels when display loading fails", async () => {
+    const store = useSettingsStore();
+    mockedGetAccessiblePaths.mockResolvedValueOnce({ paths: ["/vol1/a"] });
+    mockedGetDisplayAccessiblePaths.mockRejectedValueOnce(new Error("unsupported"));
+
+    await store.loadAccessiblePaths();
+
+    expect(store.displayAccessiblePaths).toEqual([{ path: "/vol1/a", displayPath: "/vol1/a" }]);
   });
 
   it("clears paths, records the error and restores loading state on failure", async () => {

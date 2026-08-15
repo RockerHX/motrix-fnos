@@ -2,13 +2,14 @@ import { createPinia, setActivePinia } from "pinia";
 import { reactive } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fnosHost } from "../../../services/fnos";
-import { getAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
+import { getAccessiblePaths, getDisplayAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
 import { getAppConfig } from "../../../services/settings";
 import { createTaskCreateFormState } from "./taskCreateFormModel";
 import { useTaskSaveDirectory } from "./useTaskSaveDirectory";
 
 vi.mock("../../../services/storage", () => ({
   getAccessiblePaths: vi.fn(),
+  getDisplayAccessiblePaths: vi.fn(),
   refreshAccessiblePaths: vi.fn(),
 }));
 vi.mock("../../../services/fnos", () => ({
@@ -24,6 +25,7 @@ vi.mock("../../../services/settings", async (importOriginal) => ({
 
 const mockedGetAccessiblePaths = vi.mocked(getAccessiblePaths);
 const mockedRefreshAccessiblePaths = vi.mocked(refreshAccessiblePaths);
+const mockedGetDisplayAccessiblePaths = vi.mocked(getDisplayAccessiblePaths);
 const mockedGetAppConfig = vi.mocked(getAppConfig);
 
 describe("useTaskSaveDirectory", () => {
@@ -32,9 +34,38 @@ describe("useTaskSaveDirectory", () => {
     setActivePinia(createPinia());
     mockedGetAccessiblePaths.mockResolvedValue({ paths: ["/downloads", "/backup"] });
     mockedRefreshAccessiblePaths.mockResolvedValue({ paths: ["/downloads", "/backup"] });
+    mockedGetDisplayAccessiblePaths.mockResolvedValue({
+      paths: [
+        { path: "/downloads", displayPath: "存储空间1/downloads" },
+        { path: "/backup", displayPath: "存储空间1/backup" },
+      ],
+    });
     mockedGetAppConfig.mockResolvedValue(config("/downloads"));
     vi.mocked(fnosHost.getHostKind).mockResolvedValue("hosted");
     vi.mocked(fnosHost.requestSharedFolderAuthorization).mockResolvedValue({ status: "authorized" });
+  });
+
+  it("uses semantic labels without changing submitted real values", async () => {
+    const form = reactive(createTaskCreateFormState());
+    const saveDirectory = useTaskSaveDirectory(form);
+
+    await saveDirectory.refreshAccessiblePaths();
+
+    expect(saveDirectory.accessiblePathOptions.value).toEqual([
+      { label: "存储空间1/downloads", value: "/downloads" },
+      { label: "存储空间1/backup", value: "/backup" },
+    ]);
+    expect(form.saveDir).toBe("/downloads");
+  });
+
+  it("falls back to real labels when semantic display is unavailable", async () => {
+    mockedGetDisplayAccessiblePaths.mockRejectedValueOnce(new Error("unsupported"));
+    const form = reactive(createTaskCreateFormState());
+    const saveDirectory = useTaskSaveDirectory(form);
+
+    await saveDirectory.refreshAccessiblePaths();
+
+    expect(saveDirectory.accessiblePathOptions.value[0]).toEqual({ label: "/downloads", value: "/downloads" });
   });
 
   it("prefers the configured default, then remembered path, then first authorized path", async () => {

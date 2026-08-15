@@ -1,8 +1,13 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { getErrorMessage } from "../../../app/utils/errors";
-import { useI18n } from "../../../i18n";
+import { language, useI18n } from "../../../i18n";
 import { fnosHost, type FnosHostKind } from "../../../services/fnos";
-import { getAccessiblePaths, refreshAccessiblePaths as refreshAccessiblePathsFromApi } from "../../../services/storage";
+import {
+  getAccessiblePaths,
+  getDisplayAccessiblePaths,
+  refreshAccessiblePaths as refreshAccessiblePathsFromApi,
+} from "../../../services/storage";
+import type { DisplayPath } from "../../../types/storage";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import type { TaskCreateFormState } from "./taskCreateFormModel";
 
@@ -12,6 +17,7 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
   const settingsStore = useSettingsStore();
   const { t } = useI18n();
   const accessiblePaths = ref<string[]>([]);
+  const displayAccessiblePaths = ref<DisplayPath[]>([]);
   const isLoadingAccessiblePaths = ref(false);
   const accessiblePathsError = ref("");
   const hostKind = ref<FnosHostKind | null>(null);
@@ -19,8 +25,15 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
   const authorizationMessage = ref("");
   const hostSupportsAuthorization = computed(() => hostKind.value === "hosted" || hostKind.value === "mobile");
   const accessiblePathOptions = computed(() =>
-    accessiblePaths.value.map((path) => ({ label: path, value: path })),
+    accessiblePaths.value.map((path) => ({
+      label: displayAccessiblePaths.value.find((item) => item.path === path)?.displayPath || path,
+      value: path,
+    })),
   );
+
+  watch(language, (nextLanguage) => {
+    if (accessiblePaths.value.length > 0) void loadDisplayPaths(nextLanguage);
+  });
 
   async function refreshAccessiblePaths(options: { queryOfficial?: boolean } = {}) {
     isLoadingAccessiblePaths.value = true;
@@ -31,15 +44,30 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
       const pathsRequest = options.queryOfficial ? refreshAccessiblePathsFromApi() : getAccessiblePaths();
       const [response, config] = await Promise.all([pathsRequest, settingsStore.loadConfig()]);
       accessiblePaths.value = response.paths;
+      await loadDisplayPaths(config.language);
       syncSelectedSaveDir(config.defaultDownloadDir);
       return true;
     } catch (error) {
       accessiblePaths.value = [];
+      displayAccessiblePaths.value = [];
       form.saveDir = "";
       accessiblePathsError.value = getErrorMessage(error, t("task.operationFailed"));
       return false;
     } finally {
       isLoadingAccessiblePaths.value = false;
+    }
+  }
+
+  async function loadDisplayPaths(nextLanguage: typeof language.value) {
+    try {
+      const response = await getDisplayAccessiblePaths(nextLanguage);
+      displayAccessiblePaths.value = accessiblePaths.value.map((path) => {
+        const matches = response.paths.filter((item) => item.path === path);
+        const displayPath = matches.length === 1 && matches[0].displayPath.trim() ? matches[0].displayPath : path;
+        return { path, displayPath };
+      });
+    } catch {
+      displayAccessiblePaths.value = accessiblePaths.value.map((path) => ({ path, displayPath: path }));
     }
   }
 
@@ -107,6 +135,7 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
 
   return {
     accessiblePaths,
+    displayAccessiblePaths,
     isLoadingAccessiblePaths,
     accessiblePathsError,
     hostKind,

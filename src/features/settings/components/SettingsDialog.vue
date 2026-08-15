@@ -53,7 +53,7 @@ const isAuthorizing = ref(false);
 const isOpeningAppSettings = ref(false);
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
-    label: path,
+    label: settingsStore.displayAccessiblePaths.find((item) => item.path === path)?.displayPath || path,
     value: path,
   })),
 );
@@ -105,6 +105,15 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => form.language,
+  (nextLanguage, previousLanguage) => {
+    if (props.show && nextLanguage !== previousLanguage && settingsStore.accessiblePaths.length > 0) {
+      void settingsStore.loadDisplayAccessiblePaths(nextLanguage);
+    }
+  },
 );
 
 async function loadSettings() {
