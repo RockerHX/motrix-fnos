@@ -74,6 +74,8 @@ pub(crate) struct FnosApiClient {
     socket_path: PathBuf,
     request_timeout: Duration,
     max_response_bytes: usize,
+    #[cfg(test)]
+    token_override: Option<String>,
 }
 
 impl Default for FnosApiClient {
@@ -82,6 +84,8 @@ impl Default for FnosApiClient {
             socket_path: PathBuf::from(GATEWAY_SOCKET_PATH),
             request_timeout: DEFAULT_TIMEOUT,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+            #[cfg(test)]
+            token_override: None,
         }
     }
 }
@@ -97,12 +101,25 @@ impl FnosApiClient {
             socket_path,
             request_timeout,
             max_response_bytes,
+            token_override: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_token_override(mut self, token: &str) -> Self {
+        self.token_override = Some(token.to_string());
+        self
     }
 
     pub(crate) async fn query_shared_accessible_folders(
         &self,
     ) -> Result<SharedAccessibleFolders, FnosApiError> {
+        #[cfg(test)]
+        if let Some(token) = self.token_override.as_deref() {
+            return self
+                .query_shared_accessible_folders_with_token(Some(token))
+                .await;
+        }
         let token = std::env::var(API_TOKEN_ENV).ok();
         self.query_shared_accessible_folders_with_token(token.as_deref())
             .await

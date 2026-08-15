@@ -15,6 +15,7 @@ use crate::settings::service::{
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::storage::{
     default_download_dir, load_accessible_paths, refresh_accessible_paths_from_fnos,
+    AccessiblePathsRefreshError,
 };
 use crate::tasks::{
     is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus, PublicDownloadTask,
@@ -181,6 +182,8 @@ pub struct HttpAppState {
     json_rpc_token: Mutex<String>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
+    accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
+    fnos_api_client: Mutex<FnosApiClient>,
     listeners_ready: AtomicBool,
     file_cleanup_worker_running: AtomicBool,
     file_cleanup_worker_notify: tokio::sync::Notify,
@@ -212,6 +215,8 @@ impl HttpAppState {
             json_rpc_token: Mutex::new(String::new()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
+            accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
+            fnos_api_client: Mutex::new(FnosApiClient::default()),
             listeners_ready: AtomicBool::new(false),
             file_cleanup_worker_running: AtomicBool::new(false),
             file_cleanup_worker_notify: tokio::sync::Notify::new(),
@@ -270,6 +275,50 @@ impl HttpAppState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    pub(crate) async fn refresh_accessible_paths_from_fnos(
+        &self,
+    ) -> Result<Vec<String>, AccessiblePathsRefreshError> {
+        let _refresh = self.accessible_paths_refresh_lock.lock().await;
+        let client = self
+            .fnos_api_client
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        let result =
+            refresh_accessible_paths_from_fnos(&client, &self.runtime.accessible_paths_path).await;
+        match result {
+            Ok(result) => {
+                let preferred = self.json_rpc_default_download_dir();
+                self.refresh_json_rpc_default_download_dir(&preferred, &result.paths);
+                self.core.debug_logs.info(
+                    "storage.accessible-paths",
+                    format!(
+                        "已刷新 fnOS 共享授权目录：{} 个（HTTP {}，业务码 {}）",
+                        result.paths.len(),
+                        result.http_status,
+                        result.business_code
+                    ),
+                );
+                Ok(result.paths)
+            }
+            Err(error) => {
+                self.core.debug_logs.warn(
+                    "storage.accessible-paths",
+                    format!("刷新 fnOS 共享授权目录失败，保留旧快照：{error}"),
+                );
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_fnos_api_client(&self, client: FnosApiClient) {
+        *self
+            .fnos_api_client
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = client;
     }
 
     pub(crate) fn remember_json_rpc_token(&self, token: &str) {
