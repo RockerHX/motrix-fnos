@@ -24,7 +24,7 @@ test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   assert.doesNotMatch(releaseWorkflow, /motrix\.fnos_\$\{VERSION\}/);
   assert.match(manifestContent, /^micro_app\s*=\s*true$/m);
   assert.match(manifestContent, /^os_min_version\s*=\s*1\.1\.3100$/m);
-  assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess']);
+  assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess', 'trim.file.path']);
   assert.equal(uiConfig['.url']?.['motrix.Application']?.allUsers, false);
   assert.equal(uiConfig['.url']?.['motrix.Application']?.control?.accessPerm, 'editable');
 });
