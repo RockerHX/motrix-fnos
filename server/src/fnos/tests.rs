@@ -6,6 +6,20 @@ use tokio::net::UnixListener;
 
 static TEST_SOCKET_ID: AtomicU64 = AtomicU64::new(1);
 
+impl FnosApiClient {
+    pub(crate) fn with_limits(
+        socket_path: PathBuf,
+        request_timeout: Duration,
+        max_response_bytes: usize,
+    ) -> Self {
+        Self {
+            socket_path,
+            request_timeout,
+            max_response_bytes,
+        }
+    }
+}
+
 fn socket_path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "motrix-fnos-api-{label}-{}-{}.sock",

@@ -10,6 +10,13 @@ use crate::tasks::{
 use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 
+pub(crate) fn replace_fnos_api_client(state: &HttpAppState, client: FnosApiClient) {
+    *state
+        .fnos_api_client
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = client;
+}
+
 fn env_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))

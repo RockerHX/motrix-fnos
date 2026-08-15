@@ -313,14 +313,6 @@ impl HttpAppState {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn replace_fnos_api_client(&self, client: FnosApiClient) {
-        *self
-            .fnos_api_client
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = client;
-    }
-
     pub(crate) fn remember_json_rpc_token(&self, token: &str) {
         *self
             .json_rpc_token
@@ -1037,4 +1029,4 @@ fn current_timestamp_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

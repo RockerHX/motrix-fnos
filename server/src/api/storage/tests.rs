@@ -1,17 +1,19 @@
 use super::*;
 use crate::api::error::ErrorResponse;
 use crate::api::management_router;
+use crate::app::tests::replace_fnos_api_client;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
 use crate::auth::SessionKind;
-use crate::fnos::FnosApiClient;
+use crate::fnos::{FnosApiClient, API_TOKEN_ENV};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
 use serde::de::DeserializeOwned;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -19,6 +21,24 @@ use tokio::sync::oneshot;
 use tower::ServiceExt;
 
 static TEST_DIR_ID: AtomicU64 = AtomicU64::new(1);
+static TEST_API_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+struct TestApiTokenGuard {
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl Drop for TestApiTokenGuard {
+    fn drop(&mut self) {
+        std::env::remove_var(API_TOKEN_ENV);
+    }
+}
+
+fn test_api_token() -> TestApiTokenGuard {
+    let lock = TEST_API_ENV_LOCK.get_or_init(|| Mutex::new(()));
+    let guard = lock.lock().expect("test API environment lock should work");
+    std::env::set_var(API_TOKEN_ENV, "test-token");
+    TestApiTokenGuard { _lock: guard }
+}
 
 #[tokio::test]
 async fn refresh_route_requires_management_session_and_csrf() {
@@ -86,12 +106,13 @@ async fn get_route_keeps_the_existing_paths_only_response() {
 
 #[tokio::test]
 async fn refresh_route_persists_official_paths_and_updates_jsonrpc_default() {
+    let _token = test_api_token();
     let state = test_state("success").await;
     let socket = socket_path("success");
     let server = serve_gateway_responses(&socket, 1, None).await;
-    state.replace_fnos_api_client(
-        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(1), 4096)
-            .with_token_override("test-token"),
+    replace_fnos_api_client(
+        &state,
+        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(1), 4096),
     );
     let app = routes().with_state(state.clone());
 
@@ -120,13 +141,14 @@ async fn refresh_route_persists_official_paths_and_updates_jsonrpc_default() {
 
 #[tokio::test]
 async fn concurrent_refreshes_are_serialized_before_calling_the_gateway() {
+    let _token = test_api_token();
     let state = test_state("concurrent").await;
     let socket = socket_path("concurrent");
     let (first_request_tx, first_request_rx) = oneshot::channel();
     let server = serve_gateway_responses(&socket, 2, Some(first_request_tx)).await;
-    state.replace_fnos_api_client(
-        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(2), 4096)
-            .with_token_override("test-token"),
+    replace_fnos_api_client(
+        &state,
+        FnosApiClient::with_limits(socket.clone(), Duration::from_secs(2), 4096),
     );
 
     let first_state = state.clone();

@@ -20,7 +20,7 @@ test('Rust 测试实现与测试专用接口不进入业务模块', () => {
     );
 
     for (const declaration of testDeclarations(source)) {
-      const allowedModule = declaration === 'mod tests;';
+      const allowedModule = declaration === 'mod tests;' || declaration === 'pub(crate) mod tests;';
       const allowedSharedSupport =
         relativePath === 'server/src/lib.rs' && declaration === 'pub(crate) mod test_support;';
       assert.ok(
