@@ -1,4 +1,4 @@
-import type { AppBridgeResponse } from "@trimjs/web-app";
+import type { AppBridgeResponse, PlatformConfig } from "@trimjs/web-app";
 
 export type FnosHostKind = "hosted" | "mobile" | "standalone" | "unavailable";
 
@@ -10,6 +10,12 @@ export type SharedFolderAuthorizationResult =
   | { status: "failed" };
 
 export type FnosHostActionResult = { status: "opened" | "unsupported" | "failed" };
+export type FnosTheme = "dark" | "light";
+export type FnosPlatformConfig = PlatformConfig;
+export type FnosHostSubscription = {
+  status: "subscribed" | "unsupported" | "failed";
+  unsubscribe: () => void;
+};
 
 type TrimAppLike = {
   isWeb: boolean;
@@ -17,6 +23,13 @@ type TrimAppLike = {
   ready(): Promise<void>;
   pickSharedFile(): Promise<AppBridgeResponse<string[]> | undefined>;
   openAppSetting(): Promise<unknown>;
+  getPlatformConfig(): Promise<PlatformConfig>;
+  setTitle(title: string): Promise<unknown>;
+  openFile(path: string): Promise<unknown>;
+  openFileManager(path: string): Promise<unknown>;
+  showFileDetails(paths: string[]): Promise<unknown>;
+  $on(event: string, callback: (...args: unknown[]) => void): Promise<void>;
+  $off(event: string, callback: (...args: unknown[]) => void): Promise<void>;
 };
 
 type TrimAppModule = {
@@ -79,6 +92,88 @@ export class FnosHostAdapter {
     }
   }
 
+  async getPlatformConfig(): Promise<FnosPlatformConfig | null> {
+    const runtime = await this.supportedRuntime();
+    if (!runtime) return null;
+    try {
+      return await runtime.app.getPlatformConfig();
+    } catch {
+      return null;
+    }
+  }
+
+  async setTitle(title: string): Promise<FnosHostActionResult> {
+    return this.runHostAction((app) => app.setTitle(title));
+  }
+
+  async openFile(path: string): Promise<FnosHostActionResult> {
+    if (!path.trim()) return { status: "failed" };
+    return this.runHostAction((app) => app.openFile(path));
+  }
+
+  async openFileManager(path: string): Promise<FnosHostActionResult> {
+    if (!path.trim()) return { status: "failed" };
+    return this.runHostAction((app) => app.openFileManager(path));
+  }
+
+  async showFileDetails(paths: string[]): Promise<FnosHostActionResult> {
+    if (paths.length === 0 || paths.some((path) => !path.trim())) return { status: "failed" };
+    return this.runHostAction((app) => app.showFileDetails(paths));
+  }
+
+  async subscribeTheme(listener: (theme: FnosTheme) => void): Promise<FnosHostSubscription> {
+    return this.subscribeHostedEvent("os/theme", (value) => {
+      if (value === "dark" || value === "light") listener(value);
+    });
+  }
+
+  async subscribeLanguage(listener: (language: string) => void): Promise<FnosHostSubscription> {
+    return this.subscribeHostedEvent("os/language", (value) => {
+      if (typeof value === "string" && value.trim()) listener(value);
+    });
+  }
+
+  private async runHostAction(action: (app: TrimAppLike) => Promise<unknown>): Promise<FnosHostActionResult> {
+    const runtime = await this.supportedRuntime();
+    if (!runtime) return { status: "unsupported" };
+    try {
+      await action(runtime.app);
+      return { status: "opened" };
+    } catch {
+      return { status: "failed" };
+    }
+  }
+
+  private async subscribeHostedEvent(
+    event: string,
+    listener: (...args: unknown[]) => void,
+  ): Promise<FnosHostSubscription> {
+    const runtime = await this.runtime();
+    if (!runtime.app || runtime.kind !== "hosted") return unsupportedSubscription();
+    try {
+      await runtime.app.$on(event, listener);
+      let active = true;
+      return {
+        status: "subscribed",
+        unsubscribe: () => {
+          if (!active) return;
+          active = false;
+          void runtime.app?.$off(event, listener).catch(() => undefined);
+        },
+      };
+    } catch {
+      return failedSubscription();
+    }
+  }
+
+  private async supportedRuntime(): Promise<(FnosRuntime & { app: TrimAppLike }) | null> {
+    const runtime = await this.runtime();
+    if (!runtime.app || runtime.kind === "standalone" || runtime.kind === "unavailable") {
+      return null;
+    }
+    return runtime as FnosRuntime & { app: TrimAppLike };
+  }
+
   private runtime(): Promise<FnosRuntime> {
     if (!this.runtimePromise) this.runtimePromise = this.initialize();
     return this.runtimePromise;
@@ -98,6 +193,14 @@ export class FnosHostAdapter {
 }
 
 export const fnosHost = new FnosHostAdapter();
+
+function unsupportedSubscription(): FnosHostSubscription {
+  return { status: "unsupported", unsubscribe: () => undefined };
+}
+
+function failedSubscription(): FnosHostSubscription {
+  return { status: "failed", unsubscribe: () => undefined };
+}
 
 async function loadTrimAppModule(): Promise<TrimAppModule> {
   return import("@trimjs/web-app");
