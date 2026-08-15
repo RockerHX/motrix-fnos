@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, ref } from "vue";
+import { computed, watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import { NButton, NSpace } from "naive-ui";
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
@@ -14,6 +14,7 @@ import type {
   TaskActionLabels,
   TaskActionPermissions,
   TaskActionState,
+  TaskFileActionView,
 } from "./taskActionViewModel";
 
 const props = withDefaults(
@@ -26,10 +27,12 @@ const props = withDefaults(
     labels: TaskActionLabels;
     details: TaskActionDetails;
     confirmTexts: TaskActionConfirmTexts;
+    fileActions?: TaskFileActionView;
   }>(),
   {
     compact: false,
     variant: "text",
+    fileActions: () => ({ hostSupported: false, loading: false, context: null }),
   },
 );
 
@@ -42,6 +45,10 @@ const emit = defineEmits<{
   restore: [useProxy: boolean];
   updateProxy: [enabled: boolean];
   confirmPermanentDelete: [];
+  detailsOpened: [];
+  openFileManager: [];
+  openFile: [];
+  showFileDetails: [];
 }>();
 
 const showDeleteConfirm = ref(false);
@@ -51,6 +58,12 @@ const showRestoreConfirm = ref(false);
 const showDetails = ref(false);
 const redownloadUseProxy = ref(false);
 const restoreUseProxy = ref(false);
+const canOpenFileManager = computed(() => props.fileActions?.hostSupported && props.task.status === "complete");
+
+function openDetails() {
+  showDetails.value = true;
+  emit("detailsOpened");
+}
 
 watch(
   () => props.state.isRuntimeExiting,
@@ -100,9 +113,23 @@ function openRestoreConfirm() {
       :title="props.labels.details"
       :aria-label="props.labels.details"
       :disabled="props.state.isActionDisabled"
-      @click="showDetails = true"
+      @click="openDetails"
     >
       <AppIcon name="info" :size="14" />
+    </NButton>
+    <NButton
+      v-if="canOpenFileManager"
+      quaternary
+      circle
+      size="tiny"
+      class="task-action-button icon-action"
+      :title="props.labels.openFileManager"
+      :aria-label="props.labels.openFileManager"
+      :loading="props.fileActions?.loading"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('openFileManager')"
+    >
+      <AppIcon v-if="!props.fileActions?.loading" name="folder" :size="14" />
     </NButton>
     <NButton
       v-if="props.permissions.canPause"
@@ -217,9 +244,22 @@ function openRestoreConfirm() {
       :title="props.labels.details"
       :aria-label="props.labels.details"
       :disabled="props.state.isActionDisabled"
-      @click="showDetails = true"
+      @click="openDetails"
     >
       {{ props.labels.details }}
+    </NButton>
+    <NButton
+      v-if="canOpenFileManager"
+      size="small"
+      secondary
+      class="task-action-button"
+      :title="props.labels.openFileManager"
+      :aria-label="props.labels.openFileManager"
+      :loading="props.fileActions?.loading"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('openFileManager')"
+    >
+      {{ props.labels.openFileManager }}
     </NButton>
     <NButton
       v-if="props.permissions.canPause"
@@ -315,8 +355,21 @@ function openRestoreConfirm() {
     </NButton>
   </div>
   <NSpace v-else :size="6" wrap>
-    <NButton class="task-action-button" size="small" secondary :disabled="props.state.isActionDisabled" @click="showDetails = true">
+    <NButton class="task-action-button" size="small" secondary :disabled="props.state.isActionDisabled" @click="openDetails">
       {{ props.labels.details }}
+    </NButton>
+    <NButton
+      v-if="canOpenFileManager"
+      size="small"
+      secondary
+      class="task-action-button"
+      :title="props.labels.openFileManager"
+      :aria-label="props.labels.openFileManager"
+      :loading="props.fileActions?.loading"
+      :disabled="props.state.isActionDisabled"
+      @click="emit('openFileManager')"
+    >
+      {{ props.labels.openFileManager }}
     </NButton>
     <NButton
       v-if="props.permissions.canPause"
@@ -405,7 +458,11 @@ function openRestoreConfirm() {
     :close-label="props.labels.close"
     :is-operating="props.state.isOperating"
     :is-action-disabled="props.state.isActionDisabled"
+    :file-actions="props.fileActions"
+    :labels="props.labels"
     @update-proxy="emit('updateProxy', $event)"
+    @open-file="emit('openFile')"
+    @show-file-details="emit('showFileDetails')"
   />
 
   <TaskRedownloadConfirmDialog

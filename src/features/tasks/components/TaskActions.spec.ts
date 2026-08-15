@@ -10,6 +10,7 @@ vi.mock("naive-ui", async () => {
     });
 
   return {
+    useMessage: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }),
     NButton: defineComponent({
       name: "NButtonStub",
       props: {
@@ -325,6 +326,24 @@ describe("TaskActions", () => {
     }
   });
 
+  it("shows the file manager action only for completed tasks in a host", async () => {
+    const { wrapper } = mountTaskActions({
+      task: { status: "complete" },
+      permissions: { canDelete: false },
+      fileActions: { hostSupported: true, loading: false, context: null },
+    });
+
+    await clickButton(wrapper, "在文件管理器中打开");
+    expect(wrapper.emitted("openFileManager")).toHaveLength(1);
+
+    const { wrapper: standaloneWrapper } = mountTaskActions({
+      task: { status: "complete" },
+      permissions: { canDelete: false },
+      fileActions: { hostSupported: false, loading: false, context: null },
+    });
+    expect(standaloneWrapper.text()).not.toContain("在文件管理器中打开");
+  });
+
   it("emits direct actions from icon-pill buttons", async () => {
     const { wrapper } = mountTaskActions({
       variant: "icon-pill",
@@ -456,6 +475,11 @@ interface MountTaskActionsOverrides {
   labels?: Partial<TaskActionLabels>;
   details?: Partial<TaskActionDetails>;
   confirmTexts?: Partial<TaskActionConfirmTexts>;
+  fileActions?: {
+    hostSupported: boolean;
+    loading: boolean;
+    context: null;
+  };
   task?: Partial<DownloadTask>;
 }
 
@@ -491,6 +515,14 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
       permanentDelete: "永久删除",
       cancel: "取消",
       close: "关闭",
+      openFileManager: "在文件管理器中打开",
+      openFile: "打开文件",
+      fileDetails: "文件详情",
+      hostOnly: "文件操作仅支持 fnOS 宿主环境。",
+      technicalInfo: "技术信息",
+      copyPath: "复制",
+      copied: "已复制",
+      copyFailed: "复制失败",
       ...overrides.labels,
     },
     details: {
@@ -523,6 +555,7 @@ function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
       permanentDeleteConfirmText: "确认永久删除",
       ...overrides.confirmTexts,
     },
+    fileActions: overrides.fileActions,
   };
 
   const mounted = mountWithPinia(TaskActions, { props });

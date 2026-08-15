@@ -6,6 +6,7 @@ import type {
   CreateDownloadTaskRequest,
   CreateTorrentDownloadTaskRequest,
   DownloadTask,
+  TaskFileContextResponse,
 } from "../../../types/tasks";
 
 export function createDownloadTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
@@ -85,4 +86,9 @@ export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promis
 
 export function permanentlyDeleteDownloadTask(taskId: number): Promise<void> {
   return httpDelete<void>(`/api/tasks/${taskId}/permanent`);
+}
+
+export function getTaskFileContext(taskId: number, language: string): Promise<TaskFileContextResponse> {
+  const query = new URLSearchParams({ language });
+  return httpGet<TaskFileContextResponse>(`/api/tasks/${taskId}/file-context?${query.toString()}`);
 }

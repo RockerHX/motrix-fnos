@@ -83,3 +83,29 @@ export interface CreateTorrentDownloadTaskRequest {
 export interface ConfirmDownloadTaskFilesRequest {
   selectedFileIndexes: number[];
 }
+
+export type TaskFileAvailability =
+  | "available"
+  | "task_not_complete"
+  | "files_deleted"
+  | "path_missing"
+  | "path_unauthorized"
+  | "unsupported_layout";
+
+export interface TaskFileDisplayPath {
+  path: string;
+  displayPath: string;
+}
+
+export interface TaskFileActions {
+  availability: TaskFileAvailability;
+  fileManagerPath: string | null;
+  openFilePath: string | null;
+  detailPaths: string[];
+}
+
+export interface TaskFileContextResponse {
+  saveDir: TaskFileDisplayPath;
+  filePath: TaskFileDisplayPath | null;
+  actions: TaskFileActions;
+}

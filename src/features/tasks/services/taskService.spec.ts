@@ -6,6 +6,7 @@ import {
   createDownloadTask,
   createTorrentDownloadTask,
   deleteDownloadTask,
+  getTaskFileContext,
   listDownloadTasks,
   listRemovedDownloadTasks,
   pauseDownloadTask,
@@ -93,5 +94,11 @@ describe("taskService", () => {
     expect(httpDelete).toHaveBeenNthCalledWith(1, "/api/tasks/9?deleteFiles=true");
     expect(httpDelete).toHaveBeenNthCalledWith(2, "/api/tasks/10?deleteFiles=false");
     expect(httpDelete).toHaveBeenNthCalledWith(3, "/api/tasks/11/permanent");
+  });
+
+  it("requests task file context with the selected language", () => {
+    getTaskFileContext(42, "zh-CN");
+
+    expect(httpGet).toHaveBeenCalledWith("/api/tasks/42/file-context?language=zh-CN");
   });
 });

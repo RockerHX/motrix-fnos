@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useMessage } from "naive-ui";
 import TaskActions from "./TaskActions.vue";
 import TaskFileConfirmDialog from "./TaskFileConfirmDialog.vue";
 import { useTaskStore } from "../stores/taskStore";
 import { useTaskStatusActions } from "../composables/useTaskStatusActions";
-import { formatDateTime, useI18n } from "../../../i18n";
+import { formatDateTime, language, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
+import { fnosHost, type FnosHostKind } from "../../../services/fnos";
+import { getTaskFileContext } from "../services/taskService";
 import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 import type {
@@ -15,7 +17,9 @@ import type {
   TaskActionLabels,
   TaskActionPermissions,
   TaskActionState,
+  TaskFileActionView,
 } from "./taskActionViewModel";
+import type { TaskFileAvailability, TaskFileContextResponse } from "../../../types/tasks";
 
 const props = withDefaults(
   defineProps<{
@@ -33,7 +37,28 @@ const taskStore = useTaskStore();
 const message = useMessage();
 const { t } = useI18n();
 const showFileConfirm = ref(false);
+const hostKind = ref<FnosHostKind>("unavailable");
+const fileContext = ref<TaskFileContextResponse | null>(null);
+const isFileContextLoading = ref(false);
 const { pauseTask, resumeTask } = useTaskStatusActions({ taskStore, message, t });
+
+const hostSupported = computed(() => hostKind.value === "hosted" || hostKind.value === "mobile");
+const fileActions = computed<TaskFileActionView>(() => ({
+  hostSupported: hostSupported.value,
+  loading: isFileContextLoading.value,
+  context: fileContext.value,
+}));
+
+onMounted(async () => {
+  hostKind.value = await fnosHost.getHostKind();
+});
+
+watch(
+  () => props.task.id,
+  () => {
+    fileContext.value = null;
+  },
+);
 
 const actionState = computed<TaskActionState>(() => ({
   isOperating: taskStore.isTaskOperating(props.task.id),
@@ -60,17 +85,27 @@ const labels = computed<TaskActionLabels>(() => ({
   permanentDelete: t("task.actions.permanentDelete"),
   cancel: t("common.cancel"),
   close: t("common.close"),
+  openFileManager: t("task.actions.openFileManager"),
+  openFile: t("task.actions.openFile"),
+  fileDetails: t("task.actions.fileDetails"),
+  hostOnly: t("task.fileOperations.hostOnly"),
+  technicalInfo: t("task.fileOperations.technicalInfo"),
+  copyPath: t("common.copy"),
+  copied: t("common.copied"),
+  copyFailed: t("task.fileOperations.copyFailed"),
 }));
 
 const details = computed<TaskActionDetails>(() => {
+  const semanticSaveDir = fileContext.value?.saveDir.displayPath || props.task.saveDir;
+  const semanticFilePath = fileContext.value?.filePath?.displayPath || props.task.filePath || t("common.notAvailable");
   const items = [
     { label: t("task.detail.fileName"), value: props.task.fileName },
     { label: t("task.detail.status"), value: formatTaskStatusLabel(props.task.status) },
     { label: t("task.detail.progress"), value: formatTaskProgress(props.task) },
     { label: t("task.detail.size"), value: formatTaskSizePair(props.task) },
     { label: t("task.detail.speed"), value: `${formatTaskSize(props.task.downloadSpeed)}/s` },
-    { label: t("task.detail.saveDir"), value: props.task.saveDir },
-    { label: t("task.detail.filePath"), value: props.task.filePath || t("common.notAvailable") },
+    { label: t("task.detail.saveDir"), value: semanticSaveDir },
+    { label: t("task.detail.filePath"), value: semanticFilePath },
     { label: t("task.detail.gid"), value: props.task.gid || t("common.notAvailable") },
     { label: t("task.detail.url"), value: props.task.url },
     { label: t("task.detail.createdAt"), value: formatTimestamp(props.task.createdAt) },
@@ -84,6 +119,10 @@ const details = computed<TaskActionDetails>(() => {
   return {
     title: t("task.detail.title"),
     items,
+    technicalItems: [
+      { label: t("task.detail.saveDir"), value: props.task.saveDir },
+      { label: t("task.detail.filePath"), value: props.task.filePath || t("common.notAvailable") },
+    ],
   };
 });
 const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
@@ -159,6 +198,71 @@ async function restoreTask(useProxy: boolean) {
   }
 }
 
+async function loadFileContext(showError = false) {
+  if (isFileContextLoading.value) return fileContext.value;
+  isFileContextLoading.value = true;
+  try {
+    const context = await getTaskFileContext(props.task.id, language.value);
+    fileContext.value = context;
+    return context;
+  } catch (error) {
+    fileContext.value = null;
+    if (showError) message.error(getErrorMessage(error, t("task.fileOperations.contextFailed")));
+    return null;
+  } finally {
+    isFileContextLoading.value = false;
+  }
+}
+
+function availabilityMessage(availability: TaskFileAvailability) {
+  const key = `task.fileOperations.availability.${availability}` as const;
+  return t(key);
+}
+
+async function openFileManager() {
+  await runFileAction("fileManager");
+}
+
+async function openFile() {
+  await runFileAction("file");
+}
+
+async function showFileDetails() {
+  await runFileAction("details");
+}
+
+async function runFileAction(kind: "fileManager" | "file" | "details") {
+  if (!ensureCanOperate()) return;
+  if (!hostSupported.value) {
+    message.warning(t("task.fileOperations.hostOnly"));
+    return;
+  }
+
+  const context = await loadFileContext(true);
+  if (!context || context.actions.availability !== "available") {
+    if (context) message.warning(availabilityMessage(context.actions.availability));
+    return;
+  }
+
+  let result;
+  if (kind === "fileManager" && context.actions.fileManagerPath) {
+    result = await fnosHost.openFileManager(context.actions.fileManagerPath);
+  } else if (kind === "file" && context.actions.openFilePath) {
+    result = await fnosHost.openFile(context.actions.openFilePath);
+  } else if (kind === "details" && context.actions.detailPaths.length > 0) {
+    result = await fnosHost.showFileDetails(context.actions.detailPaths);
+  } else {
+    message.warning(t("task.fileOperations.unavailable"));
+    return;
+  }
+
+  if (result.status === "failed") {
+    message.error(t("task.fileOperations.failed"));
+  } else if (result.status === "unsupported") {
+    message.warning(t("task.fileOperations.hostOnly"));
+  }
+}
+
 function ensureCanOperate() {
   if (taskStore.isRuntimeExiting) {
     message.warning(t("task.runtimeExiting"));
@@ -186,6 +290,7 @@ function formatTimestamp(timestamp: number) {
     :labels="labels"
     :details="details"
     :confirm-texts="confirmTexts"
+    :file-actions="fileActions"
     @pause="pauseTask(props.task)"
     @resume="resumeTask(props.task)"
     @confirm-files="showFileConfirm = true"
@@ -194,6 +299,10 @@ function formatTimestamp(timestamp: number) {
     @restore="restoreTask"
     @update-proxy="updateTaskProxy"
     @confirm-permanent-delete="confirmPermanentDeleteTask"
+    @details-opened="loadFileContext"
+    @open-file-manager="openFileManager"
+    @open-file="openFile"
+    @show-file-details="showFileDetails"
   />
   <TaskFileConfirmDialog
     v-model:show="showFileConfirm"

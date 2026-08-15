@@ -1,3 +1,5 @@
+import type { TaskFileContextResponse } from "../../../types/tasks";
+
 export interface TaskActionState {
   isOperating: boolean;
   isActionDisabled: boolean;
@@ -25,6 +27,14 @@ export interface TaskActionLabels {
   permanentDelete: string;
   cancel: string;
   close: string;
+  openFileManager: string;
+  openFile: string;
+  fileDetails: string;
+  hostOnly: string;
+  technicalInfo: string;
+  copyPath: string;
+  copied: string;
+  copyFailed: string;
 }
 
 export interface TaskActionDetailItem {
@@ -35,6 +45,13 @@ export interface TaskActionDetailItem {
 export interface TaskActionDetails {
   title: string;
   items: TaskActionDetailItem[];
+  technicalItems?: TaskActionDetailItem[];
+}
+
+export interface TaskFileActionView {
+  hostSupported: boolean;
+  loading: boolean;
+  context: TaskFileContextResponse | null;
 }
 
 export interface TaskActionConfirmTexts {

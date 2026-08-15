@@ -5,6 +5,7 @@ import { naiveUiStubs } from "../../../test/mount";
 
 vi.mock("naive-ui", () => ({
   ...naiveUiStubs,
+  useMessage: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }),
   NModal: defineComponent({
     name: "NModalStub",
     props: { show: { type: Boolean, default: false } },
@@ -100,6 +101,44 @@ describe("TaskDetailsDialog", () => {
     await wrapper.get('[data-test="n-modal"]').trigger("click");
 
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
+  it("shows host file actions and technical path details", async () => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: {
+          title: "任务详情",
+          items: [{ label: "保存路径", value: "存储空间1/下载" }],
+          technicalItems: [{ label: "保存路径", value: "/vol1/downloads" }],
+        },
+        task: createTask({ status: "complete" }),
+        isOperating: false,
+        isActionDisabled: false,
+        fileActions: {
+          hostSupported: true,
+          loading: false,
+          context: {
+            saveDir: { path: "/vol1/downloads", displayPath: "存储空间1/下载" },
+            filePath: { path: "/vol1/downloads/file.iso", displayPath: "存储空间1/下载/file.iso" },
+            actions: {
+              availability: "available",
+              fileManagerPath: "/vol1/downloads/file.iso",
+              openFilePath: "/vol1/downloads/file.iso",
+              detailPaths: ["/vol1/downloads/file.iso"],
+            },
+          },
+        },
+      },
+    });
+
+    expect(wrapper.text()).toContain("存储空间1/下载");
+    expect(wrapper.text()).toContain("/vol1/downloads");
+    await wrapper.findAll("button").find((button) => button.text() === "打开文件")!.trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "文件详情")!.trigger("click");
+    expect(wrapper.emitted("openFile")).toHaveLength(1);
+    expect(wrapper.emitted("showFileDetails")).toHaveLength(1);
   });
 });
 
