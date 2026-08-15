@@ -249,6 +249,7 @@ Session 与 Cookie 约定：
 | --- | --- | --- | --- |
 | `GET` | `/api/tasks` | - | `DownloadTask[]` |
 | `GET` | `/api/tasks?status=removed` | - | `DownloadTask[]` |
+| `GET` | `/api/tasks/:id/file-context?language=zh-CN` | - | `TaskFileContextResponse` |
 | `POST` | `/api/tasks` | `CreateDownloadTaskRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/batch` | `CreateBatchDownloadTasksRequest` | `CreateBatchDownloadTasksResponse` |
 | `POST` | `/api/tasks/torrent` | `multipart/form-data` | `DownloadTask` |
@@ -279,6 +280,37 @@ Session 与 Cookie 约定：
 - 磁力链接会先由 Aria2 下载 metadata；metadata 完成后任务会跟随到真实 BT GID，状态保持 `paused`，并设置 `confirmationRequired=true`。前端必须展示 `files` 让用户确认后再调用 `/api/tasks/:id/confirm` 开始真实下载。
 - 磁力链接任务会在用户授权的父保存目录下创建任务专属子目录，并启用 Aria2 `bt-save-metadata=true`；解析出的 hash 命名 `.torrent` 会和下载产物、`.aria2` 控制文件一起放在该目录。该 `.torrent` 仅作为磁链解析过程产物用于可见性 / 排障，不替代 Aria2 session 机制。
 - 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。
+
+`TaskFileContextResponse`：
+
+```json
+{
+  "saveDir": {
+    "path": "/vol1/1000/downloads",
+    "displayPath": "存储空间1/admin 的文件/downloads"
+  },
+  "filePath": {
+    "path": "/vol1/1000/downloads/demo.pdf",
+    "displayPath": "存储空间1/admin 的文件/downloads/demo.pdf"
+  },
+  "actions": {
+    "availability": "available",
+    "fileManagerPath": "/vol1/1000/downloads/demo.pdf",
+    "openFilePath": "/vol1/1000/downloads/demo.pdf",
+    "detailPaths": ["/vol1/1000/downloads/demo.pdf"]
+  }
+}
+```
+
+约定：
+
+- 接口只接受 URL 中的任务 ID，不接受客户端路径；任务不存在返回 `404 task_not_found`。
+- `language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
+- `saveDir` 和存在时的 `filePath` 同时返回真实路径与语义化展示路径。路径转换失败、旧 fnOS 或开放 API 不可用时 `displayPath` 回退为对应 `path`，不改变文件操作判定。
+- `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`path_unauthorized` 或 `unsupported_layout`。非 `available` 时所有操作目标均为 `null` 或空数组。
+- URL 任务必须已完成、文件未删除，目标是存在的普通文件，且 `canonicalize` 后仍位于当前授权根目录；可用时文件路径同时作为文件管理器定位、打开文件和文件详情目标。
+- BT/磁力任务只接受明确持久化的 `ownedTaskDir`。目标必须是存在的非符号链接目录并处于当前授权根内；可用时只提供文件管理器和目录详情目标，不提供打开文件目标。历史任务缺少该字段时返回 `unsupported_layout`。
+- 授权快照无法读取时失败关闭并返回 `500 task_file_context_failed`。每次文件操作都必须重新请求本接口；前端缓存的 `DownloadTask.filePath` 或旧上下文不得直接交给宿主 SDK。
 
 `CreateDownloadTaskRequest`：
 
@@ -747,6 +779,7 @@ Session 与 Cookie 约定：
 | 方法 | 路径 | 响应 |
 | --- | --- | --- |
 | `GET` | `/api/storage/accessible-paths` | `AccessiblePathsResponse` |
+| `GET` | `/api/storage/accessible-paths/display?language=zh-CN` | `DisplayAccessiblePathsResponse` |
 | `POST` | `/api/storage/accessible-paths/refresh` | `AccessiblePathsResponse` |
 
 `AccessiblePathsResponse`：
@@ -757,9 +790,24 @@ Session 与 Cookie 约定：
 }
 ```
 
+`DisplayAccessiblePathsResponse`：
+
+```json
+{
+  "paths": [
+    {
+      "path": "/vol1/1000/downloads",
+      "displayPath": "存储空间1/admin 的文件/downloads"
+    }
+  ]
+}
+```
+
 约定：
 
 - `GET` 只读取当前已确认快照，响应结构保持兼容，不调用 fnOS 外部服务。
+- `GET /display` 只转换当前授权快照中的路径，不接受客户端路径。`language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
+- server 通过 `trim.file.convertPath` 请求语义化路径。上游失败、旧 fnOS、Token/Socket 不可用时整批回退原始路径；上游缺项、重复项或空语义路径时只对相应原始路径回退。结果按原始路径精确匹配，不持久化、不缓存。
 - `POST` 无请求体，要求有效 Web 管理 Session 与 CSRF Token；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
 - 官方查询成功后校验全部路径并原子覆盖快照；空数组是有效结果。查询、响应校验或持久化失败时不修改旧快照。
 - 官方路径必须是非根绝对 Unix 路径，不允许首尾空白、反斜杠、NUL、`.` 或 `..` 组件；任一非法项拒绝整次刷新。合法路径去重并保留官方顺序。

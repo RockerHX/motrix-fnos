@@ -29,6 +29,20 @@ colors:
   error: '#D56A6A'
   warning: '#D5A64A'
   info: '#6F9FC7'
+lightColors:
+  shell: '#E8EFF8'
+  canvas: '#F5F8FC'
+  surface: '#FFFFFF'
+  surface-raised: '#EDF3FA'
+  border: '#B8C7D9'
+  border-subtle: '#D6E0EC'
+  text-primary: '#142236'
+  text-secondary: '#304B68'
+  text-muted: '#60758E'
+  accent: '#285FBC'
+  accent-hover: '#3374DB'
+  accent-pressed: '#204D98'
+  accent-soft: '#DCE9FA'
 typography:
   ui:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
@@ -95,7 +109,25 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 | `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
 | `--color-accent-soft` | `#1E3A5F` | 选中背景 |
 
-### 2.2 Shared status colors
+### 2.2 Light theme（fnOS 宿主）
+
+| Token | Value | Role |
+| --- | --- | --- |
+| `--color-shell` | `#E8EFF8` | 应用外壳与侧栏底色 |
+| `--color-canvas` | `#F5F8FC` | 主内容画布 |
+| `--color-surface` | `#FFFFFF` | 弹窗、输入、任务边界 |
+| `--color-surface-raised` | `#EDF3FA` | hover、选中与浮层 |
+| `--color-border` | `#B8C7D9` | 结构边框 |
+| `--color-border-subtle` | `#D6E0EC` | 分隔线和弱边框 |
+| `--color-text-primary` | `#142236` | 主标题和关键数值 |
+| `--color-text-secondary` | `#304B68` | 正文和次要字段 |
+| `--color-text-muted` | `#60758E` | 辅助说明和占位符 |
+| `--color-accent` | `#285FBC` | 主操作、进度和焦点 |
+| `--color-accent-hover` | `#3374DB` | 强调色 hover |
+| `--color-accent-pressed` | `#204D98` | 强调色 pressed |
+| `--color-accent-soft` | `#DCE9FA` | 选中背景 |
+
+### 2.3 Shared status colors
 
 | Semantic role | Dark | Light | Usage |
 | --- | --- | --- | --- |
@@ -106,12 +138,12 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 状态必须同时使用文字或图标；禁止只靠颜色表达。焦点环使用主题强调色并提供至少 `2px` 可见轮廓。
 
-### 2.3 Logo 蓝色主题迁移结果（2026-07-22）
+### 2.4 Logo 蓝色主题迁移结果（2026-07-22）
 
 - 已将运行时品牌色迁移为 logo 蓝色体系：`#3374DB` 用于主操作、链接、进度和焦点，`#5DA9FF` 用于 hover，`#285BAE` 用于 pressed，`#1E3A5F` / `#102846` 用于结构区域和选中背景。
 - 组件品牌色统一通过全局 token 与 Naive UI 主色覆盖消费；组件样式继续维护在同目录外部 scoped CSS 文件中。
 - 成功、警告、危险和信息色保持独立语义，不因品牌迁移改为蓝色。
-- 当前应用固定使用深色 Naive UI 主题，未提供运行时浅色主题切换。
+- 独立浏览器和旧 fnOS 默认使用深色 Naive UI 主题；支持的平台中由全局 `NConfigProvider` 控制明暗主题，组件不得自行判断宿主或主题。桌面宿主监听主题变化，移动 WebView 只初始化一次。
 
 ## 3. Typography Rules
 
@@ -173,7 +205,7 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 - **Compact desktop `768–1023px`**：保留桌面外壳语义，减少 gutter，任务元数据允许重排。
 - **Desktop `>= 1024px`**：固定侧栏和工具栏，任务信息横向组织。
 - 设计验收至少覆盖 `390×844`、`1024×768`、`1440×900`。
-- 当前深色主题及中英文组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
+- 深色、浅色及中英文组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
 
 ## 8. Motion & Interaction
 
@@ -185,7 +217,7 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 ### 8.1 Auth Gate 与安全设置
 
-- 鉴权页是独立全屏场景，使用现有深色背景、Motrix 标识和单张居中卡片；不得渲染应用侧栏、顶栏或任务骨架。
+- 鉴权页是独立全屏场景，使用当前全局主题背景、Motrix 标识和单张居中卡片；独立浏览器默认深色。不得渲染应用侧栏、顶栏或任务骨架。
 - 桌面卡片宽度控制在 `400–440px`，手机端使用视口宽度减 `32px`，并保留安全区和软键盘滚动空间。
 - 加载态只显示品牌、简短状态文字和 `NSpin`；失败态使用 `NAlert` 与明确的重试按钮，不显示后端内部错误细节。
 - 密码表单使用 `NForm` 受控校验。初始化密码使用 `autocomplete=new-password`，登录与当前密码使用 `autocomplete=current-password`。

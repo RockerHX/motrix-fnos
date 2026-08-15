@@ -47,9 +47,15 @@ fnOS FPK
 
 阶段 0 只证明平台机制，不证明正式 `motrix` 身份一定获得相同行为。正式包继续使用 `17080`、`17081`、`17082` 三监听器和当前桌面入口；阶段 1 已独立实现 SDK、Scope、Token client 和授权交互，当前等待正式身份实机验收。老 fnOS、独立浏览器或开放 API 不可用时，外部目录仍通过 fnOS 应用设置中的人工授权链路配置。
 
-正式 Motrix 只声明 `trim.file.sharedAccess`，前端 SDK 返回值不能成为授权事实。Rust server 必须通过 fnOS 开放 API 查询共享授权目录，成功后原子更新 `accessible-paths.json`；查询失败保留旧快照。服务启动时在读取授权快照和恢复运行态前安全尝试一次查询，运行时刷新通过受 Web Session 和 CSRF 保护的管理接口触发。
+正式 Motrix 精确声明 `trim.file.sharedAccess` 与 `trim.file.path`。前端 SDK 返回值不能成为授权事实。Rust server 必须通过 fnOS 开放 API 查询共享授权目录，成功后原子更新 `accessible-paths.json`；查询失败保留旧快照。服务启动时在读取授权快照和恢复运行态前安全尝试一次查询，运行时刷新通过受 Web Session 和 CSRF 保护的管理接口触发。
+
+`trim.file.convertPath` 只把当前授权快照或后端按任务 ID 推导出的路径转换为面向用户的语义化展示路径。真实路径继续承担下载、授权、文件存在性和目录边界校验；转换结果不持久化、不缓存，也不接受浏览器提交任意路径。旧 fnOS、Token/Socket 不可用、上游失败或结果无法按原始路径精确匹配时仅回退原始路径展示，不得影响任务和 Session。
+
+完成任务的宿主文件操作必须每次按任务 ID重新计算安全上下文。URL 任务只允许操作存在的普通文件，`canonicalize` 后仍须位于当前授权根目录；BT/磁力任务只允许使用持久化的 `owned_task_dir`，且目标必须是非符号链接目录。未完成、文件已删除、授权已撤销、路径缺失或历史布局无法证明归属时不得向前端返回 SDK 操作目标。
 
 SDK 只允许在 fnOS 桌面宿主或飞牛 App WebView 中由用户操作触发。独立浏览器和旧 fnOS 继续展示应用中心人工授权说明，不调用依赖 App runtime 的授权或应用设置方法；正式包不接入独立浏览器 App Auth 回调。
+
+支持开放 API 的 fnOS `1.2.0401` 与飞牛 App `1.34.0` 宿主可初始化平台配置。桌面宿主跟随明暗主题并监听变化；移动 WebView 只采用初始化主题；独立浏览器和旧环境默认深色。Motrix 已保存语言始终优先，宿主语言只在没有本地偏好的登录前初始化阶段生效，配置加载后由 Motrix 设置接管。宿主标题仅设置为 `Motrix`；当前不接入 `setExitPageTips` 或 `close`。
 
 ### 3.2 交付与运行约束
 
