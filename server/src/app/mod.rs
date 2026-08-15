@@ -7,12 +7,15 @@ use crate::database::{
     tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
+use crate::fnos::FnosApiClient;
 use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
 use crate::settings::service::{
     load_app_config_from_pool, load_json_rpc_token, load_lan_json_rpc_config, LanJsonRpcConfig,
 };
 use crate::state::{Aria2RuntimeInfo, ServerState};
-use crate::storage::{default_download_dir, load_accessible_paths};
+use crate::storage::{
+    default_download_dir, load_accessible_paths, refresh_accessible_paths_from_fnos,
+};
 use crate::tasks::{
     is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus, PublicDownloadTask,
 };
@@ -380,6 +383,25 @@ impl HttpAppState {
 pub async fn bootstrap_http_app_state(
     runtime: &ServerRuntimeConfig,
 ) -> Result<Arc<HttpAppState>, String> {
+    match refresh_accessible_paths_from_fnos(
+        &FnosApiClient::default(),
+        &runtime.accessible_paths_path,
+    )
+    .await
+    {
+        Ok(result) => tracing::info!(
+            target: "storage.accessible-paths",
+            path_count = result.paths.len(),
+            http_status = result.http_status,
+            business_code = result.business_code,
+            "已在启动阶段刷新 fnOS 共享授权目录"
+        ),
+        Err(error) => tracing::warn!(
+            target: "storage.accessible-paths",
+            error = %error,
+            "启动阶段无法刷新 fnOS 共享授权目录，继续使用旧快照"
+        ),
+    }
     let database = connect_database(runtime.database_path.clone()).await?;
     let mut restored_tasks = list_download_tasks(&database.pool).await?;
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;

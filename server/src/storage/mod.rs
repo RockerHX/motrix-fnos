@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+mod shared_access;
+
+pub(crate) use shared_access::refresh_accessible_paths_from_fnos;
+
 pub const DATA_ACCESSIBLE_PATHS_ENV: &str = "TRIM_DATA_ACCESSIBLE_PATHS";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

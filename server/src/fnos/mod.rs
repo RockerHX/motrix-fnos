@@ -11,8 +11,8 @@ use std::time::Duration;
 use tokio::net::UnixStream;
 use tokio::time::timeout;
 
-pub const API_TOKEN_ENV: &str = "TRIM_API_TOKEN";
-pub const GATEWAY_SOCKET_PATH: &str = "/var/run/trim_open_gateway_apiscope.socket";
+pub(crate) const API_TOKEN_ENV: &str = "TRIM_API_TOKEN";
+pub(crate) const GATEWAY_SOCKET_PATH: &str = "/var/run/trim_open_gateway_apiscope.socket";
 const GATEWAY_HTTP_PATH: &str = "/api/v1/trimapp";
 const SHARED_FOLDERS_REQUEST: &str = "trim.file.getSharedAccessibleFolders";
 const APP_NAME: &str = "motrix";
@@ -21,14 +21,14 @@ const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SharedAccessibleFolders {
-    pub paths: Vec<String>,
-    pub http_status: u16,
-    pub business_code: i64,
+pub(crate) struct SharedAccessibleFolders {
+    pub(crate) paths: Vec<String>,
+    pub(crate) http_status: u16,
+    pub(crate) business_code: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FnosApiError {
+pub(crate) enum FnosApiError {
     TokenMissing,
     TokenInvalid,
     SocketUnavailable,
@@ -70,7 +70,7 @@ impl fmt::Display for FnosApiError {
 }
 
 #[derive(Debug, Clone)]
-pub struct FnosApiClient {
+pub(crate) struct FnosApiClient {
     socket_path: PathBuf,
     request_timeout: Duration,
     max_response_bytes: usize,
@@ -88,7 +88,7 @@ impl Default for FnosApiClient {
 
 impl FnosApiClient {
     #[cfg(test)]
-    fn with_limits(
+    pub(crate) fn with_limits(
         socket_path: PathBuf,
         request_timeout: Duration,
         max_response_bytes: usize,
@@ -100,7 +100,7 @@ impl FnosApiClient {
         }
     }
 
-    pub async fn query_shared_accessible_folders(
+    pub(crate) async fn query_shared_accessible_folders(
         &self,
     ) -> Result<SharedAccessibleFolders, FnosApiError> {
         let token = std::env::var(API_TOKEN_ENV).ok();
