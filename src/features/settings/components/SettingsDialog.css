@@ -47,6 +47,50 @@
   margin-bottom: 0;
 }
 
+.settings-accessible-paths {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.settings-accessible-paths-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-accessible-paths-heading h4,
+.settings-accessible-paths-heading p {
+  margin: 0;
+}
+
+.settings-accessible-paths-heading h4 {
+  color: var(--app-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-accessible-paths-heading p {
+  margin-top: 4px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-accessible-path-count {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-accent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .settings-form :deep(.n-select),
 .settings-form :deep(.n-input),
 .settings-form :deep(.n-input-number),

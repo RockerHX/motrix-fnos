@@ -1,4 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const message = {
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+};
 
 vi.mock("naive-ui", async () => {
   const { defineComponent, h } = await import("vue");
@@ -11,6 +18,7 @@ vi.mock("naive-ui", async () => {
     });
 
   return {
+    NAlert: slotStub("n-alert"),
     NButton: defineComponent({
       name: "NButtonStub",
       props: {
@@ -51,7 +59,7 @@ vi.mock("naive-ui", async () => {
     NSelect: slotStub("n-select"),
     NSpace: slotStub("n-space"),
     NText: slotStub("n-text"),
-    useMessage: () => ({ success: vi.fn(), error: vi.fn() }),
+    useMessage: () => message,
   };
 });
 
@@ -105,6 +113,15 @@ vi.mock("../../../services/settings", () => ({
 
 vi.mock("../../../services/storage", () => ({
   getAccessiblePaths: vi.fn(async () => ({ paths: ["/downloads"] })),
+  refreshAccessiblePaths: vi.fn(async () => ({ paths: ["/downloads"] })),
+}));
+
+vi.mock("../../../services/fnos", () => ({
+  fnosHost: {
+    getHostKind: vi.fn(async () => "hosted"),
+    requestSharedFolderAuthorization: vi.fn(async () => ({ status: "authorized" })),
+    openAppSettings: vi.fn(async () => ({ status: "opened" })),
+  },
 }));
 
 vi.mock("../../auth/components/WebAuthSettings.vue", async () => {
@@ -158,8 +175,18 @@ vi.mock("./ProxySettings.vue", async () => {
 
 import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
+import { fnosHost } from "../../../services/fnos";
+import { refreshAccessiblePaths } from "../../../services/storage";
 
 describe("SettingsDialog", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(fnosHost.getHostKind).mockResolvedValue("hosted");
+    vi.mocked(fnosHost.requestSharedFolderAuthorization).mockResolvedValue({ status: "authorized" });
+    vi.mocked(fnosHost.openAppSettings).mockResolvedValue({ status: "opened" });
+    vi.mocked(refreshAccessiblePaths).mockResolvedValue({ paths: ["/downloads"] });
+  });
+
   it("renders settings form and footer actions", async () => {
     const { wrapper } = mountWithPinia(SettingsDialog, {
       props: {
@@ -203,5 +230,42 @@ describe("SettingsDialog", () => {
     await wrapper.get('[data-test="open-rpc-guide"]').trigger("click");
 
     expect(wrapper.emitted("openRpcGuide")).toHaveLength(1);
+  });
+
+  it("adds a folder through the host picker and refreshes from the backend", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await flushPromises();
+
+    await wrapper.findAll("button").find((button) => button.text() === "添加授权文件夹")!.trigger("click");
+    await flushPromises();
+
+    expect(fnosHost.requestSharedFolderAuthorization).toHaveBeenCalledOnce();
+    expect(refreshAccessiblePaths).toHaveBeenCalledOnce();
+    expect(message.success).toHaveBeenCalledWith("授权已更新，目录列表已刷新。");
+  });
+
+  it("does not refresh the backend when the picker is cancelled", async () => {
+    vi.mocked(fnosHost.requestSharedFolderAuthorization).mockResolvedValueOnce({ status: "cancelled" });
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await flushPromises();
+
+    await wrapper.findAll("button").find((button) => button.text() === "添加授权文件夹")!.trigger("click");
+    await flushPromises();
+
+    expect(refreshAccessiblePaths).not.toHaveBeenCalled();
+    expect(message.error).not.toHaveBeenCalled();
+  });
+
+  it("shows manual authorization guidance outside fnOS host runtime", async () => {
+    vi.mocked(fnosHost.getHostKind).mockResolvedValueOnce("standalone");
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("当前环境不支持应用内选择");
+    expect(wrapper.findAll("button").some((button) => button.text() === "添加授权文件夹")).toBe(false);
+    expect(fnosHost.requestSharedFolderAuthorization).not.toHaveBeenCalled();
   });
 });

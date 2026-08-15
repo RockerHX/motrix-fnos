@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import {
+  NAlert,
   NButton,
   NForm,
   NFormItem,
   NInputNumber,
   NSelect,
+  NSpace,
   NText,
   useMessage,
 } from "naive-ui";
@@ -21,6 +23,8 @@ import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
 import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
 import ProxySettings from "./ProxySettings.vue";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
+import AppIcon from "../../../components/AppIcon.vue";
+import { fnosHost, type FnosHostKind, type SharedFolderAuthorizationResult } from "../../../services/fnos";
 
 const props = defineProps<{
   show: boolean;
@@ -43,6 +47,10 @@ const form = reactive({
   uploadLimitKb: 0,
   language: "zh-CN" as AppConfig["language"],
 });
+const hostKind = ref<FnosHostKind | null>(null);
+const isDetectingHost = ref(false);
+const isAuthorizing = ref(false);
+const isOpeningAppSettings = ref(false);
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
     label: path,
@@ -57,7 +65,6 @@ const languageOptions = computed(() =>
 );
 const isDefaultDownloadDirUnauthorized = computed(
   () =>
-    settingsStore.accessiblePaths.length > 0 &&
     !!form.defaultDownloadDir &&
     !settingsStore.accessiblePaths.includes(form.defaultDownloadDir),
 );
@@ -82,6 +89,13 @@ const canSave = computed(
     !isDefaultDownloadDirUnauthorized.value,
 );
 const isSettingsSaving = computed(() => settingsStore.isSaving || downloadProxyStore.isSaving);
+const hostSupportsAuthorization = computed(() => hostKind.value === "hosted" || hostKind.value === "mobile");
+const accessiblePathsHelp = computed(() => {
+  if (hostKind.value === null) return t("settings.accessiblePaths.detecting");
+  return hostSupportsAuthorization.value
+    ? t("settings.accessiblePaths.hostHelp")
+    : t("settings.accessiblePaths.manualHelp");
+});
 
 watch(
   () => props.show,
@@ -90,14 +104,91 @@ watch(
       void loadSettings();
     }
   },
+  { immediate: true },
 );
 
 async function loadSettings() {
   try {
-    const [config] = await Promise.all([settingsStore.loadConfig(), settingsStore.loadAccessiblePaths()]);
+    const [config] = await Promise.all([settingsStore.loadConfig(), settingsStore.loadAccessiblePaths(), detectHostKind()]);
     applyConfig(config);
   } catch (error) {
     message.error(getErrorMessage(error, t("settings.failed")));
+  }
+}
+
+async function detectHostKind() {
+  isDetectingHost.value = true;
+  try {
+    hostKind.value = await fnosHost.getHostKind();
+  } finally {
+    isDetectingHost.value = false;
+  }
+}
+
+async function addAccessiblePath() {
+  if (isAuthorizing.value || !hostSupportsAuthorization.value) {
+    message.info(t("settings.accessiblePaths.manualHelp"));
+    return;
+  }
+
+  isAuthorizing.value = true;
+  try {
+    const result = await fnosHost.requestSharedFolderAuthorization();
+    await handleAuthorizationResult(result);
+  } finally {
+    isAuthorizing.value = false;
+  }
+}
+
+async function handleAuthorizationResult(result: SharedFolderAuthorizationResult) {
+  if (result.status === "cancelled") return;
+  if (result.status === "admin_required") {
+    message.error(t("settings.accessiblePaths.adminRequired"));
+    return;
+  }
+  if (result.status === "unsupported") {
+    message.info(t("settings.accessiblePaths.manualHelp"));
+    return;
+  }
+  if (result.status === "failed") {
+    message.error(t("settings.accessiblePaths.failed"));
+    return;
+  }
+
+  try {
+    await settingsStore.refreshAccessiblePaths();
+    message.success(t("settings.accessiblePaths.authorized"));
+  } catch (error) {
+    message.warning(t("settings.accessiblePaths.stale"));
+    message.error(getErrorMessage(error, t("settings.accessiblePaths.refreshFailed")));
+  }
+}
+
+async function refreshAccessiblePathList() {
+  if (settingsStore.isLoadingAccessiblePaths || isAuthorizing.value) return;
+  try {
+    await settingsStore.refreshAccessiblePaths();
+    message.success(t("settings.accessiblePaths.authorized"));
+  } catch (error) {
+    message.warning(t("settings.accessiblePaths.stale"));
+    message.error(getErrorMessage(error, t("settings.accessiblePaths.refreshFailed")));
+  }
+}
+
+async function openFnosAppSettings() {
+  if (isOpeningAppSettings.value) return;
+  if (!hostSupportsAuthorization.value) {
+    message.info(t("settings.accessiblePaths.manualHelp"));
+    return;
+  }
+  isOpeningAppSettings.value = true;
+  try {
+    const result = await fnosHost.openAppSettings();
+    message[result.status === "opened" ? "success" : "error"](
+      result.status === "opened" ? t("settings.accessiblePaths.opened") : t("settings.accessiblePaths.failed"),
+    );
+  } finally {
+    isOpeningAppSettings.value = false;
   }
 }
 
@@ -168,6 +259,49 @@ function kbToBytes(value: number) {
         </header>
 
         <div class="settings-preferences-fields">
+          <div class="settings-accessible-paths" data-test="accessible-paths-settings">
+            <div class="settings-accessible-paths-heading">
+              <div>
+                <h4>{{ t("settings.accessiblePaths.title") }}</h4>
+                <p>{{ t("settings.accessiblePaths.help") }}</p>
+              </div>
+              <span class="settings-accessible-path-count">{{ settingsStore.accessiblePaths.length }}</span>
+            </div>
+            <NAlert type="info" :bordered="false">{{ accessiblePathsHelp }}</NAlert>
+            <NAlert v-if="settingsStore.accessiblePathsStale" type="warning" :bordered="false">
+              {{ t("settings.accessiblePaths.stale") }}
+            </NAlert>
+            <NSpace wrap>
+              <NButton
+                v-if="hostSupportsAuthorization"
+                type="primary"
+                :loading="isAuthorizing"
+                :disabled="isDetectingHost || isSettingsSaving"
+                @click="addAccessiblePath"
+              >
+                <template #icon><AppIcon name="plus" :size="16" /></template>
+                {{ t("settings.accessiblePaths.add") }}
+              </NButton>
+              <NButton
+                :loading="settingsStore.isLoadingAccessiblePaths"
+                :disabled="isAuthorizing || isSettingsSaving"
+                @click="refreshAccessiblePathList"
+              >
+                <template #icon><AppIcon name="refresh" :size="16" /></template>
+                {{ t("settings.accessiblePaths.refresh") }}
+              </NButton>
+              <NButton
+                v-if="hostSupportsAuthorization"
+                secondary
+                :loading="isOpeningAppSettings"
+                :disabled="isAuthorizing || isSettingsSaving"
+                @click="openFnosAppSettings"
+              >
+                <template #icon><AppIcon name="settings" :size="16" /></template>
+                {{ t("settings.accessiblePaths.openAppSettings") }}
+              </NButton>
+            </NSpace>
+          </div>
           <NFormItem
             :label="t('settings.defaultDownloadDir')"
             :feedback="defaultDownloadDirMessage"
