@@ -33,6 +33,14 @@ desktop_applaunchname =
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中只申请 `trim.file.sharedAccess`。`os_min_version` 继续保持 `1.1.3100`：支持开放 API 的 fnOS 注入 `TRIM_API_TOKEN` 并允许 server 访问官方 Unix Socket；老 fnOS 缺少这些能力时继续使用 `TRIM_DATA_ACCESSIBLE_PATHS` 和 `config_callback` 维护人工授权快照。
+
+构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
+
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中只申请 `trim.file.sharedAccess`。`os_min_version` 继续保持 `1.1.3100`：支持开放 API 的 fnOS 注入 `TRIM_API_TOKEN` 并允许 server 访问官方 Unix Socket；老 fnOS 缺少这些能力时继续使用 `TRIM_DATA_ACCESSIBLE_PATHS` 和 `config_callback` 维护人工授权快照。
+
+构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
+
 ## 已查证约束
 
 截至 2026-07-17，当前 FPK 打包约束以飞牛官方文档和本仓库本地验证为准；三监听器交付前已重新读取下列 Manifest、应用框架、fnpack、应用入口与图标页面：

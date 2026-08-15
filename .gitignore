@@ -93,5 +93,8 @@ tmp/
 temp/
 .playwright/
 
+# Local fnOS verification evidence
+docs/verification/
+
 # CodeGraph local index, if generated later
 .codegraph/

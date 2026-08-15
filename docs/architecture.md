@@ -41,7 +41,17 @@ fnOS FPK
   └─ Aria2 Next Linux sidecar
 ```
 
-### 3.1 交付与运行约束
+### 3.1 阶段 0 fnOS API Probe 历史边界
+
+`FUTURE-FNOS-API-01` 阶段 0 曾使用独立的非生产 Probe 验证 SDK、Token、Unix Socket、共享目录授权和应用账户读写闭环。该 Probe 使用独立应用身份 `motrixapiprobe`、运行用户 `motrix_api_probe`、端口 `17180` 和唯一 Scope `trim.file.sharedAccess`，从未属于正式 Motrix 运行拓扑；其源码、构建接入和产物已在 x86 核心实机验收完成后移出仓库。详细验收证据只保存在开发者本地的 `docs/verification/`，不进入版本库。
+
+阶段 0 只证明平台机制，不证明正式 `motrix` 身份一定获得相同行为。正式包继续使用 `17080`、`17081`、`17082` 三监听器和当前桌面入口，并在阶段 1 独立实现 SDK、Scope、Token client 和授权交互；老 fnOS、独立浏览器或开放 API 不可用时，外部目录仍通过 fnOS 应用设置中的人工授权链路配置。
+
+正式 Motrix 只声明 `trim.file.sharedAccess`，前端 SDK 返回值不能成为授权事实。Rust server 必须通过 fnOS 开放 API 查询共享授权目录，成功后原子更新 `accessible-paths.json`；查询失败保留旧快照。服务启动时在读取授权快照和恢复运行态前安全尝试一次查询，运行时刷新通过受 Web Session 和 CSRF 保护的管理接口触发。
+
+SDK 只允许在 fnOS 桌面宿主或飞牛 App WebView 中由用户操作触发。独立浏览器和旧 fnOS 继续展示应用中心人工授权说明，不调用依赖 App runtime 的授权或应用设置方法；正式包不接入独立浏览器 App Auth 回调。
+
+### 3.2 交付与运行约束
 
 - `packaging/fnos/` 只承担 FPK 元数据、权限、生命周期脚本和产物组装；具体目录、命令与产物名称见 `docs/fpk-packaging.md`。
 - x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
