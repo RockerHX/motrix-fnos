@@ -12,10 +12,17 @@ import {
   type InputInst,
 } from "naive-ui";
 import { getErrorMessage } from "../../../app/utils/errors";
-import { language, setLanguage, supportedLanguages, useI18n, type AppLanguage } from "../../../i18n";
+import {
+  getLocalLanguagePreference,
+  language,
+  saveLocalLanguagePreference,
+  setLanguage,
+  supportedLanguages,
+  useI18n,
+  type AppLanguage,
+} from "../../../i18n";
 import { useAuthStore } from "../stores/authStore";
 
-const LANGUAGE_KEY = "motrix-fnos:language";
 const authStore = useAuthStore();
 const { t } = useI18n();
 const passwordInput = ref<InputInst | null>(null);
@@ -33,10 +40,8 @@ const title = computed(() => t(isSetup.value ? "auth.setup.title" : "auth.login.
 const description = computed(() => t(isSetup.value ? "auth.setup.description" : "auth.login.description"));
 
 onMounted(() => {
-  const saved = localStorage.getItem(LANGUAGE_KEY);
-  if (supportedLanguages.includes(saved as AppLanguage)) {
-    setLanguage(saved);
-  }
+  const saved = getLocalLanguagePreference();
+  if (saved) setLanguage(saved);
   void focusPassword();
 });
 
@@ -72,7 +77,7 @@ function validateForm() {
 
 function changeLanguage(value: AppLanguage) {
   setLanguage(value);
-  localStorage.setItem(LANGUAGE_KEY, value);
+  saveLocalLanguagePreference(value);
 }
 
 async function focusPassword() {

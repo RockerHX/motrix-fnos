@@ -5,6 +5,7 @@ import { enUS } from "./locales/en-US";
 export const supportedLanguages = ["zh-CN", "en-US"] as const;
 export type AppLanguage = (typeof supportedLanguages)[number];
 export type TranslationParams = Record<string, string | number>;
+export const LANGUAGE_PREFERENCE_KEY = "motrix-fnos:language";
 
 const defaultLanguage: AppLanguage = "zh-CN";
 const currentLanguage = ref<AppLanguage>(defaultLanguage);
@@ -26,6 +27,20 @@ export function normalizeLanguage(value: unknown): AppLanguage {
 
 export function setLanguage(value: unknown) {
   currentLanguage.value = normalizeLanguage(value);
+}
+
+export function getLocalLanguagePreference(): AppLanguage | null {
+  if (typeof localStorage === "undefined") return null;
+  const value = localStorage.getItem(LANGUAGE_PREFERENCE_KEY);
+  return supportedLanguages.includes(value as AppLanguage) ? (value as AppLanguage) : null;
+}
+
+export function hasLocalLanguagePreference() {
+  return getLocalLanguagePreference() !== null;
+}
+
+export function saveLocalLanguagePreference(value: AppLanguage) {
+  localStorage.setItem(LANGUAGE_PREFERENCE_KEY, normalizeLanguage(value));
 }
 
 export function t(key: TranslationKey, params: TranslationParams = {}) {

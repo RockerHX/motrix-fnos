@@ -9,6 +9,7 @@ import { useSettingsStore } from "./features/settings/stores/settingsStore";
 import AuthGate from "./features/auth/components/AuthGate.vue";
 import { useAuthStore } from "./features/auth/stores/authStore";
 import { getAuthStatus } from "./features/auth/services/authService";
+import { createFnosPlatformController } from "./app/hostPlatform";
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
@@ -19,6 +20,7 @@ const appInfo = ref<AppInfo | null>(null);
 const backendPing = ref<BackendPing | null>(null);
 const errorMessage = ref("");
 let businessStarted = false;
+const platformController = createFnosPlatformController(() => !authStore.isReady);
 
 async function refreshBackendStatus() {
   errorMessage.value = "";
@@ -33,6 +35,7 @@ async function refreshBackendStatus() {
 }
 
 onMounted(() => {
+  void platformController.initialize();
   authStore.startCoordination();
   bootstrapController.startConfirmation();
   void authStore.initialize();
@@ -91,6 +94,7 @@ function stopBusiness() {
 }
 
 onBeforeUnmount(() => {
+  platformController.dispose();
   stopBusiness();
   authStore.stopCoordination();
   bootstrapController.dispose();

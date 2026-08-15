@@ -64,3 +64,41 @@
   --app-dialog-mobile-margin: 16px;
   --app-dialog-mobile-radius: 18px;
 }
+
+:root[data-theme="light"] {
+  --app-color-page: #f5f8fc;
+  --app-color-shell: #e8eff8;
+  --app-color-surface: #ffffff;
+  --app-color-surface-elevated: #edf3fa;
+  --app-color-surface-panel: #f0f5fb;
+  --app-color-card-overlay: rgba(20, 34, 54, 0.06);
+  --app-color-card-overlay-subtle: rgba(20, 34, 54, 0.04);
+  --app-color-border-subtle: #d6e0ec;
+  --app-scrollbar-thumb: #8da0b6;
+  --app-scrollbar-thumb-hover: #60758e;
+  --app-scrollbar-track: #edf3fa;
+
+  --app-text-primary: #142236;
+  --app-text-secondary: #304b68;
+  --app-text-strong: #0d1725;
+  --app-text-muted: #60758e;
+  --app-text-dim: #71849a;
+  --app-text-accent: #285fbc;
+  --app-text-accent-soft: #3374db;
+  --app-text-danger: #b64040;
+  --app-color-success: #4f9145;
+
+  --app-color-brand-navy: #dce9fa;
+  --app-color-brand-deep: #e8eff8;
+  --app-color-brand-blue: #285fbc;
+  --app-color-brand-blue-hover: #3374db;
+  --app-color-brand-blue-pressed: #204d98;
+  --app-color-brand-blue-suppl: #3374db;
+  --app-color-brand-selected: #dce9fa;
+  --app-color-on-brand: #ffffff;
+
+  --app-shadow-card: 0 4px 14px rgba(20, 34, 54, 0.08);
+  --app-shadow-floating: 0 10px 30px rgba(20, 34, 54, 0.16);
+  --app-shadow-hero: 0 18px 50px rgba(20, 34, 54, 0.14);
+  --app-task-progress-rail: rgba(20, 34, 54, 0.12);
+}
