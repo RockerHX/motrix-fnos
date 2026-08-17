@@ -31,6 +31,7 @@ const keepDist = process.argv.includes('--keep-dist');
 const reuseWebUi = process.argv.includes('--reuse-web-ui');
 const servicePort = readOption('--service-port') ?? '17080';
 const lanJsonRpcPort = '17082';
+const minimumFnosVersion = '1.1.3100';
 const env = {
   ...process.env,
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),
@@ -146,13 +147,12 @@ function renderManifest(dir, platform, servicePort) {
   if (isArm) {
     manifest = upsertManifestField(manifest, 'platform', 'arm');
     manifest = removeManifestField(manifest, 'arch');
-    manifest = upsertManifestField(manifest, 'os_min_version', '1.1.3100');
   } else {
     manifest = upsertManifestField(manifest, 'arch', 'x86_64');
     manifest = upsertManifestField(manifest, 'platform', 'x86');
-    manifest = upsertManifestField(manifest, 'os_min_version', '0.9.0');
   }
 
+  manifest = upsertManifestField(manifest, 'os_min_version', minimumFnosVersion);
   manifest = removeManifestField(manifest, 'disable_authorization_path');
   manifest = upsertManifestField(manifest, 'service_port', servicePort);
   writeFileSync(path.join(dir, 'manifest'), manifest);
@@ -240,9 +240,6 @@ function preflightStageDir(dir, platform, servicePort) {
     if (manifest.arch !== 'x86_64') {
       fail(`FPK 预检失败，x86 包 arch 应为 x86_64，实际为 ${manifest.arch ?? '(missing)'}`);
     }
-    if (manifest.os_min_version !== '0.9.0') {
-      fail(`FPK 预检失败，x86 包 os_min_version 应为 0.9.0，实际为 ${manifest.os_min_version ?? '(missing)'}`);
-    }
   } else {
     if (manifest.platform !== 'arm') {
       fail(`FPK 预检失败，ARM 包 platform 应为 arm，实际为 ${manifest.platform ?? '(missing)'}`);
@@ -250,9 +247,9 @@ function preflightStageDir(dir, platform, servicePort) {
     if (manifest.arch) {
       fail(`FPK 预检失败，ARM 包不应声明 arch，实际为 ${manifest.arch}`);
     }
-    if (manifest.os_min_version !== '1.1.3100') {
-      fail(`FPK 预检失败，ARM 包 os_min_version 应为 1.1.3100，实际为 ${manifest.os_min_version ?? '(missing)'}`);
-    }
+  }
+  if (manifest.os_min_version !== minimumFnosVersion) {
+    fail(`FPK 预检失败，os_min_version 应为 ${minimumFnosVersion}，实际为 ${manifest.os_min_version ?? '(missing)'}`);
   }
 }
 

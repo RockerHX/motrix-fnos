@@ -75,6 +75,7 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assert.equal(manifest.platform, platform);
   assert.equal(manifest.service_port, '17080');
   assert.equal(manifest.micro_app, 'true');
+  assert.equal(manifest.os_min_version, '1.1.3100');
   const resource = JSON.parse(readFileSync(path.join(packageRoot, 'config/resource'), 'utf8'));
   assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess', 'trim.file.path']);
   const portConfig = readFileSync(path.join(packageRoot, 'MotrixFNOS.sc'), 'utf8');
