@@ -1,7 +1,7 @@
+import OpenAI from 'openai';
+
 const DEFAULT_MODEL = '@cf/openai/gpt-oss-120b';
-const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const MAX_RETRIES = 3;
-const MAX_RETRY_DELAY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const GATEWAY_LOG_RETRIES = 3;
 const GATEWAY_LOG_RETRY_DELAY_MS = 2_000;
@@ -29,8 +29,6 @@ export function createCloudflareWorkersAICompletion({
   gatewayId,
   metadata = {},
   fetchImpl = globalThis.fetch,
-  sleep = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
-  onRetry = () => {},
 }) {
   if (!/^[a-f0-9]{32}$/i.test(accountId ?? '')) {
     throw new Error('缺少合法的 CLOUDFLARE_ACCOUNT_ID（应为 32 位十六进制 Account ID）');
@@ -45,14 +43,25 @@ export function createCloudflareWorkersAICompletion({
     throw new Error('当前 Node.js 环境不支持 fetch');
   }
 
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`;
+  const client = new OpenAI({
+    apiKey: apiToken,
+    baseURL: `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`,
+    timeout: REQUEST_TIMEOUT_MS,
+    maxRetries: MAX_RETRIES,
+    defaultHeaders: gatewayId ? {
+      'cf-aig-gateway-id': gatewayId,
+      'cf-aig-collect-log': 'true',
+      'cf-aig-collect-log-payload': 'false',
+      'cf-aig-skip-cache': 'true',
+    } : undefined,
+    fetch: fetchImpl,
+  });
   const usage = createUsageSummary();
 
   const complete = async ({ modelRole, systemPrompt, userPrompt, maxTokens, label }) => {
     const model = modelRole === 'analysis' ? analysisModel : editorModel;
     return requestCloudflareWorkersAI({
-      endpoint,
-      apiToken,
+      client,
       model,
       systemPrompt,
       userPrompt,
@@ -61,9 +70,6 @@ export function createCloudflareWorkersAICompletion({
       gatewayId,
       metadata: { ...metadata, stage: label },
       usage,
-      fetchImpl,
-      sleep,
-      onRetry,
     });
   };
   complete.usage = usage;
@@ -220,8 +226,7 @@ export function formatCloudflareGatewayDailyUsage(usage) {
 }
 
 async function requestCloudflareWorkersAI({
-  endpoint,
-  apiToken,
+  client,
   model,
   systemPrompt,
   userPrompt,
@@ -230,73 +235,48 @@ async function requestCloudflareWorkersAI({
   gatewayId,
   metadata,
   usage,
-  fetchImpl,
-  sleep,
-  onRetry,
 }) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    const headers = {
-      Authorization: `Bearer ${apiToken}`,
-      'Content-Type': 'application/json',
-    };
-    if (gatewayId) {
-      headers['cf-aig-gateway-id'] = gatewayId;
-      headers['cf-aig-collect-log'] = 'true';
-      headers['cf-aig-collect-log-payload'] = 'false';
-      headers['cf-aig-skip-cache'] = 'true';
-      headers['cf-aig-metadata'] = stringifyHeaderJson(metadata);
-    }
-    const response = await fetchImpl(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
+  let response;
+  try {
+    response = await client.responses.create(
+      {
         model,
+        instructions: systemPrompt,
+        input: userPrompt,
+        max_output_tokens: maxTokens,
         temperature: 0.2,
-        max_tokens: maxTokens,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-
-    if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES) {
-      const delayMs = retryDelayMs(response.headers, attempt);
-      onRetry(
-        `${label}调用 Cloudflare Workers AI（${model}）暂时失败（${response.status}），`
-          + `${Math.ceil(delayMs / 1_000)} 秒后重试（${attempt + 2}/${MAX_RETRIES + 1}）`,
-      );
-      await sleep(delayMs);
-      continue;
-    }
-
-    if (!response.ok) {
-      const responseText = (await response.text()).slice(0, 2_000);
-      throw new Error(
-        `${label}调用 Cloudflare Workers AI（${model}）失败：${response.status} ${responseText}. `
-          + '请检查 Cloudflare 凭证和 Workers AI 配额，或提前在 CHANGELOG.md 写入目标版本条目。',
-      );
-    }
-
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) {
-      throw new Error(
-        `${label}调用 Cloudflare Workers AI（${model}）的响应缺少 choices[0].message.content`,
-      );
-    }
-    recordUsage(usage, data.usage, model);
-    return content;
+        ...(isGptOssModel(model) ? { reasoning: { effort: 'low' } } : {}),
+      },
+      gatewayId ? { headers: { 'cf-aig-metadata': stringifyHeaderJson(metadata) } } : undefined,
+    );
+  } catch (error) {
+    throw new Error(
+      `${label}调用 Cloudflare Workers AI（${model}）失败：${error instanceof Error ? error.message : String(error)}. `
+        + '请检查 Cloudflare 凭证和 Workers AI 配额，或提前在 CHANGELOG.md 写入目标版本条目。',
+      { cause: error },
+    );
   }
 
-  throw new Error(`${label}调用 Cloudflare Workers AI 失败：超过重试次数`);
+  recordUsage(usage, response.usage, model);
+  const content = response.output_text;
+  if (typeof content !== 'string' || !content.trim()) {
+    const incompleteReason = response.incomplete_details?.reason;
+    throw new Error(
+      `${label}调用 Cloudflare Workers AI（${model}）的响应缺少 output_text`
+        + (incompleteReason ? `（未完成原因：${incompleteReason}）` : ''),
+    );
+  }
+  return content;
 }
 
 function stringifyHeaderJson(value) {
   return JSON.stringify(value).replace(/[^\x00-\x7F]/g, (character) => (
     `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
   ));
+}
+
+function isGptOssModel(model) {
+  return /^@cf\/openai\/gpt-oss-/i.test(model);
 }
 
 function createUsageSummary() {
@@ -320,19 +300,4 @@ function recordUsage(summary, responseUsage, model = DEFAULT_MODEL) {
 function nonNegativeNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : 0;
-}
-
-function retryDelayMs(headers, attempt) {
-  const retryAfter = headers.get('retry-after');
-  if (retryAfter) {
-    const seconds = Number(retryAfter);
-    if (Number.isFinite(seconds)) {
-      return Math.min(MAX_RETRY_DELAY_MS, Math.max(1_000, seconds * 1_000));
-    }
-    const retryAt = Date.parse(retryAfter);
-    if (Number.isFinite(retryAt)) {
-      return Math.min(MAX_RETRY_DELAY_MS, Math.max(1_000, retryAt - Date.now()));
-    }
-  }
-  return Math.min(MAX_RETRY_DELAY_MS, 2_000 * 2 ** attempt);
 }

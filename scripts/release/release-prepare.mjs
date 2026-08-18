@@ -177,7 +177,6 @@ async function generateChangelogWithCloudflareWorkersAI({ version, baseRef, chan
       run_id: process.env.GITHUB_RUN_ID ?? 'local',
       version,
     },
-    onRetry: (message) => console.warn(message),
   });
   try {
     return await generateChangelogWithHierarchicalSummary({

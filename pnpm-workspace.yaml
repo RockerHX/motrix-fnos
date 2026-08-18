@@ -3,5 +3,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - '@tabler/icons-vue@3.46.0'
   - '@tabler/icons@3.46.0'
+  - openai@7.5.0
 onlyBuiltDependencies:
   - esbuild
