@@ -47,6 +47,7 @@ test('Cloudflare Workers AI 使用 OpenAI-compatible endpoint 和对应角色模
   assert.equal(requests[0].init.headers['cf-aig-collect-log'], 'true');
   assert.equal(requests[0].init.headers['cf-aig-collect-log-payload'], 'false');
   assert.equal(requests[0].init.headers['cf-aig-skip-cache'], 'true');
+  assert.doesNotThrow(() => new Headers(requests[0].init.headers));
   assert.deepEqual(JSON.parse(requests[0].init.headers['cf-aig-metadata']), {
     repository: 'RockerHX/motrix-fnos',
     run_id: '123',
@@ -207,6 +208,7 @@ test('Cloudflare AI Gateway 日志汇总今日用量且不读取 payload', async
   assert.deepEqual(delays, [2_000, 2_000]);
   assert.match(requests[0].url, /ai-gateway\/gateways\/motrix-fnos-release\/logs/);
   assert.doesNotMatch(requests[0].url, /model=/);
+  assert.equal(new URL(requests[0].url).searchParams.get('per_page'), '50');
   assert.equal(requests[0].init.headers.Authorization, 'Bearer test-token');
   assert.equal(usage.logCount, 2);
   assert.equal(usage.observedReleaseLogCount, 2);

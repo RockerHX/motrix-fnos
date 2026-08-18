@@ -5,7 +5,8 @@ const MAX_RETRY_DELAY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 120_000;
 const GATEWAY_LOG_RETRIES = 3;
 const GATEWAY_LOG_RETRY_DELAY_MS = 2_000;
-const GATEWAY_LOG_PAGE_SIZE = 100;
+// Cloudflare AI Gateway Logs API rejects values above 50.
+const GATEWAY_LOG_PAGE_SIZE = 50;
 const GATEWAY_LOG_MAX_PAGES = 100;
 const FREE_DAILY_NEURONS = 10_000;
 const GPT_OSS_120B_INPUT_NEURONS_PER_MILLION_TOKENS = 31_818;
@@ -243,7 +244,7 @@ async function requestCloudflareWorkersAI({
       headers['cf-aig-collect-log'] = 'true';
       headers['cf-aig-collect-log-payload'] = 'false';
       headers['cf-aig-skip-cache'] = 'true';
-      headers['cf-aig-metadata'] = JSON.stringify(metadata);
+      headers['cf-aig-metadata'] = stringifyHeaderJson(metadata);
     }
     const response = await fetchImpl(endpoint, {
       method: 'POST',
@@ -290,6 +291,12 @@ async function requestCloudflareWorkersAI({
   }
 
   throw new Error(`${label}调用 Cloudflare Workers AI 失败：超过重试次数`);
+}
+
+function stringifyHeaderJson(value) {
+  return JSON.stringify(value).replace(/[^\x00-\x7F]/g, (character) => (
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  ));
 }
 
 function createUsageSummary() {
