@@ -97,6 +97,7 @@ describe("AppDialog", () => {
     expect(wrapper.text()).toContain("正文内容");
     expect(wrapper.text()).toContain("底部内容");
     expect(wrapper.get('[data-test="n-card"]').attributes("style")).toContain("--app-dialog-width: 640px");
+    expect(wrapper.get('[data-test="n-card"]').classes()).not.toContain("app-dialog--fixed-body");
   });
 
   it("forwards content class and style to the card body", () => {
@@ -111,6 +112,21 @@ describe("AppDialog", () => {
     const card = wrapper.get('[data-test="n-card"]');
     expect(card.attributes("data-content-class")).toBe("dialog-content");
     expect(card.attributes("data-content-style")).toBe("display: flex;");
+  });
+
+  it("adds the fixed body class while preserving a custom card class", () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        cardClass: "settings-dialog",
+        fixedBody: true,
+      },
+    });
+
+    const card = wrapper.get('[data-test="n-card"]');
+    expect(card.classes()).toContain("app-dialog");
+    expect(card.classes()).toContain("settings-dialog");
+    expect(card.classes()).toContain("app-dialog--fixed-body");
   });
 
   it("emits close events from close button", async () => {

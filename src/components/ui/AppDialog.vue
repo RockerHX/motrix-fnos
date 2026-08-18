@@ -14,6 +14,7 @@ const props = withDefaults(
     cardClass?: string;
     contentClass?: string;
     contentStyle?: string | CSSProperties;
+    fixedBody?: boolean;
   }>(),
   {
     title: "",
@@ -24,6 +25,7 @@ const props = withDefaults(
     showClose: true,
     cardClass: "",
     contentClass: "",
+    fixedBody: false,
   },
 );
 
@@ -33,7 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const slots = useSlots();
-const cardClasses = computed(() => ["app-dialog", props.cardClass].filter(Boolean));
+const cardClasses = computed(() => ["app-dialog", props.cardClass, props.fixedBody ? "app-dialog--fixed-body" : ""].filter(Boolean));
 const cardStyle = computed(() => ({
   "--app-dialog-width": props.width,
 }));

@@ -1,3 +1,19 @@
 .app-dialog-title {
   margin: 0;
 }
+
+.app-dialog--fixed-body {
+  height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-desktop-margin)));
+  overflow: hidden;
+}
+
+.app-dialog--fixed-body :deep(.n-card-content) {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 767px) {
+  .app-dialog--fixed-body {
+    height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-mobile-margin)));
+  }
+}
