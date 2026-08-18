@@ -7,8 +7,6 @@ mod shared_access;
 pub(crate) use display_paths::display_paths;
 pub(crate) use shared_access::{refresh_accessible_paths_from_fnos, AccessiblePathsRefreshError};
 
-pub const DATA_ACCESSIBLE_PATHS_ENV: &str = "TRIM_DATA_ACCESSIBLE_PATHS";
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccessiblePathsResponse {
@@ -44,12 +42,7 @@ pub fn load_accessible_paths(accessible_paths_path: &Path) -> Result<Vec<String>
         return Ok(normalize_paths(response.paths));
     }
 
-    Ok(normalize_paths(
-        std::env::var(DATA_ACCESSIBLE_PATHS_ENV)
-            .ok()
-            .map(|value| value.split(':').map(str::to_string).collect())
-            .unwrap_or_default(),
-    ))
+    Ok(Vec::new())
 }
 
 pub fn default_download_dir(accessible_paths: &[String], app_data_dir: &Path) -> PathBuf {

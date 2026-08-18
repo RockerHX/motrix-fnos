@@ -50,7 +50,6 @@ const form = reactive({
 const hostKind = ref<FnosHostKind | null>(null);
 const isDetectingHost = ref(false);
 const isAuthorizing = ref(false);
-const isOpeningAppSettings = ref(false);
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
     label: settingsStore.displayAccessiblePaths.find((item) => item.path === path)?.displayPath || path,
@@ -184,23 +183,6 @@ async function refreshAccessiblePathList() {
   }
 }
 
-async function openFnosAppSettings() {
-  if (isOpeningAppSettings.value) return;
-  if (!hostSupportsAuthorization.value) {
-    message.info(t("settings.accessiblePaths.manualHelp"));
-    return;
-  }
-  isOpeningAppSettings.value = true;
-  try {
-    const result = await fnosHost.openAppSettings();
-    message[result.status === "opened" ? "success" : "error"](
-      result.status === "opened" ? t("settings.accessiblePaths.opened") : t("settings.accessiblePaths.failed"),
-    );
-  } finally {
-    isOpeningAppSettings.value = false;
-  }
-}
-
 async function saveSettings() {
   try {
     const config = await settingsStore.saveConfig(buildPayload());
@@ -298,16 +280,6 @@ function kbToBytes(value: number) {
               >
                 <template #icon><AppIcon name="refresh" :size="16" /></template>
                 {{ t("settings.accessiblePaths.refresh") }}
-              </NButton>
-              <NButton
-                v-if="hostSupportsAuthorization"
-                secondary
-                :loading="isOpeningAppSettings"
-                :disabled="isAuthorizing || isSettingsSaving"
-                @click="openFnosAppSettings"
-              >
-                <template #icon><AppIcon name="settings" :size="16" /></template>
-                {{ t("settings.accessiblePaths.openAppSettings") }}
               </NButton>
             </NSpace>
           </div>

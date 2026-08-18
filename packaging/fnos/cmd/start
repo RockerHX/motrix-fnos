@@ -5,7 +5,6 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 
 prepare_runtime_dirs
-write_accessible_paths_file
 export_runtime_env
 require_file "${SERVER_BIN}" "server 二进制"
 require_file "${ARIA2_BIN}" "Aria2 sidecar"

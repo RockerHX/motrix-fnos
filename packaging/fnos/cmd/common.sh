@@ -600,33 +600,3 @@ rotate_lifecycle_log() {
   mv "${LIFECYCLE_LOG}" "${LIFECYCLE_LOG}.1"
   : > "${LIFECYCLE_LOG}"
 }
-
-json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
-write_accessible_paths_file() {
-  mkdir -p "${PKG_VAR}"
-  # fnOS 以冒号分隔 TRIM_DATA_ACCESSIBLE_PATHS；先完整写入临时文件再原子替换，避免 server 读到半截授权列表 JSON。
-  tmp_file="${ACCESSIBLE_PATHS_FILE}.tmp"
-  printf '{"paths":[' > "${tmp_file}"
-
-  old_ifs="${IFS}"
-  IFS=':'
-  first=1
-  for accessible_path in ${TRIM_DATA_ACCESSIBLE_PATHS:-}; do
-    if [ -z "${accessible_path}" ]; then
-      continue
-    fi
-    if [ "${first}" -eq 0 ]; then
-      printf ',' >> "${tmp_file}"
-    fi
-    printf '"%s"' "$(json_escape "${accessible_path}")" >> "${tmp_file}"
-    first=0
-  done
-  IFS="${old_ifs}"
-
-  printf ']}\n' >> "${tmp_file}"
-  mv "${tmp_file}" "${ACCESSIBLE_PATHS_FILE}"
-  log_msg "已同步授权目录列表到 ${ACCESSIBLE_PATHS_FILE}"
-}

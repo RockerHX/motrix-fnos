@@ -14,7 +14,7 @@
 2. 用户个人目录或文件授权：按 fnOS 用户分别授权目录或文件。
 3. 文件权限检查：按当前 fnOS 用户检查读、写、删除权限。
 4. 路径转换：把 `/vol1/...` 内部路径转换为面向用户的语义化路径。
-5. 页面路由：打开文件、文件管理器、文件详情、当前应用设置或外部 URL。
+5. 页面路由：打开文件、文件管理器、文件详情或外部 URL。
 6. 平台配置：读取语言、主题、系统版本和格式配置。
 7. 页面交互：设置宿主标题、监听主题/语言变化、关闭页面、设置离开提示。
 
@@ -23,7 +23,6 @@
 | 优先级 | 能力 | 当前判断 |
 | --- | --- | --- |
 | P0 | `pickSharedFile`、`trim.file.getSharedAccessibleFolders` | 直接解决应用内授权目录问题，首批实施 |
-| P0 | `openAppSetting` | 所有兼容失败场景的人工设置回退 |
 | P1 | `trim.file.convertPath` | 改善授权目录和任务路径展示，不改变真实路径 |
 | P1 | `openFileManager`、`openFile`、`showFileDetails` | 改善完成任务后的文件操作体验 |
 | P1 | `setTitle`、`getPlatformConfig`、主题/语言监听 | 改善 fnOS 宿主一致性，需验证不同 WebView 行为 |
@@ -53,7 +52,7 @@
 
 - 当前 Motrix 使用一组不区分用户的授权目录。
 - 下载服务以独立应用用户运行，正需要应用级 ACL。
-- 现有 `TRIM_DATA_ACCESSIBLE_PATHS`、`accessible-paths.json` 和 `/api/storage/accessible-paths` 都是应用级目录模型。
+- 现有 `accessible-paths.json` 和 `/api/storage/accessible-paths` 都是应用级目录模型；快照只来源于官方 API。
 
 权限限制：共享授权由 fnOS 管理员执行。普通用户可能收到 `code: 1` 或 `仅管理员可进行此操作`。Motrix 自己的 Web 管理员身份不能替代 fnOS 管理员身份，最终以宿主返回结果为准。
 
@@ -120,7 +119,6 @@ Motrix 使用方式：
 - `openFile(path)`：用宿主默认方式打开文件。
 - `openFileManager(path)`：打开文件管理器并定位路径。
 - `showFileDetails(paths, options?)`：打开文件详情页，可进入系统权限调整入口。
-- `openAppSetting()`：打开当前应用的 fnOS 设置页。
 - `openURL(url, target?, features?)`：打开外部 URL。
 
 Motrix 使用建议：
@@ -128,7 +126,7 @@ Motrix 使用建议：
 - 下载完成任务增加“在文件管理器中打开”入口。
 - 单文件完成任务可以调用 `openFile`，但必须确认路径来自后端任务记录且仍在授权范围内。
 - 诊断或任务详情可调用 `showFileDetails`，不把它当成应用自己的授权绕过入口。
-- 所有开放 API 不可用、版本过低或权限失败时，`openAppSetting` 作为授权回退。
+- SDK 不可用或不在支持的 fnOS 宿主中时，不调用任何宿主授权/设置方法，只提示用户在符合版本要求的 fnOS 宿主中打开 Motrix。
 
 ### 2.6 平台配置与页面交互（P1）
 
@@ -152,9 +150,8 @@ Motrix 使用建议：
 当前授权链路：
 
 ```text
-fnOS 应用设置
-  -> TRIM_DATA_ACCESSIBLE_PATHS
-  -> cmd/start 或 cmd/config_callback
+fnOS 官方 API（Unix Socket）
+  -> Rust server
   -> accessible-paths.json
   -> Rust storage::load_accessible_paths
   -> GET /api/storage/accessible-paths
@@ -177,7 +174,7 @@ fnOS 应用设置
 2. Rust 负责路径校验、默认目录选择和任务保存目录安全判断。
 3. 用户下载目录、应用数据目录、任务专属目录和授权目录根必须保持现有边界。
 4. 不能因为开放 API 查询失败而把任意路径视为已授权。
-5. 旧 fnOS 版本或旧 FPK 环境仍需支持应用设置手动授权。
+5. 正式 FPK 要求 fnOS `1.2.0401+`；不维护低版本人工授权兼容链路。
 6. 不得把 `TRIM_API_TOKEN` 写入前端资源、SQLite、普通 API 响应、日志或诊断包。
 7. 当前端口入口和统一网关的事实不能被新功能静默改变。
 
@@ -207,7 +204,7 @@ P0 预计增加：
 - fnOS：`1.2.0401`
 - 飞牛 App：`1.34.0`
 
-当前 manifest 的 `os_min_version` 为 `1.1.3100`。不能未经实机验证就提高最低版本。建议继续保留旧版本兼容路径，在运行时判断 API 是否可用。
+正式 manifest 的 `os_min_version` 固定为 `1.2.0401`。安装器拒绝更低版本，运行时不再维护旧版本人工授权回退。
 
 ### 4.2 前端 SDK
 
@@ -219,7 +216,7 @@ P0 预计增加：
 - 等待 SDK 初始化。
 - 判断 `isWeb`、`isStandaloneWeb`。
 - 统一处理宿主不可用、版本过低、管理员权限不足和用户取消。
-- 为共享授权、应用设置、文件管理器、文件打开和路径展示提供项目内稳定接口。
+- 为共享授权、文件管理器、文件打开和路径展示提供项目内稳定接口；不封装 `openAppSetting`。
 
 ### 4.3 后端 Unix Socket API
 
@@ -237,7 +234,7 @@ Request:     { reqId, req, appName, data }
 - FPK 声明 `api-scope` 后 token 是否注入 server 进程。
 - `motrix_fnos` 运行用户是否有 Unix Socket 访问权限。
 - Socket 路径是否固定，或是否存在版本差异。
-- API 返回的路径是否与现有 `TRIM_DATA_ACCESSIBLE_PATHS` 使用同一绝对路径格式。
+- API 返回的路径是否为非根绝对 Unix 路径。
 - fnOS 服务不可用、token 缺失、Scope 未注册时的错误状态。
 
 ## 5. 目标架构
@@ -253,8 +250,7 @@ Request:     { reqId, req, appName, data }
 
 1. 本次官方 API 查询成功：以返回值为准，包括空数组；空数组不能回退到旧快照。
 2. 官方 API 暂不可用但存在旧快照：保留旧快照，并向前端返回“状态未知/需要重试”的诊断信息；不能宣称新授权已生效。
-3. 老版本 fnOS 或未声明 Scope：继续使用 `TRIM_DATA_ACCESSIBLE_PATHS` 和 `accessible-paths.json`。
-4. 初次安装且没有任何来源：目录为空，继续显示手动授权或应用内授权入口。
+3. 初次安装且没有官方快照：目录为空，只显示在支持的 fnOS 宿主中授权的入口。
 
 需要避免的竞态：
 
@@ -282,7 +278,7 @@ Request:     { reqId, req, appName, data }
 用户点击按钮
   -> 检测为 isStandaloneWeb=true 或 SDK 不可用
   -> 不调用 openAppAuth、pickSharedFile 或 openAppSetting
-  -> 提示用户前往 fnOS 应用中心的 Motrix 设置添加授权目录
+  -> 提示用户在符合版本要求的 fnOS 宿主中打开 Motrix 完成授权
   -> 用户返回后手动刷新目录快照
 ```
 
@@ -294,8 +290,8 @@ P0 至少提供：
 
 - 设置页授权目录区域：“添加授权目录”按钮。
 - 新建任务保存目录为空时的“添加授权目录”按钮。
-- 授权目录刚被撤销或刷新失败时的“重新授权/打开应用设置”入口。
-- 非 fnOS 宿主或独立浏览器无法调用时的明确回退。
+- 授权目录刚被撤销或刷新失败时的“重新授权”入口。
+- 非 fnOS 宿主或 SDK 不可用时的明确支持环境提示。
 - 普通用户调用共享授权时显示“需要 fnOS 管理员权限”，不误报为 Motrix 登录失败。
 
 不要在 P0 中提供自由文本路径输入框，也不要仅根据 SDK 返回的路径修改本地授权列表。
@@ -309,7 +305,7 @@ P0 至少提供：
 - 是否被运行中、暂停中、完成或回收站任务引用。
 - 是否存在待清理文件、待恢复 metadata 或未完成操作。
 
-第一版建议只提供“重新授权”和“打开应用设置”，暂不提供应用内删除授权。后续若要提供删除，必须设计明确的冲突响应和迁移语义。
+第一版只提供“重新授权”，暂不提供应用内删除授权。后续若要提供删除，必须设计明确的冲突响应和迁移语义。
 
 ## 6. 分阶段实施计划
 
@@ -326,7 +322,7 @@ P0 至少提供：
 - x86 与 ARM 两个 FPK、SHA-256 清单及最终 FPK 解包静态验收。
 - Rust、前端与构建脚本自动化测试；详细报告和归档校验和只保存在开发者本地的 `docs/verification/`，不进入版本库。
 
-实机报告已确认 x86 环境的 `TRIM_API_TOKEN` 注入、Socket 权限、桌面 iframe 调用、普通用户新增授权拒绝、官方目录查询、应用账户读写和停止重启。独立浏览器 App Auth 已确认在 Probe 端口不可用，阶段 1 必须回退旧人工授权流程；ARM 和飞牛移动 App WebView 仍待目标环境具备后补测。
+实机报告已确认 x86 环境的 `TRIM_API_TOKEN` 注入、Socket 权限、桌面 iframe 调用、普通用户新增授权拒绝、官方目录查询、应用账户读写和停止重启。独立浏览器不会调用 SDK 授权方法；ARM 和飞牛移动 App WebView 仍待目标环境具备后补测。
 
 任务：
 
@@ -348,15 +344,15 @@ P0 至少提供：
 1. 锁定 `@trimjs/web-app` 版本并加入依赖校验。
 2. 增加 `config/resource` 的 `api-scope` 和 `manifest` 的 `micro_app=true`。
 3. 新增 Rust fnOS API client，封装 Unix Socket、Bearer token、JSON 请求/响应和超时。
-4. 新增共享授权 service，支持查询、响应校验、路径规范化、快照原子写入和旧环境回退。
+4. 新增共享授权 service，支持查询、响应校验、路径规范化和快照原子写入。
 5. 新增受保护的授权刷新 HTTP API，保持现有 `GET /api/storage/accessible-paths` 兼容。
 6. 新增前端 SDK 适配层；独立浏览器不实现 App Auth 或授权回调页。
 7. 在设置页和新建任务空目录状态接入“添加授权目录”。
-8. fnOS 宿主中提供 `openAppSetting()`；独立浏览器和 SDK 不可用时只提供人工操作说明。
+8. fnOS 宿主中只提供 `pickSharedFile()`；独立浏览器和 SDK 不可用时只提供支持环境说明。
 9. 更新中英文文案，区分“授权取消”“需要 fnOS 管理员”“宿主不支持”“刷新失败”。
 10. 更新 `docs/api-contract.md`、`docs/fpk-packaging.md` 和 UI 产品需求，记录新增接口、Scope、环境变量和回退语义。
 
-完成标准：管理员可以在 Motrix 页面完成共享目录授权，后端在官方 API 确认后使用新目录创建任务；旧 fnOS 或 SDK 不可用时原有应用设置流程仍可用。
+完成标准：管理员可以在支持的 fnOS 宿主中完成共享目录授权，后端在官方 API 确认后使用新目录创建任务；独立浏览器或 SDK 不可用时不误调用宿主方法，并显示明确支持环境说明。
 
 ### 阶段 2：P1 路径和宿主体验
 
@@ -364,8 +360,8 @@ P0 至少提供：
 
 固定契约：
 
-- 正式 Scope 精确为 `trim.file.sharedAccess` 与 `trim.file.path`，`os_min_version` 仍为 `1.1.3100`。
-- fnOS `1.2.0401` / 飞牛 App `1.34.0` 才启用路径转换、平台配置和文件路由；旧环境以真实路径、固定深色和人工授权流程运行。
+- 正式 Scope 精确为 `trim.file.sharedAccess` 与 `trim.file.path`，`os_min_version` 固定为 `1.2.0401`。
+- fnOS `1.2.0401` / 飞牛 App `1.34.0` 才启用路径转换、平台配置和文件路由；不满足版本要求的系统不能安装正式包。
 - 桌面宿主完整跟随并监听主题；移动 WebView 只初始化主题；独立浏览器默认深色且不调用宿主方法。
 - Motrix 保存语言优先。宿主语言只用于没有本地偏好的登录前初始化；登录后由 Motrix 配置接管。
 - 本阶段只接入 `setTitle`，不接入 `setExitPageTips` 与 `close`。
@@ -449,7 +445,7 @@ P0 至少提供：
 - Unix Socket HTTP client：请求结构、Bearer token、超时、非 JSON 响应、HTTP 错误和官方 `code` 错误。
 - 官方响应解析：路径数组、空数组、重复路径、空路径、非法路径和未知字段。
 - 快照更新：成功替换、空结果替换、失败保留旧快照、并发刷新和原子写入。
-- 环境兼容：Socket/token 不存在时回退 `TRIM_DATA_ACCESSIBLE_PATHS`；成功 API 结果不再读取旧快照。
+- 环境兼容：Socket/token 不存在时保留最后一次官方 API 快照；正式包不读取 `TRIM_DATA_ACCESSIBLE_PATHS`。
 - HTTP API：Session、CSRF、错误码、刷新后目录读取和 Aria2 不被唤醒。
 - 现有任务/设置/JSON-RPC 测试：确认新快照仍经过既有授权目录校验。
 
@@ -475,13 +471,12 @@ P0 至少提供：
 | --- | --- |
 | 新版本 fnOS，管理员，宿主内入口 | 选择目录、授权、刷新、创建任务成功 |
 | 新版本 fnOS，普通用户 | 共享授权被拒绝，提示需要 fnOS 管理员，应用仍可查看已有目录 |
-| 非宿主独立浏览器 | 不调用 App runtime，显示应用中心人工授权说明并允许重新读取快照 |
+| 非宿主独立浏览器 | 不调用 App runtime，显示支持环境说明并允许重新读取快照 |
 | 飞牛 App WebView | SDK 初始化和授权流程可用；不依赖主题/语言事件 |
 | 用户取消选择 | 不修改授权快照，不显示为错误 |
 | 目录已被撤销 | 刷新后从列表移除，旧默认目录变为未授权 |
 | 官方 API 返回空列表 | 列表变空，不使用旧快照继续创建任务 |
-| Socket/token 不可用 | 保留已确认快照，提示刷新失败并提供应用设置回退 |
-| fnOS 旧版本不支持 API | 使用原应用设置授权流程，任务功能不回归 |
+| Socket/token 不可用 | 保留已确认快照，提示刷新失败；不清空已有目录 |
 | 应用重启 | 重新查询或安全回退，目录状态与实际授权一致 |
 | 应用升级 | 保留任务、设置、旧快照和旧客户端兼容性 |
 | 共享授权目录被任务引用 | 删除入口隐藏或返回明确冲突，不破坏任务 |
@@ -490,10 +485,10 @@ P0 至少提供：
 
 ## 11. 发布与回滚策略
 
-1. P0 首个版本必须同时提供新授权流程和旧应用设置回退，不能依赖新 API 单点运行。
+1. P0 首个版本只面向 fnOS `1.2.0401+`，不提供旧系统人工授权回退。
 2. 不因为增加 `api-scope` 就自动改变已有授权目录或默认下载目录。
 3. 旧版本升级到新版本时，先保留 `accessible-paths.json`，再尝试官方 API 同步。
-4. 新版本回滚到旧版本时，旧版仍能读取快照和 `TRIM_DATA_ACCESSIBLE_PATHS`；不能要求旧版理解新的数据库结构。
+4. 回滚到旧版本时，由发布流程恢复对应 FPK 与数据备份；正式包不承诺旧版读取新版本的官方 API 快照语义。
 5. 如果实机证明当前端口入口无法初始化 `TrimApp`，不直接修改 Motrix 主包入口；应先完成独立统一网关实验，再重新评估迁移。
 6. 发布说明必须标注支持的 fnOS/飞牛 App 最低版本、管理员限制、独立浏览器回调限制和回退方式。
 

@@ -22,7 +22,6 @@ type TrimAppLike = {
   isStandaloneWeb: boolean;
   ready(): Promise<void>;
   pickSharedFile(): Promise<AppBridgeResponse<string[]> | undefined>;
-  openAppSetting(): Promise<unknown>;
   getPlatformConfig(): Promise<PlatformConfig>;
   setTitle(title: string): Promise<unknown>;
   openFile(path: string): Promise<unknown>;
@@ -75,19 +74,6 @@ export class FnosHostAdapter {
       if (message === "Operation failed") return { status: "cancelled" };
       if (isAdministratorMessage(message)) return { status: "admin_required" };
       if (isUnsupportedMessage(message)) return { status: "unsupported" };
-      return { status: "failed" };
-    }
-  }
-
-  async openAppSettings(): Promise<FnosHostActionResult> {
-    const runtime = await this.runtime();
-    if (!runtime.app || runtime.kind === "standalone" || runtime.kind === "unavailable") {
-      return { status: "unsupported" };
-    }
-    try {
-      await runtime.app.openAppSetting();
-      return { status: "opened" };
-    } catch {
       return { status: "failed" };
     }
   }

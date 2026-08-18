@@ -33,7 +33,7 @@ desktop_applaunchname =
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
-正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。前者用于确认应用共享授权，后者用于把已确认路径转换为面向用户的语义化路径。`os_min_version` 继续保持 `1.1.3100`：fnOS `1.2.0401` 及以上可注入 `TRIM_API_TOKEN` 并允许 server 访问官方 Unix Socket；老 fnOS 缺少这些能力时继续使用 `TRIM_DATA_ACCESSIBLE_PATHS` 和 `config_callback` 维护人工授权快照，并以真实路径、固定深色主题运行。
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。前者用于确认应用共享授权，后者用于把已确认路径转换为面向用户的语义化路径。`os_min_version` 固定为 `1.2.0401`：安装器会拒绝更低版本的 fnOS，正式包只使用官方 Unix Socket 和 SDK 授权链路，不再维护旧系统的人工授权快照流程。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
 
 构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
 
@@ -53,7 +53,7 @@ desktop_applaunchname =
 - 2026-07-14 ARM 实机进一步确认：移除入口 `port` 的本地测试包中，Unix Socket 根 HTML 与 API 直连均为 `200`，但 fnOS nginx 对桌面入口仍返回 `404 9`，请求没有进入应用 Socket。因此当前交付恢复 `1.6.4` 已验证的端口入口，不再注册统一网关。
 - Web UI 构建保持相对基址 `./`，确保从端口入口根路径加载静态资源。
 - 桌面入口默认 `allUsers=false`，但 `control.accessPerm=editable`，允许管理员在应用设置中切换“仅管理员 / 设备内所有用户”。端口模式不提供可信 `X-Trim-*` Header，后端不得依赖统一网关身份。
-- `config_callback` 当前承担授权目录快照同步职责，不纳入删除候选；`config_init` 只有在完成配置流程验证后才可评估是否移除。
+- `config_callback` 保留为空操作脚本以满足既有生命周期布局，不再同步授权目录；`config_init` 只有在完成配置流程验证后才可评估是否移除。
 - 官方入口和 manifest 只描述单个桌面服务端口，不提供“仅供应用内本机反代”的第二入口声明。Motrix 因此只把管理端口 `17080` 写入 manifest 和桌面入口；回环反代端口 `17081` 不注册为平台资源，局域网端口 `17082` 仅通过已验证的 `.sc` 多端口格式声明。
 
 如果后续升级 `fnpack`，需要重新验证至少以下行为是否仍成立：
@@ -394,7 +394,7 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 安装 | 安装匹配架构的 `.fpk` | 应用中心安装成功 | 安装界面报错、`TRIM_TEMP_LOGFILE`、应用中心任务日志 |
 | 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`lifecycle.log`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
-| 配置变更 | 在“应用设置”修改授权目录并保存 | `config_callback` 重新同步 accessible paths | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
+| 配置变更 | 在“应用设置”修改其他应用配置并保存 | 不触碰官方 API 授权快照 | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
 | 同身份升级 | 从旧版 `motrix` 升级到新版 `motrix` | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
 | 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081`/`17082` 监听进程 |
 | 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |

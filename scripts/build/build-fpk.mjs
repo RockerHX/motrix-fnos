@@ -31,7 +31,7 @@ const keepDist = process.argv.includes('--keep-dist');
 const reuseWebUi = process.argv.includes('--reuse-web-ui');
 const servicePort = readOption('--service-port') ?? '17080';
 const lanJsonRpcPort = '17082';
-const minimumFnosVersion = '1.1.3100';
+const minimumFnosVersion = '1.2.0401';
 const env = {
   ...process.env,
   PATH: [path.join(os.homedir(), '.cargo', 'bin'), path.join(os.homedir(), '.local', 'bin'), process.env.PATH ?? ''].filter(Boolean).join(path.delimiter),

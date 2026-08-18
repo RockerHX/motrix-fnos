@@ -120,7 +120,6 @@ vi.mock("../../../services/fnos", () => ({
   fnosHost: {
     getHostKind: vi.fn(async () => "hosted"),
     requestSharedFolderAuthorization: vi.fn(async () => ({ status: "authorized" })),
-    openAppSettings: vi.fn(async () => ({ status: "opened" })),
   },
 }));
 
@@ -183,7 +182,6 @@ describe("SettingsDialog", () => {
     vi.clearAllMocks();
     vi.mocked(fnosHost.getHostKind).mockResolvedValue("hosted");
     vi.mocked(fnosHost.requestSharedFolderAuthorization).mockResolvedValue({ status: "authorized" });
-    vi.mocked(fnosHost.openAppSettings).mockResolvedValue({ status: "opened" });
     vi.mocked(refreshAccessiblePaths).mockResolvedValue({ paths: ["/downloads"] });
   });
 
@@ -264,7 +262,7 @@ describe("SettingsDialog", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(wrapper.text()).toContain("当前环境不支持应用内选择");
+    expect(wrapper.text()).toContain("当前页面不是支持的 fnOS 宿主");
     expect(wrapper.findAll("button").some((button) => button.text() === "添加授权文件夹")).toBe(false);
     expect(fnosHost.requestSharedFolderAuthorization).not.toHaveBeenCalled();
   });

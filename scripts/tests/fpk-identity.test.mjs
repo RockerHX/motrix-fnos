@@ -23,7 +23,7 @@ test('仓库 FPK 身份与 Release 产物名保持一致', () => {
   assert.match(releaseWorkflow, /attest-build-provenance@[0-9a-f]{40}/);
   assert.doesNotMatch(releaseWorkflow, /motrix\.fnos_\$\{VERSION\}/);
   assert.match(manifestContent, /^micro_app\s*=\s*true$/m);
-  assert.match(manifestContent, /^os_min_version\s*=\s*1\.1\.3100$/m);
+  assert.match(manifestContent, /^os_min_version\s*=\s*1\.2\.0401$/m);
   assert.deepEqual(resource['api-scope'], ['trim.file.sharedAccess', 'trim.file.path']);
   assert.equal(uiConfig['.url']?.['motrix.Application']?.allUsers, false);
   assert.equal(uiConfig['.url']?.['motrix.Application']?.control?.accessPerm, 'editable');
@@ -43,7 +43,7 @@ test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () 
   assert.match(build, /['"]app['"], ['"]bin['"]|['"]app\/bin['"]/);
   assert.match(build, /['"]app['"], ['"]ui['"]|['"]app\/ui['"]/);
   assert.match(build, /['"]cmd['"]|['"]cmd\//);
-  assert.match(build, /minimumFnosVersion\s*=\s*['"]1\.1\.3100['"]/);
+  assert.match(build, /minimumFnosVersion\s*=\s*['"]1\.2\.0401['"]/);
   assert.doesNotMatch(build, /0\.9\.0/);
   assert.match(start, /wait_for_server_ready/);
   assert.match(start, /JSONRPC_ADDR/);

@@ -6,7 +6,6 @@ function adapter(options: {
   isStandaloneWeb?: boolean;
   ready?: () => Promise<void>;
   pickSharedFile?: () => Promise<unknown>;
-  openAppSetting?: () => Promise<unknown>;
   getPlatformConfig?: () => Promise<unknown>;
   setTitle?: (title: string) => Promise<unknown>;
   openFile?: (path: string) => Promise<unknown>;
@@ -20,7 +19,6 @@ function adapter(options: {
     isStandaloneWeb: options.isStandaloneWeb ?? false,
     ready: options.ready ?? vi.fn().mockResolvedValue(undefined),
     pickSharedFile: options.pickSharedFile ?? vi.fn().mockResolvedValue({ code: 0, msg: "", data: ["/vol1/private"] }),
-    openAppSetting: options.openAppSetting ?? vi.fn().mockResolvedValue(undefined),
     getPlatformConfig:
       options.getPlatformConfig ??
       vi.fn().mockResolvedValue({
@@ -64,7 +62,6 @@ describe("FnosHostAdapter", () => {
 
     await expect(standalone.adapter.getHostKind()).resolves.toBe("standalone");
     await expect(standalone.adapter.requestSharedFolderAuthorization()).resolves.toEqual({ status: "unsupported" });
-    await expect(standalone.adapter.openAppSettings()).resolves.toEqual({ status: "unsupported" });
     await expect(standalone.adapter.getPlatformConfig()).resolves.toBeNull();
     await expect(standalone.adapter.setTitle("Motrix")).resolves.toEqual({ status: "unsupported" });
     await expect(standalone.adapter.openFile("/vol1/file")).resolves.toEqual({ status: "unsupported" });
@@ -72,7 +69,6 @@ describe("FnosHostAdapter", () => {
     await expect(standalone.adapter.showFileDetails(["/vol1/file"])).resolves.toEqual({ status: "unsupported" });
     await expect(standalone.adapter.subscribeTheme(vi.fn())).resolves.toMatchObject({ status: "unsupported" });
     expect(standalone.app.pickSharedFile).not.toHaveBeenCalled();
-    expect(standalone.app.openAppSetting).not.toHaveBeenCalled();
     expect(standalone.app.getPlatformConfig).not.toHaveBeenCalled();
     expect(standalone.app.setTitle).not.toHaveBeenCalled();
     expect(standalone.app.openFile).not.toHaveBeenCalled();
@@ -108,12 +104,6 @@ describe("FnosHostAdapter", () => {
   ])("classifies picker exception %#", async (error, status) => {
     const hosted = adapter({ pickSharedFile: vi.fn().mockRejectedValue(error) });
     await expect(hosted.adapter.requestSharedFolderAuthorization()).resolves.toEqual({ status });
-  });
-
-  it("opens app settings only inside supported hosts", async () => {
-    const hosted = adapter();
-    await expect(hosted.adapter.openAppSettings()).resolves.toEqual({ status: "opened" });
-    expect(hosted.app.openAppSetting).toHaveBeenCalledOnce();
   });
 
   it("reads platform config and wraps title and file host actions", async () => {

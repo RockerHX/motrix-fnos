@@ -12,13 +12,13 @@
 | `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | 局域网 JSON-RPC 监听地址 | `0.0.0.0:17082` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
-| `TRIM_API_TOKEN` | fnOS 为已声明 Scope 的 FPK 进程注入的开放 API Token，只按请求读取 | 无；缺失时保留旧授权快照 |
+| `TRIM_API_TOKEN` | fnOS 为已声明 Scope 的 FPK 进程注入的开放 API Token，只按请求读取 | 无；缺失时保留最后一次官方 API 快照 |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 可信反向代理的直接对端 IP，逗号分隔 | 空，不读取代理来源 Header |
 | `MOTRIX_WEB_COOKIE_SECURE` | 是否为 Web Session Cookie 添加 `Secure` | `false` |
 
-FPK 脚本从 fnOS 注入的 `TRIM_DATA_ACCESSIBLE_PATHS` 读取已授权目录，并写入 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE`。后端以该文件为主，文件不存在时才回退读取当前进程环境变量。
+`MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` 只保存 Rust server 通过官方 API 确认的授权目录快照；正式包不再读取 `TRIM_DATA_ACCESSIBLE_PATHS` 或从应用设置回写旧快照。
 
-支持开放 API 的 fnOS 会同时向正式 `motrix` 进程注入 `TRIM_API_TOKEN`。server 启动时在读取授权快照前通过官方 Unix Socket 尝试刷新一次；成功结果（包括空数组）原子覆盖快照，Token、Socket 或网关不可用时保留旧快照并继续启动。Token 不得进入前端、SQLite、日志、诊断包或 HTTP 响应。
+支持开放 API 的 fnOS 会同时向正式 `motrix` 进程注入 `TRIM_API_TOKEN`。server 启动时在读取授权快照前通过官方 Unix Socket 尝试刷新一次；成功结果（包括空数组）原子覆盖快照，Token、Socket 或网关不可用时保留最后一次官方 API 快照并继续启动。Token 不得进入前端、SQLite、日志、诊断包或 HTTP 响应。
 
 监听器约定：
 
@@ -306,7 +306,7 @@ Session 与 Cookie 约定：
 
 - 接口只接受 URL 中的任务 ID，不接受客户端路径；任务不存在返回 `404 task_not_found`。
 - `language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
-- `saveDir` 和存在时的 `filePath` 同时返回真实路径与语义化展示路径。路径转换失败、旧 fnOS 或开放 API 不可用时 `displayPath` 回退为对应 `path`，不改变文件操作判定。
+- `saveDir` 和存在时的 `filePath` 同时返回真实路径与语义化展示路径。路径转换失败或开放 API 不可用时 `displayPath` 回退为对应 `path`，不改变文件操作判定。
 - `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`path_unauthorized` 或 `unsupported_layout`。非 `available` 时所有操作目标均为 `null` 或空数组。
 - URL 任务必须已完成、文件未删除，目标是存在的普通文件，且 `canonicalize` 后仍位于当前授权根目录；可用时文件路径同时作为文件管理器定位、打开文件和文件详情目标。
 - BT/磁力任务只接受明确持久化的 `ownedTaskDir`。目标必须是存在的非符号链接目录并处于当前授权根内；可用时只提供文件管理器和目录详情目标，不提供打开文件目标。历史任务缺少该字段时返回 `unsupported_layout`。
@@ -807,12 +807,12 @@ Session 与 Cookie 约定：
 
 - `GET` 只读取当前已确认快照，响应结构保持兼容，不调用 fnOS 外部服务。
 - `GET /display` 只转换当前授权快照中的路径，不接受客户端路径。`language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
-- server 通过 `trim.file.convertPath` 请求语义化路径。上游失败、旧 fnOS、Token/Socket 不可用时整批回退原始路径；上游缺项、重复项或空语义路径时只对相应原始路径回退。结果按原始路径精确匹配，不持久化、不缓存。
+- server 通过 `trim.file.convertPath` 请求语义化路径。上游失败或 Token/Socket 不可用时整批回退原始路径；上游缺项、重复项或空语义路径时只对相应原始路径回退。结果按原始路径精确匹配，不持久化、不缓存。
 - `POST` 无请求体，要求有效 Web 管理 Session 与 CSRF Token；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
 - 官方查询成功后校验全部路径并原子覆盖快照；空数组是有效结果。查询、响应校验或持久化失败时不修改旧快照。
 - 官方路径必须是非根绝对 Unix 路径，不允许首尾空白、反斜杠、NUL、`.` 或 `..` 组件；任一非法项拒绝整次刷新。合法路径去重并保留官方顺序。
 - 上游失败映射为 `502` 或 `503`，不得映射为浏览器 `401`。成功刷新后同步更新 JSON-RPC 默认下载目录缓存。
-- 前端新建任务时必须从 `paths` 中选择保存目录；列表为空或宿主不支持 SDK 时，应提示用户在 fnOS 应用设置中添加读写文件夹授权。
+- 前端新建任务时必须从 `paths` 中选择保存目录；列表为空或宿主不支持 SDK 时，应提示用户在符合版本要求的 fnOS 宿主中打开 Motrix 完成读写文件夹授权。
 
 ## 5. SSE 事件流
 
