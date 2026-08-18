@@ -446,6 +446,13 @@ export const enUS: Record<TranslationKey, string> = {
 
   "diagnostics.eyebrow": "Diagnostics",
   "diagnostics.title": "Phase Status and Engine Diagnostics",
+  "diagnostics.navigation.label": "Diagnostic sections",
+  "diagnostics.sections.overview": "Overview",
+  "diagnostics.sections.overviewHelp": "Review the current application, backend communication, and Aria2 engine status.",
+  "diagnostics.sections.connection": "Connection",
+  "diagnostics.sections.connectionHelp": "Check JSON-RPC endpoints and Token configuration status.",
+  "diagnostics.sections.logs": "Logs",
+  "diagnostics.sections.logsHelp": "Manage Aria2 native logs, log usage, and in-app debug records.",
   "diagnostics.debugLogs": "Debug Logs",
   "diagnostics.bundle.export": "Export Diagnostic Bundle",
   "diagnostics.bundle.exported": "Diagnostic bundle exported",

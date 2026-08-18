@@ -2,6 +2,73 @@ h2 {
   margin: 0;
 }
 
+:deep(.diagnostics-dialog-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.diagnostics-tabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.diagnostics-tabs :deep(.diagnostics-pane) {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.diagnostics-tabs :deep(.diagnostics-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.diagnostics-tabs :deep(.diagnostics-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.diagnostics-tabs :deep(.diagnostics-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.diagnostics-tabs :deep(.diagnostics-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.diagnostics-section-description {
+  margin: 0 0 16px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.diagnostics-pane-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .diagnostics-metrics {
   margin-bottom: 16px;
+}
+
+@media (max-width: 767px) {
+  .diagnostics-tabs :deep(.diagnostics-pane) {
+    padding-right: 0;
+  }
 }

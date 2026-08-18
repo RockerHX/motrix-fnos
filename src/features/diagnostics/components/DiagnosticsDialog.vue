@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NButton, NSpace } from "naive-ui";
+import { NButton, NTabPane, NTabs, NSpace } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
@@ -21,6 +21,8 @@ type EngineStatusSnapshot = {
   rpc: Aria2RpcStatus;
 };
 
+type DiagnosticSection = "overview" | "connection" | "logs";
+
 const props = defineProps<{
   show: boolean;
   appInfo: AppInfo | null;
@@ -39,16 +41,17 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const lanJsonRpcStore = useLanJsonRpcStore();
+const activeSection = ref<DiagnosticSection>("overview");
 const showDebugLogs = ref(false);
 const logMaintenanceRef = ref<InstanceType<typeof LogMaintenancePanel> | null>(null);
 const { isExporting, exportDiagnosticBundle } = useDiagnosticBundleExport();
 const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
-const diagnosticMetrics = computed<AppMetricItem[]>(() => [
+const overviewMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
   { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
   { label: t("diagnostics.communication"), value: props.backendPing?.message ?? t("common.loading") },
-  { label: t("diagnostics.aria2Process"), value: props.aria2Process?.running ? t("diagnostics.running") : t("diagnostics.stopped") },
-  { label: t("diagnostics.aria2Rpc"), value: props.aria2Rpc?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected") },
+]);
+const connectionMetrics = computed<AppMetricItem[]>(() => [
   {
     label: t("diagnostics.jsonRpcEndpoint"),
     value: "127.0.0.1:17081",
@@ -97,6 +100,7 @@ watch(
   () => props.show,
   (show) => {
     if (show) {
+      activeSection.value = "overview";
       emit("refreshStatus");
       void lanJsonRpcStore.loadStatus().catch(() => undefined);
     }
@@ -137,31 +141,54 @@ function updateLogUsage() {
     :eyebrow="t('diagnostics.eyebrow')"
     :title="t('diagnostics.title')"
     width="900px"
+    fixed-body
+    content-class="diagnostics-dialog-content"
     @update:show="updateShow"
   >
     <template #header-extra>
       <NSpace>
-        <NButton secondary @click="emit('openRpcGuide')">{{ t("diagnostics.jsonRpcGuide") }}</NButton>
         <NButton secondary :loading="isExporting" @click="exportBundleAndRefresh">
           <template #icon><AppIcon name="download" :size="16" /></template>
           {{ t("diagnostics.bundle.export") }}
         </NButton>
-        <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
       </NSpace>
     </template>
 
-    <AppMetricGrid class="diagnostics-metrics" :items="diagnosticMetrics" :desktop-columns="2" :mobile-columns="1" />
+    <NTabs
+      v-model:value="activeSection"
+      class="diagnostics-tabs"
+      type="segment"
+      pane-class="diagnostics-pane"
+      :aria-label="t('diagnostics.navigation.label')"
+    >
+      <NTabPane name="overview" :tab="t('diagnostics.sections.overview')" display-directive="show:lazy">
+        <p class="diagnostics-section-description">{{ t("diagnostics.sections.overviewHelp") }}</p>
+        <AppMetricGrid class="diagnostics-metrics" :items="overviewMetrics" :desktop-columns="3" :mobile-columns="1" />
+        <EngineStatusPanel @status-updated="updateEngineStatus" />
+      </NTabPane>
 
-    <Aria2LogModePanel :active="props.show" @updated="updateLogMode" />
+      <NTabPane name="connection" :tab="t('diagnostics.sections.connection')" display-directive="show:lazy">
+        <p class="diagnostics-section-description">{{ t("diagnostics.sections.connectionHelp") }}</p>
+        <AppMetricGrid class="diagnostics-metrics" :items="connectionMetrics" :desktop-columns="2" :mobile-columns="1" />
+        <div class="diagnostics-pane-actions">
+          <NButton secondary @click="emit('openRpcGuide')">{{ t("diagnostics.jsonRpcGuide") }}</NButton>
+        </div>
+      </NTabPane>
 
-    <LogMaintenancePanel
-      ref="logMaintenanceRef"
-      :active="props.show"
-      :aria2-running="props.aria2Process?.running ?? null"
-      @updated="updateLogUsage"
-    />
-
-    <EngineStatusPanel @status-updated="updateEngineStatus" />
+      <NTabPane name="logs" :tab="t('diagnostics.sections.logs')" display-directive="show:lazy">
+        <p class="diagnostics-section-description">{{ t("diagnostics.sections.logsHelp") }}</p>
+        <Aria2LogModePanel :active="props.show" @updated="updateLogMode" />
+        <LogMaintenancePanel
+          ref="logMaintenanceRef"
+          :active="props.show"
+          :aria2-running="props.aria2Process?.running ?? null"
+          @updated="updateLogUsage"
+        />
+        <div class="diagnostics-pane-actions">
+          <NButton secondary @click="showDebugLogs = true">{{ t("diagnostics.debugLogs") }}</NButton>
+        </div>
+      </NTabPane>
+    </NTabs>
   </AppDialog>
 
   <DebugLogDialog v-model:show="showDebugLogs" />

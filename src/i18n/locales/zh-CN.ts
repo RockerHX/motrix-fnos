@@ -444,6 +444,13 @@ export const zhCN = {
 
   "diagnostics.eyebrow": "Diagnostics",
   "diagnostics.title": "阶段状态与引擎诊断",
+  "diagnostics.navigation.label": "诊断分区",
+  "diagnostics.sections.overview": "概览",
+  "diagnostics.sections.overviewHelp": "查看应用、后端通信和 Aria2 引擎的当前状态。",
+  "diagnostics.sections.connection": "连接",
+  "diagnostics.sections.connectionHelp": "检查 JSON-RPC 端点和 Token 配置状态。",
+  "diagnostics.sections.logs": "日志",
+  "diagnostics.sections.logsHelp": "管理 Aria2 原生日志、日志占用和应用内调试记录。",
   "diagnostics.debugLogs": "调试日志",
   "diagnostics.bundle.export": "导出诊断包",
   "diagnostics.bundle.exported": "诊断包已导出",
