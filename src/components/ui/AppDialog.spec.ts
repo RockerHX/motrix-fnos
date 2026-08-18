@@ -27,14 +27,28 @@ vi.mock("naive-ui", async () => {
     }),
     NCard: defineComponent({
       name: "NCardStub",
-      setup(_, { slots, attrs }) {
+      props: {
+        contentClass: { type: String, default: "" },
+        contentStyle: { type: [String, Object], default: undefined },
+      },
+      setup(props, { slots, attrs }) {
         return () =>
-          h("section", { ...attrs, "data-test": "n-card" }, [
-            ...(slots.header?.() ?? []),
-            ...(slots["header-extra"]?.() ?? []),
-            ...(slots.default?.() ?? []),
-            ...(slots.footer?.() ?? []),
-          ]);
+          h(
+            "section",
+            {
+              ...attrs,
+              "data-test": "n-card",
+              "data-content-class": props.contentClass,
+              "data-content-style":
+                typeof props.contentStyle === "string" ? props.contentStyle : JSON.stringify(props.contentStyle),
+            },
+            [
+              ...(slots.header?.() ?? []),
+              ...(slots["header-extra"]?.() ?? []),
+              ...(slots.default?.() ?? []),
+              ...(slots.footer?.() ?? []),
+            ],
+          );
       },
     }),
     NButton: defineComponent({
@@ -83,6 +97,20 @@ describe("AppDialog", () => {
     expect(wrapper.text()).toContain("正文内容");
     expect(wrapper.text()).toContain("底部内容");
     expect(wrapper.get('[data-test="n-card"]').attributes("style")).toContain("--app-dialog-width: 640px");
+  });
+
+  it("forwards content class and style to the card body", () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        contentClass: "dialog-content",
+        contentStyle: "display: flex;",
+      },
+    });
+
+    const card = wrapper.get('[data-test="n-card"]');
+    expect(card.attributes("data-content-class")).toBe("dialog-content");
+    expect(card.attributes("data-content-style")).toBe("display: flex;");
   });
 
   it("emits close events from close button", async () => {

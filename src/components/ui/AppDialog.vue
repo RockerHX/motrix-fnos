@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useSlots } from "vue";
+import { computed, useSlots, type CSSProperties } from "vue";
 import { NButton, NCard, NModal } from "naive-ui";
 
 const props = withDefaults(
@@ -12,6 +12,8 @@ const props = withDefaults(
     closeDisabled?: boolean;
     showClose?: boolean;
     cardClass?: string;
+    contentClass?: string;
+    contentStyle?: string | CSSProperties;
   }>(),
   {
     title: "",
@@ -21,6 +23,7 @@ const props = withDefaults(
     closeDisabled: false,
     showClose: true,
     cardClass: "",
+    contentClass: "",
   },
 );
 
@@ -55,7 +58,14 @@ function closeDialog() {
 
 <template>
   <NModal :show="props.show" :mask-closable="props.maskClosable" @update:show="updateShow">
-    <NCard :class="cardClasses" :style="cardStyle" role="dialog" aria-modal="true">
+    <NCard
+      :class="cardClasses"
+      :style="cardStyle"
+      :content-class="props.contentClass"
+      :content-style="props.contentStyle"
+      role="dialog"
+      aria-modal="true"
+    >
       <template v-if="hasHeader" #header>
         <slot name="header">
           <div>
