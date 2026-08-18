@@ -36,7 +36,7 @@ jobs:
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
       - name: Cache Rust registry
-        uses: Swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: server -> target
           shared-key: rust-registry
@@ -124,7 +124,7 @@ jobs:
           cat packaging/fnos/dist/SHA256SUMS.txt
 
       - name: Attest FPK and release metadata
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             packaging/fnos/dist/motrix_${{ steps.release_files.outputs.version }}_*.fpk

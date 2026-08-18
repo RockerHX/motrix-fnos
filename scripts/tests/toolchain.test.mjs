@@ -12,7 +12,8 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   const buildScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
 
   assert.equal(packageJson.packageManager, 'pnpm@11.17.0');
-  assert.match(nodeVersion, /^22\.\d+\.\d+$/);
+  assert.equal(packageJson.engines?.node, '>=24.0.0');
+  assert.match(nodeVersion, /^24\.\d+\.\d+$/);
   assert.match(rustToolchain, /channel\s*=\s*"1\.97\.1"/);
   for (const workflow of [verifyWorkflow, releaseWorkflow]) {
     assert.match(workflow, /version:\s+11\.17\.0/);

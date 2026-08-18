@@ -23,7 +23,7 @@ jobs:
           toolchain: 1.97.1
 
       - name: Cache Rust registry and installed tools
-        uses: Swatinem/rust-cache@aa7c1c80a07a27a84c0aa76d0cef0aad3830e330 # v2.7.8
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: server -> target
           shared-key: dependency-audit
