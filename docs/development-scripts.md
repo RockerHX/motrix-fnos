@@ -202,9 +202,9 @@ pnpm run release:prepare 1.7.4 --dry-run
 
 - 命令会拒绝接管无关的脏工作区；执行前先提交、暂存到安全位置或恢复无关改动。
 - 已有合法目标版本条目时直接复用，不调用模型。GitHub Actions 默认通过 Cloudflare Workers AI 生成日志；模型、凭证或配额异常会中止发布，避免静默生成逐 commit 的冗长日志。可提前人工写入目标版本条目绕过模型调用。
-- 仓库 Secrets 需要 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。先在 Cloudflare 控制台手动创建 ID 为 `motrix-fnos-release`、Workers AI Billing 为 Standard billing 的 AI Gateway，再给 Actions 使用的自定义 Token 授予目标账户的 Workers AI Read 与 AI Gateway Read 权限；只有使用该 Token 创建或修改 Gateway 时才额外需要 AI Gateway Edit。Actions 会把每次请求路由到该 Gateway，强制保留 token、模型、状态和耗时等元数据，同时禁止保存 commit prompt 或模型响应正文。
-- AI 生成结束后，Actions 的 `Prepare release files` 日志和 Job summary 会显示本次请求数、输入/输出 token、按当前模型费率折算的神经元，以及该 Gateway 当日累计与剩余估算。账户级实际剩余仍以 Workers AI Dashboard 为准，因为绕过此 Gateway 的调用不会出现在 Gateway 汇总中。
-- 本地需要 AI 总结时设置相同凭证，并设置 `MOTRIX_RELEASE_CHANGELOG_PROVIDER=cloudflare-workers-ai`；需要同步记录到 Gateway 时再设置 `CLOUDFLARE_AI_GATEWAY_ID=motrix-fnos-release`。
+- 仓库 Secrets 需要 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。先在 Cloudflare 控制台手动创建 ID 为 `motrix-fnos-release`、Workers AI Billing 为 Standard billing 的 AI Gateway，再给 Actions 使用的自定义 Token 授予目标账户的 Workers AI Read 权限；创建或修改 Gateway 时使用另一个临时 Token，并额外授予 AI Gateway Edit。Actions 会把每次请求路由到该 Gateway，强制保留调用元数据，同时禁止保存 commit prompt 或模型响应正文。
+- AI 生成结束后，Actions 的 Job summary 会显示版本号、CHANGELOG、下载链接、SHA256 校验文件和 SBOM。脚本不读取 AI Gateway Logs，也不推算 token、神经元或剩余额度；账户级实际用量和余额请以 Workers AI Dashboard 为准。
+- 本地需要 AI 总结时设置相同凭证，并设置 `MOTRIX_RELEASE_CHANGELOG_PROVIDER=cloudflare-workers-ai`；需要通过 Gateway 路由时再设置 `CLOUDFLARE_AI_GATEWAY_ID=motrix-fnos-release`。
 - 该命令只用于正式版本，不接受 `-beta`。
 - GitHub Actions 的 Release workflow 仍是远程正式发版入口；本地命令不能替代 Actions 权限、产物上传和双架构发布检查。
 

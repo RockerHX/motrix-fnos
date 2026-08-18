@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { assertReleaseVersion, readProjectVersions, repoRoot, setProjectVersion } from '../version/version-utils.mjs';
@@ -15,9 +15,6 @@ import {
   createCloudflareWorkersAICompletion,
   DEFAULT_CLOUDFLARE_ANALYSIS_MODEL,
   DEFAULT_CLOUDFLARE_EDITOR_MODEL,
-  formatCloudflareGatewayDailyUsage,
-  formatCloudflareWorkersAIUsage,
-  readCloudflareGatewayDailyUsage,
 } from './release-changelog-cloudflare.mjs';
 import { collectReleaseCommitContext, readReleaseCommits } from './release-changelog-context.mjs';
 
@@ -178,45 +175,13 @@ async function generateChangelogWithCloudflareWorkersAI({ version, baseRef, chan
       version,
     },
   });
-  try {
-    return await generateChangelogWithHierarchicalSummary({
-      version,
-      baseRef,
-      changeContext,
-      complete,
-      onProgress: (message) => console.log(message),
-    });
-  } finally {
-    const usageReports = [formatCloudflareWorkersAIUsage(complete.usage)];
-    try {
-      const dailyUsage = await readCloudflareGatewayDailyUsage({
-        accountId: process.env.CLOUDFLARE_ACCOUNT_ID,
-        apiToken: process.env.CLOUDFLARE_API_TOKEN,
-        gatewayId: process.env.CLOUDFLARE_AI_GATEWAY_ID,
-        expectedMetadata: {
-          repository: process.env.GITHUB_REPOSITORY ?? 'local',
-          run_id: process.env.GITHUB_RUN_ID ?? 'local',
-          version,
-        },
-        minimumExpectedRequests: complete.usage.requests,
-      });
-      if (dailyUsage) usageReports.push(formatCloudflareGatewayDailyUsage(dailyUsage));
-    } catch (error) {
-      console.warn(
-        `无法读取 Cloudflare AI Gateway 今日用量，不影响本次发布：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    printCloudflareUsageReports(usageReports);
-  }
-}
-
-function printCloudflareUsageReports(reports) {
-  const content = reports.filter(Boolean).join('\n\n');
-  console.log(`\n${content}\n`);
-  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-  if (summaryPath) {
-    appendFileSync(summaryPath, `## Release AI 用量\n\n${content}\n\n`);
-  }
+  return generateChangelogWithHierarchicalSummary({
+    version,
+    baseRef,
+    changeContext,
+    complete,
+    onProgress: (message) => console.log(message),
+  });
 }
 
 function fallbackChangelog(commits) {

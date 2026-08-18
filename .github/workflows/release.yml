@@ -234,6 +234,17 @@ jobs:
               --notes-file github-release-notes.md
           fi
 
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "## Release FPK"
+              echo
+              echo "- 版本：${RELEASE_TAG}"
+              echo "- Release：[${RELEASE_TAG}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG})"
+              echo
+              cat github-release-notes.md
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+
       - name: Close obsolete release PR
         env:
           GH_TOKEN: ${{ github.token }}
