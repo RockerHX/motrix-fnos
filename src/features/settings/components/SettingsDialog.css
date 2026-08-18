@@ -1,6 +1,87 @@
+:deep(.settings-dialog-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .settings-form {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-section-select {
+  flex: 0 0 auto;
+}
+
+.settings-sections-tabs {
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-sections-tabs :deep(.n-tabs-nav) {
+  flex: 0 0 156px;
+  width: 156px;
+}
+
+.settings-sections-tabs :deep(.settings-pane) {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.settings-sections-tabs :deep(.settings-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.settings-sections-tabs :deep(.settings-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.settings-sections-tabs :deep(.settings-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.settings-sections-tabs :deep(.settings-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.settings-pane-section {
   display: grid;
-  gap: 16px;
+  gap: 12px;
+}
+
+.settings-section-description,
+.settings-save-note {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settings-save-note {
+  margin-top: 6px;
+}
+
+.settings-rpc-tabs {
+  min-width: 0;
 }
 
 .settings-preferences {
@@ -116,6 +197,15 @@
 }
 
 @media (max-width: 767px) {
+  .settings-sections-tabs :deep(.n-tabs-nav) {
+    display: none;
+  }
+
+  .settings-sections-tabs :deep(.settings-pane) {
+    width: 100%;
+    padding-right: 0;
+  }
+
   .settings-preferences {
     padding: 14px;
   }
