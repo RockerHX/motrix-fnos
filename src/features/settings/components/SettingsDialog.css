@@ -300,17 +300,14 @@
 }
 
 @media (max-width: 767px) {
-  .settings-sections-tabs :deep(.n-tabs-nav) {
+  .settings-sections-tabs > :deep(.n-tabs-nav) {
     display: none;
+    margin-bottom: 8px;
   }
 
   .settings-sections-tabs :deep(.settings-pane) {
     width: 100%;
     padding-right: 0;
-  }
-
-  .settings-sections-tabs :deep(.n-tabs-nav) {
-    margin-bottom: 8px;
   }
 
   .settings-rpc-tabs :deep(.n-tabs-nav) {
