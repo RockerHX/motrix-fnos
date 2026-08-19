@@ -420,6 +420,7 @@ export const enUS: Record<TranslationKey, string> = {
 
   "help.eyebrow": "Help",
   "help.title": "Motrix Help",
+  "help.accordion.label": "Help topics",
   "help.authorizedDirs.title": "Authorized Directories and Default Download Directory",
   "help.authorizedDirs.body": "The default download directory comes from authorized folders in fnOS app settings. Add a read-write directory in fnOS app settings first. Motrix prefers the data directory in authorized folders; new tasks use the directory saved in Settings by default.",
   "help.downloadSettings.title": "Download Settings",

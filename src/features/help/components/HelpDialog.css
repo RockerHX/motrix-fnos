@@ -1,10 +1,62 @@
-.help-sections {
-  display: grid;
-  gap: 14px;
+:deep(.help-dialog-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.help-pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.help-pane-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.help-pane-scroll::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.help-pane-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.help-pane-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.help-pane-scroll :deep(.n-collapse-item__header) {
+  min-height: 44px;
+}
+
+.help-topic-body {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.help-topic-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 @media (max-width: 767px) {
-  .help-sections {
-    gap: 12px;
+  .help-topic-actions :deep(.n-button) {
+    width: 100%;
   }
 }

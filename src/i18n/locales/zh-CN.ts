@@ -418,6 +418,7 @@ export const zhCN = {
 
   "help.eyebrow": "Help",
   "help.title": "Motrix 使用帮助",
+  "help.accordion.label": "帮助主题",
   "help.authorizedDirs.title": "授权目录与默认下载目录",
   "help.authorizedDirs.body": "默认下载目录来自飞牛应用设置中的已授权文件夹。请先在 fnOS 应用设置里添加读写目录，Motrix 会优先使用授权目录中的 data 目录；新建任务默认使用设置页保存的目录。",
   "help.downloadSettings.title": "下载设置",
