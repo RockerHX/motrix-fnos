@@ -248,10 +248,18 @@
   margin-bottom: 0;
 }
 
+.settings-authorization-fields {
+  display: grid;
+  gap: 16px;
+}
+
 .settings-accessible-paths {
   display: grid;
-  gap: 12px;
-  padding-bottom: 4px;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay);
 }
 
 .settings-accessible-paths-heading {
@@ -259,6 +267,18 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.settings-accessible-paths-kicker,
+.settings-default-download-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--app-text-accent-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
 .settings-accessible-paths-heading h4,
@@ -281,15 +301,66 @@
 
 .settings-accessible-path-count {
   display: inline-flex;
-  min-width: 28px;
-  height: 28px;
+  min-width: 34px;
+  height: 34px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--app-color-border-subtle);
-  border-radius: var(--app-radius-sm);
+  border: 1px solid color-mix(in srgb, var(--app-text-accent-soft) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-text-accent-soft) 10%, transparent);
   color: var(--app-text-accent);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+.settings-accessible-paths-status {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-accessible-paths-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px solid var(--app-color-border-subtle);
+}
+
+.settings-default-download-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr);
+  align-items: start;
+  gap: 24px;
+  padding: 18px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.settings-default-download-copy h4,
+.settings-default-download-copy p {
+  margin: 0;
+}
+
+.settings-default-download-copy h4 {
+  color: var(--app-text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.settings-default-download-copy p {
+  margin-top: 6px;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-default-download-field {
+  margin: 0;
+}
+
+.settings-default-download-field :deep(.n-form-item-label) {
+  display: none;
 }
 
 .settings-form :deep(.n-select),
@@ -336,6 +407,20 @@
 
   .settings-preferences {
     padding: 14px;
+  }
+
+  .settings-accessible-paths,
+  .settings-default-download-card {
+    padding: 14px;
+  }
+
+  .settings-accessible-paths-actions {
+    justify-content: flex-start;
+  }
+
+  .settings-default-download-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
   }
 
   .settings-section-heading {

@@ -39,7 +39,7 @@ const emit = defineEmits<{
 const message = useMessage();
 const settingsStore = useSettingsStore();
 const downloadProxyStore = useDownloadProxyStore();
-const { t } = useI18n();
+const { language: currentLanguage, setLanguage, t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 type SettingsSection = "preferences" | "proxy" | "security" | "rpc";
 type PreferencesSection = "authorization" | "interface" | "download";
@@ -48,6 +48,7 @@ type RpcSection = "public" | "lan";
 const activeSection = ref<SettingsSection>("preferences");
 const activePreferencesSection = ref<PreferencesSection>("authorization");
 const activeRpcSection = ref<RpcSection>("public");
+const savedLanguage = ref<AppConfig["language"] | null>(null);
 const form = reactive({
   defaultDownloadDir: "",
   maxConcurrentDownloads: 5,
@@ -72,6 +73,7 @@ const languageOptions = computed(() =>
 );
 const isDefaultDownloadDirUnauthorized = computed(
   () =>
+    settingsStore.accessiblePaths.length > 0 &&
     !!form.defaultDownloadDir &&
     !settingsStore.accessiblePaths.includes(form.defaultDownloadDir),
 );
@@ -117,7 +119,10 @@ watch(
       activeSection.value = "preferences";
       activePreferencesSection.value = "authorization";
       activeRpcSection.value = "public";
+      savedLanguage.value = currentLanguage.value;
       void loadSettings();
+    } else {
+      restoreSavedLanguage();
     }
   },
   { immediate: true },
@@ -126,8 +131,11 @@ watch(
 watch(
   () => form.language,
   (nextLanguage, previousLanguage) => {
-    if (props.show && nextLanguage !== previousLanguage && settingsStore.accessiblePaths.length > 0) {
-      void settingsStore.loadDisplayAccessiblePaths(nextLanguage);
+    if (props.show && nextLanguage !== previousLanguage) {
+      setLanguage(nextLanguage);
+      if (settingsStore.accessiblePaths.length > 0) {
+        void settingsStore.loadDisplayAccessiblePaths(nextLanguage);
+      }
     }
   },
 );
@@ -217,6 +225,7 @@ function applyConfig(config: AppConfig) {
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
   form.language = config.language;
+  savedLanguage.value = config.language;
 }
 
 function buildPayload(): AppConfig {
@@ -230,7 +239,19 @@ function buildPayload(): AppConfig {
 }
 
 function closeDialog() {
+  restoreSavedLanguage();
   emit("update:show", false);
+}
+
+function handleDialogVisibilityChange(nextShow: boolean) {
+  if (!nextShow) restoreSavedLanguage();
+  emit("update:show", nextShow);
+}
+
+function restoreSavedLanguage() {
+  if (savedLanguage.value && currentLanguage.value !== savedLanguage.value) {
+    setLanguage(savedLanguage.value);
+  }
 }
 
 function bytesToKb(value: number) {
@@ -252,7 +273,7 @@ function kbToBytes(value: number) {
     content-class="settings-dialog-content"
     :mask-closable="!isSettingsSaving"
     :close-disabled="isSettingsSaving"
-    @update:show="emit('update:show', $event)"
+    @update:show="handleDialogVisibilityChange"
   >
     <NForm
       class="settings-form"
@@ -280,8 +301,6 @@ function kbToBytes(value: number) {
           <section class="settings-preferences settings-preferences-section">
             <header class="settings-section-heading">
               <div>
-                <h3>{{ t("settings.sections.preferences") }}</h3>
-                <p>{{ t("settings.sections.preferencesHelp") }}</p>
                 <p class="settings-save-note">{{ t("settings.sections.preferencesSaveNote") }}</p>
               </div>
             </header>
@@ -299,53 +318,67 @@ function kbToBytes(value: number) {
                 :tab="t('settings.preferenceTabs.authorization')"
                 display-directive="show:lazy"
               >
-                <div class="settings-preferences-fields">
-                  <div class="settings-accessible-paths" data-test="accessible-paths-settings">
+                <div class="settings-preferences-fields settings-authorization-fields">
+                  <section class="settings-accessible-paths" data-test="accessible-paths-settings">
                     <div class="settings-accessible-paths-heading">
                       <div>
+                        <span class="settings-accessible-paths-kicker">fnOS</span>
                         <h4>{{ t("settings.accessiblePaths.title") }}</h4>
                         <p>{{ t("settings.accessiblePaths.help") }}</p>
                       </div>
                       <span class="settings-accessible-path-count">{{ settingsStore.accessiblePaths.length }}</span>
                     </div>
-                    <NAlert type="info" :bordered="false">{{ accessiblePathsHelp }}</NAlert>
-                    <NAlert v-if="settingsStore.accessiblePathsStale" type="warning" :bordered="false">
-                      {{ t("settings.accessiblePaths.stale") }}
-                    </NAlert>
-                    <NSpace wrap>
-                      <NButton
-                        v-if="hostSupportsAuthorization"
-                        type="primary"
-                        :loading="isAuthorizing"
-                        :disabled="isDetectingHost || isSettingsSaving"
-                        @click="addAccessiblePath"
-                      >
-                        <template #icon><AppIcon name="plus" :size="16" /></template>
-                        {{ t("settings.accessiblePaths.add") }}
-                      </NButton>
-                      <NButton
+                    <div class="settings-accessible-paths-status">
+                      <NAlert type="info" :bordered="false">{{ accessiblePathsHelp }}</NAlert>
+                      <NAlert v-if="settingsStore.accessiblePathsStale" type="warning" :bordered="false">
+                        {{ t("settings.accessiblePaths.stale") }}
+                      </NAlert>
+                    </div>
+                    <div class="settings-accessible-paths-actions">
+                      <NSpace wrap>
+                        <NButton
+                          v-if="hostSupportsAuthorization"
+                          type="primary"
+                          :loading="isAuthorizing"
+                          :disabled="isDetectingHost || isSettingsSaving"
+                          @click="addAccessiblePath"
+                        >
+                          <template #icon><AppIcon name="plus" :size="16" /></template>
+                          {{ t("settings.accessiblePaths.add") }}
+                        </NButton>
+                        <NButton
+                          :loading="settingsStore.isLoadingAccessiblePaths"
+                          :disabled="isAuthorizing || isSettingsSaving"
+                          @click="refreshAccessiblePathList"
+                        >
+                          <template #icon><AppIcon name="refresh" :size="16" /></template>
+                          {{ t("settings.accessiblePaths.refresh") }}
+                        </NButton>
+                      </NSpace>
+                    </div>
+                  </section>
+                  <section class="settings-default-download-card">
+                    <div class="settings-default-download-copy">
+                      <span class="settings-default-download-kicker">{{ t("settings.preferenceTabs.download") }}</span>
+                      <h4>{{ t("settings.defaultDownloadDir") }}</h4>
+                      <p>{{ t("settings.defaultDownloadDir.help") }}</p>
+                    </div>
+                    <NFormItem
+                      class="settings-default-download-field"
+                      :label="t('settings.defaultDownloadDir')"
+                      :feedback="defaultDownloadDirMessage"
+                      :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
+                    >
+                      <NSelect
+                        v-model:value="form.defaultDownloadDir"
+                        :options="accessiblePathOptions"
                         :loading="settingsStore.isLoadingAccessiblePaths"
-                        :disabled="isAuthorizing || isSettingsSaving"
-                        @click="refreshAccessiblePathList"
-                      >
-                        <template #icon><AppIcon name="refresh" :size="16" /></template>
-                        {{ t("settings.accessiblePaths.refresh") }}
-                      </NButton>
-                    </NSpace>
-                  </div>
-                  <NFormItem
-                    :label="t('settings.defaultDownloadDir')"
-                    :feedback="defaultDownloadDirMessage"
-                    :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
-                  >
-                    <NSelect
-                      v-model:value="form.defaultDownloadDir"
-                      :options="accessiblePathOptions"
-                      :loading="settingsStore.isLoadingAccessiblePaths"
-                      :placeholder="t('settings.defaultDownloadDir.placeholder')"
-                      filterable
-                    />
-                  </NFormItem>
+                        :placeholder="t('settings.defaultDownloadDir.placeholder')"
+                        :aria-label="t('settings.defaultDownloadDir')"
+                        filterable
+                      />
+                    </NFormItem>
+                  </section>
                 </div>
               </NTabPane>
 

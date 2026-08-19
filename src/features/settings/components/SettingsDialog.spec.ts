@@ -287,13 +287,15 @@ vi.mock("./ProxySettings.vue", async () => {
 import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import { fnosHost } from "../../../services/fnos";
-import { refreshAccessiblePaths } from "../../../services/storage";
+import { refreshAccessiblePaths, getAccessiblePaths } from "../../../services/storage";
 import { saveAppConfig } from "../../../services/settings";
+import { language, setLanguage } from "../../../i18n";
 
 describe("SettingsDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isMobileLayout.value = false;
+    setLanguage("zh-CN");
     vi.mocked(fnosHost.getHostKind).mockResolvedValue("hosted");
     vi.mocked(fnosHost.requestSharedFolderAuthorization).mockResolvedValue({ status: "authorized" });
     vi.mocked(refreshAccessiblePaths).mockResolvedValue({ paths: ["/downloads"] });
@@ -329,9 +331,9 @@ describe("SettingsDialog", () => {
     expect(wrapper.find('.settings-preferences-tabs [data-pane="download"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain("后台驻留");
 
-    await selectPreferenceSection(wrapper, "界面");
+    await selectPreferenceSection(wrapper, "界面配置");
     expect(wrapper.get('.settings-preferences-tabs [data-pane="interface"]').isVisible()).toBe(true);
-    expect(preferenceTab(wrapper, "界面").attributes("aria-selected")).toBe("true");
+    expect(preferenceTab(wrapper, "界面配置").attributes("aria-selected")).toBe("true");
     expect(wrapper.text()).toContain("界面语言");
 
     await selectPreferenceSection(wrapper, "下载配置");
@@ -383,6 +385,39 @@ describe("SettingsDialog", () => {
     await select.setValue("preferences");
     await flushPromises();
     expect(wrapper.get(".settings-preferences-tabs").attributes("data-tabs-placement")).toBe("top");
+  });
+
+  it("previews the selected language immediately and restores it when cancelled", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+
+    await selectPreferenceSection(wrapper, "界面配置");
+    await wrapper.get('[data-pane="interface"] select').setValue("en-US");
+    await flushPromises();
+
+    expect(language.value).toBe("en-US");
+    expect(wrapper.get('[data-test="app-dialog-actions"]').text()).toContain("Cancel");
+
+    await wrapper.get('[data-test="app-dialog-actions"] button').trigger("click");
+    expect(language.value).toBe("zh-CN");
+  });
+
+  it("keeps save enabled when the backend returns no authorized folders", async () => {
+    vi.mocked(getAccessiblePaths).mockResolvedValueOnce({ paths: [] });
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+
+    const saveButton = wrapper.get('[data-test="app-dialog-actions"]').findAll("button").find((button) => button.text() === "保存")!;
+    expect((saveButton.element as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("keeps save disabled for a default folder outside the authorized list", async () => {
+    vi.mocked(getAccessiblePaths).mockResolvedValueOnce({ paths: ["/authorized"] });
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+
+    const saveButton = wrapper.get('[data-test="app-dialog-actions"]').findAll("button").find((button) => button.text() === "保存")!;
+    expect((saveButton.element as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("emits close event from dialog and cancel button", async () => {
