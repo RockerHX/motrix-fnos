@@ -318,6 +318,34 @@ describe("SettingsDialog", () => {
     expect(wrapper.get('[data-test="app-dialog-actions"]').text()).toContain("保存");
   });
 
+  it("splits downloads and interface into authorization, interface, and download configuration tabs", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+
+    expect(wrapper.get(".settings-preferences-tabs").attributes("data-tabs-type")).toBe("line");
+    expect(wrapper.get(".settings-preferences-tabs").attributes("data-tabs-placement")).toBe("left");
+    expect(wrapper.get('.settings-preferences-tabs [data-pane="authorization"]').isVisible()).toBe(true);
+    expect(wrapper.find('.settings-preferences-tabs [data-pane="interface"]').exists()).toBe(false);
+    expect(wrapper.find('.settings-preferences-tabs [data-pane="download"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("后台驻留");
+
+    await selectPreferenceSection(wrapper, "界面");
+    expect(wrapper.get('.settings-preferences-tabs [data-pane="interface"]').isVisible()).toBe(true);
+    expect(preferenceTab(wrapper, "界面").attributes("aria-selected")).toBe("true");
+    expect(wrapper.text()).toContain("界面语言");
+
+    await selectPreferenceSection(wrapper, "下载配置");
+    expect(wrapper.get('.settings-preferences-tabs [data-pane="download"]').isVisible()).toBe(true);
+    expect(preferenceTab(wrapper, "下载配置").attributes("aria-selected")).toBe("true");
+    expect(wrapper.text()).toContain("最大并发下载数");
+
+    await wrapper.setProps({ show: false });
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+
+    expect(preferenceTab(wrapper, "文件夹授权").attributes("aria-selected")).toBe("true");
+  });
+
   it("switches all settings sections and lazily mounts each child", async () => {
     const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
     await flushPromises();
@@ -351,6 +379,10 @@ describe("SettingsDialog", () => {
 
     expect((select.element as HTMLSelectElement).value).toBe("rpc");
     expect(wrapper.find('[data-test="open-rpc-guide"]').exists()).toBe(true);
+
+    await select.setValue("preferences");
+    await flushPromises();
+    expect(wrapper.get(".settings-preferences-tabs").attributes("data-tabs-placement")).toBe("top");
   });
 
   it("emits close event from dialog and cancel button", async () => {
@@ -455,4 +487,13 @@ async function selectMainSection(wrapper: any, label: string) {
 async function selectRpcSection(wrapper: any, label: string) {
   await wrapper.get(".settings-rpc-tabs").findAll("button").find((button: any) => button.text() === label)!.trigger("click");
   await flushPromises();
+}
+
+async function selectPreferenceSection(wrapper: any, label: string) {
+  await preferenceTab(wrapper, label).trigger("click");
+  await flushPromises();
+}
+
+function preferenceTab(wrapper: any, label: string) {
+  return wrapper.get(".settings-preferences-tabs").findAll("button").find((button: any) => button.text() === label)!;
 }

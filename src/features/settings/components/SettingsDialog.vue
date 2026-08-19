@@ -10,7 +10,6 @@ import {
   NTabPane,
   NTabs,
   NSpace,
-  NText,
   useMessage,
 } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
@@ -43,9 +42,11 @@ const downloadProxyStore = useDownloadProxyStore();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 type SettingsSection = "preferences" | "proxy" | "security" | "rpc";
+type PreferencesSection = "authorization" | "interface" | "download";
 type RpcSection = "public" | "lan";
 
 const activeSection = ref<SettingsSection>("preferences");
+const activePreferencesSection = ref<PreferencesSection>("authorization");
 const activeRpcSection = ref<RpcSection>("public");
 const form = reactive({
   defaultDownloadDir: "",
@@ -114,6 +115,7 @@ watch(
   (show) => {
     if (show) {
       activeSection.value = "preferences";
+      activePreferencesSection.value = "authorization";
       activeRpcSection.value = "public";
       void loadSettings();
     }
@@ -275,7 +277,7 @@ function kbToBytes(value: number) {
         :aria-label="t('settings.navigation.label')"
       >
         <NTabPane name="preferences" :tab="t('settings.sections.preferences')" display-directive="show:lazy">
-          <section class="settings-preferences">
+          <section class="settings-preferences settings-preferences-section">
             <header class="settings-section-heading">
               <div>
                 <h3>{{ t("settings.sections.preferences") }}</h3>
@@ -284,78 +286,97 @@ function kbToBytes(value: number) {
               </div>
             </header>
 
-            <div class="settings-preferences-fields">
-              <div class="settings-accessible-paths" data-test="accessible-paths-settings">
-                <div class="settings-accessible-paths-heading">
-                  <div>
-                    <h4>{{ t("settings.accessiblePaths.title") }}</h4>
-                    <p>{{ t("settings.accessiblePaths.help") }}</p>
-                  </div>
-                  <span class="settings-accessible-path-count">{{ settingsStore.accessiblePaths.length }}</span>
-                </div>
-                <NAlert type="info" :bordered="false">{{ accessiblePathsHelp }}</NAlert>
-                <NAlert v-if="settingsStore.accessiblePathsStale" type="warning" :bordered="false">
-                  {{ t("settings.accessiblePaths.stale") }}
-                </NAlert>
-                <NSpace wrap>
-                  <NButton
-                    v-if="hostSupportsAuthorization"
-                    type="primary"
-                    :loading="isAuthorizing"
-                    :disabled="isDetectingHost || isSettingsSaving"
-                    @click="addAccessiblePath"
-                  >
-                    <template #icon><AppIcon name="plus" :size="16" /></template>
-                    {{ t("settings.accessiblePaths.add") }}
-                  </NButton>
-                  <NButton
-                    :loading="settingsStore.isLoadingAccessiblePaths"
-                    :disabled="isAuthorizing || isSettingsSaving"
-                    @click="refreshAccessiblePathList"
-                  >
-                    <template #icon><AppIcon name="refresh" :size="16" /></template>
-                    {{ t("settings.accessiblePaths.refresh") }}
-                  </NButton>
-                </NSpace>
-              </div>
-              <NFormItem
-                :label="t('settings.defaultDownloadDir')"
-                :feedback="defaultDownloadDirMessage"
-                :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
+            <NTabs
+              v-model:value="activePreferencesSection"
+              class="settings-preferences-tabs"
+              type="line"
+              :placement="isMobileLayout ? 'top' : 'left'"
+              pane-class="settings-preferences-pane"
+              :aria-label="t('settings.preferenceTabs.label')"
+            >
+              <NTabPane
+                name="authorization"
+                :tab="t('settings.preferenceTabs.authorization')"
+                display-directive="show:lazy"
               >
-                <NSelect
-                  v-model:value="form.defaultDownloadDir"
-                  :options="accessiblePathOptions"
-                  :loading="settingsStore.isLoadingAccessiblePaths"
-                  :placeholder="t('settings.defaultDownloadDir.placeholder')"
-                  filterable
-                />
-              </NFormItem>
+                <div class="settings-preferences-fields">
+                  <div class="settings-accessible-paths" data-test="accessible-paths-settings">
+                    <div class="settings-accessible-paths-heading">
+                      <div>
+                        <h4>{{ t("settings.accessiblePaths.title") }}</h4>
+                        <p>{{ t("settings.accessiblePaths.help") }}</p>
+                      </div>
+                      <span class="settings-accessible-path-count">{{ settingsStore.accessiblePaths.length }}</span>
+                    </div>
+                    <NAlert type="info" :bordered="false">{{ accessiblePathsHelp }}</NAlert>
+                    <NAlert v-if="settingsStore.accessiblePathsStale" type="warning" :bordered="false">
+                      {{ t("settings.accessiblePaths.stale") }}
+                    </NAlert>
+                    <NSpace wrap>
+                      <NButton
+                        v-if="hostSupportsAuthorization"
+                        type="primary"
+                        :loading="isAuthorizing"
+                        :disabled="isDetectingHost || isSettingsSaving"
+                        @click="addAccessiblePath"
+                      >
+                        <template #icon><AppIcon name="plus" :size="16" /></template>
+                        {{ t("settings.accessiblePaths.add") }}
+                      </NButton>
+                      <NButton
+                        :loading="settingsStore.isLoadingAccessiblePaths"
+                        :disabled="isAuthorizing || isSettingsSaving"
+                        @click="refreshAccessiblePathList"
+                      >
+                        <template #icon><AppIcon name="refresh" :size="16" /></template>
+                        {{ t("settings.accessiblePaths.refresh") }}
+                      </NButton>
+                    </NSpace>
+                  </div>
+                  <NFormItem
+                    :label="t('settings.defaultDownloadDir')"
+                    :feedback="defaultDownloadDirMessage"
+                    :validation-status="isDefaultDownloadDirUnauthorized || settingsStore.accessiblePathsError ? 'warning' : undefined"
+                  >
+                    <NSelect
+                      v-model:value="form.defaultDownloadDir"
+                      :options="accessiblePathOptions"
+                      :loading="settingsStore.isLoadingAccessiblePaths"
+                      :placeholder="t('settings.defaultDownloadDir.placeholder')"
+                      filterable
+                    />
+                  </NFormItem>
+                </div>
+              </NTabPane>
 
-              <NFormItem :label="t('settings.language')">
-                <NSelect v-model:value="form.language" :options="languageOptions" />
-              </NFormItem>
+              <NTabPane name="interface" :tab="t('settings.preferenceTabs.interface')" display-directive="show:lazy">
+                <div class="settings-preferences-fields">
+                  <NFormItem :label="t('settings.language')">
+                    <NSelect v-model:value="form.language" :options="languageOptions" />
+                  </NFormItem>
+                </div>
+              </NTabPane>
 
-              <NFormItem class="settings-form-note" :label="t('settings.background')">
-                <NText depth="3">{{ t("settings.background.help") }}</NText>
-              </NFormItem>
+              <NTabPane name="download" :tab="t('settings.preferenceTabs.download')" display-directive="show:lazy">
+                <div class="settings-preferences-fields">
+                  <NFormItem :label="t('settings.maxConcurrentDownloads')">
+                    <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
+                  </NFormItem>
 
-              <NFormItem :label="t('settings.maxConcurrentDownloads')">
-                <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
-              </NFormItem>
+                  <NFormItem :label="t('settings.downloadLimit')">
+                    <NInputNumber v-model:value="form.downloadLimitKb" :min="0" :step="128">
+                      <template #suffix>KB/s</template>
+                    </NInputNumber>
+                  </NFormItem>
 
-              <NFormItem :label="t('settings.downloadLimit')">
-                <NInputNumber v-model:value="form.downloadLimitKb" :min="0" :step="128">
-                  <template #suffix>KB/s</template>
-                </NInputNumber>
-              </NFormItem>
-
-              <NFormItem :label="t('settings.uploadLimit')">
-                <NInputNumber v-model:value="form.uploadLimitKb" :min="0" :step="128">
-                  <template #suffix>KB/s</template>
-                </NInputNumber>
-              </NFormItem>
-            </div>
+                  <NFormItem :label="t('settings.uploadLimit')">
+                    <NInputNumber v-model:value="form.uploadLimitKb" :min="0" :step="128">
+                      <template #suffix>KB/s</template>
+                    </NInputNumber>
+                  </NFormItem>
+                </div>
+              </NTabPane>
+            </NTabs>
           </section>
         </NTabPane>
 

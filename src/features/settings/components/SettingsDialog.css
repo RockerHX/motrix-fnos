@@ -69,6 +69,11 @@
   overflow: hidden;
 }
 
+.settings-sections-tabs :deep(.settings-pane:has(.settings-preferences-section)) {
+  display: flex;
+  overflow: hidden;
+}
+
 .settings-pane-section {
   display: grid;
   gap: 12px;
@@ -146,11 +151,66 @@
 
 .settings-preferences {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  flex: 1 1 auto;
   gap: 18px;
+  min-height: 0;
+  min-width: 0;
   padding: 18px;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-radius-md);
   background: var(--app-color-card-overlay);
+}
+
+.settings-preferences-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.settings-preferences-tabs :deep(.n-tabs-nav) {
+  flex: 0 0 132px;
+  width: 132px;
+  margin: 0 16px 0 0;
+}
+
+.settings-preferences-tabs :deep(.settings-preferences-pane) {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.settings-preferences-tabs :deep(.settings-preferences-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.settings-preferences-tabs :deep(.settings-preferences-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.settings-preferences-tabs :deep(.settings-preferences-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.settings-preferences-tabs :deep(.settings-preferences-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
 }
 
 .settings-section-heading {
@@ -239,23 +299,6 @@
   width: 100%;
 }
 
-.settings-form-note :deep(.n-form-item-label) {
-  align-self: flex-start;
-}
-
-.settings-form-note :deep(.n-form-item-blank) {
-  align-items: flex-start;
-  padding: 10px 12px;
-  border-left: 2px solid var(--app-text-accent-soft);
-  border-radius: 0 var(--app-radius-sm) var(--app-radius-sm) 0;
-  background: var(--app-color-card-overlay-subtle);
-}
-
-.settings-form-note :deep(.n-text) {
-  color: var(--app-text-muted);
-  line-height: 1.55;
-}
-
 @media (max-width: 767px) {
   .settings-sections-tabs :deep(.n-tabs-nav) {
     display: none;
@@ -277,6 +320,20 @@
   }
 
   .settings-rpc-tabs :deep(.settings-rpc-pane) {
+    padding-right: 0;
+  }
+
+  .settings-preferences-tabs {
+    flex-direction: column;
+  }
+
+  .settings-preferences-tabs :deep(.n-tabs-nav) {
+    flex: 0 0 auto;
+    width: 100%;
+    margin: 0 0 12px;
+  }
+
+  .settings-preferences-tabs :deep(.settings-preferences-pane) {
     padding-right: 0;
   }
 
