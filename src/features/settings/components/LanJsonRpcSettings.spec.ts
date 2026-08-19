@@ -84,6 +84,37 @@ describe("LanJsonRpcSettings", () => {
     expect(useLanJsonRpcStore().issuedToken).toBe("");
   });
 
+  it("uses the switch as the only enabled state and shows the Token card only while enabled", async () => {
+    mockedUpdate.mockResolvedValueOnce({
+      status: { enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 },
+      issuedToken: "one-time-lan-token",
+    });
+    mockedUpdate.mockResolvedValueOnce({
+      status: { enabled: false, configured: true, maskedToken: "••••••••oken", port: 17082 },
+      issuedToken: null,
+    });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="lan-json-rpc-status"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="lan-json-rpc-token-card"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="lan-json-rpc-endpoint"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="lan-json-rpc-switch"]').setValue(true);
+    await flushPromises();
+
+    expect(wrapper.get('[data-test="lan-json-rpc-token-card"]').text()).toContain("局域网 Token");
+    expect(wrapper.get('[data-test="lan-json-rpc-masked-token"]').text()).toBe("••••••••oken");
+    expect(wrapper.get('[data-test="lan-json-rpc-token-status"]').text()).toBe("已启用，Token 已配置");
+    expect(wrapper.get('[data-test="rotate-lan-json-rpc-token"]').text()).toContain("轮换 Token");
+
+    await wrapper.get('[data-test="lan-json-rpc-switch"]').setValue(false);
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="lan-json-rpc-token-card"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="lan-json-rpc-endpoint"]').exists()).toBe(true);
+  });
+
   it("keeps the switch off when enabling fails", async () => {
     mockedUpdate.mockRejectedValueOnce(new Error("save failed"));
     const { wrapper } = mountSettings();
@@ -99,6 +130,7 @@ describe("LanJsonRpcSettings", () => {
   it("requires confirmation before rotation and can copy the issued Token", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    mockedGet.mockResolvedValueOnce({ enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 });
     mockedRotate.mockResolvedValueOnce({
       status: { enabled: false, configured: true, maskedToken: "••••••••ated", port: 17082 },
       issuedToken: "rotated-lan-token",
@@ -106,7 +138,7 @@ describe("LanJsonRpcSettings", () => {
     const { wrapper } = mountSettings();
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "轮换 Token")!.trigger("click");
+    await wrapper.get('[data-test="rotate-lan-json-rpc-token"]').trigger("click");
     expect(mockedRotate).not.toHaveBeenCalled();
     expect((wrapper.get(".app-dialog").element as HTMLElement).style.getPropertyValue("--app-dialog-width")).toBe(
       "520px",
@@ -129,6 +161,7 @@ describe("LanJsonRpcSettings", () => {
       value: vi.fn(() => true),
     });
     const select = vi.spyOn(HTMLInputElement.prototype, "select");
+    mockedGet.mockResolvedValueOnce({ enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 });
     mockedRotate.mockResolvedValueOnce({
       status: { enabled: false, configured: true, maskedToken: "••••••••ated", port: 17082 },
       issuedToken: "manual-copy-lan-token",
@@ -136,7 +169,7 @@ describe("LanJsonRpcSettings", () => {
     const { wrapper } = mountSettings();
     await flushPromises();
 
-    await wrapper.findAll("button").find((button) => button.text() === "轮换 Token")!.trigger("click");
+    await wrapper.get('[data-test="rotate-lan-json-rpc-token"]').trigger("click");
     const rotateButtons = wrapper.findAll("button").filter((button) => button.text() === "轮换 Token");
     await rotateButtons[rotateButtons.length - 1]!.trigger("click");
     await flushPromises();

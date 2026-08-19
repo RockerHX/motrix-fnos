@@ -28,13 +28,6 @@ const { t } = useI18n();
 const showRotateConfirm = ref(false);
 const issuedTokenInput = ref<InputInst | null>(null);
 const endpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
-const statusText = computed(() => {
-  if (store.isLoading) return t("common.loading");
-  if (!store.status?.enabled) return t("settings.lanJsonRpc.disabled");
-  return store.status.configured
-    ? store.status.maskedToken || t("settings.lanJsonRpc.configured")
-    : t("settings.lanJsonRpc.notConfigured");
-});
 
 watch(
   () => props.active,
@@ -123,13 +116,12 @@ onUnmounted(closeSensitiveDialogs);
         <NText depth="3">{{ t("settings.lanJsonRpc.help") }}</NText>
       </div>
       <NSpace align="center" :wrap="false">
-        <NText :type="store.status?.enabled ? 'success' : 'default'" data-test="lan-json-rpc-status">
-          {{ statusText }}
-        </NText>
         <NSwitch
           :value="store.status?.enabled ?? false"
           :loading="store.isSaving"
           :disabled="store.isLoading || store.isSaving"
+          :aria-label="t('settings.lanJsonRpc.toggle')"
+          :title="t('settings.lanJsonRpc.toggle')"
           data-test="lan-json-rpc-switch"
           @update:value="updateEnabled"
         />
@@ -159,18 +151,32 @@ onUnmounted(closeSensitiveDialogs);
       </NButton>
     </div>
 
-    <NSpace justify="space-between" wrap>
-      <NButton text type="primary" @click="emit('openGuide')">
-        {{ t("settings.jsonRpcToken.openGuide") }}
-      </NButton>
+    <section v-if="store.status?.enabled" class="lan-json-rpc-token-card" data-test="lan-json-rpc-token-card">
+      <div>
+        <span>{{ t("settings.lanJsonRpc.token") }}</span>
+        <code data-test="lan-json-rpc-masked-token">
+          {{ store.status.maskedToken ?? t("settings.lanJsonRpc.notConfigured") }}
+        </code>
+        <small data-test="lan-json-rpc-token-status">
+          {{ t(store.status.configured ? "settings.lanJsonRpc.configured" : "settings.lanJsonRpc.notConfigured") }}
+        </small>
+        <small>{{ t("settings.lanJsonRpc.tokenHint") }}</small>
+      </div>
       <NButton
         secondary
         :loading="store.isSaving"
         :disabled="store.isLoading || store.isSaving"
+        data-test="rotate-lan-json-rpc-token"
         @click="showRotateConfirm = true"
       >
         <template #icon><NIcon><IconRefresh /></NIcon></template>
         {{ t("settings.lanJsonRpc.rotate") }}
+      </NButton>
+    </section>
+
+    <NSpace justify="space-between" wrap>
+      <NButton text type="primary" @click="emit('openGuide')">
+        {{ t("settings.jsonRpcToken.openGuide") }}
       </NButton>
     </NSpace>
 

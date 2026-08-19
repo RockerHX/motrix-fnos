@@ -49,6 +49,35 @@
   font-size: 13px;
 }
 
+.lan-json-rpc-token-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+}
+
+.lan-json-rpc-token-card > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lan-json-rpc-token-card span,
+.lan-json-rpc-token-card small {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.lan-json-rpc-token-card code {
+  overflow-wrap: anywhere;
+  color: var(--app-text-strong);
+  font-size: 13px;
+}
+
 .lan-json-rpc-issued-input {
   margin-top: 16px;
 }
@@ -60,5 +89,14 @@
 
   .lan-json-rpc-heading {
     flex-direction: column;
+  }
+
+  .lan-json-rpc-token-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lan-json-rpc-token-card :deep(.n-button) {
+    width: 100%;
   }
 }
