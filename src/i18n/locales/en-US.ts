@@ -96,6 +96,9 @@ export const enUS: Record<TranslationKey, string> = {
 
   "about.eyebrow": "About",
   "about.title": "About {name}",
+  "about.tabs.label": "About sections",
+  "about.tabs.overview": "Overview",
+  "about.tabs.changelog": "Changelog",
   "about.subtitle": "Download manager for fnOS",
   "about.maintainer": "Maintainer",
   "about.backendStatus": "Backend status",

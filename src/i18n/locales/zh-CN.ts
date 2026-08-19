@@ -94,6 +94,9 @@ export const zhCN = {
 
   "about.eyebrow": "About",
   "about.title": "关于 {name}",
+  "about.tabs.label": "关于分区",
+  "about.tabs.overview": "概览",
+  "about.tabs.changelog": "更新记录",
   "about.subtitle": "飞牛 fnOS 下载管理应用",
   "about.maintainer": "维护者",
   "about.backendStatus": "后端状态",

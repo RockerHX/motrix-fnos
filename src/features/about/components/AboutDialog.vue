@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import { NButton, NDescriptions, NDescriptionsItem, NTabPane, NTabs, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
 import { useI18n } from "../../../i18n";
@@ -21,10 +21,22 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+type AboutTab = "overview" | "changelog";
+
+const activeTab = ref<AboutTab>("overview");
 const appName = computed(() => props.appInfo?.name ?? "Motrix");
 const currentVersion = computed(() => props.appInfo?.version ?? "--");
 const updateStatusType = computed(() => statusTagType(props.updateCheck?.status));
 const releaseAssets = computed(() => props.updateCheck?.assets ?? []);
+
+watch(
+  () => props.show,
+  (show) => {
+    if (show) {
+      activeTab.value = "overview";
+    }
+  },
+);
 
 function updateShow(show: boolean) {
   emit("update:show", show);
@@ -83,9 +95,19 @@ function targetArchLabel(arch: string | undefined) {
     :eyebrow="t('about.eyebrow')"
     :title="t('about.title', { name: appName })"
     width="760px"
+    fixed-body
+    content-class="about-dialog-content"
     @update:show="updateShow"
   >
-    <div class="about-content">
+    <NTabs
+      v-model:value="activeTab"
+      class="about-tabs"
+      type="line"
+      pane-class="about-pane"
+      :aria-label="t('about.tabs.label')"
+    >
+      <NTabPane name="overview" :tab="t('about.tabs.overview')" display-directive="show:lazy">
+        <div class="about-content">
         <section class="about-hero">
           <div class="app-mark" aria-hidden="true">M</div>
           <div>
@@ -156,8 +178,12 @@ function targetArchLabel(arch: string | undefined) {
             </NButton>
           </template>
         </AppSectionCard>
+        </div>
+      </NTabPane>
 
+      <NTabPane name="changelog" :tab="t('about.tabs.changelog')" display-directive="show:lazy">
         <AppSectionCard
+          class="about-changelog-card"
           :title="t('about.changelog.title')"
           :description="t('about.changelog.description')"
         >
@@ -176,7 +202,8 @@ function targetArchLabel(arch: string | undefined) {
             </article>
           </div>
         </AppSectionCard>
-    </div>
+      </NTabPane>
+    </NTabs>
   </AppDialog>
 </template>
 

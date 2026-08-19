@@ -4,6 +4,54 @@ p {
   margin: 0;
 }
 
+:deep(.about-dialog-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.about-tabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.about-tabs :deep(.about-pane) {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
 .about-content {
   display: grid;
   gap: 18px;
@@ -138,6 +186,10 @@ a {
 }
 
 @media (max-width: 767px) {
+  .about-tabs :deep(.about-pane) {
+    padding-right: 0;
+  }
+
   .about-content {
     gap: 14px;
   }
