@@ -19,18 +19,19 @@
 .settings-sections-tabs {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .settings-sections-tabs :deep(.n-tabs-nav) {
-  flex: 0 0 156px;
-  width: 156px;
+  flex: 0 0 auto;
+  margin-bottom: 12px;
 }
 
 .settings-sections-tabs :deep(.settings-pane) {
   box-sizing: border-box;
-  flex: 1;
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
-  height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -81,6 +82,13 @@
 }
 
 .settings-rpc-tabs {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-rpc-tabs :deep(.settings-rpc-pane) {
   min-width: 0;
 }
 
@@ -204,6 +212,10 @@
   .settings-sections-tabs :deep(.settings-pane) {
     width: 100%;
     padding-right: 0;
+  }
+
+  .settings-sections-tabs :deep(.n-tabs-nav) {
+    margin-bottom: 8px;
   }
 
   .settings-preferences {

@@ -57,6 +57,7 @@ vi.mock("naive-ui", async () => {
     inheritAttrs: false,
     props: {
       value: { type: String, default: "" },
+      type: { type: String, default: "bar" },
     },
     emits: ["update:value"],
     setup(props, { attrs, emit, slots }) {
@@ -66,7 +67,7 @@ vi.mock("naive-ui", async () => {
 
       return () => {
         const panes = (slots.default?.() ?? []).filter((vnode) => typeof vnode.type === "object");
-        return h("div", { ...attrs, "data-test": "n-tabs" }, [
+        return h("div", { ...attrs, "data-test": "n-tabs", "data-tabs-type": props.type }, [
           h(
             "div",
             { "data-test": "n-tabs-nav" },
@@ -309,6 +310,7 @@ describe("SettingsDialog", () => {
     expect(wrapper.text()).toContain("默认下载目录");
     expect(wrapper.get('[data-test="app-dialog"]').attributes("data-fixed-body")).toBe("true");
     expect(wrapper.get('[data-test="app-dialog"]').attributes("data-content-class")).toBe("settings-dialog-content");
+    expect(wrapper.get(".settings-sections-tabs").attributes("data-tabs-type")).toBe("line");
     expect(wrapper.get('[data-pane="preferences"]').isVisible()).toBe(true);
     expect(wrapper.find('[data-test="download-proxy-settings"]').exists()).toBe(false);
     expect(wrapper.text()).toContain("保存");
@@ -329,6 +331,7 @@ describe("SettingsDialog", () => {
 
     await selectRpcSection(wrapper, "局域网入口");
     expect(wrapper.find('[data-test="open-lan-rpc-guide"]').exists()).toBe(true);
+    expect(wrapper.get(".settings-rpc-tabs").attributes("data-tabs-type")).toBe("line");
     await selectMainSection(wrapper, "下载代理");
     await selectMainSection(wrapper, "RPC 访问");
     expect(wrapper.find('[data-test="open-lan-rpc-guide"]').exists()).toBe(true);

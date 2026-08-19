@@ -271,7 +271,6 @@ function kbToBytes(value: number) {
         v-model:value="activeSection"
         class="settings-sections-tabs"
         type="line"
-        placement="left"
         pane-class="settings-pane"
         :aria-label="t('settings.navigation.label')"
       >
@@ -377,7 +376,13 @@ function kbToBytes(value: number) {
         <NTabPane name="rpc" :tab="t('settings.sections.rpc')" display-directive="show:lazy">
           <div class="settings-pane-section">
             <p class="settings-section-description">{{ t("settings.sections.rpcHelp") }}</p>
-            <NTabs v-model:value="activeRpcSection" class="settings-rpc-tabs" type="segment">
+            <NTabs
+              v-model:value="activeRpcSection"
+              class="settings-rpc-tabs"
+              type="line"
+              pane-class="settings-rpc-pane"
+              :aria-label="t('settings.navigation.label')"
+            >
               <NTabPane name="public" :tab="t('settings.rpcSections.public')" display-directive="show:lazy">
                 <JsonRpcTokenSettings :active="show" @open-guide="emit('openRpcGuide')" />
               </NTabPane>
