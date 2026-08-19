@@ -332,6 +332,7 @@ describe("SettingsDialog", () => {
 
     await selectRpcSection(wrapper, "局域网入口");
     expect(wrapper.find('[data-test="open-lan-rpc-guide"]').exists()).toBe(true);
+    expect(wrapper.find(".settings-rpc-section").exists()).toBe(true);
     expect(wrapper.get(".settings-rpc-tabs").attributes("data-tabs-type")).toBe("line");
     expect(wrapper.get(".settings-rpc-tabs").attributes("data-tabs-placement")).toBe("left");
     await selectMainSection(wrapper, "下载代理");

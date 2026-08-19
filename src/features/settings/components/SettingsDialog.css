@@ -64,6 +64,11 @@
   background-clip: padding-box;
 }
 
+.settings-sections-tabs :deep(.settings-pane:has(.settings-rpc-section)) {
+  display: flex;
+  overflow: hidden;
+}
+
 .settings-pane-section {
   display: grid;
   gap: 12px;
@@ -83,9 +88,11 @@
 
 .settings-rpc-tabs {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: row;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 .settings-rpc-tabs :deep(.n-tabs-nav) {
@@ -96,6 +103,42 @@
 
 .settings-rpc-tabs :deep(.settings-rpc-pane) {
   box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.settings-rpc-tabs :deep(.settings-rpc-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.settings-rpc-tabs :deep(.settings-rpc-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.settings-rpc-tabs :deep(.settings-rpc-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.settings-rpc-tabs :deep(.settings-rpc-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.settings-rpc-section {
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -231,6 +274,10 @@
     flex-basis: 124px;
     width: 124px;
     margin-right: 12px;
+  }
+
+  .settings-rpc-tabs :deep(.settings-rpc-pane) {
+    padding-right: 0;
   }
 
   .settings-preferences {

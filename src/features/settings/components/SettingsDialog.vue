@@ -374,7 +374,7 @@ function kbToBytes(value: number) {
         </NTabPane>
 
         <NTabPane name="rpc" :tab="t('settings.sections.rpc')" display-directive="show:lazy">
-          <div class="settings-pane-section">
+          <div class="settings-pane-section settings-rpc-section">
             <p class="settings-section-description">{{ t("settings.sections.rpcHelp") }}</p>
             <NTabs
               v-model:value="activeRpcSection"
