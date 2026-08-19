@@ -12,6 +12,7 @@ const FACT_CONSOLIDATION_OUTPUT_TOKENS = 2_400;
 const EDITOR_OUTPUT_TOKENS = 2_400;
 const JSON_RETRY_OUTPUT_BONUS = 800;
 const JSON_RETRY_LIMIT = 1;
+const SEMANTIC_RETRY_LIMIT = 1;
 const CHAT_TOKEN_OVERHEAD = 32;
 const PUBLIC_CATEGORIES = new Set(['新增', '改进', '修复', '文档']);
 const ANALYSIS_CATEGORIES = new Set([...PUBLIC_CATEGORIES, '内部', '忽略']);
@@ -114,6 +115,7 @@ export async function generateChangelogWithHierarchicalSummary({
     maxTokens: EDITOR_OUTPUT_TOKENS,
     label: 'Release 日志审稿',
     parse: parseEntries,
+    validate: (entries) => validateEntries(entries, facts),
     onProgress,
   });
 
@@ -152,13 +154,18 @@ async function completeJsonArray({
   maxTokens,
   label,
   parse,
+  validate,
   onProgress,
 }) {
   let prompt = userPrompt;
   let outputTokens = maxTokens;
   let lastError;
+  let jsonRetryCount = 0;
+  let semanticRetryCount = 0;
+  let attempt = 0;
 
-  for (let attempt = 0; attempt <= JSON_RETRY_LIMIT; attempt += 1) {
+  while (true) {
+    attempt += 1;
     const content = await complete({
       modelRole,
       systemPrompt,
@@ -167,15 +174,34 @@ async function completeJsonArray({
       label,
     });
 
+    let parsed;
     try {
-      return parse(content, label);
+      parsed = parse(content, label);
     } catch (error) {
       lastError = error;
-      if (attempt === JSON_RETRY_LIMIT) break;
+      if (jsonRetryCount >= JSON_RETRY_LIMIT) break;
+      jsonRetryCount += 1;
       outputTokens += JSON_RETRY_OUTPUT_BONUS;
-      const retryPrompt = `${userPrompt}\n\n上一次响应无法解析为完整 JSON 数组。请重新输出完整结果，禁止截断、解释、Markdown 代码围栏或额外字段；严格遵守字段和数量限制。`;
+      const retryInstruction = '上一次响应无法解析为完整 JSON 数组。请重新输出完整结果，禁止截断、解释、Markdown 代码围栏或额外字段；严格遵守字段和数量限制。';
+      const retryPrompt = `${userPrompt}\n\n${retryInstruction}`;
       prompt = countChatInputTokens(systemPrompt, retryPrompt) <= MODEL_INPUT_TOKEN_BUDGET ? retryPrompt : userPrompt;
-      onProgress(`${label} 返回的 JSON 不完整，使用更严格提示重试（${attempt + 2}/${JSON_RETRY_LIMIT + 1}）`);
+      onProgress(`${label} 返回的 JSON 不完整，使用更严格提示重试（第 ${attempt + 1} 次）`);
+      continue;
+    }
+
+    try {
+      if (validate) validate(parsed);
+      return parsed;
+    } catch (error) {
+      lastError = error;
+      if (semanticRetryCount >= SEMANTIC_RETRY_LIMIT) break;
+      semanticRetryCount += 1;
+      outputTokens += JSON_RETRY_OUTPUT_BONUS;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const retryInstruction = `上一次响应未通过发布日志语义校验：${errorMessage.slice(0, 500)}。请根据该错误修正结果，尤其不要让同一个 factId 出现在多条日志中。`;
+      const retryPrompt = `${userPrompt}\n\n${retryInstruction}`;
+      prompt = countChatInputTokens(systemPrompt, retryPrompt) <= MODEL_INPUT_TOKEN_BUDGET ? retryPrompt : userPrompt;
+      onProgress(`${label} 未通过语义校验，使用修正规则重试（第 ${attempt + 1} 次）：${errorMessage}`);
     }
   }
 

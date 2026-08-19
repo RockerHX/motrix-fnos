@@ -141,6 +141,70 @@ test('审稿结果引用重复事实或测试噪声时阻止发布', async () =>
   );
 });
 
+test('审稿语义校验失败会把具体错误反馈给模型并重试', async () => {
+  const changeContext = smallChangeContext();
+  const calls = [];
+  const progress = [];
+  let reviewAttempts = 0;
+
+  const result = await generateChangelogWithHierarchicalSummary({
+    version: '1.1.0',
+    baseRef: 'v1.0.0',
+    changeContext,
+    onProgress: (message) => progress.push(message),
+    complete: async (request) => {
+      calls.push(request);
+      if (request.label.startsWith('提交信息')) {
+        return JSON.stringify([
+          {
+            factId: 'settings-layout-language-switch',
+            category: '改进',
+            summary: '优化设置布局与语言切换体验',
+            releaseRelevant: true,
+            evidenceCommits: ['aaaaaaa'],
+            confidence: 'high',
+          },
+          {
+            factId: 'settings-rpc-navigation',
+            category: '改进',
+            summary: '优化设置中的 RPC 导航',
+            releaseRelevant: true,
+            evidenceCommits: ['aaaaaaa'],
+            confidence: 'high',
+          },
+        ]);
+      }
+      if (request.label === 'Release 日志编辑') {
+        return JSON.stringify([
+          { category: '改进', text: '优化设置布局与语言切换体验。', factIds: ['settings-layout-language-switch'] },
+          { category: '改进', text: '优化设置中的 RPC 导航。', factIds: ['settings-rpc-navigation'] },
+        ]);
+      }
+
+      reviewAttempts += 1;
+      if (reviewAttempts === 1) {
+        return '[{"category":"改进"';
+      }
+      if (reviewAttempts === 2) {
+        return JSON.stringify([
+          { category: '改进', text: '优化设置布局与语言切换体验。', factIds: ['settings-layout-language-switch'] },
+          { category: '改进', text: '进一步完善设置界面。', factIds: ['settings-layout-language-switch'] },
+        ]);
+      }
+      return JSON.stringify([
+        { category: '改进', text: '优化设置布局与语言切换体验。', factIds: ['settings-layout-language-switch'] },
+        { category: '改进', text: '优化设置中的 RPC 导航。', factIds: ['settings-rpc-navigation'] },
+      ]);
+    },
+  });
+
+  assert.equal(reviewAttempts, 3);
+  assert.match(calls.at(-1).userPrompt, /重复使用事实：settings-layout-language-switch/);
+  assert.ok(progress.some((message) => message.includes('未通过语义校验')));
+  assert.ok(progress.some((message) => message.includes('JSON 不完整')));
+  assert.equal(result, '### 改进\n\n- 优化设置布局与语言切换体验。\n- 优化设置中的 RPC 导航。');
+});
+
 test('任一分块模型调用失败会阻止发布', async () => {
   const changeContext = smallChangeContext();
 
