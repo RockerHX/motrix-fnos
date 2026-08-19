@@ -13,11 +13,18 @@ h2 {
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.diagnostics-tabs :deep(.n-tabs-nav) {
+  flex: 0 0 auto;
+  margin-bottom: 12px;
 }
 
 .diagnostics-tabs :deep(.diagnostics-pane) {
   box-sizing: border-box;
-  flex: 1;
+  display: block;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -68,6 +75,10 @@ h2 {
 }
 
 @media (max-width: 767px) {
+  .diagnostics-tabs :deep(.n-tabs-nav) {
+    margin-bottom: 8px;
+  }
+
   .diagnostics-tabs :deep(.diagnostics-pane) {
     padding-right: 0;
   }

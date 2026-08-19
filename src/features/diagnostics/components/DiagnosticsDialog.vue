@@ -157,7 +157,7 @@ function updateLogUsage() {
     <NTabs
       v-model:value="activeSection"
       class="diagnostics-tabs"
-      type="segment"
+      type="line"
       pane-class="diagnostics-pane"
       :aria-label="t('diagnostics.navigation.label')"
     >

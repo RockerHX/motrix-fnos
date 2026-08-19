@@ -37,6 +37,7 @@ vi.mock("naive-ui", async () => {
     inheritAttrs: false,
     props: {
       value: { type: String, default: "" },
+      type: { type: String, default: "bar" },
     },
     emits: ["update:value"],
     setup(props, { attrs, emit, slots }) {
@@ -46,7 +47,7 @@ vi.mock("naive-ui", async () => {
 
       return () => {
         const panes = (slots.default?.() ?? []).filter((vnode) => typeof vnode.type === "object");
-        return h("div", { ...attrs, "data-test": "n-tabs" }, [
+        return h("div", { ...attrs, "data-test": "n-tabs", "data-tabs-type": props.type }, [
           h(
             "div",
             { "data-test": "n-tabs-nav" },
@@ -165,6 +166,7 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.text()).toContain("pong");
     expect(wrapper.get('[data-test="app-dialog"]').attributes("data-fixed-body")).toBe("true");
     expect(wrapper.get('[data-test="app-dialog"]').attributes("data-content-class")).toBe("diagnostics-dialog-content");
+    expect(wrapper.get(".diagnostics-tabs").attributes("data-tabs-type")).toBe("line");
     expect(wrapper.get('[data-pane="overview"]').isVisible()).toBe(true);
     expect(wrapper.find('[data-pane="connection"]').exists()).toBe(false);
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
