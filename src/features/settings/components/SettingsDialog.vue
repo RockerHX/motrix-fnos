@@ -380,6 +380,7 @@ function kbToBytes(value: number) {
               v-model:value="activeRpcSection"
               class="settings-rpc-tabs"
               type="line"
+              placement="left"
               pane-class="settings-rpc-pane"
               :aria-label="t('settings.navigation.label')"
             >

@@ -58,6 +58,7 @@ vi.mock("naive-ui", async () => {
     props: {
       value: { type: String, default: "" },
       type: { type: String, default: "bar" },
+      placement: { type: String, default: "top" },
     },
     emits: ["update:value"],
     setup(props, { attrs, emit, slots }) {
@@ -67,7 +68,7 @@ vi.mock("naive-ui", async () => {
 
       return () => {
         const panes = (slots.default?.() ?? []).filter((vnode) => typeof vnode.type === "object");
-        return h("div", { ...attrs, "data-test": "n-tabs", "data-tabs-type": props.type }, [
+        return h("div", { ...attrs, "data-test": "n-tabs", "data-tabs-type": props.type, "data-tabs-placement": props.placement }, [
           h(
             "div",
             { "data-test": "n-tabs-nav" },
@@ -332,6 +333,7 @@ describe("SettingsDialog", () => {
     await selectRpcSection(wrapper, "局域网入口");
     expect(wrapper.find('[data-test="open-lan-rpc-guide"]').exists()).toBe(true);
     expect(wrapper.get(".settings-rpc-tabs").attributes("data-tabs-type")).toBe("line");
+    expect(wrapper.get(".settings-rpc-tabs").attributes("data-tabs-placement")).toBe("left");
     await selectMainSection(wrapper, "下载代理");
     await selectMainSection(wrapper, "RPC 访问");
     expect(wrapper.find('[data-test="open-lan-rpc-guide"]').exists()).toBe(true);

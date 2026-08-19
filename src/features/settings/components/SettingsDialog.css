@@ -83,12 +83,21 @@
 
 .settings-rpc-tabs {
   display: flex;
+  flex-direction: row;
   min-height: 0;
-  flex-direction: column;
   min-width: 0;
 }
 
+.settings-rpc-tabs :deep(.n-tabs-nav) {
+  flex: 0 0 148px;
+  width: 148px;
+  margin: 0 16px 0 0;
+}
+
 .settings-rpc-tabs :deep(.settings-rpc-pane) {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
   min-width: 0;
 }
 
@@ -216,6 +225,12 @@
 
   .settings-sections-tabs :deep(.n-tabs-nav) {
     margin-bottom: 8px;
+  }
+
+  .settings-rpc-tabs :deep(.n-tabs-nav) {
+    flex-basis: 124px;
+    width: 124px;
+    margin-right: 12px;
   }
 
   .settings-preferences {
