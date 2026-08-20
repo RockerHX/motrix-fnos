@@ -11,6 +11,13 @@ pub enum CompatTaskOperation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompatBatchOperation {
+    PauseAll,
+    UnpauseAll,
+    PurgeDownloadResult,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompatAria2Requirement {
     None,
     Required,
@@ -28,6 +35,36 @@ pub enum CompatTaskError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompatTaskTarget {
     pub aria2_requirement: CompatAria2Requirement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompatBatchPlan {
+    pub aria2_requirement: CompatAria2Requirement,
+    operation: CompatBatchOperation,
+    gids: Vec<String>,
+}
+
+impl CompatBatchPlan {
+    pub fn target_count(&self) -> usize {
+        self.gids.len()
+    }
+
+    pub fn gids(&self) -> &[String] {
+        &self.gids
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CompatBatchResult {
+    pub target_count: usize,
+    pub completed_count: usize,
+    pub failed_count: usize,
+}
+
+impl CompatBatchResult {
+    pub fn is_complete(self) -> bool {
+        self.failed_count == 0
+    }
 }
 
 pub(super) fn get_download_task_by_gid(
@@ -119,10 +156,102 @@ impl<'a> TaskService<'a> {
         }
     }
 
+    pub fn plan_compat_batch(
+        &self,
+        operation: CompatBatchOperation,
+    ) -> Result<CompatBatchPlan, CompatTaskError> {
+        let mut tasks = self
+            .list_download_task_snapshot()
+            .map_err(|_| CompatTaskError::Internal)?;
+        tasks.retain(|task| compat_batch_includes(operation, task));
+        tasks.sort_by(|left, right| compat_batch_order(operation, left, right));
+
+        let gids = tasks
+            .into_iter()
+            .filter_map(|task| task.gid.map(|gid| gid.trim().to_string()))
+            .filter(|gid| !gid.is_empty())
+            .collect::<Vec<_>>();
+        let aria2_requirement = if gids.is_empty() {
+            CompatAria2Requirement::None
+        } else {
+            match operation {
+                CompatBatchOperation::PauseAll | CompatBatchOperation::UnpauseAll => {
+                    CompatAria2Requirement::Required
+                }
+                CompatBatchOperation::PurgeDownloadResult => CompatAria2Requirement::IfRunning,
+            }
+        };
+
+        Ok(CompatBatchPlan {
+            aria2_requirement,
+            operation,
+            gids,
+        })
+    }
+
+    pub async fn execute_compat_batch(
+        &self,
+        plan: CompatBatchPlan,
+        config: Option<&Aria2Config>,
+    ) -> CompatBatchResult {
+        let mut result = CompatBatchResult {
+            target_count: plan.gids.len(),
+            ..CompatBatchResult::default()
+        };
+
+        for gid in plan.gids {
+            let outcome = match plan.operation {
+                CompatBatchOperation::PauseAll => self.pause_by_compat_gid(config, &gid).await,
+                CompatBatchOperation::UnpauseAll => self.unpause_by_compat_gid(config, &gid).await,
+                CompatBatchOperation::PurgeDownloadResult => {
+                    self.remove_download_result_by_compat_gid(config, &gid)
+                        .await
+                }
+            };
+            if outcome.is_ok() {
+                result.completed_count += 1;
+            } else {
+                result.failed_count += 1;
+            }
+        }
+        result
+    }
+
     fn find_compat_task(&self, gid: &str) -> Result<DownloadTask, CompatTaskError> {
         self.get_download_task_by_gid(gid)
             .map_err(|_| CompatTaskError::Internal)?
             .ok_or(CompatTaskError::GidNotFound)
+    }
+}
+
+fn compat_batch_includes(operation: CompatBatchOperation, task: &DownloadTask) -> bool {
+    match operation {
+        CompatBatchOperation::PauseAll => matches!(
+            task.status,
+            DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+        ),
+        CompatBatchOperation::UnpauseAll => task.status == DownloadTaskStatus::Paused,
+        CompatBatchOperation::PurgeDownloadResult => matches!(
+            task.status,
+            DownloadTaskStatus::Complete | DownloadTaskStatus::Error
+        ),
+    }
+}
+
+fn compat_batch_order(
+    operation: CompatBatchOperation,
+    left: &DownloadTask,
+    right: &DownloadTask,
+) -> std::cmp::Ordering {
+    match operation {
+        CompatBatchOperation::PauseAll | CompatBatchOperation::UnpauseAll => left
+            .created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id)),
+        CompatBatchOperation::PurgeDownloadResult => right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| left.id.cmp(&right.id)),
     }
 }
 

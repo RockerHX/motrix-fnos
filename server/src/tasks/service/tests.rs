@@ -1172,6 +1172,100 @@ async fn remove_download_result_persist_failure_restores_terminal_state() {
 }
 
 #[tokio::test]
+async fn compat_batch_plan_freezes_targets_in_stable_order() {
+    let fixture = ServiceFixture::new(
+        vec![
+            sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "complete-old",
+                "/downloads".to_string(),
+            ),
+            sample_task(
+                2,
+                DownloadTaskStatus::Complete,
+                "complete-new",
+                "/downloads".to_string(),
+            ),
+            sample_task(
+                3,
+                DownloadTaskStatus::Paused,
+                "paused",
+                "/downloads".to_string(),
+            ),
+            sample_task(
+                4,
+                DownloadTaskStatus::Removed,
+                "removed",
+                "/downloads".to_string(),
+            ),
+        ],
+        false,
+    );
+    fixture
+        .tasks
+        .with_tasks_mut(|tasks| {
+            tasks[0].updated_at = 10;
+            tasks[1].updated_at = 20;
+        })
+        .expect("task snapshot should update");
+
+    let plan = fixture
+        .service()
+        .plan_compat_batch(CompatBatchOperation::PurgeDownloadResult)
+        .expect("purge plan should create");
+
+    assert_eq!(plan.aria2_requirement, CompatAria2Requirement::IfRunning);
+    assert_eq!(plan.target_count(), 2);
+    assert_eq!(plan.gids(), &["complete-new", "complete-old"]);
+}
+
+#[tokio::test]
+async fn compat_batch_continues_after_task_conflict_and_counts_failures() {
+    let fixture = ServiceFixture::new(
+        vec![
+            sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "complete-first",
+                "/downloads".to_string(),
+            ),
+            sample_task(
+                2,
+                DownloadTaskStatus::Complete,
+                "complete-second",
+                "/downloads".to_string(),
+            ),
+        ],
+        false,
+    );
+    fixture
+        .tasks
+        .with_tasks_mut(|tasks| {
+            tasks[0].updated_at = 20;
+            tasks[1].updated_at = 10;
+        })
+        .expect("task snapshot should update");
+    let plan = fixture
+        .service()
+        .plan_compat_batch(CompatBatchOperation::PurgeDownloadResult)
+        .expect("purge plan should create");
+    let _busy = fixture
+        .tasks
+        .begin_operation(1)
+        .expect("first task should become busy");
+
+    let result = fixture.service().execute_compat_batch(plan, None).await;
+
+    assert_eq!(result.target_count, 2);
+    assert_eq!(result.completed_count, 1);
+    assert_eq!(result.failed_count, 1);
+    let tasks = fixture.tasks.list().expect("tasks should list");
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Complete);
+    assert_eq!(tasks[1].status, DownloadTaskStatus::Removed);
+}
+
+#[tokio::test]
 async fn delete_with_files_queues_staged_files_after_task_state_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-files");

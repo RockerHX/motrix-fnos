@@ -40,7 +40,10 @@ mod proxy;
 mod query;
 mod restore;
 
-pub use compat::{CompatAria2Requirement, CompatTaskError, CompatTaskOperation};
+pub use compat::{
+    CompatAria2Requirement, CompatBatchOperation, CompatBatchPlan, CompatBatchResult,
+    CompatTaskError, CompatTaskOperation,
+};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
