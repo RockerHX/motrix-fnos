@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-04 已完成，ME-05 待实施
+状态：ME-05 已完成，ME-06 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -89,7 +89,7 @@ Issue 原文：[`RockerHX/motrix-fnos#11`](https://github.com/RockerHX/motrix-fn
 截至本计划基线，13 个目标的对外实现状态为：
 
 - 已有外部入口：`aria2.getVersion`、`aria2.addUri`；ME-03 已按扩展真实 payload 完成验收。
-- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；ME-02 已完成只读快照，ME-04 已完成单任务控制和清理，批量控制仍待 ME-05。
+- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；ME-02 已完成只读快照，ME-04 已完成单任务控制和清理，ME-05 已完成批量控制和清理。
 
 上述“待实现”不表示要重写 11 套 Aria2 能力：查询方法读取 Motrix 任务快照；单任务控制复用 `TaskService`；批量方法复用同一 service 的批量领域操作。内部 `aria2.tell*`、`pause`、`unpause`、`remove` 等 sidecar 调用始终只由这些 service 间接触发。
 
@@ -652,6 +652,8 @@ match method {
 完成条件：扩展 active/waiting/stopped 三个 lane 的全部操作均能完成；批量部分失败不会丢失任务或误删文件。
 
 批量实现的禁止事项：不得使用 `futures::join_all`、`tokio::spawn` 或无界 `Promise.all` 式并发；不得因一个任务失败提前 `return` 而跳过后续任务；不得把失败任务标记为 `Removed`；不得把部分成功包装成 JSON-RPC `result:"OK"`。批次错误响应至少包含 `failedCount` 对应的稳定数量信息（若现有 `RpcFault` 只能返回字符串，则使用“批量操作失败：N 个任务失败”格式），详细逐任务原因只写脱敏日志和 TaskOperation。
+
+完成记录（2026-08-20）：已实现 `pauseAll`、`unpauseAll`、`purgeDownloadResult` 的固定目标快照、稳定顺序和串行执行。批量控制只获取一次 `ReadyAria2` 配置并由 TaskService 复用；终态清理在 sidecar 停止时走本地回收站迁移，不唤醒引擎。单任务冲突、RPC/持久化失败不会中断后续任务，部分失败返回 `-32006` 和稳定失败数量，失败任务保持原状态；空目标和已 Removed 任务幂等成功。新增领域与 JSON-RPC 测试覆盖批次顺序、部分失败、文件保留、sidecar 未启动和快照广播。
 
 ### ME-06：协议、鉴权和回归测试
 

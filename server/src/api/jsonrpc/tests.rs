@@ -388,6 +388,135 @@ async fn compat_pause_and_unpause_idempotence_does_not_start_sidecar() {
 }
 
 #[tokio::test]
+async fn compat_purge_batch_moves_terminal_tasks_without_starting_sidecar() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = state.runtime.app_data_dir.join("compat-purge-batch");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let save_dir = save_dir.display().to_string();
+    std::fs::write(PathBuf::from(&save_dir).join("archive.zip"), b"payload")
+        .expect("download file should write");
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![
+                compat_sample_task(
+                    1,
+                    DownloadTaskStatus::Complete,
+                    "complete-gid",
+                    save_dir.clone(),
+                ),
+                compat_sample_task(2, DownloadTaskStatus::Error, "error-gid", save_dir.clone()),
+                compat_sample_task(
+                    3,
+                    DownloadTaskStatus::Removed,
+                    "removed-gid",
+                    save_dir.clone(),
+                ),
+            ]
+        })
+        .expect("task snapshot should update");
+
+    let result = execute_method(
+        &state,
+        "aria2.purgeDownloadResult",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .expect("purge should succeed while sidecar is stopped");
+
+    assert_eq!(result, json!("OK"));
+    let tasks = state.core.download_tasks.list().expect("tasks should list");
+    assert!(tasks
+        .iter()
+        .all(|task| task.status == DownloadTaskStatus::Removed));
+    assert_eq!(
+        std::fs::read(PathBuf::from(&save_dir).join("archive.zip"))
+            .expect("download file should remain"),
+        b"payload"
+    );
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
+async fn compat_purge_batch_continues_after_task_conflict_and_returns_failure() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = "/downloads".to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![
+                compat_sample_task(
+                    1,
+                    DownloadTaskStatus::Complete,
+                    "first-gid",
+                    "/downloads".to_string(),
+                ),
+                compat_sample_task(
+                    2,
+                    DownloadTaskStatus::Complete,
+                    "second-gid",
+                    "/downloads".to_string(),
+                ),
+            ]
+        })
+        .expect("task snapshot should update");
+    let _busy = state
+        .core
+        .download_tasks
+        .begin_operation(1)
+        .expect("first task should become busy");
+
+    let error = execute_method(
+        &state,
+        "aria2.purgeDownloadResult",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .expect_err("partial purge must not report OK");
+
+    assert_eq!(error.code, -32006);
+    assert_eq!(error.message, "批量操作失败：1 个任务失败");
+    let tasks = state.core.download_tasks.list().expect("tasks should list");
+    assert_eq!(tasks[0].status, DownloadTaskStatus::Complete);
+    assert_eq!(tasks[1].status, DownloadTaskStatus::Removed);
+}
+
+#[tokio::test]
+async fn compat_empty_pause_batch_is_idempotent_without_starting_sidecar() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+
+    let result = execute_method(&state, "aria2.pauseAll", &json!(["token:public-secret"]))
+        .await
+        .expect("empty pause batch should succeed");
+
+    assert_eq!(result, json!("OK"));
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
 async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
     let state = test_state().await;
     state.remember_json_rpc_token("public-secret");

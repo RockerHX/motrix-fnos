@@ -3,7 +3,10 @@ use super::params::ControlOperation;
 use crate::api::tasks::task_service;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, process_status};
-use crate::tasks::service::{CompatAria2Requirement, CompatTaskError, CompatTaskOperation};
+use crate::tasks::service::{
+    CompatAria2Requirement, CompatBatchOperation, CompatBatchResult, CompatTaskError,
+    CompatTaskOperation,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -35,6 +38,36 @@ pub(super) async fn execute(
     Ok(result)
 }
 
+pub(super) async fn execute_batch(
+    state: &Arc<HttpAppState>,
+    operation: ControlOperation,
+) -> Result<Value, RpcFault> {
+    let operation =
+        batch_operation(operation).ok_or_else(|| RpcFault::server_error("不是批量兼容方法"))?;
+    let service = task_service(state);
+    let plan = service
+        .plan_compat_batch(operation)
+        .map_err(map_compat_error)?;
+
+    let result = match plan.aria2_requirement {
+        CompatAria2Requirement::None | CompatAria2Requirement::IfRunning => {
+            let config = if plan.aria2_requirement == CompatAria2Requirement::IfRunning {
+                running_aria2_config(state).map_err(RpcFault::server_error)?
+            } else {
+                None
+            };
+            service.execute_compat_batch(plan, config.as_ref()).await
+        }
+        CompatAria2Requirement::Required => {
+            let config = ensure_aria2_ready(state).await.map_err(map_runtime_error)?;
+            service.execute_compat_batch(plan, Some(&config)).await
+        }
+    };
+
+    broadcast_tasks_snapshot(state).map_err(RpcFault::server_error)?;
+    batch_result_value(result)
+}
+
 fn compat_operation(operation: ControlOperation) -> Option<CompatTaskOperation> {
     match operation {
         ControlOperation::Pause => Some(CompatTaskOperation::Pause),
@@ -45,6 +78,25 @@ fn compat_operation(operation: ControlOperation) -> Option<CompatTaskOperation> 
         | ControlOperation::UnpauseAll
         | ControlOperation::PurgeDownloadResult => None,
     }
+}
+
+fn batch_operation(operation: ControlOperation) -> Option<CompatBatchOperation> {
+    match operation {
+        ControlOperation::PauseAll => Some(CompatBatchOperation::PauseAll),
+        ControlOperation::UnpauseAll => Some(CompatBatchOperation::UnpauseAll),
+        ControlOperation::PurgeDownloadResult => Some(CompatBatchOperation::PurgeDownloadResult),
+        ControlOperation::Pause
+        | ControlOperation::Unpause
+        | ControlOperation::Remove
+        | ControlOperation::RemoveDownloadResult => None,
+    }
+}
+
+fn batch_result_value(result: CompatBatchResult) -> Result<Value, RpcFault> {
+    if !result.is_complete() {
+        return Err(RpcFault::batch_failed(result.failed_count));
+    }
+    Ok(Value::String("OK".to_string()))
 }
 
 async fn execute_with_config(

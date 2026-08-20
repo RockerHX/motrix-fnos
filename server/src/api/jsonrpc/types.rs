@@ -60,6 +60,13 @@ impl RpcFault {
         }
     }
 
+    pub(super) fn batch_failed(failed_count: usize) -> Self {
+        Self {
+            code: -32006,
+            message: format!("批量操作失败：{failed_count} 个任务失败"),
+        }
+    }
+
     pub(super) fn gid_not_found() -> Self {
         Self {
             code: -32003,

@@ -28,14 +28,21 @@ pub(super) async fn dispatch(
             num,
             keys,
         } => read::tell(state, lane, offset, num, &keys),
-        CompatCommand::Control { operation, gid } => {
-            let Some(gid) = gid.as_deref() else {
-                return Err(RpcFault::server_error(control_not_ready_message(
-                    operation, None,
-                )));
-            };
-            control::execute(state, operation, gid).await
-        }
+        CompatCommand::Control { operation, gid } => match gid.as_deref() {
+            Some(gid) => control::execute(state, operation, gid).await,
+            None if matches!(
+                operation,
+                ControlOperation::PauseAll
+                    | ControlOperation::UnpauseAll
+                    | ControlOperation::PurgeDownloadResult
+            ) =>
+            {
+                control::execute_batch(state, operation).await
+            }
+            None => Err(RpcFault::server_error(control_not_ready_message(
+                operation, None,
+            ))),
+        },
     }
 }
 
