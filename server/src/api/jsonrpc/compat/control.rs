@@ -1,0 +1,108 @@
+use super::super::types::RpcFault;
+use super::params::ControlOperation;
+use crate::api::tasks::task_service;
+use crate::app::HttpAppState;
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, process_status};
+use crate::tasks::service::{CompatAria2Requirement, CompatTaskError, CompatTaskOperation};
+use serde_json::Value;
+use std::sync::Arc;
+
+pub(super) async fn execute(
+    state: &Arc<HttpAppState>,
+    operation: ControlOperation,
+    gid: &str,
+) -> Result<Value, RpcFault> {
+    let service = task_service(state);
+    let operation = compat_operation(operation)
+        .ok_or_else(|| RpcFault::server_error("批量兼容方法将在后续阶段接入"))?;
+    let target = service
+        .compat_task_target(operation, gid)
+        .map_err(map_compat_error)?;
+
+    let result = match target.aria2_requirement {
+        CompatAria2Requirement::None => execute_with_config(&service, operation, None, gid).await,
+        CompatAria2Requirement::Required => {
+            let config = ensure_aria2_ready(state).await.map_err(map_runtime_error)?;
+            execute_with_config(&service, operation, Some(&config), gid).await
+        }
+        CompatAria2Requirement::IfRunning => {
+            let config = running_aria2_config(state).map_err(RpcFault::server_error)?;
+            execute_with_config(&service, operation, config.as_ref(), gid).await
+        }
+    }?;
+
+    broadcast_tasks_snapshot(state).map_err(RpcFault::server_error)?;
+    Ok(result)
+}
+
+fn compat_operation(operation: ControlOperation) -> Option<CompatTaskOperation> {
+    match operation {
+        ControlOperation::Pause => Some(CompatTaskOperation::Pause),
+        ControlOperation::Unpause => Some(CompatTaskOperation::Unpause),
+        ControlOperation::Remove => Some(CompatTaskOperation::Remove),
+        ControlOperation::RemoveDownloadResult => Some(CompatTaskOperation::RemoveDownloadResult),
+        ControlOperation::PauseAll
+        | ControlOperation::UnpauseAll
+        | ControlOperation::PurgeDownloadResult => None,
+    }
+}
+
+async fn execute_with_config(
+    service: &crate::tasks::service::TaskService<'_>,
+    operation: CompatTaskOperation,
+    config: Option<&crate::config::aria2::Aria2Config>,
+    gid: &str,
+) -> Result<Value, RpcFault> {
+    match operation {
+        CompatTaskOperation::Pause => service
+            .pause_by_compat_gid(config, gid)
+            .await
+            .map(|task| Value::String(task.gid.unwrap_or_else(|| gid.to_string())))
+            .map_err(map_compat_error),
+        CompatTaskOperation::Unpause => service
+            .unpause_by_compat_gid(config, gid)
+            .await
+            .map(|task| Value::String(task.gid.unwrap_or_else(|| gid.to_string())))
+            .map_err(map_compat_error),
+        CompatTaskOperation::Remove => service
+            .remove_by_compat_gid(config, gid)
+            .await
+            .map(|task| Value::String(task.gid.unwrap_or_else(|| gid.to_string())))
+            .map_err(map_compat_error),
+        CompatTaskOperation::RemoveDownloadResult => service
+            .remove_download_result_by_compat_gid(config, gid)
+            .await
+            .map(|_| Value::String("OK".to_string()))
+            .map_err(map_compat_error),
+    }
+}
+
+fn running_aria2_config(
+    state: &HttpAppState,
+) -> Result<Option<crate::config::aria2::Aria2Config>, String> {
+    let status = process_status(&state.aria2_process)?;
+    if !status.running {
+        return Ok(None);
+    }
+    if state.aria2_runtime_snapshot().is_none() {
+        return Err("Aria2 进程已运行但运行态未记录，拒绝使用未知配置".to_string());
+    }
+    Ok(Some(state.aria2_config()))
+}
+
+fn map_runtime_error(error: String) -> RpcFault {
+    if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝") {
+        RpcFault::aria2_busy(error)
+    } else {
+        RpcFault::server_error(error)
+    }
+}
+
+fn map_compat_error(error: CompatTaskError) -> RpcFault {
+    match error {
+        CompatTaskError::GidNotFound => RpcFault::gid_not_found(),
+        CompatTaskError::Conflict(message) => RpcFault::task_conflict(message),
+        CompatTaskError::Aria2Required => RpcFault::server_error("当前任务操作需要 Aria2 运行态"),
+        CompatTaskError::Internal => RpcFault::server_error("任务操作失败，请稍后重试"),
+    }
+}

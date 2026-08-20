@@ -9,9 +9,45 @@ impl<'a> TaskService<'a> {
         task_id: u64,
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
+        self.delete_download_task_inner(Some(config), task_id, delete_files, false)
+            .await
+    }
+
+    /// Removes a terminal task through the Motrix recycle-bin semantics.
+    ///
+    /// A stopped Aria2 sidecar is represented by `None`; in that case only
+    /// the local task transition is performed and no attempt is made to wake
+    /// the sidecar just to remove an already-finished result.
+    pub async fn remove_download_result_task(
+        &self,
+        config: Option<&Aria2Config>,
+        task_id: u64,
+    ) -> Result<DownloadTask, String> {
+        self.delete_download_task_inner(config, task_id, false, true)
+            .await
+    }
+
+    async fn delete_download_task_inner(
+        &self,
+        config: Option<&Aria2Config>,
+        task_id: u64,
+        delete_files: bool,
+        terminal_only: bool,
+    ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if terminal_only {
+            if snapshot.status == DownloadTaskStatus::Removed {
+                return Ok(snapshot);
+            }
+            if !matches!(
+                snapshot.status,
+                DownloadTaskStatus::Complete | DownloadTaskStatus::Error
+            ) {
+                return Err("只有已完成或错误任务可以清理下载结果".to_string());
+            }
+        }
         self.ensure_file_cleanup_not_pending(task_id).await?;
         let mut operation = self
             .begin_task_operation(
@@ -53,7 +89,7 @@ impl<'a> TaskService<'a> {
             .gid
             .clone()
             .filter(|gid| !gid.trim().is_empty());
-        if let Some(gid) = gid.as_deref() {
+        if let (Some(config), Some(gid)) = (config, gid.as_deref()) {
             let request_id = operation.id.clone();
             if let Err(error) = remove_task_with_request_id(
                 self.aria2_rpc,
@@ -92,7 +128,11 @@ impl<'a> TaskService<'a> {
         let mut context = operation.context.clone();
         context
             .completed_side_effects
-            .push("aria2_task_removed".to_string());
+            .push(if config.is_some() && gid.is_some() {
+                "aria2_task_removed".to_string()
+            } else {
+                "aria2_task_already_absent".to_string()
+            });
         if let Err(error) = self
             .update_task_operation(&mut operation, "aria2_removed", context)
             .await

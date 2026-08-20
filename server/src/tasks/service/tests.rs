@@ -1047,6 +1047,131 @@ async fn delete_download_task_marks_removed_and_persists() {
 }
 
 #[tokio::test]
+async fn remove_download_result_skips_stopped_aria2_and_preserves_files() {
+    let save_dir = temp_dir("service-remove-result-stopped");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"payload").expect("file should write");
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Complete,
+            "stale-gid",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+
+    let task = fixture
+        .service()
+        .remove_download_result_task(None, 1)
+        .await
+        .expect("stopped sidecar should use local recycle-bin transition");
+
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert_eq!(
+        std::fs::read(&file_path).expect("file should remain"),
+        b"payload"
+    );
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Removed
+    );
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    assert!(operations[0]
+        .context
+        .completed_side_effects
+        .contains(&"aria2_task_already_absent".to_string()));
+}
+
+#[tokio::test]
+async fn remove_download_result_is_idempotent_for_removed_task() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "old-gid",
+            temp_dir("service-remove-result-idempotent")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+
+    let task = fixture
+        .service()
+        .remove_download_result_task(None, 1)
+        .await
+        .expect("removed task cleanup should be idempotent");
+
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert!(fixture.repository.operations().is_empty());
+    assert!(fixture.repository.persisted_tasks().is_empty());
+}
+
+#[tokio::test]
+async fn remove_download_result_rejects_non_terminal_task_without_side_effects() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "active-gid",
+            temp_dir("service-remove-result-active")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+
+    let error = fixture
+        .service()
+        .remove_download_result_task(None, 1)
+        .await
+        .expect_err("active task should not use result cleanup");
+
+    assert!(error.contains("只有已完成或错误任务"));
+    assert!(fixture.repository.operations().is_empty());
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Active
+    );
+}
+
+#[tokio::test]
+async fn remove_download_result_persist_failure_restores_terminal_state() {
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Error,
+            "error-gid",
+            temp_dir("service-remove-result-persist-failure")
+                .display()
+                .to_string(),
+        )],
+        false,
+    );
+    fixture.repository.fail_persist_on_call(1);
+
+    let error = fixture
+        .service()
+        .remove_download_result_task(None, 1)
+        .await
+        .expect_err("persistence failure should roll back local cleanup");
+
+    assert!(error.contains("injected persist failure"));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Error
+    );
+    let operations = fixture.repository.operations();
+    assert_eq!(operations.len(), 1);
+    assert_eq!(operations[0].status, TaskOperationStatus::ManualReview);
+    assert_eq!(operations[0].phase, "task_remove_needs_reconcile");
+}
+
+#[tokio::test]
 async fn delete_with_files_queues_staged_files_after_task_state_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-files");

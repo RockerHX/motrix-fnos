@@ -40,6 +40,8 @@ mod proxy;
 mod query;
 mod restore;
 
+pub use compat::{CompatAria2Requirement, CompatTaskError, CompatTaskOperation};
+
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
     shutdown: &'a ShutdownState,

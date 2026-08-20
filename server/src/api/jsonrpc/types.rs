@@ -53,10 +53,17 @@ impl RpcFault {
         }
     }
 
-    pub(super) fn gid_not_found(gid: &str) -> Self {
+    pub(super) fn task_conflict(message: impl Into<String>) -> Self {
+        Self {
+            code: -32005,
+            message: message.into(),
+        }
+    }
+
+    pub(super) fn gid_not_found() -> Self {
         Self {
             code: -32003,
-            message: format!("Download task not found for GID {gid}"),
+            message: "任务 GID 不存在或已过期".to_string(),
         }
     }
 

@@ -201,6 +201,193 @@ async fn compat_dispatch_validates_token_and_wraps_read_models() {
 }
 
 #[tokio::test]
+async fn compat_remove_download_result_moves_terminal_task_without_starting_sidecar() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = state.runtime.app_data_dir.join("compat-remove-result");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let save_dir = save_dir.display().to_string();
+    std::fs::write(PathBuf::from(&save_dir).join("archive.zip"), b"payload")
+        .expect("download file should write");
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![compat_sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "complete-gid",
+                save_dir.clone(),
+            )]
+        })
+        .expect("task snapshot should update");
+
+    let result = execute_method(
+        &state,
+        "aria2.removeDownloadResult",
+        &json!(["token:public-secret", "complete-gid"]),
+    )
+    .await
+    .expect("terminal cleanup should succeed while sidecar is stopped");
+
+    assert_eq!(result, json!("OK"));
+    assert_eq!(
+        state.core.download_tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Removed
+    );
+    assert_eq!(
+        std::fs::read(PathBuf::from(&save_dir).join("archive.zip"))
+            .expect("download file should remain"),
+        b"payload"
+    );
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+    let stopped = execute_method(
+        &state,
+        "aria2.tellStopped",
+        &json!(["token:public-secret", 0, 20, ["gid"]]),
+    )
+    .await
+    .expect("stopped list should remain readable after cleanup");
+    assert_eq!(stopped, json!([]));
+}
+
+#[tokio::test]
+async fn compat_remove_download_result_is_idempotent_for_removed_task() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = "/downloads".to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![compat_sample_task(
+                1,
+                DownloadTaskStatus::Removed,
+                "removed-gid",
+                save_dir,
+            )]
+        })
+        .expect("task snapshot should update");
+
+    let result = execute_method(
+        &state,
+        "aria2.removeDownloadResult",
+        &json!(["token:public-secret", "removed-gid"]),
+    )
+    .await
+    .expect("removed cleanup should be idempotent");
+
+    assert_eq!(result, json!("OK"));
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
+async fn compat_remove_rejects_terminal_task_with_task_conflict() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![compat_sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "complete-gid",
+                "/downloads".to_string(),
+            )]
+        })
+        .expect("task snapshot should update");
+
+    let error = execute_method(
+        &state,
+        "aria2.remove",
+        &json!(["token:public-secret", "complete-gid"]),
+    )
+    .await
+    .expect_err("remove should reject terminal tasks");
+
+    assert_eq!(error.code, -32005);
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
+async fn compat_pause_and_unpause_idempotence_does_not_start_sidecar() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = "/downloads".to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![
+                compat_sample_task(
+                    1,
+                    DownloadTaskStatus::Paused,
+                    "paused-gid",
+                    "/downloads".to_string(),
+                ),
+                compat_sample_task(
+                    2,
+                    DownloadTaskStatus::Pending,
+                    "pending-gid",
+                    "/downloads".to_string(),
+                ),
+            ]
+        })
+        .expect("task snapshot should update");
+
+    let paused = execute_method(
+        &state,
+        "aria2.pause",
+        &json!(["token:public-secret", "paused-gid"]),
+    )
+    .await
+    .expect("pause should be idempotent for paused tasks");
+    let pending = execute_method(
+        &state,
+        "aria2.unpause",
+        &json!(["token:public-secret", "pending-gid"]),
+    )
+    .await
+    .expect("unpause should be idempotent for waiting tasks");
+
+    assert_eq!(paused, json!("paused-gid"));
+    assert_eq!(pending, json!("pending-gid"));
+    assert!(state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .is_none());
+}
+
+#[tokio::test]
 async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
     let state = test_state().await;
     state.remember_json_rpc_token("public-secret");

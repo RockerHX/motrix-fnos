@@ -1,3 +1,4 @@
+mod control;
 mod model;
 mod params;
 mod read;
@@ -33,16 +34,7 @@ pub(super) async fn dispatch(
                     operation, None,
                 )));
             };
-            let task = crate::api::tasks::task_service(state)
-                .get_download_task_by_gid(gid)
-                .map_err(RpcFault::server_error)?;
-            if task.is_none() {
-                return Err(RpcFault::gid_not_found(gid));
-            }
-            Err(RpcFault::server_error(control_not_ready_message(
-                operation,
-                Some(gid),
-            )))
+            control::execute(state, operation, gid).await
         }
     }
 }

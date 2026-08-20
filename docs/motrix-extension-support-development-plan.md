@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-03 已完成，ME-04 待实施
+状态：ME-04 已完成，ME-05 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -88,8 +88,8 @@ Issue 原文：[`RockerHX/motrix-fnos#11`](https://github.com/RockerHX/motrix-fn
 
 截至本计划基线，13 个目标的对外实现状态为：
 
-- 已有外部入口：`aria2.getVersion`、`aria2.addUri`（后者仍需以扩展真实 payload 做兼容验收）。
-- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；只读快照行为仍待 ME-02，任务控制和清理行为仍待 ME-04/ME-05。
+- 已有外部入口：`aria2.getVersion`、`aria2.addUri`；ME-03 已按扩展真实 payload 完成验收。
+- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；ME-02 已完成只读快照，ME-04 已完成单任务控制和清理，批量控制仍待 ME-05。
 
 上述“待实现”不表示要重写 11 套 Aria2 能力：查询方法读取 Motrix 任务快照；单任务控制复用 `TaskService`；批量方法复用同一 service 的批量领域操作。内部 `aria2.tell*`、`pause`、`unpause`、`remove` 等 sidecar 调用始终只由这些 service 间接触发。
 
@@ -633,6 +633,8 @@ match method {
 4. 固定“外部 remove/清理 = 进入 Motrix 回收站、保留用户文件”的语义，并补充恢复验证。
 
 完成条件：扩展单行按钮对 active、waiting、paused、complete、error 五类任务均能正确更新列表；Web UI 回收站能看到外部移除的任务，下载文件仍存在。
+
+完成记录（2026-08-20）：已接入 `pause`、`unpause`、`remove` 和 `removeDownloadResult` 的 GID 到 `TaskService` 分发。暂停/继续复用现有 Aria2 生命周期、代理对账、任务操作记录和回滚流程；waiting/paused 的兼容幂等行为不会误唤醒 sidecar。`remove` 统一进入 Motrix 回收站并保留用户文件；`removeDownloadResult` 通过同一删除 service 执行，终态任务在 sidecar 已停止时使用 optional-config 本地迁移，不启动引擎，运行中沿用单次 remove/fallback 流程；已 Removed 任务幂等返回 `OK`。新增 JSON-RPC 与 TaskService 回归测试，覆盖停止 sidecar、并发门禁、持久化失败回滚、终态幂等和文件保留。批量控制仍留给 ME-05。
 
 ### ME-05：实现批量控制、清理和生命周期协同
 
