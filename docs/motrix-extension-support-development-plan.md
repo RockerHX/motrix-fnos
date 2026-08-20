@@ -677,6 +677,9 @@ match method {
 
 依赖：ME-06；需要至少一台目标 fnOS 设备或等价 Linux 运行环境。
 
+详细的现场步骤、证据模板和失败判定见
+[Motrix Extension 真实扩展手工验收手册](motrix-extension-manual-acceptance.md)。
+
 使用扩展构建/发布 ZIP，按如下矩阵执行：
 
 | 场景 | 操作 | 预期 |
