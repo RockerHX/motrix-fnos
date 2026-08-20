@@ -851,7 +851,7 @@ Session 与 Cookie 约定：
 
 `/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。公网反代入口注册在 `127.0.0.1:17081`，局域网入口注册在 `0.0.0.0:17082`；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
 
-Motrix Extension 兼容声明：截至 Motrix server `v1.9.3`，仅已有 `aria2.getVersion` 与 `aria2.addUri` 两个扩展调用路径的外部入口；完整的 13 个方法兼容层仍在开发，不能据此宣称支持完整 Aria2、AriaNg 或 Motrix Extension。远程创建只支持 HTTP/HTTPS URL 与 `magnet:?`；`ed2k://` 和 `thunder://` 明确不支持，客户端不得把它们当作成功创建的下载任务。
+Motrix Extension 兼容声明：截至 Motrix server `v1.9.3`，以下 13 个扩展调用方法已接入受控兼容层：统计 `aria2.getGlobalStat`、任务列表 `aria2.tellActive` / `aria2.tellWaiting` / `aria2.tellStopped`、创建 `aria2.addUri`、单任务控制 `aria2.pause` / `aria2.unpause` / `aria2.remove` / `aria2.removeDownloadResult`，以及批量控制 `aria2.pauseAll` / `aria2.unpauseAll` / `aria2.purgeDownloadResult`；连接探测 `aria2.getVersion` 也保持可用。该声明不等于支持完整 Aria2 或 AriaNg。远程创建只支持 HTTP/HTTPS URL 与 `magnet:?`；`ed2k://` 和 `thunder://` 明确不支持，客户端不得把它们当作成功创建的下载任务。
 
 不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理首次使用必须先设置独立管理密码。
 
@@ -868,6 +868,15 @@ Motrix Extension 兼容声明：截至 Motrix server `v1.9.3`，仅已有 `aria2
 | `aria2.addUri` | 需要 `jsonRpcToken` | 添加 HTTP/HTTPS 或磁力链接下载任务，成功返回 Aria2 GID |
 | `aria2.getGlobalOption` | 需要 `jsonRpcToken` | 从内存返回安全兼容子集，目前只包含已授权默认下载目录 `dir`；没有可用授权目录时返回空字符串，不启动或探测 Aria2，不返回 RPC secret、代理凭据等敏感配置 |
 | `aria2.getVersion` | 不需要 | 运行时返回版本与空 `enabledFeatures` 并更新进程内版本缓存；已停止时不启动 Aria2、不访问磁盘，返回最后一次读取到的版本，尚无缓存时返回 `unknown`；正在停止时返回 `-32004` 和 `Aria2 正在停止，请稍后重试` |
+| `aria2.getGlobalStat` | 需要对应入口 Token | 从内存任务快照返回速度和 active/waiting/stopped 统计，不启动 Aria2 |
+| `aria2.tellActive` | 需要对应入口 Token | 返回当前授权目录中的活动任务，支持 `keys` 字段筛选 |
+| `aria2.tellWaiting` | 需要对应入口 Token | 返回等待和暂停任务，支持 offset、num、负 offset 与 `keys` |
+| `aria2.tellStopped` | 需要对应入口 Token | 返回完成和错误任务，支持 offset、num、负 offset 与 `keys`；回收站任务不可见 |
+| `aria2.pause` / `aria2.unpause` | 需要对应入口 Token | 通过 TaskService 暂停或继续单个 GID，成功返回 GID |
+| `aria2.remove` | 需要对应入口 Token | 将活动/等待任务移入 Motrix 回收站并保留用户文件 |
+| `aria2.removeDownloadResult` | 需要对应入口 Token | 将完成/错误任务移入 Motrix 回收站并保留用户文件；sidecar 已停止时不启动引擎 |
+| `aria2.pauseAll` / `aria2.unpauseAll` | 需要对应入口 Token | 冻结目标快照后按稳定顺序串行执行；空目标返回 `OK` |
+| `aria2.purgeDownloadResult` | 需要对应入口 Token | 串行清理完成/错误任务结果并迁移到回收站；部分失败返回批量错误，不删除用户文件 |
 | `system.multicall` | 子调用按方法校验 | 批量执行；其中每个需要鉴权的子调用都必须在自身参数中携带有效 token |
 
 鉴权约定：
@@ -910,6 +919,6 @@ Motrix Extension 兼容声明：截至 Motrix server `v1.9.3`，仅已有 `aria2
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`；`ed2k://` 与 `thunder://` 明确不支持，不得返回成功 GID。远程入口不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
-- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
+- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；未知 GID 返回 `-32003`；Aria2 正在停止时返回 `-32004`；任务状态冲突返回 `-32005`；批量操作部分失败返回 `-32006`，消息包含稳定的失败任务数量。批量失败不会提前停止后续任务，也不会把失败任务标记为 `Removed`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
 - 局域网入口关闭时所有请求返回 404；开启时只接受 RFC1918 IPv4 真实对端。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。

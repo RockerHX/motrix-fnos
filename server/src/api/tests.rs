@@ -450,6 +450,84 @@ async fn jsonrpc_router_only_serves_the_exact_jsonrpc_path() {
     );
 }
 
+#[tokio::test]
+async fn jsonrpc_http_supports_batch_requests_and_parse_errors() {
+    let state = test_state(None).await;
+    state.remember_json_rpc_token("public-secret");
+    let app = jsonrpc_router(state);
+
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/jsonrpc",
+            &json!([
+                {
+                    "jsonrpc": "2.0",
+                    "id": "stat",
+                    "method": "aria2.getGlobalStat",
+                    "params": ["token:public-secret"]
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": "version",
+                    "method": "aria2.getVersion",
+                    "params": []
+                },
+                {
+                    "jsonrpc": "2.0",
+                    "id": "unknown",
+                    "method": "aria2.tellStatus",
+                    "params": []
+                }
+            ]),
+        ))
+        .await
+        .expect("batch response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/json")
+    );
+    let payload = response_json_value(response).await;
+    assert_eq!(payload.as_array().map(Vec::len), Some(3));
+    assert_eq!(payload[0]["id"], "stat");
+    assert_eq!(payload[0]["result"]["numActive"], "0");
+    assert_eq!(payload[1]["id"], "version");
+    assert_eq!(payload[1]["result"]["version"], "unknown");
+    assert_eq!(payload[2]["id"], "unknown");
+    assert_eq!(payload[2]["error"]["code"], -32601);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/jsonrpc")
+                .header("content-type", "application/json")
+                .body(Body::from("not-json"))
+                .expect("parse error request should build"),
+        )
+        .await
+        .expect("parse error response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let payload = response_json_value(response).await;
+    assert_eq!(payload["jsonrpc"], "2.0");
+    assert_eq!(payload["id"], serde_json::Value::Null);
+    assert_eq!(payload["error"]["code"], -32700);
+}
+
+async fn response_json_value(response: axum::response::Response) -> serde_json::Value {
+    serde_json::from_slice(
+        &to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should read"),
+    )
+    .expect("JSON response should parse")
+}
+
 #[test]
 fn lan_jsonrpc_peer_filter_only_allows_rfc1918_ipv4() {
     for allowed in ["10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.12"] {

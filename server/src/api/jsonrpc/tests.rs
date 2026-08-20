@@ -105,6 +105,14 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
     .is_err());
     assert!(execute_method_with_access(
         &state,
+        JsonRpcAccess::Proxy,
+        "aria2.getGlobalStat",
+        &json!(["token:lan-secret"]),
+    )
+    .await
+    .is_err());
+    assert!(execute_method_with_access(
+        &state,
         JsonRpcAccess::Lan,
         "aria2.getGlobalOption",
         &json!(["token:lan-secret"]),
@@ -115,6 +123,14 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
         &state,
         JsonRpcAccess::Lan,
         "aria2.getGlobalOption",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .is_err());
+    assert!(execute_method_with_access(
+        &state,
+        JsonRpcAccess::Lan,
+        "aria2.getGlobalStat",
         &json!(["token:public-secret"]),
     )
     .await
@@ -151,6 +167,35 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
         state.json_rpc_default_download_dir()
     );
     assert_eq!(multicall["result"][1]["faultCode"], -32001);
+}
+
+#[tokio::test]
+async fn compat_rejects_invalid_shapes_and_unknown_methods_consistently() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+
+    let invalid = execute_method(
+        &state,
+        "aria2.tellWaiting",
+        &json!(["token:public-secret", 0, 20, {"gid": true}]),
+    )
+    .await
+    .expect_err("non-array keys should be rejected");
+    assert_eq!(invalid.code, -32602);
+
+    let invalid = execute_method(
+        &state,
+        "aria2.pauseAll",
+        &json!(["token:public-secret", "unexpected"]),
+    )
+    .await
+    .expect_err("batch methods should reject extra parameters");
+    assert_eq!(invalid.code, -32602);
+
+    let unknown = execute_method(&state, "aria2.tellStatus", &json!([]))
+        .await
+        .expect_err("non-whitelisted methods should be rejected");
+    assert_eq!(unknown.code, -32601);
 }
 
 #[tokio::test]
