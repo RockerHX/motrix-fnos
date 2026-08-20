@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-02 已完成，ME-03 待实施
+状态：ME-03 已完成，ME-04 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -616,6 +616,8 @@ match method {
 5. 不把扩展的 `finalUrl` 诊断字段误当成 `addUri` 的第二个 URL；当前扩展只提交原始 URL。
 
 完成条件：使用真实扩展完成一次需要 Cookie/Referer 的 HTTP 下载和一次磁力 metadata 流程，任务记录和文件路径均符合现有安全契约。
+
+完成记录（2026-08-20）：已按扩展真实 `addUri([url], options)` payload 完成 HTTP/HTTPS 与磁力链路验收。请求头、Cookie、Referer、User-Agent、`out`、默认/显式授权目录均进入统一 `TaskService -> Aria2 -> SQLite -> 内存快照/SSE` 链路；未知选项安全忽略，`out`、目录、请求头类型/长度/控制字符均有边界校验，`ed2k://` 与 `thunder://` 明确拒绝。磁力任务使用应用私有 metadata 临时目录并设置 `pause-metadata`/`bt-save-metadata`，返回临时 GID，任务记录可继续进入文件确认流程。新增 HTTP JSON-RPC、multicall、WebSocket 和直接方法回归 fixture；未泄露 Token、Cookie、代理凭据或完整 URL query。
 
 ### ME-04：实现单任务控制和回收站适配
 

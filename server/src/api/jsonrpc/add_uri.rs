@@ -105,6 +105,7 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
     let options = params.get(1).and_then(Value::as_object);
 
     let mut aria2_options = options.map(sanitize_aria2_options).unwrap_or_default();
+    validate_extension_options(options)?;
     match aria2_options.get("all-proxy") {
         Some(Value::String(proxy_url)) => {
             let normalized =
@@ -143,16 +144,100 @@ fn detect_source_type(url: &str) -> DownloadTaskSourceType {
     }
 }
 
+fn validate_extension_options(
+    options: Option<&serde_json::Map<String, Value>>,
+) -> Result<(), RpcFault> {
+    let Some(options) = options else {
+        return Ok(());
+    };
+
+    if let Some(out) = options.get("out") {
+        let out = out
+            .as_str()
+            .ok_or_else(|| RpcFault::invalid_params("out must be a string"))?
+            .trim();
+        if out.is_empty()
+            || out.len() > 255
+            || out.contains('\0')
+            || out.contains('/')
+            || out.contains('\\')
+            || out == "."
+            || out == ".."
+            || out.split('/').any(|part| part == "." || part == "..")
+        {
+            return Err(RpcFault::invalid_params("out must be a file name"));
+        }
+    }
+
+    if let Some(dir) = options.get("dir") {
+        if !dir.is_string() {
+            return Err(RpcFault::invalid_params("dir must be a string"));
+        }
+    }
+
+    validate_text_option(options, "referer", 4096)?;
+    validate_text_option(options, "user-agent", 1024)?;
+    if let Some(header) = options.get("header") {
+        let headers = header
+            .as_array()
+            .ok_or_else(|| RpcFault::invalid_params("header must be an array of strings"))?;
+        if headers.len() > 64 {
+            return Err(RpcFault::invalid_params("header contains too many entries"));
+        }
+        let mut total = 0usize;
+        for value in headers {
+            let header = value
+                .as_str()
+                .ok_or_else(|| RpcFault::invalid_params("header must be an array of strings"))?;
+            if header.len() > 8192 || header.contains(['\r', '\n', '\0']) {
+                return Err(RpcFault::invalid_params("header contains an invalid value"));
+            }
+            total = total.saturating_add(header.len());
+        }
+        if total > 65536 {
+            return Err(RpcFault::invalid_params("header payload is too large"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_text_option(
+    options: &serde_json::Map<String, Value>,
+    key: &str,
+    max_length: usize,
+) -> Result<(), RpcFault> {
+    let Some(value) = options.get(key) else {
+        return Ok(());
+    };
+    let value = value
+        .as_str()
+        .ok_or_else(|| RpcFault::invalid_params(format!("{key} must be a string")))?;
+    if value.len() > max_length || value.contains(['\r', '\n', '\0']) {
+        return Err(RpcFault::invalid_params(format!(
+            "{key} contains an invalid value"
+        )));
+    }
+    Ok(())
+}
+
 fn first_uri(value: &Value) -> Result<String, RpcFault> {
     let uri = match value {
         Value::Array(uris) => uris.first().and_then(Value::as_str),
         Value::String(uri) => Some(uri.as_str()),
         _ => None,
     };
-    uri.map(str::trim)
+    let uri = uri
+        .map(str::trim)
         .filter(|uri| !uri.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| RpcFault::invalid_params("aria2.addUri requires a non-empty URI"))
+        .ok_or_else(|| RpcFault::invalid_params("aria2.addUri requires a non-empty URI"))?;
+    let lower = uri.to_ascii_lowercase();
+    if lower.starts_with("ed2k://") || lower.starts_with("thunder://") {
+        return Err(RpcFault::invalid_params(
+            "当前不支持 ed2k:// 或 thunder:// 下载链接",
+        ));
+    }
+    Ok(uri)
 }
 
 fn string_option(value: Option<&Value>) -> Option<String> {

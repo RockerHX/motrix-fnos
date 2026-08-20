@@ -20,7 +20,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -962,6 +962,144 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
     let _ = std::fs::remove_dir_all(&state.runtime.app_data_dir);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn add_uri_extension_payload_reaches_aria2_and_persists_http_and_magnet_tasks() {
+    let capture = Arc::new(AddUriCapture::default());
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock RPC listener should bind");
+    let rpc_port = listener
+        .local_addr()
+        .expect("mock RPC address should exist")
+        .port();
+    let capture_for_server = capture.clone();
+    let rpc_server = tokio::spawn(async move {
+        let app = axum::Router::new()
+            .route("/jsonrpc", axum::routing::post(capture_add_uri_rpc))
+            .with_state(capture_for_server);
+        axum::serve(listener, app)
+            .await
+            .expect("mock RPC server should serve");
+    });
+
+    let state = test_state().await;
+    let save_dir = state.runtime.app_data_dir.join("extension-downloads");
+    std::fs::create_dir_all(&save_dir).expect("save directory should create");
+    let save_dir = save_dir.display().to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&json!({"paths": [save_dir]}))
+            .expect("accessible paths should serialize"),
+    )
+    .expect("accessible paths should write");
+    write_json_rpc_token(&state, "secret").await;
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+        ));
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, rpc_port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let http_gid = execute_method(
+        &state,
+        "aria2.addUri",
+        &json!([
+            "token:secret",
+            ["https://example.com/cookie.zip"],
+            {
+                "dir": save_dir,
+                "out": "cookie.zip",
+                "header": ["Cookie: session=abc", "Referer: https://example.com/"],
+                "referer": "https://example.com/",
+                "user-agent": "Mozilla/5.0",
+                "unknown-option": "ignored"
+            }
+        ]),
+    )
+    .await
+    .expect("HTTP extension payload should create a task");
+    assert_eq!(http_gid, "gid-http");
+
+    let magnet_gid = execute_method(
+        &state,
+        "aria2.addUri",
+        &json!([
+            "token:secret",
+            ["magnet:?xt=urn:btih:example"],
+            {"dir": save_dir}
+        ]),
+    )
+    .await
+    .expect("magnet extension payload should create a task");
+    assert_eq!(magnet_gid, "gid-magnet");
+
+    let requests = capture
+        .requests
+        .lock()
+        .expect("capture should lock")
+        .clone();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["method"], "aria2.addUri");
+    assert_eq!(requests[0]["params"][2]["out"], "cookie.zip");
+    assert_eq!(requests[0]["params"][2]["header"][0], "Cookie: session=abc");
+    assert_eq!(requests[0]["params"][2]["referer"], "https://example.com/");
+    assert_eq!(requests[0]["params"][2]["user-agent"], "Mozilla/5.0");
+    assert!(requests[0]["params"][2].get("unknown-option").is_none());
+    assert_eq!(requests[1]["params"][1][0], "magnet:?xt=urn:btih:example");
+    assert_eq!(requests[1]["params"][2]["pause"], "false");
+    assert_eq!(requests[1]["params"][2]["pause-metadata"], "true");
+    assert_eq!(requests[1]["params"][2]["bt-save-metadata"], "true");
+    assert!(requests[1]["params"][2]["dir"]
+        .as_str()
+        .expect("magnet metadata dir should be a string")
+        .contains("magnet-metadata"));
+
+    let tasks = state.core.download_tasks.list().expect("tasks should list");
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(tasks[0].gid.as_deref(), Some("gid-http"));
+    assert_eq!(tasks[0].file_name, "cookie.zip");
+    assert_eq!(tasks[1].gid.as_deref(), Some("gid-magnet"));
+    assert_eq!(
+        tasks[1].source_type,
+        crate::tasks::DownloadTaskSourceType::Magnet
+    );
+    assert!(!tasks[1].confirmation_required);
+    assert_eq!(tasks[1].status, crate::tasks::DownloadTaskStatus::Pending);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM download_tasks")
+            .fetch_one(&state.core.database.pool)
+            .await
+            .expect("SQLite task count should load"),
+        2
+    );
+
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    state.core.database.pool.close().await;
+    rpc_server.abort();
+    let _ = rpc_server.await;
+}
+
 #[tokio::test]
 async fn quiescing_auto_stop_yields_to_external_add_uri_workflow() {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -1377,6 +1515,49 @@ fn parse_add_uri_rejects_invalid_proxy_before_runtime_work() {
 }
 
 #[test]
+fn parse_add_uri_accepts_extension_headers_and_rejects_unsafe_payloads() {
+    let command = parse_add_uri_command(&json!([
+        "token:anything",
+        ["https://example.com/file.zip"],
+        {
+            "dir": "/vol1/1000/tmp",
+            "out": "file.zip",
+            "header": ["Cookie: session=abc", "Referer: https://example.com/"],
+            "referer": "https://example.com/",
+            "user-agent": "Mozilla/5.0"
+        }
+    ]))
+    .expect("extension headers should parse");
+    assert_eq!(command.aria2_options["header"][0], "Cookie: session=abc");
+    assert_eq!(command.aria2_options["referer"], "https://example.com/");
+    assert_eq!(command.aria2_options["user-agent"], "Mozilla/5.0");
+
+    for options in [
+        json!({"out": "../file.zip"}),
+        json!({"out": "dir/file.zip"}),
+        json!({"out": "file\0.zip"}),
+        json!({"out": "x".repeat(256)}),
+        json!({"header": ["Cookie: a\nb"]}),
+        json!({"referer": 7}),
+        json!({"user-agent": "x\0y"}),
+        json!({"dir": false}),
+    ] {
+        let error = parse_add_uri_command(&json!([["https://example.com/file.zip"], options]))
+            .expect_err("unsafe extension options must be rejected");
+        assert_eq!(error.code, -32602);
+    }
+}
+
+#[test]
+fn parse_add_uri_rejects_non_target_protocols() {
+    for url in ["ed2k://|file|example.zip|1|hash|/", "thunder://QUFodHRw"] {
+        let error = parse_add_uri_command(&json!([[url]])).expect_err("protocol must be rejected");
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("不支持"));
+    }
+}
+
+#[test]
 fn resolve_authorized_save_dir_accepts_exact_and_missing_leading_slash() {
     let accessible_paths = vec!["/vol1/1000/tmp".to_string()];
 
@@ -1547,6 +1728,28 @@ async fn protocol_regression_rpc(axum::Json(payload): axum::Json<Value>) -> axum
         })),
         None => axum::Json(json!({ "error": { "message": "missing method" } })),
     }
+}
+
+#[derive(Default)]
+struct AddUriCapture {
+    requests: Mutex<Vec<Value>>,
+}
+
+async fn capture_add_uri_rpc(
+    axum::extract::State(capture): axum::extract::State<Arc<AddUriCapture>>,
+    axum::Json(payload): axum::Json<Value>,
+) -> axum::Json<Value> {
+    if payload.get("method").and_then(Value::as_str) == Some("aria2.addUri") {
+        let mut requests = capture.requests.lock().expect("capture should lock");
+        requests.push(payload);
+        let gid = if requests.len() == 1 {
+            "gid-http"
+        } else {
+            "gid-magnet"
+        };
+        return axum::Json(json!({"result": gid}));
+    }
+    axum::Json(json!({"result": "OK"}))
 }
 
 async fn write_json_rpc_token(state: &Arc<HttpAppState>, token: &str) {
