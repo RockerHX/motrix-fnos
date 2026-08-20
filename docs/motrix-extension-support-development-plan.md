@@ -23,7 +23,7 @@ Aria2 Next sidecar
 结论如下：
 
 - Motrix Extension 的 RPC client 定义并在功能路径中使用 13 个 `aria2.*` 方法；其中 5 个是连接、统计和列表查询，1 个是创建任务，7 个是任务控制/清理。当前弹窗正常流程直接使用其中 12 个；`aria2.pauseAll` 只在“暂停全部”消息没有携带 GID 列表时作为兼容 fallback 调用，仍属于本轮兼容目标。
-- 当前服务对外只实现 `aria2.addUri`、`aria2.getGlobalOption`、`aria2.getVersion` 和 `system.multicall`。在本计划的 13 个目标中，只有 `aria2.getVersion`、`aria2.addUri` 已有外部入口（2/13）；`getGlobalOption` 和 `system.multicall` 不属于扩展当前调用矩阵。所以 Issue #11 中 `getVersion` 成功只能证明链路和 Token 基本可达，后续查询请求仍会收到 `-32601 Method not found`。
+- ME-06 完成后，当前服务已通过受控外部白名单实现本计划的 13 个 Motrix Extension 目标方法，并额外保留 `aria2.getGlobalOption` 与 `system.multicall` 兼容入口；所有方法均经过 Token、参数、TaskService 和生命周期边界约束。Issue #11 中 `getVersion` 成功只能证明早期链路和 Token 基本可达；`aria2.getSessionInfo`、`aria2.tellStatus`、`aria2.changeGlobalOption` 等非扩展目标方法仍会返回 `-32601 Method not found`。
 - `aria2.getSessionInfo`、`aria2.tellStatus`、`aria2.changeGlobalOption` 等不是 Motrix Extension 当前源码的必需方法，不在本轮外部白名单中。`tellStatus` 可以继续作为 server 内部 RPC 使用。
 - 新增方法不能把请求直接透传给 sidecar。所有创建、暂停、恢复、删除、清理都必须经过现有 `TaskService`、任务操作记录、SQLite、目录授权检查和 Aria2 生命周期协调器。
 - 内部 Aria2 RPC helper 已能查询或控制部分任务，但不等于对应外部方法已实现；新增 JSON-RPC handler 只能调用统一领域 service，不能在 handler 与 service 中各自向 sidecar 发一次同类 RPC。
@@ -86,12 +86,12 @@ Issue 原文：[`RockerHX/motrix-fnos#11`](https://github.com/RockerHX/motrix-fn
 | MEX-12 | `aria2.unpauseAll` | 全部继续 | `"OK"` | P1 |
 | MEX-13 | `aria2.purgeDownloadResult` | 清空 stopped lane | `"OK"` | P1 |
 
-截至本计划基线，13 个目标的对外实现状态为：
+截至 ME-06 完成，13 个目标的对外实现状态为：
 
-- 已有外部入口：`aria2.getVersion`、`aria2.addUri`；ME-03 已按扩展真实 payload 完成验收。
-- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；ME-02 已完成只读快照，ME-04 已完成单任务控制和清理，ME-05 已完成批量控制和清理。
+- 13 个目标方法均已进入受控外部白名单；`aria2.getVersion`、`aria2.addUri` 的既有入口保持兼容，ME-03 已按扩展真实 payload 完成验收。
+- ME-01 阶段建立了其余 11 个目标方法的兼容层骨架，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；随后 ME-02 完成只读快照，ME-04 完成单任务控制和清理，ME-05 完成批量控制和清理，ME-06 完成协议、鉴权和回归验证。
 
-上述“待实现”不表示要重写 11 套 Aria2 能力：查询方法读取 Motrix 任务快照；单任务控制复用 `TaskService`；批量方法复用同一 service 的批量领域操作。内部 `aria2.tell*`、`pause`、`unpause`、`remove` 等 sidecar 调用始终只由这些 service 间接触发。
+上述 11 个兼容方法不需要各自重写一套 Aria2 能力：查询方法读取 Motrix 任务快照；单任务控制复用 `TaskService`；批量方法复用同一 service 的批量领域操作。内部 `aria2.tell*`、`pause`、`unpause`、`remove` 等 sidecar 调用始终只由这些 service 间接触发。
 
 扩展源码中的任务字段请求常量为：
 
