@@ -10,6 +10,7 @@ use crate::app::{
 use crate::debug_logs::DebugLogLevel;
 use crate::runtime::{auto_stop_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
+use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus, TaskProxyBinding};
 use crate::test_support::TestTracingCapture;
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_LENGTH;
@@ -197,6 +198,155 @@ async fn compat_dispatch_validates_token_and_wraps_read_models() {
     .await
     .expect_err("unknown GIDs must use the dedicated error");
     assert_eq!(unknown_gid.code, -32003);
+}
+
+#[tokio::test]
+async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let authorized = "/downloads";
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [authorized]}).to_string(),
+    )
+    .expect("accessible paths should write");
+
+    let mut active = compat_sample_task(
+        1,
+        crate::tasks::DownloadTaskStatus::Active,
+        "active-gid",
+        authorized.to_string(),
+    );
+    active.download_speed = 11;
+    active.created_at = 1;
+    let mut paused = compat_sample_task(
+        2,
+        crate::tasks::DownloadTaskStatus::Paused,
+        "paused-gid",
+        authorized.to_string(),
+    );
+    paused.created_at = 2;
+    let mut complete = compat_sample_task(
+        3,
+        crate::tasks::DownloadTaskStatus::Complete,
+        "complete-gid",
+        authorized.to_string(),
+    );
+    complete.updated_at = 30;
+    let mut error = compat_sample_task(
+        4,
+        crate::tasks::DownloadTaskStatus::Error,
+        "error-gid",
+        authorized.to_string(),
+    );
+    error.updated_at = 40;
+    error.error_code = Some("12".to_string());
+    error.error_message =
+        Some("download failed: https://example.com/file.zip?token=secret".to_string());
+    let removed = compat_sample_task(
+        5,
+        crate::tasks::DownloadTaskStatus::Removed,
+        "removed-gid",
+        authorized.to_string(),
+    );
+    let unauthorized = compat_sample_task(
+        4,
+        crate::tasks::DownloadTaskStatus::Active,
+        "hidden-gid",
+        "/not-authorized".to_string(),
+    );
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![active, paused, complete, error, removed, unauthorized]
+        })
+        .expect("task snapshot should update");
+    let lifecycle_before = state
+        .aria2_lifecycle
+        .snapshot()
+        .expect("lifecycle snapshot should be readable");
+
+    let stat = execute_method(
+        &state,
+        "aria2.getGlobalStat",
+        &json!(["token:public-secret"]),
+    )
+    .await
+    .expect("global stat should read the in-memory snapshot");
+    assert_eq!(stat["downloadSpeed"], "11");
+    assert_eq!(stat["numActive"], "1");
+    assert_eq!(stat["numWaiting"], "1");
+    assert_eq!(stat["numStopped"], "2");
+    assert_eq!(stat["numStoppedTotal"], "2");
+
+    let waiting = execute_method(
+        &state,
+        "aria2.tellWaiting",
+        &json!(["token:public-secret", 0, 20, ["gid", "status"]]),
+    )
+    .await
+    .expect("waiting list should read the in-memory snapshot");
+    assert_eq!(waiting, json!([{"gid": "paused-gid", "status": "paused"}]));
+
+    let stopped = execute_method(
+        &state,
+        "aria2.tellStopped",
+        &json!([
+            "token:public-secret",
+            0,
+            1,
+            ["gid", "status", "errorCode", "errorMessage"]
+        ]),
+    )
+    .await
+    .expect("stopped list should read the in-memory snapshot");
+    assert_eq!(
+        stopped,
+        json!([{
+            "gid": "error-gid",
+            "status": "error",
+            "errorCode": "12",
+            "errorMessage": "download failed: https://example.com/file.zip"
+        }])
+    );
+
+    let oldest_stopped = execute_method(
+        &state,
+        "aria2.tellStopped",
+        &json!(["token:public-secret", -1, 1, ["gid"]]),
+    )
+    .await
+    .expect("negative stopped offset should read from the end");
+    assert_eq!(oldest_stopped, json!([{"gid": "complete-gid"}]));
+
+    let removed_visible = execute_method(
+        &state,
+        "aria2.tellStopped",
+        &json!(["token:public-secret", 0, 20, ["gid"]]),
+    )
+    .await
+    .expect("stopped list should be readable");
+    assert!(!removed_visible.to_string().contains("removed-gid"));
+
+    let active = execute_method(
+        &state,
+        "aria2.tellActive",
+        &json!(["token:public-secret", ["gid", "downloadSpeed"]]),
+    )
+    .await
+    .expect("active list should read the in-memory snapshot");
+    assert_eq!(
+        active,
+        json!([{"gid": "active-gid", "downloadSpeed": "11"}])
+    );
+    assert_eq!(
+        state
+            .aria2_lifecycle
+            .snapshot()
+            .expect("lifecycle snapshot should be readable"),
+        lifecycle_before
+    );
 }
 
 #[tokio::test]
@@ -1321,6 +1471,40 @@ async fn test_state() -> Arc<HttpAppState> {
     bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap")
+}
+
+fn compat_sample_task(
+    id: u64,
+    status: DownloadTaskStatus,
+    gid: &str,
+    save_dir: String,
+) -> DownloadTask {
+    DownloadTask {
+        id,
+        url: "https://example.com/archive.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
+        file_name: "archive.zip".to_string(),
+        save_dir: save_dir.clone(),
+        owned_task_dir: None,
+        category: "默认".to_string(),
+        gid: Some(gid.to_string()),
+        status,
+        total_length: 1024,
+        completed_length: 256,
+        download_speed: 64,
+        error_code: None,
+        error_message: None,
+        file_path: Some(format!("{save_dir}/archive.zip")),
+        use_proxy: false,
+        proxy_binding: TaskProxyBinding::default(),
+        metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
+        confirmation_required: false,
+        files: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+    }
 }
 
 struct LifecycleRaceRpcState {

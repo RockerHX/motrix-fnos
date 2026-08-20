@@ -194,6 +194,31 @@ fn hides_removed_and_gidless_tasks() {
     assert!(Aria2CompatTask::from_download_task(&gidless).is_none());
 }
 
+#[test]
+fn exposes_bt_name_and_magnet_metadata_with_their_current_gid() {
+    let mut torrent = download_task(DownloadTaskStatus::Active);
+    torrent.source_type = DownloadTaskSourceType::Torrent;
+    torrent.file_name = "Ubuntu.iso".to_string();
+    let torrent_compat = Aria2CompatTask::from_download_task(&torrent)
+        .expect("torrent task with a GID should convert");
+    assert_eq!(
+        torrent_compat.bittorrent_name.as_deref(),
+        Some("Ubuntu.iso")
+    );
+
+    let mut magnet = download_task(DownloadTaskStatus::Pending);
+    magnet.source_type = DownloadTaskSourceType::Magnet;
+    magnet.file_name = "metadata-name".to_string();
+    magnet.confirmation_required = true;
+    let magnet_compat = Aria2CompatTask::from_download_task(&magnet)
+        .expect("magnet metadata task with a temporary GID should convert");
+    assert_eq!(magnet_compat.status, "waiting");
+    assert_eq!(
+        magnet_compat.bittorrent_name.as_deref(),
+        Some("metadata-name")
+    );
+}
+
 fn download_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,

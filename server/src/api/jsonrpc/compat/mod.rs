@@ -1,11 +1,11 @@
 mod model;
 mod params;
+mod read;
 
 use super::auth::ensure_compat_token;
 use super::types::RpcFault;
 use super::JsonRpcAccess;
 use crate::app::HttpAppState;
-use model::Aria2GlobalStat;
 use params::{parse_method, CompatCommand, ControlOperation};
 use serde_json::Value;
 use std::sync::Arc;
@@ -20,8 +20,13 @@ pub(super) async fn dispatch(
     let command = parse_method(method, params)?;
 
     match command {
-        CompatCommand::GlobalStat => Ok(Aria2GlobalStat::empty().to_value()),
-        CompatCommand::Tell { keys, .. } => Ok(model::serialize_tasks(&[], &keys)),
+        CompatCommand::GlobalStat => read::global_stat(state),
+        CompatCommand::Tell {
+            lane,
+            offset,
+            num,
+            keys,
+        } => read::tell(state, lane, offset, num, &keys),
         CompatCommand::Control { operation, gid } => {
             let Some(gid) = gid.as_deref() else {
                 return Err(RpcFault::server_error(control_not_ready_message(

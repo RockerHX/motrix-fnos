@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-01 已完成，ME-02 待实施
+状态：ME-02 已完成，ME-03 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -598,6 +598,8 @@ match method {
 4. 用固定 fixture 构造 URL、暂停、活动、完成、错误、Removed、BT 和磁力 metadata 任务。
 
 完成条件：扩展连接后的四个并行读取请求均返回 2xx/合法 JSON，Zod schema 可解析，停止 sidecar 时仍能返回稳定的零值/空列表。
+
+完成记录（2026-08-20）：已实现 `getGlobalStat`、`tellActive`、`tellWaiting`、`tellStopped` 的内存快照读取。查询严格匹配当前授权目录，过滤 Removed、无 GID 和磁力文件确认阶段不可见任务；active/waiting 按创建顺序、stopped 按更新时间倒序并以任务 ID 稳定收敛，支持负 offset、分页上限和 keys 字段选择。统计与列表复用同一兼容转换器，数字字段保持 Aria2 字符串格式，错误信息脱敏，读取不启动 sidecar、不写 SQLite、不改变生命周期状态。固定 fixture 已覆盖 URL、暂停、活动、完成、错误、Removed、BT、磁力 metadata、授权过滤和负 offset。
 
 ### ME-03：完成 `addUri` 的 Motrix Extension 兼容验收
 
