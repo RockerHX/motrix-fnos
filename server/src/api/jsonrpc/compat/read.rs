@@ -4,7 +4,7 @@ use crate::api::jsonrpc::types::RpcFault;
 use crate::api::tasks::task_service;
 use crate::app::HttpAppState;
 use crate::storage::load_accessible_paths;
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -51,13 +51,37 @@ fn visible_compat_tasks(state: &Arc<HttpAppState>) -> Result<Vec<DownloadTask>, 
         .map(|tasks| {
             tasks
                 .into_iter()
-                .filter(|task| {
-                    let save_dir = task.save_dir.trim();
-                    !save_dir.is_empty() && accessible_paths.iter().any(|path| path == save_dir)
-                })
+                .filter(|task| is_compat_visible(task, &accessible_paths))
                 .filter(|task| Aria2CompatTask::from_download_task(task).is_some())
                 .collect()
         })
+}
+
+fn is_compat_visible(task: &DownloadTask, accessible_paths: &[String]) -> bool {
+    let save_dir = task.save_dir.trim();
+    if save_dir.is_empty() {
+        return false;
+    }
+    let save_dir = std::path::Path::new(save_dir);
+
+    match task.source_type {
+        DownloadTaskSourceType::Url => accessible_paths
+            .iter()
+            .any(|path| save_dir == std::path::Path::new(path)),
+        DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
+            let Some(owned_task_dir) = task.owned_task_dir.as_deref() else {
+                return accessible_paths
+                    .iter()
+                    .any(|path| save_dir == std::path::Path::new(path));
+            };
+            let owned_task_dir = std::path::Path::new(owned_task_dir.trim());
+            !owned_task_dir.as_os_str().is_empty()
+                && save_dir == owned_task_dir
+                && accessible_paths
+                    .iter()
+                    .any(|path| owned_task_dir.starts_with(std::path::Path::new(path)))
+        }
+    }
 }
 
 fn page_range(len: usize, offset: i64, num: u64) -> Result<std::ops::Range<usize>, RpcFault> {

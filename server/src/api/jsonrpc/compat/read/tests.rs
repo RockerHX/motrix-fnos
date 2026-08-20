@@ -59,6 +59,41 @@ fn lane_filter_and_order_match_extension_semantics() {
     assert_eq!(stopped, vec![stopped_new, stopped_old]);
 }
 
+#[test]
+fn bt_and_magnet_task_directories_are_visible_under_authorized_roots() {
+    let mut torrent = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "torrent-gid",
+        "/downloads/torrent-task".to_string(),
+    );
+    torrent.source_type = DownloadTaskSourceType::Torrent;
+    torrent.owned_task_dir = Some(torrent.save_dir.clone());
+    assert!(super::is_compat_visible(
+        &torrent,
+        &["/downloads".to_string()]
+    ));
+
+    let mut magnet = sample_task(
+        2,
+        DownloadTaskStatus::Complete,
+        "magnet-gid",
+        "/downloads/magnet-task".to_string(),
+    );
+    magnet.source_type = DownloadTaskSourceType::Magnet;
+    magnet.owned_task_dir = Some(magnet.save_dir.clone());
+    assert!(super::is_compat_visible(
+        &magnet,
+        &["/downloads".to_string()]
+    ));
+
+    torrent.owned_task_dir = Some("/private/torrent-task".to_string());
+    assert!(!super::is_compat_visible(
+        &torrent,
+        &["/downloads".to_string()]
+    ));
+}
+
 fn sample_task(id: u64, status: DownloadTaskStatus, gid: &str, save_dir: String) -> DownloadTask {
     DownloadTask {
         id,
