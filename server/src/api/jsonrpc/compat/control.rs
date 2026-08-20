@@ -2,7 +2,10 @@ use super::super::types::RpcFault;
 use super::params::ControlOperation;
 use crate::api::tasks::task_service;
 use crate::app::HttpAppState;
-use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, process_status};
+use crate::config::aria2::Aria2Config;
+use crate::runtime::{
+    broadcast_tasks_snapshot, ensure_aria2_ready, process_status, Aria2Lease, Aria2LifecyclePhase,
+};
 use crate::tasks::service::{
     CompatAria2Requirement, CompatBatchOperation, CompatBatchResult, CompatTaskError,
     CompatTaskOperation,
@@ -29,8 +32,16 @@ pub(super) async fn execute(
             execute_with_config(&service, operation, Some(&config), gid).await
         }
         CompatAria2Requirement::IfRunning => {
-            let config = running_aria2_config(state).map_err(RpcFault::server_error)?;
-            execute_with_config(&service, operation, config.as_ref(), gid).await
+            let context = running_aria2_context(state)
+                .await
+                .map_err(RpcFault::server_error)?;
+            execute_with_config(
+                &service,
+                operation,
+                context.as_ref().map(|context| &context.config),
+                gid,
+            )
+            .await
         }
     }?;
 
@@ -51,12 +62,16 @@ pub(super) async fn execute_batch(
 
     let result = match plan.aria2_requirement {
         CompatAria2Requirement::None | CompatAria2Requirement::IfRunning => {
-            let config = if plan.aria2_requirement == CompatAria2Requirement::IfRunning {
-                running_aria2_config(state).map_err(RpcFault::server_error)?
+            let context = if plan.aria2_requirement == CompatAria2Requirement::IfRunning {
+                running_aria2_context(state)
+                    .await
+                    .map_err(RpcFault::server_error)?
             } else {
                 None
             };
-            service.execute_compat_batch(plan, config.as_ref()).await
+            service
+                .execute_compat_batch(plan, context.as_ref().map(|context| &context.config))
+                .await
         }
         CompatAria2Requirement::Required => {
             let config = ensure_aria2_ready(state).await.map_err(map_runtime_error)?;
@@ -129,17 +144,40 @@ async fn execute_with_config(
     }
 }
 
-fn running_aria2_config(
+struct RunningAria2Context {
+    config: Aria2Config,
+    _activity: Aria2Lease,
+}
+
+async fn running_aria2_context(
     state: &HttpAppState,
-) -> Result<Option<crate::config::aria2::Aria2Config>, String> {
+) -> Result<Option<RunningAria2Context>, String> {
+    let activity = state.aria2_lifecycle.acquire_activity()?;
+    let _operation = state
+        .aria2_lifecycle
+        .lock_lifecycle_operation_for_request()
+        .await?;
     let status = process_status(&state.aria2_process)?;
     if !status.running {
         return Ok(None);
     }
-    if state.aria2_runtime_snapshot().is_none() {
+    let Some(runtime) = state.aria2_runtime_snapshot() else {
         return Err("Aria2 进程已运行但运行态未记录，拒绝使用未知配置".to_string());
+    };
+    if status.pid != Some(runtime.pid) {
+        return Err(format!(
+            "Aria2 进程 PID {} 与运行态 PID {} 不一致",
+            status.pid.unwrap_or_default(),
+            runtime.pid
+        ));
     }
-    Ok(Some(state.aria2_config()))
+    if state.aria2_lifecycle.snapshot()?.phase != Aria2LifecyclePhase::Ready {
+        return Err("Aria2 正在切换运行状态，请稍后重试".to_string());
+    }
+    Ok(Some(RunningAria2Context {
+        config: state.aria2_config(),
+        _activity: activity,
+    }))
 }
 
 fn map_runtime_error(error: String) -> RpcFault {

@@ -500,6 +500,123 @@ async fn compat_purge_batch_continues_after_task_conflict_and_returns_failure() 
 }
 
 #[tokio::test]
+async fn compat_running_purge_batch_holds_activity_lease_until_completion() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    let save_dir = "/downloads".to_string();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": [save_dir]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![compat_sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "terminal-gid",
+                save_dir.clone(),
+            )]
+        })
+        .expect("task snapshot should update");
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock RPC listener should bind");
+    let rpc_port = listener
+        .local_addr()
+        .expect("mock RPC address should exist")
+        .port();
+    let rpc_state = Arc::new(BatchLeaseRpcState {
+        remove_started: Notify::new(),
+        release_remove: Notify::new(),
+    });
+    let rpc_server = tokio::spawn({
+        let rpc_state = Arc::clone(&rpc_state);
+        async move {
+            axum::serve(
+                listener,
+                axum::Router::new()
+                    .route("/jsonrpc", axum::routing::post(batch_lease_rpc))
+                    .with_state(rpc_state),
+            )
+            .await
+            .expect("mock RPC server should serve");
+        }
+    });
+
+    let child = spawn_long_running_child();
+    let pid = child.id();
+    state
+        .aria2_process
+        .lock()
+        .expect("process lock should succeed")
+        .replace(ManagedAria2Process::new(
+            child,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+        ));
+    let config =
+        crate::aria2::runtime_config(&state.base_aria2_config, rpc_port, "secret".to_string());
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            pid,
+            &config,
+            crate::config::aria2::Aria2BinarySource::ExternalPath,
+            Vec::new(),
+        ))
+        .expect("runtime should persist");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("lifecycle should be ready");
+
+    let batch_state = state.clone();
+    let batch = tokio::spawn(async move {
+        execute_method(
+            &batch_state,
+            "aria2.purgeDownloadResult",
+            &json!(["token:public-secret"]),
+        )
+        .await
+    });
+    timeout(Duration::from_secs(2), rpc_state.remove_started.notified())
+        .await
+        .expect("purge should reach Aria2 RPC");
+
+    let lifecycle = state
+        .aria2_lifecycle
+        .snapshot()
+        .expect("lifecycle snapshot should load");
+    assert_eq!(lifecycle.in_flight_requests, 1);
+    assert_eq!(lifecycle.active_leases, 2);
+
+    rpc_state.release_remove.notify_one();
+    assert_eq!(
+        batch
+            .await
+            .expect("purge task should join")
+            .expect("purge should succeed"),
+        json!("OK")
+    );
+    assert_eq!(
+        state
+            .aria2_lifecycle
+            .snapshot()
+            .expect("lifecycle snapshot should load")
+            .active_leases,
+        0
+    );
+
+    stop_process(&state.aria2_process, &state.core.debug_logs)
+        .expect("test Aria2 process should stop");
+    state.clear_aria2_runtime();
+    rpc_server.abort();
+    let _ = rpc_server.await;
+}
+
+#[tokio::test]
 async fn compat_empty_pause_batch_is_idempotent_without_starting_sidecar() {
     let state = test_state().await;
     state.remember_json_rpc_token("public-secret");
@@ -2009,6 +2126,25 @@ struct LifecycleRaceRpcState {
     release_add_uri: Notify,
     save_session_started: Notify,
     release_save_session: Notify,
+}
+
+struct BatchLeaseRpcState {
+    remove_started: Notify,
+    release_remove: Notify,
+}
+
+async fn batch_lease_rpc(
+    axum::extract::State(state): axum::extract::State<Arc<BatchLeaseRpcState>>,
+    axum::Json(payload): axum::Json<Value>,
+) -> axum::Json<Value> {
+    match payload.get("method").and_then(Value::as_str) {
+        Some("aria2.remove") => {
+            state.remove_started.notify_one();
+            state.release_remove.notified().await;
+            axum::Json(json!({ "result": "terminal-gid" }))
+        }
+        _ => axum::Json(json!({ "result": "OK" })),
+    }
 }
 
 async fn lifecycle_race_rpc(
