@@ -1,0 +1,32 @@
+.app-metric-card {
+  padding: 14px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.app-metric-card--success {
+  border-color: color-mix(in srgb, var(--app-color-success) 34%, var(--app-color-border-subtle));
+}
+
+.app-metric-card--warning {
+  border-color: color-mix(in srgb, #f2c97d 36%, var(--app-color-border-subtle));
+}
+
+.app-metric-card--error {
+  border-color: color-mix(in srgb, var(--app-text-danger) 40%, var(--app-color-border-subtle));
+}
+
+.app-metric-label,
+.app-metric-note {
+  color: var(--app-text-dim);
+  font-size: 12px;
+}
+
+.app-metric-value {
+  color: var(--app-text-strong);
+}
+
+.app-metric-detail {
+  color: var(--app-text-secondary);
+}

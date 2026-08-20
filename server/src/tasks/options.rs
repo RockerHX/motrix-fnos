@@ -27,6 +27,9 @@ pub fn sanitize_create_task_options(
     advanced_options: &CreateTaskAdvancedOptions,
     aria2_options: &Map<String, Value>,
 ) -> Result<Map<String, Value>, String> {
+    if advanced_options.proxy.is_some() || aria2_options.contains_key("all-proxy") {
+        return Err("代理选择尚未解析".to_string());
+    }
     let mut options = sanitize_aria2_options(aria2_options);
 
     if let Some(connections) = advanced_options.connections {
@@ -48,14 +51,6 @@ pub fn sanitize_create_task_options(
                 Value::String(bytes.to_string()),
             );
         }
-    }
-
-    if let Some(proxy) = advanced_options.proxy.as_deref().map(str::trim) {
-        if proxy.is_empty() {
-            return Err("代理地址不能为空".to_string());
-        }
-        validate_proxy(proxy)?;
-        options.insert("all-proxy".to_string(), Value::String(proxy.to_string()));
     }
 
     Ok(options)
@@ -94,18 +89,5 @@ fn normalize_aria2_option_value(value: &Value) -> Option<Value> {
             }
         }
         Value::Bool(_) | Value::Number(_) => Some(value.clone()),
-    }
-}
-
-fn validate_proxy(proxy: &str) -> Result<(), String> {
-    let lower = proxy.to_ascii_lowercase();
-    if lower.starts_with("http://")
-        || lower.starts_with("https://")
-        || lower.starts_with("socks5://")
-        || lower.starts_with("socks4://")
-    {
-        Ok(())
-    } else {
-        Err("代理地址必须以 http://、https://、socks5:// 或 socks4:// 开头".to_string())
     }
 }

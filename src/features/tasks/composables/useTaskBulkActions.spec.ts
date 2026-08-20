@@ -72,7 +72,7 @@ function task(id: number): DownloadTask {
   return {
     id, url: "https://example.com/file", fileName: "file", saveDir: "/downloads", category: "默认",
     gid: `gid-${id}`, status: "active", totalLength: 1, completedLength: 0, downloadSpeed: 0,
-    errorCode: null, errorMessage: null, filePath: null, metadataTorrentPath: null,
+    errorCode: null, errorMessage: null, filePath: null, useProxy: false,
     confirmationRequired: false, files: [], createdAt: 1, updatedAt: 1,
   };
 }

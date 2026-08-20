@@ -1,0 +1,343 @@
+use http_body_util::{BodyExt, Full};
+use hyper::body::Bytes;
+use hyper::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, HOST};
+use hyper::{Method, Request};
+use hyper_util::rt::TokioIo;
+use serde::Deserialize;
+use std::fmt;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+use tokio::net::UnixStream;
+use tokio::time::timeout;
+
+pub(crate) const API_TOKEN_ENV: &str = "TRIM_API_TOKEN";
+pub(crate) const GATEWAY_SOCKET_PATH: &str = "/var/run/trim_open_gateway_apiscope.socket";
+const GATEWAY_HTTP_PATH: &str = "/api/v1/trimapp";
+const SHARED_FOLDERS_REQUEST: &str = "trim.file.getSharedAccessibleFolders";
+const CONVERT_PATH_REQUEST: &str = "trim.file.convertPath";
+const APP_NAME: &str = "motrix";
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+const DEFAULT_MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SharedAccessibleFolders {
+    pub(crate) paths: Vec<String>,
+    pub(crate) http_status: u16,
+    pub(crate) business_code: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PathLanguage {
+    ZhCn,
+    EnUs,
+}
+
+impl PathLanguage {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::EnUs => "en-US",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SemanticPath {
+    pub(crate) path: String,
+    pub(crate) semantic_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConvertedPaths {
+    pub(crate) results: Vec<SemanticPath>,
+    pub(crate) http_status: u16,
+    pub(crate) business_code: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FnosApiError {
+    TokenMissing,
+    TokenInvalid,
+    SocketUnavailable,
+    Timeout,
+    Transport,
+    ResponseTooLarge,
+    Rejected {
+        http_status: Option<u16>,
+        business_code: Option<i64>,
+    },
+    InvalidResponse,
+}
+
+impl fmt::Display for FnosApiError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TokenMissing => formatter.write_str("fnOS 未注入开放 API Token"),
+            Self::TokenInvalid => formatter.write_str("fnOS 开放 API Token 格式无效"),
+            Self::SocketUnavailable => formatter.write_str("fnOS 开放 API Socket 不可访问"),
+            Self::Timeout => formatter.write_str("fnOS 开放 API 在 5 秒内未响应"),
+            Self::Transport => formatter.write_str("调用 fnOS 开放 API 时发生传输错误"),
+            Self::ResponseTooLarge => formatter.write_str("fnOS 开放 API 响应超过大小限制"),
+            Self::Rejected {
+                http_status,
+                business_code,
+            } => write!(
+                formatter,
+                "fnOS 开放 API 拒绝请求（HTTP {}，业务码 {}）",
+                http_status
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "未知".to_string()),
+                business_code
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "未知".to_string())
+            ),
+            Self::InvalidResponse => formatter.write_str("fnOS 开放 API 返回了无效响应"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FnosApiClient {
+    socket_path: PathBuf,
+    request_timeout: Duration,
+    max_response_bytes: usize,
+}
+
+impl Default for FnosApiClient {
+    fn default() -> Self {
+        Self {
+            socket_path: PathBuf::from(GATEWAY_SOCKET_PATH),
+            request_timeout: DEFAULT_TIMEOUT,
+            max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+        }
+    }
+}
+
+impl FnosApiClient {
+    pub(crate) async fn query_shared_accessible_folders(
+        &self,
+    ) -> Result<SharedAccessibleFolders, FnosApiError> {
+        let token = std::env::var(API_TOKEN_ENV).ok();
+        self.query_shared_accessible_folders_with_token(token.as_deref())
+            .await
+    }
+
+    async fn query_shared_accessible_folders_with_token(
+        &self,
+        token: Option<&str>,
+    ) -> Result<SharedAccessibleFolders, FnosApiError> {
+        let token = validate_token(token)?;
+        timeout(
+            self.request_timeout,
+            self.query_shared_accessible_folders_with_valid_token(token),
+        )
+        .await
+        .map_err(|_| FnosApiError::Timeout)?
+    }
+
+    async fn query_shared_accessible_folders_with_valid_token(
+        &self,
+        token: &str,
+    ) -> Result<SharedAccessibleFolders, FnosApiError> {
+        let response = self
+            .request(token, SHARED_FOLDERS_REQUEST, serde_json::json!({}))
+            .await?;
+        let data = serde_json::from_value::<SharedFoldersData>(response.data)
+            .map_err(|_| FnosApiError::InvalidResponse)?;
+
+        Ok(SharedAccessibleFolders {
+            paths: data.paths,
+            http_status: response.http_status,
+            business_code: response.business_code,
+        })
+    }
+
+    pub(crate) async fn convert_paths(
+        &self,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let token = std::env::var(API_TOKEN_ENV).ok();
+        self.convert_paths_with_token(token.as_deref(), paths, language)
+            .await
+    }
+
+    async fn convert_paths_with_token(
+        &self,
+        token: Option<&str>,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let token = validate_token(token)?;
+        timeout(
+            self.request_timeout,
+            self.convert_paths_with_valid_token(token, paths, language),
+        )
+        .await
+        .map_err(|_| FnosApiError::Timeout)?
+    }
+
+    async fn convert_paths_with_valid_token(
+        &self,
+        token: &str,
+        paths: &[String],
+        language: PathLanguage,
+    ) -> Result<ConvertedPaths, FnosApiError> {
+        let response = self
+            .request(
+                token,
+                CONVERT_PATH_REQUEST,
+                serde_json::json!({
+                    "path": paths,
+                    "language": language.as_str(),
+                }),
+            )
+            .await?;
+        let data = serde_json::from_value::<ConvertPathData>(response.data)
+            .map_err(|_| FnosApiError::InvalidResponse)?;
+        if data.status != 0 {
+            return Err(FnosApiError::Rejected {
+                http_status: Some(response.http_status),
+                business_code: Some(data.status),
+            });
+        }
+
+        Ok(ConvertedPaths {
+            results: data.result,
+            http_status: response.http_status,
+            business_code: response.business_code,
+        })
+    }
+
+    async fn request(
+        &self,
+        token: &str,
+        request_name: &str,
+        data: serde_json::Value,
+    ) -> Result<GatewayResponse, FnosApiError> {
+        let stream = UnixStream::connect(&self.socket_path)
+            .await
+            .map_err(classify_socket_error)?;
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
+            .await
+            .map_err(|_| FnosApiError::Transport)?;
+        tokio::spawn(async move {
+            let _ = connection.await;
+        });
+
+        let body = serde_json::to_vec(&serde_json::json!({
+            "reqId": format!(
+                "motrix-{}-{}",
+                std::process::id(),
+                REQUEST_ID.fetch_add(1, Ordering::Relaxed)
+            ),
+            "req": request_name,
+            "appName": APP_NAME,
+            "data": data
+        }))
+        .map_err(|_| FnosApiError::InvalidResponse)?;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(GATEWAY_HTTP_PATH)
+            .header(HOST, "localhost")
+            .header(CONTENT_TYPE, "application/json")
+            .header(CONTENT_LENGTH, body.len())
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .body(Full::new(Bytes::from(body)))
+            .map_err(|_| FnosApiError::TokenInvalid)?;
+        let response = sender
+            .send_request(request)
+            .await
+            .map_err(|_| FnosApiError::Transport)?;
+        let http_status = response.status().as_u16();
+        let response_body =
+            read_limited_body(response.into_body(), self.max_response_bytes).await?;
+        let envelope = serde_json::from_slice::<GatewayEnvelope>(&response_body);
+        if !(200..=299).contains(&http_status) {
+            return Err(FnosApiError::Rejected {
+                http_status: Some(http_status),
+                business_code: envelope.ok().map(|value| value.code),
+            });
+        }
+        let envelope = envelope.map_err(|_| FnosApiError::InvalidResponse)?;
+        if envelope.code != 0 {
+            return Err(FnosApiError::Rejected {
+                http_status: Some(http_status),
+                business_code: Some(envelope.code),
+            });
+        }
+        let data = envelope.data.ok_or(FnosApiError::InvalidResponse)?;
+
+        Ok(GatewayResponse {
+            http_status,
+            business_code: envelope.code,
+            data,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct GatewayResponse {
+    http_status: u16,
+    business_code: i64,
+    data: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct GatewayEnvelope {
+    code: i64,
+    #[serde(rename = "msg")]
+    _message: String,
+    data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SharedFoldersData {
+    paths: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConvertPathData {
+    status: i64,
+    result: Vec<SemanticPath>,
+}
+
+fn validate_token(token: Option<&str>) -> Result<&str, FnosApiError> {
+    let token = token.ok_or(FnosApiError::TokenMissing)?;
+    if token.is_empty() || token.trim() != token || token.contains(['\r', '\n']) {
+        return Err(FnosApiError::TokenInvalid);
+    }
+    Ok(token)
+}
+
+fn classify_socket_error(error: std::io::Error) -> FnosApiError {
+    match error.kind() {
+        std::io::ErrorKind::NotFound
+        | std::io::ErrorKind::PermissionDenied
+        | std::io::ErrorKind::ConnectionRefused => FnosApiError::SocketUnavailable,
+        _ => FnosApiError::Transport,
+    }
+}
+
+async fn read_limited_body(
+    mut body: hyper::body::Incoming,
+    max_bytes: usize,
+) -> Result<Vec<u8>, FnosApiError> {
+    let mut output = Vec::new();
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|_| FnosApiError::Transport)?;
+        if let Some(data) = frame.data_ref() {
+            if output.len().saturating_add(data.len()) > max_bytes {
+                return Err(FnosApiError::ResponseTooLarge);
+            }
+            output.extend_from_slice(data);
+        }
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+mod tests;

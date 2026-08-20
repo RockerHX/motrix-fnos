@@ -22,7 +22,7 @@ const gridStyle = computed(() => ({
 </script>
 
 <template>
-  <div class="app-metric-grid" :style="gridStyle">
+  <div class="app-metric-grid grid gap-3 mobile:gap-2.5" :style="gridStyle">
     <AppMetricCard
       v-for="item in props.items"
       :key="item.label"
@@ -35,17 +35,4 @@ const gridStyle = computed(() => ({
   </div>
 </template>
 
-<style scoped>
-.app-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(var(--app-metric-grid-desktop-columns), minmax(0, 1fr));
-  gap: 12px;
-}
-
-@media (max-width: 767px) {
-  .app-metric-grid {
-    grid-template-columns: repeat(var(--app-metric-grid-mobile-columns), minmax(0, 1fr));
-    gap: 10px;
-  }
-}
-</style>
+<style scoped src="./AppMetricGrid.css"></style>

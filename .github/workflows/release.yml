@@ -11,7 +11,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  models: read
+  attestations: write
+  id-token: write
 
 concurrency:
   group: release-fpk
@@ -23,18 +24,19 @@ jobs:
 
     steps:
       - name: Checkout main
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: main
           fetch-depth: 0
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
+          toolchain: 1.97.1
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
       - name: Cache Rust registry
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: server -> target
           shared-key: rust-registry
@@ -43,14 +45,14 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
         with:
-          version: 11.11.0
+          version: 11.17.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install frontend dependencies
@@ -60,9 +62,12 @@ jobs:
         id: release_files
         env:
           VERSION: ${{ inputs.version }}
-          GITHUB_TOKEN: ${{ github.token }}
-          MOTRIX_RELEASE_CHANGELOG_PROVIDER: github-models
-          MOTRIX_RELEASE_CHANGELOG_MODEL: openai/gpt-4o-mini
+          MOTRIX_RELEASE_CHANGELOG_PROVIDER: cloudflare-workers-ai
+          MOTRIX_RELEASE_ANALYSIS_MODEL: "@cf/openai/gpt-oss-120b"
+          MOTRIX_RELEASE_EDITOR_MODEL: "@cf/openai/gpt-oss-120b"
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_AI_GATEWAY_ID: motrix-fnos-release
         run: |
           set -euo pipefail
 
@@ -77,22 +82,19 @@ jobs:
           current_version="$(node -p "require('./package.json').version")"
           if [ "${current_version}" = "${VERSION}" ]; then
             echo "main 已经是 ${VERSION}，进入幂等发布模式。"
-            node scripts/version-check.mjs
+            node scripts/version/version-check.mjs
             echo "mode=existing" >> "${GITHUB_OUTPUT}"
           else
-            node scripts/release-prepare.mjs "${VERSION}" --no-verify --no-commit --no-tag
+            node scripts/release/release-prepare.mjs "${VERSION}" --no-commit --no-tag
             cargo metadata --manifest-path server/Cargo.toml --format-version 1 >/dev/null
-            node scripts/version-check.mjs
+            node scripts/version/version-check.mjs
             echo "mode=new" >> "${GITHUB_OUTPUT}"
           fi
 
-          node scripts/release-notes.mjs "${VERSION}" > release-notes.md
-          node scripts/release-notes.mjs "${VERSION}" --body > release-notes-body.md
+          node scripts/release/release-notes.mjs "${VERSION}" > release-notes.md
+          node scripts/release/release-notes.mjs "${VERSION}" --body > release-notes-body.md
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Run quick verification
-        run: pnpm run verify:pre-commit
 
       - name: Install FPK cross build dependencies
         run: |
@@ -107,17 +109,27 @@ jobs:
           command -v python-zig
 
       - name: Build FPK packages
-        run: pnpm run build:fpk
+        run: pnpm run build:fpk:artifacts
 
       - name: Verify FPK artifacts
         env:
           VERSION: ${{ steps.release_files.outputs.version }}
         run: |
           set -euo pipefail
-          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_x86.fpk"
-          test -f "packaging/fnos/dist/motrix.fnos_${VERSION}_arm.fpk"
-          (cd packaging/fnos/dist && sha256sum "motrix.fnos_${VERSION}_"*.fpk > SHA256SUMS.txt)
+          test -f "packaging/fnos/dist/motrix_${VERSION}_x86.fpk"
+          test -f "packaging/fnos/dist/motrix_${VERSION}_arm.fpk"
+          pnpm run verify:fpk
+          node scripts/release/generate-fpk-sbom.mjs --version "${VERSION}" --output-dir packaging/fnos/dist
+          (cd packaging/fnos/dist && sha256sum "motrix_${VERSION}_"*.fpk "motrix_${VERSION}_"*.spdx.json > SHA256SUMS.txt)
           cat packaging/fnos/dist/SHA256SUMS.txt
+
+      - name: Attest FPK and release metadata
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            packaging/fnos/dist/motrix_${{ steps.release_files.outputs.version }}_*.fpk
+            packaging/fnos/dist/motrix_${{ steps.release_files.outputs.version }}_*.spdx.json
+            packaging/fnos/dist/SHA256SUMS.txt
 
       - name: Commit release files and tag
         env:
@@ -147,7 +159,7 @@ jobs:
               exit 1
             fi
 
-            git commit -m "chore: 发布 ${VERSION} 版本" -m "$(cat release-notes-body.md)"
+            git commit --no-verify -m "chore: 发布 ${VERSION} 版本" -m "$(cat release-notes-body.md)"
 
             base_sha="$(git rev-parse HEAD^)"
             if [ "${base_sha}" != "${remote_main_sha}" ]; then
@@ -173,18 +185,19 @@ jobs:
           else
             git tag "${RELEASE_TAG}"
             if [ "${RELEASE_MODE}" = "new" ]; then
-              git push --atomic origin HEAD:refs/heads/main "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+              git push --no-verify --atomic origin HEAD:refs/heads/main "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
             else
-              git push origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+              git push --no-verify origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
             fi
           fi
 
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: motrix-fnos-${{ steps.release_files.outputs.version }}-fpk
           path: |
             packaging/fnos/dist/*.fpk
+            packaging/fnos/dist/*.spdx.json
             packaging/fnos/dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 1
@@ -206,18 +219,30 @@ jobs:
             echo
             echo "请根据 fnOS 设备 CPU 架构选择对应的 FPK："
             echo
-            echo "- x86_64：[motrix.fnos_${VERSION}_x86.fpk](${release_download_base}/motrix.fnos_${VERSION}_x86.fpk)"
-            echo "- aarch64 / arm64：[motrix.fnos_${VERSION}_arm.fpk](${release_download_base}/motrix.fnos_${VERSION}_arm.fpk)"
+            echo "- x86_64：[motrix_${VERSION}_x86.fpk](${release_download_base}/motrix_${VERSION}_x86.fpk)"
+            echo "- aarch64 / arm64：[motrix_${VERSION}_arm.fpk](${release_download_base}/motrix_${VERSION}_arm.fpk)"
             echo "- 校验文件：[SHA256SUMS.txt](${release_download_base}/SHA256SUMS.txt)"
+            echo "- SBOM：[motrix_${VERSION}_x86.fpk.spdx.json](${release_download_base}/motrix_${VERSION}_x86.fpk.spdx.json)、[motrix_${VERSION}_arm.fpk.spdx.json](${release_download_base}/motrix_${VERSION}_arm.fpk.spdx.json)"
           } > github-release-notes.md
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt --clobber
+            gh release upload "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/*.spdx.json packaging/fnos/dist/SHA256SUMS.txt --clobber
             gh release edit "${RELEASE_TAG}" --title "Motrix ${RELEASE_TAG}" --notes-file github-release-notes.md
           else
-            gh release create "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/SHA256SUMS.txt \
+            gh release create "${RELEASE_TAG}" packaging/fnos/dist/*.fpk packaging/fnos/dist/*.spdx.json packaging/fnos/dist/SHA256SUMS.txt \
               --title "Motrix ${RELEASE_TAG}" \
               --notes-file github-release-notes.md
+          fi
+
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "## Release FPK"
+              echo
+              echo "- 版本：${RELEASE_TAG}"
+              echo "- Release：[${RELEASE_TAG}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG})"
+              echo
+              cat github-release-notes.md
+            } >> "${GITHUB_STEP_SUMMARY}"
           fi
 
       - name: Close obsolete release PR

@@ -207,6 +207,7 @@ function createTask(): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
+    useProxy: false,
     confirmationRequired: true,
     files: [
       {

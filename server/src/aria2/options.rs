@@ -1,4 +1,4 @@
-use super::rpc::EmptyJsonRpcResponse;
+use super::rpc::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 
@@ -10,26 +10,17 @@ pub struct Aria2GlobalOptions {
 }
 
 pub async fn apply_global_options(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     options: &Aria2GlobalOptions,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<(), String> {
     let request_body = build_change_global_option_request(config, options);
-    let response = reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    client
+        .request::<serde_json::Value>(config, &request_body)
         .await
-        .map_err(|error| format!("应用 Aria2 下载配置失败：无法连接 RPC（{}）", error))?;
-
-    let rpc_response = response
-        .json::<EmptyJsonRpcResponse>()
-        .await
-        .map_err(|error| format!("应用 Aria2 下载配置失败：响应解析失败（{}）", error))?;
-
-    if let Some(error) = rpc_response.error {
-        return Err(format!("应用 Aria2 下载配置失败：{}", error.message));
-    }
+        .and_then(|response| response.into_result())
+        .map_err(|error| format!("应用 Aria2 下载配置失败：{}", error))?;
 
     if let Some(debug_logs) = debug_logs {
         debug_logs.info(

@@ -1,6 +1,5 @@
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use axum::extract::State;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -37,6 +36,11 @@ pub struct AppInfo {
 pub struct BackendPing {
     pub ok: bool,
     pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppReadiness {
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -90,8 +94,11 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
         .route("/app/update-check", get(check_update))
 }
 
+pub(crate) fn readiness_routes() -> Router<Arc<HttpAppState>> {
+    Router::new().route("/app/ready", get(readiness))
+}
+
 async fn get_app_info(State(_state): State<Arc<HttpAppState>>) -> Result<Json<AppInfo>, ApiError> {
-    emit_file_log(DebugLogLevel::Info, "app", "读取应用信息");
     Ok(Json(AppInfo {
         name: APP_NAME.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -107,11 +114,21 @@ async fn get_app_info(State(_state): State<Arc<HttpAppState>>) -> Result<Json<Ap
 async fn ping_backend(
     State(_state): State<Arc<HttpAppState>>,
 ) -> Result<Json<BackendPing>, ApiError> {
-    emit_file_log(DebugLogLevel::Info, "app", "Rust 后端通信检查成功");
     Ok(Json(BackendPing {
         ok: true,
         message: "Rust 后端通信正常".to_string(),
     }))
+}
+
+async fn readiness(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppReadiness>, ApiError> {
+    if !state.is_ready() {
+        return Err(ApiError::service_unavailable(
+            "app_not_ready",
+            "服务尚未就绪或正在退出",
+        ));
+    }
+
+    Ok(Json(AppReadiness { ready: true }))
 }
 
 async fn check_update(

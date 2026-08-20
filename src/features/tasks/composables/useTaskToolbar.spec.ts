@@ -128,7 +128,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
-    metadataTorrentPath: null,
+    useProxy: false,
     confirmationRequired: false,
     files: [],
     createdAt: 1,

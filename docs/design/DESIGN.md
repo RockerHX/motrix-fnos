@@ -1,34 +1,48 @@
 ---
 name: Motrix fnOS
 colors:
-  background: '#151917'
-  on-background: '#EEF3EF'
-  primary: '#68AE5A'
-  on-primary: '#111513'
-  primary-container: '#253626'
-  on-primary-container: '#EEF3EF'
-  surface-container: '#1B201D'
-  surface-container-high: '#222824'
-  on-surface: '#EEF3EF'
-  on-surface-variant: '#B6C0B9'
-  outline: '#343C37'
-  outline-variant: '#29302C'
-  shell: '#111513'
-  canvas: '#151917'
-  surface: '#1B201D'
-  surface-raised: '#222824'
-  border: '#343C37'
-  border-subtle: '#29302C'
-  text-primary: '#EEF3EF'
-  text-secondary: '#B6C0B9'
-  text-muted: '#7F8B83'
-  accent: '#68AE5A'
-  accent-hover: '#7ABE6C'
-  accent-pressed: '#57964B'
-  accent-soft: '#253626'
+  background: '#142236'
+  on-background: '#F4F8FD'
+  primary: '#3374DB'
+  on-primary: '#F4F8FD'
+  primary-container: '#1E3A5F'
+  on-primary-container: '#F4F8FD'
+  surface-container: '#142236'
+  surface-container-high: '#1B314D'
+  on-surface: '#F4F8FD'
+  on-surface-variant: '#DCEBFA'
+  outline: '#304B68'
+  outline-variant: '#243A54'
+  shell: '#102846'
+  canvas: '#0D1725'
+  surface: '#142236'
+  surface-raised: '#1B314D'
+  border: '#304B68'
+  border-subtle: '#243A54'
+  text-primary: '#F4F8FD'
+  text-secondary: '#DCEBFA'
+  text-muted: '#A8B8D0'
+  accent: '#3374DB'
+  accent-hover: '#5DA9FF'
+  accent-pressed: '#285BAE'
+  accent-soft: '#1E3A5F'
   error: '#D56A6A'
   warning: '#D5A64A'
   info: '#6F9FC7'
+lightColors:
+  shell: '#E8EFF8'
+  canvas: '#F5F8FC'
+  surface: '#FFFFFF'
+  surface-raised: '#EDF3FA'
+  border: '#B8C7D9'
+  border-subtle: '#D6E0EC'
+  text-primary: '#142236'
+  text-secondary: '#304B68'
+  text-muted: '#60758E'
+  accent: '#285FBC'
+  accent-hover: '#3374DB'
+  accent-pressed: '#204D98'
+  accent-soft: '#DCE9FA'
 typography:
   ui:
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif'
@@ -60,9 +74,8 @@ spacing:
 
 # Design System: Motrix fnOS
 
-> 状态：已确认，待 Stitch 单页 PoC 验证  
-> 决策基线：`1A 2B 3B 4B 5A`（2026-07-12）  
-> 实现边界：Vue 3 + Naive UI；不得以视觉稿改变业务架构。
+> 状态：当前界面的视觉与组件规则；不规划整体 UI 重设计。
+> 实现边界：Vue 3 + Naive UI；不得以视觉调整改变业务架构。
 
 ## 1. Visual Theme & Atmosphere
 
@@ -71,48 +84,48 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 - **密度 8/10**：优先快速扫描任务名称、进度、速度、ETA 和错误。
 - **布局变化 3/10**：稳定、可预测；信息对齐优先于装饰性不对称。
 - **动效 2/10**：仅为状态变化、弹窗和直接操作提供反馈。
-- **视觉特征**：深炭灰或柔和浅灰中性色，单一克制绿色强调，细边框、少阴影、紧凑圆角。
+- **视觉特征**：深海军蓝结构色、深炭灰中性色和明亮蓝强调，细边框、少阴影、紧凑圆角。
 - **禁止**：Hero、宣传区、滚动叙事、玻璃拟态、装饰渐变、发光、噪点纹理、嵌套卡片、大圆角 SaaS 风格和持续循环动画。
 
 ## 2. Color Palette & Roles
 
-颜色以语义 token 使用，不在组件内直接写主题色。绿色是唯一品牌强调色；危险、警告、信息色仅表达状态。
+颜色以语义 token 使用，不在组件内直接写主题色。明亮蓝是唯一品牌强调色，深海军蓝承担结构层级；成功、危险、警告、信息色仅表达状态。
 
 ### 2.1 Dark theme（默认）
 
 | Token | Value | Role |
 | --- | --- | --- |
-| `--color-shell` | `#111513` | 应用外壳与侧栏底色 |
-| `--color-canvas` | `#151917` | 主内容画布 |
-| `--color-surface` | `#1B201D` | 弹窗、输入、任务边界 |
-| `--color-surface-raised` | `#222824` | hover、选中与浮层 |
-| `--color-border` | `#343C37` | 结构边框 |
-| `--color-border-subtle` | `#29302C` | 分隔线和弱边框 |
-| `--color-text-primary` | `#EEF3EF` | 主标题和关键数值 |
-| `--color-text-secondary` | `#B6C0B9` | 正文和次要字段 |
-| `--color-text-muted` | `#7F8B83` | 辅助说明和占位符 |
-| `--color-accent` | `#68AE5A` | 主操作、进度和焦点 |
-| `--color-accent-hover` | `#7ABE6C` | 强调色 hover |
-| `--color-accent-pressed` | `#57964B` | 强调色 pressed |
-| `--color-accent-soft` | `#253626` | 选中背景 |
+| `--color-shell` | `#102846` | 应用外壳与侧栏底色 |
+| `--color-canvas` | `#0D1725` | 主内容画布 |
+| `--color-surface` | `#142236` | 弹窗、输入、任务边界 |
+| `--color-surface-raised` | `#1B314D` | hover、选中与浮层 |
+| `--color-border` | `#304B68` | 结构边框 |
+| `--color-border-subtle` | `#243A54` | 分隔线和弱边框 |
+| `--color-text-primary` | `#F4F8FD` | 主标题和关键数值 |
+| `--color-text-secondary` | `#DCEBFA` | 正文和次要字段 |
+| `--color-text-muted` | `#A8B8D0` | 辅助说明和占位符 |
+| `--color-accent` | `#3374DB` | 主操作、进度和焦点 |
+| `--color-accent-hover` | `#5DA9FF` | 强调色 hover |
+| `--color-accent-pressed` | `#285BAE` | 强调色 pressed |
+| `--color-accent-soft` | `#1E3A5F` | 选中背景 |
 
-### 2.2 Light theme
+### 2.2 Light theme（fnOS 宿主）
 
 | Token | Value | Role |
 | --- | --- | --- |
-| `--color-shell` | `#EEF1EE` | 应用外壳与侧栏底色 |
-| `--color-canvas` | `#F7F9F7` | 主内容画布 |
+| `--color-shell` | `#E8EFF8` | 应用外壳与侧栏底色 |
+| `--color-canvas` | `#F5F8FC` | 主内容画布 |
 | `--color-surface` | `#FFFFFF` | 弹窗、输入、任务边界 |
-| `--color-surface-raised` | `#F0F4F0` | hover、选中与浮层 |
-| `--color-border` | `#CBD3CD` | 结构边框 |
-| `--color-border-subtle` | `#DDE3DE` | 分隔线和弱边框 |
-| `--color-text-primary` | `#19201B` | 主标题和关键数值 |
-| `--color-text-secondary` | `#48534B` | 正文和次要字段 |
-| `--color-text-muted` | `#707C73` | 辅助说明和占位符 |
-| `--color-accent` | `#4F9145` | 主操作、进度和焦点 |
-| `--color-accent-hover` | `#43813A` | 强调色 hover |
-| `--color-accent-pressed` | `#376E30` | 强调色 pressed |
-| `--color-accent-soft` | `#E4F0E2` | 选中背景 |
+| `--color-surface-raised` | `#EDF3FA` | hover、选中与浮层 |
+| `--color-border` | `#B8C7D9` | 结构边框 |
+| `--color-border-subtle` | `#D6E0EC` | 分隔线和弱边框 |
+| `--color-text-primary` | `#142236` | 主标题和关键数值 |
+| `--color-text-secondary` | `#304B68` | 正文和次要字段 |
+| `--color-text-muted` | `#60758E` | 辅助说明和占位符 |
+| `--color-accent` | `#285FBC` | 主操作、进度和焦点 |
+| `--color-accent-hover` | `#3374DB` | 强调色 hover |
+| `--color-accent-pressed` | `#204D98` | 强调色 pressed |
+| `--color-accent-soft` | `#DCE9FA` | 选中背景 |
 
 ### 2.3 Shared status colors
 
@@ -124,6 +137,13 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 | Info | `#6F9FC7` | `#39749E` | 诊断说明、解析中 |
 
 状态必须同时使用文字或图标；禁止只靠颜色表达。焦点环使用主题强调色并提供至少 `2px` 可见轮廓。
+
+### 2.4 Logo 蓝色主题迁移结果（2026-07-22）
+
+- 已将运行时品牌色迁移为 logo 蓝色体系：`#3374DB` 用于主操作、链接、进度和焦点，`#5DA9FF` 用于 hover，`#285BAE` 用于 pressed，`#1E3A5F` / `#102846` 用于结构区域和选中背景。
+- 组件品牌色统一通过全局 token 与 Naive UI 主色覆盖消费；组件样式继续维护在同目录外部 scoped CSS 文件中。
+- 成功、警告、危险和信息色保持独立语义，不因品牌迁移改为蓝色。
+- 独立浏览器默认使用深色 Naive UI 主题；支持的平台中由全局 `NConfigProvider` 控制明暗主题，组件不得自行判断宿主或主题。桌面宿主监听主题变化，移动 WebView 只初始化一次。
 
 ## 3. Typography Rules
 
@@ -144,17 +164,15 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 
 ## 5. Component Stylings
 
-Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运行时组件。最终实现继续使用 Vue 3 + Naive UI：按钮、菜单、进度、标签、提示、弹窗、表单、选择器、开关和布局应优先映射到对应 Naive UI 组件，通过项目主题 token 和少量外层 CSS 完成视觉定制。
+现有界面继续使用 Vue 3 + Naive UI：按钮、菜单、进度、标签、提示、弹窗、表单、选择器、开关和布局应优先映射到对应 Naive UI 组件，通过项目主题 token 和少量外层 CSS 完成视觉定制。
 
-- Stitch 生成的 HTML、CSS、Tailwind class、Material Symbols、字体或图标引用只用于评审，不得复制为实现依赖或视为组件规范。
-- 设计稿必须保留标准组件语义、键盘行为、focus、disabled、loading 和 ARIA 可表达性；不能只依赖静态图形模拟交互控件。
-- 只有 Naive UI 缺少合适原语且现有主题 CSS 无法完成时，才评估自定义组件；评审时必须明确说明原因，不得由 Stitch 产物隐式决定。
-- Stitch 与 Figma 验收关注视觉层级、信息结构、状态和尺寸；具体 Naive UI 组件映射在获批后的实现计划中确认。
+- 实现必须保留标准组件语义、键盘行为、focus、disabled、loading 和 ARIA 可表达性；不能只依赖静态图形模拟交互控件。
+- 只有 Naive UI 缺少合适原语且现有主题 CSS 无法完成时，才评估自定义组件，并明确记录原因。
 
 - **导航**：当前项使用浅强调背景、强调色图标和高对比文字；hover 不改变布局尺寸。
 - **工具栏**：主创建按钮使用强调色，批量操作使用次级/图标按钮；禁用原因可通过 title 或邻近状态理解。
 - **任务项**：名称和状态优先，进度与数值对齐；错误就近呈现；操作在桌面稳定靠右，在移动端形成清晰触控区。
-- **按钮**：hover 改变背景或边框，pressed 仅 `translateY(1px)`；危险操作不使用品牌绿。
+- **按钮**：hover 改变背景或边框，pressed 仅 `translateY(1px)`；危险操作不使用品牌蓝，继续使用错误语义色。
 - **输入**：标签在上、帮助或错误在下；focus、error、disabled 和 loading 状态尺寸稳定。
 - **弹窗**：标题、可选 header action、可滚动内容和固定操作区；移动端使用可视高度并避让安全区。
 - **状态标签**：紧凑圆角矩形，不使用过量 pill；包含文字，不以圆点颜色单独表达。
@@ -187,7 +205,7 @@ Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运�
 - **Compact desktop `768–1023px`**：保留桌面外壳语义，减少 gutter，任务元数据允许重排。
 - **Desktop `>= 1024px`**：固定侧栏和工具栏，任务信息横向组织。
 - 设计验收至少覆盖 `390×844`、`1024×768`、`1440×900`。
-- 所有主题和语言组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
+- 深色、浅色及中英文组合均不得横向溢出；键盘焦点顺序与视觉阅读顺序一致。
 
 ## 8. Motion & Interaction
 
@@ -197,20 +215,26 @@ Stitch 只负责表达视觉和交互语义，不负责选择或生成项目运�
 - `prefers-reduced-motion: reduce` 时关闭非必要动画。
 - SSE 数据刷新不得让任务项闪烁、重排抖动或反复播放进入动画。
 
-## 9. Theme Behavior
+### 8.1 Auth Gate 与安全设置
 
-- 主题选项仅为 `dark` 和 `light`，默认 `dark`。
-- 主题选择属于长期 UI 偏好；当前不保留预设接口，代码实施时按实际状态模型重新设计持久化接口和迁移策略。
-- 首屏应在应用数据可用前使用默认深色，加载偏好后稳定切换，避免反复闪烁。
-- Naive UI theme 与应用 CSS token 必须由同一主题状态驱动。
-- 两个主题具有相同信息结构、尺寸、状态色语义和交互能力。
+- 鉴权页是独立全屏场景，使用当前全局主题背景、Motrix 标识和单张居中卡片；独立浏览器默认深色。不得渲染应用侧栏、顶栏或任务骨架。
+- 桌面卡片宽度控制在 `400–440px`，手机端使用视口宽度减 `32px`，并保留安全区和软键盘滚动空间。
+- 加载态只显示品牌、简短状态文字和 `NSpin`；失败态使用 `NAlert` 与明确的重试按钮，不显示后端内部错误细节。
+- 密码表单使用 `NForm` 受控校验。初始化密码使用 `autocomplete=new-password`，登录与当前密码使用 `autocomplete=current-password`。
+- 主按钮必须有 loading 和 disabled 状态；错误后焦点回到对应密码框，回车只能触发一次提交。
+- 登录卡片提供紧凑的中英文切换，不与密码字段争夺主要视觉层级。
+- 修改密码和保护开关使用独立表单弹窗，弹窗不可点击遮罩误关；关闭后重置输入和校验状态。
+- 保护开关使用受控 `NSwitch`，请求成功前不得改变显示状态。关闭保护使用 warning 语义和当前密码确认。
+- 保护关闭横幅位于顶栏与内容区之间，使用不可关闭的 warning `NAlert`，桌面与移动端均提供“立即启用”入口。
+- JSON-RPC Token 区域只显示配置状态和服务端掩码；生成或轮换时原文只存在于未保存输入框，保存后立即清空。
+- 清除 JSON-RPC Token 使用二次确认，明确说明公网 `aria2.addUri` 将不可用，但不得展示旧 Token 原文。
 
-## 10. Anti-Patterns (Banned)
+## 9. Anti-Patterns (Banned)
 
 - 不新增搜索、右键菜单、底部状态栏、做种分类、任务详情抽屉等候选功能。
 - 不使用 Hero、宣传文案、玻璃拟态、霓虹发光、紫蓝渐变、噪点、浮动装饰物。
-- 不使用纯黑 `#000000`、纯白大面积高亮、过饱和绿色或多品牌强调色。
+- 不使用纯黑 `#000000`、纯白大面积高亮、过饱和蓝色或多品牌强调色。
 - 不使用超大圆角、嵌套卡片、等宽三卡片营销布局或无意义徽标。
 - 不引入新的动画库、字体包、Tabler Icons 之外的通用图标库或非标准 canvas 控件。
-- 不把 Stitch 生成的 Tailwind、Material Symbols、任意第三方组件或静态 HTML 当作项目实现方案。
+- 不以未经评审的第三方组件或静态 HTML 替代项目现有 Vue + Naive UI 实现。
 - 不用静态假按钮表现未实现功能；候选需求只能出现在独立说明区。

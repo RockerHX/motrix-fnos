@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useSlots } from "vue";
+import { computed, useSlots, type CSSProperties } from "vue";
 import { NButton, NCard, NModal } from "naive-ui";
 
 const props = withDefaults(
@@ -12,6 +12,9 @@ const props = withDefaults(
     closeDisabled?: boolean;
     showClose?: boolean;
     cardClass?: string;
+    contentClass?: string;
+    contentStyle?: string | CSSProperties;
+    fixedBody?: boolean;
   }>(),
   {
     title: "",
@@ -21,6 +24,8 @@ const props = withDefaults(
     closeDisabled: false,
     showClose: true,
     cardClass: "",
+    contentClass: "",
+    fixedBody: false,
   },
 );
 
@@ -30,7 +35,7 @@ const emit = defineEmits<{
 }>();
 
 const slots = useSlots();
-const cardClasses = computed(() => ["app-dialog", props.cardClass].filter(Boolean));
+const cardClasses = computed(() => ["app-dialog", props.cardClass, props.fixedBody ? "app-dialog--fixed-body" : ""].filter(Boolean));
 const cardStyle = computed(() => ({
   "--app-dialog-width": props.width,
 }));
@@ -55,7 +60,14 @@ function closeDialog() {
 
 <template>
   <NModal :show="props.show" :mask-closable="props.maskClosable" @update:show="updateShow">
-    <NCard :class="cardClasses" :style="cardStyle" role="dialog" aria-modal="true">
+    <NCard
+      :class="cardClasses"
+      :style="cardStyle"
+      :content-class="props.contentClass"
+      :content-style="props.contentStyle"
+      role="dialog"
+      aria-modal="true"
+    >
       <template v-if="hasHeader" #header>
         <slot name="header">
           <div>
@@ -90,8 +102,4 @@ function closeDialog() {
   </NModal>
 </template>
 
-<style scoped>
-.app-dialog-title {
-  margin: 0;
-}
-</style>
+<style scoped src="./AppDialog.css"></style>

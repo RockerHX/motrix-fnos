@@ -1,6 +1,36 @@
 #!/bin/sh
 set -eu
 
+# Disable Git's octal quoting so non-ASCII filenames (for example Chinese Markdown
+# names) still match the documentation/resource allowlist below.
+staged_files="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMRD)"
+has_staged_file=0
+only_docs_or_assets=1
+
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  has_staged_file=1
+
+  case "$path" in
+    docs/*|*.md|*.mdx|*.txt|*.rst|*.adoc|*.png|*.jpg|*.jpeg|*.gif|*.webp|*.avif|*.ico|*.bmp|*.tif|*.tiff|*.svg|*.pdf|*.woff|*.woff2|*.ttf|*.otf|*.mp3|*.wav|*.mp4|*.webm)
+      ;;
+    *)
+      only_docs_or_assets=0
+      break
+      ;;
+  esac
+done <<EOF
+$staged_files
+EOF
+
+# Markdown 允许用两个行尾空格表示强制换行，排除 Markdown 后检查其余暂存内容。
+git diff --cached --check -- . ':(exclude,glob)**/*.md' ':(exclude,glob)**/*.mdx'
+
+if [ "$has_staged_file" -eq 1 ] && [ "$only_docs_or_assets" -eq 1 ]; then
+  echo "仅文档或非代码资源变更，跳过 Rust/前端测试。"
+  exit 0
+fi
+
 if command -v pnpm >/dev/null 2>&1; then
   pnpm run verify:pre-commit
 else

@@ -13,7 +13,7 @@ export interface TaskCreateFormState {
   category: string;
   connections: number;
   downloadLimitKb: number;
-  proxy: string;
+  useProxy: boolean;
 }
 
 export function createTaskCreateFormState(): TaskCreateFormState {
@@ -26,7 +26,7 @@ export function createTaskCreateFormState(): TaskCreateFormState {
     category: DEFAULT_TASK_CATEGORY,
     connections: 16,
     downloadLimitKb: 0,
-    proxy: "",
+    useProxy: false,
   };
 }
 
@@ -38,7 +38,7 @@ export function buildTaskAdvancedOptions(form: TaskCreateFormState): CreateTaskA
   return {
     connections: form.connections,
     downloadLimitKb: form.downloadLimitKb,
-    proxy: optionalText(form.proxy),
+    useProxy: form.useProxy,
   };
 }
 

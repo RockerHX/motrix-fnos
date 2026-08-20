@@ -23,6 +23,10 @@ const logs: DebugLogEntry[] = [
 describe("useDebugLogExport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
   });
 
   it("formats repeated log entries and falls back to manual copy", async () => {
@@ -37,7 +41,9 @@ describe("useDebugLogExport", () => {
 
     expect(onManualCopy).toHaveBeenCalledWith(expect.stringContaining("[WARN] [Aria2] [aria2.rpc] x3"));
     expect(onManualCopy).toHaveBeenCalledWith(expect.stringContaining("Total: 1; Filtered: 1; Warnings: 1; Errors: 0"));
-    expect(message.warning).toHaveBeenCalledWith(expect.stringContaining("denied"));
+    expect(message.warning).toHaveBeenCalledWith(
+      "当前页面不是可使用剪贴板的安全顶层环境，常见原因是局域网 HTTP 或 fnOS 内嵌窗口。请手动选择内容并按 Ctrl+C / Command+C，或直接打开 Motrix HTTPS 域名。",
+    );
   });
 
   it("warns when no filtered logs can be copied or downloaded", async () => {

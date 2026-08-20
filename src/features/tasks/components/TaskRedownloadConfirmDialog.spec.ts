@@ -31,6 +31,7 @@ describe("TaskRedownloadConfirmDialog", () => {
         state: { ...defaultState, isOperating: true },
         labels: defaultLabels,
         confirmTexts: defaultConfirmTexts,
+        useProxy: true,
       },
     });
     const dialog = wrapper.get('[data-test="confirm-dialog"]');
@@ -40,6 +41,6 @@ describe("TaskRedownloadConfirmDialog", () => {
     await wrapper.findAll("button")[0].trigger("click");
     await wrapper.findAll("button")[1].trigger("click");
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
-    expect(wrapper.emitted("confirm")).toHaveLength(1);
+    expect(wrapper.emitted("confirm")).toEqual([[true]]);
   });
 });

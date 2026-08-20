@@ -16,6 +16,45 @@ export function useMainWindowDialogs({ taskStore, toolbar, message, t }: UseMain
   const showDiagnostics = ref(false);
   const showHelp = ref(false);
   const showSettings = ref(false);
+  const showJsonRpcGuide = ref(false);
+
+  function closeSecondaryDialogs() {
+    showAbout.value = false;
+    showDiagnostics.value = false;
+    showHelp.value = false;
+    showSettings.value = false;
+    showJsonRpcGuide.value = false;
+  }
+
+  function openAbout() {
+    closeSecondaryDialogs();
+    showAbout.value = true;
+  }
+
+  function openDiagnostics() {
+    closeSecondaryDialogs();
+    showDiagnostics.value = true;
+  }
+
+  function openHelp() {
+    closeSecondaryDialogs();
+    showHelp.value = true;
+  }
+
+  function openSettings() {
+    showCreateDialog.value = false;
+    closeSecondaryDialogs();
+    showSettings.value = true;
+  }
+
+  function openJsonRpcGuide() {
+    closeSecondaryDialogs();
+    showJsonRpcGuide.value = true;
+  }
+
+  function openSettingsFromJsonRpcGuide() {
+    openSettings();
+  }
 
   function openCreateDialog() {
     if (taskStore.isRuntimeExiting) {
@@ -33,5 +72,20 @@ export function useMainWindowDialogs({ taskStore, toolbar, message, t }: UseMain
     openCreateDialog();
   }
 
-  return { showCreateDialog, showAbout, showDiagnostics, showHelp, showSettings, openCreateDialog, handleToolbarCreate };
+  return {
+    showCreateDialog,
+    showAbout,
+    showDiagnostics,
+    showHelp,
+    showSettings,
+    showJsonRpcGuide,
+    openAbout,
+    openDiagnostics,
+    openHelp,
+    openSettings,
+    openJsonRpcGuide,
+    openSettingsFromJsonRpcGuide,
+    openCreateDialog,
+    handleToolbarCreate,
+  };
 }

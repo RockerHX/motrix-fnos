@@ -1,37 +1,65 @@
-use super::transport::{rpc_params, TellStatusResponse};
+use super::transport::rpc_params;
+use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{log_error, Aria2TaskStatus};
+use serde::Deserialize;
+use serde_json::Value;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Aria2ActiveTaskActivity {
+    #[serde(default)]
+    pub(crate) upload_speed: Value,
+    #[serde(default)]
+    pub(crate) seeder: Value,
+    #[serde(default)]
+    pub(crate) bittorrent: Option<Value>,
+}
+
+impl Aria2ActiveTaskActivity {
+    pub(crate) fn is_bt_uploading(&self) -> bool {
+        let is_bittorrent = self
+            .bittorrent
+            .as_ref()
+            .map(|value| !value.is_null())
+            .unwrap_or(false);
+        (is_bittorrent || value_as_bool(&self.seeder))
+            && (value_as_u64(&self.upload_speed) > 0 || value_as_bool(&self.seeder))
+    }
+}
+
+fn value_as_u64(value: &Value) -> u64 {
+    match value {
+        Value::Number(number) => number.as_u64().unwrap_or_default(),
+        Value::String(text) => text.parse().unwrap_or_default(),
+        _ => 0,
+    }
+}
+
+fn value_as_bool(value: &Value) -> bool {
+    match value {
+        Value::Bool(value) => *value,
+        Value::String(text) => text.eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
 
 pub(crate) async fn tell_status(
-    client: &reqwest::Client,
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Aria2TaskStatus, String> {
     let request_body = super::build_tell_status_request(config, gid);
-    let response = match client
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    let status = match client
+        .request::<Aria2TaskStatus>(config, &request_body)
         .await
+        .and_then(|response| response.into_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = "同步任务状态失败：无法连接 Aria2 RPC".to_string();
-            log_error(
-                debug_logs,
-                "aria2.tellStatus",
-                format!("GID {} {}", gid, error),
-            );
-            return Err(error);
-        }
-    };
-
-    let rpc_response = match response.json::<TellStatusResponse>().await {
-        Ok(response) => response,
+        Ok(status) => status,
         Err(error) => {
-            let error = format!("同步 Aria2 任务状态解析失败：{}", error);
+            let error = format!("同步 Aria2 任务状态失败：{}", error);
             log_error(
                 debug_logs,
                 "aria2.tellStatus",
@@ -40,20 +68,6 @@ pub(crate) async fn tell_status(
             return Err(error);
         }
     };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("同步 Aria2 任务状态失败：{}", error.message);
-        log_error(
-            debug_logs,
-            "aria2.tellStatus",
-            format!("GID {} {}", gid, error),
-        );
-        return Err(error);
-    }
-
-    let status = rpc_response
-        .result
-        .ok_or_else(|| "同步 Aria2 任务状态失败：响应缺少任务状态".to_string())?;
     if crate::tasks::is_aria2_status_error(&status) {
         log_error(
             debug_logs,
@@ -67,6 +81,37 @@ pub(crate) async fn tell_status(
         );
     }
     Ok(status)
+}
+
+pub(crate) async fn task_exists(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<bool, String> {
+    match tell_status(client, config, gid, debug_logs).await {
+        Ok(_) => Ok(true),
+        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) async fn tell_active_task_activity(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Vec<Aria2ActiveTaskActivity>, String> {
+    let request_body = super::build_tell_many_request(config, "aria2.tellActive");
+    client
+        .request::<Vec<Aria2ActiveTaskActivity>>(config, &request_body)
+        .await
+        .and_then(|response| response.into_optional_result())
+        .map(|tasks| tasks.unwrap_or_default())
+        .map_err(|error| {
+            let message = format!("读取 Aria2 活动任务失败：{}", error);
+            log_error(debug_logs, "aria2.tellActive", &message);
+            message
+        })
 }
 
 pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {

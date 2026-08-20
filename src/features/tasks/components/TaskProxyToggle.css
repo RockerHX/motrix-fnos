@@ -1,0 +1,29 @@
+.task-proxy-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.task-proxy-toggle-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.task-proxy-toggle-copy strong {
+  color: var(--app-text-strong);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.task-proxy-toggle-copy span {
+  color: var(--app-text-dim);
+  font-size: 12px;
+  line-height: 1.4;
+}

@@ -29,7 +29,6 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                     download_limit: 1024,
                     upload_limit: 2048,
                     language: "en-US".to_string(),
-                    json_rpc_token: "  test-token  ".to_string(),
                 },
                 "/app/data",
             )
@@ -43,6 +42,24 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
             )
             .await
             .expect("config should save");
+            save_json_rpc_token(&database.pool, "  test-token  ")
+                .await
+                .expect("token should save");
+            save_app_config(
+                &database.pool,
+                AppConfig {
+                    default_download_dir: "/tmp/downloads".to_string(),
+                    max_concurrent_downloads: 1,
+                    download_limit: 1024,
+                    upload_limit: 2048,
+                    language: "en-US".to_string(),
+                },
+                "/app/data",
+                &["/tmp/downloads".to_string()],
+                std::path::Path::new("/app/data"),
+            )
+            .await
+            .expect("ordinary settings should preserve token");
 
             let loaded = load_app_config_from_pool(&database.pool, "/app/data")
                 .await
@@ -52,7 +69,40 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
             assert_eq!(loaded.download_limit, 1024);
             assert_eq!(loaded.upload_limit, 2048);
             assert_eq!(loaded.language, "en-US");
-            assert_eq!(loaded.json_rpc_token, "test-token");
+            assert_eq!(
+                load_json_rpc_token(&database.pool)
+                    .await
+                    .expect("token should load"),
+                "test-token"
+            );
+            assert_eq!(
+                load_lan_json_rpc_config(&database.pool)
+                    .await
+                    .expect("default LAN config should load"),
+                LanJsonRpcConfig::default()
+            );
+            let lan_config = save_lan_json_rpc_config(
+                &database.pool,
+                &LanJsonRpcConfig {
+                    enabled: true,
+                    token: "  lan-token  ".to_string(),
+                },
+            )
+            .await
+            .expect("LAN config should save");
+            assert_eq!(
+                lan_config,
+                LanJsonRpcConfig {
+                    enabled: true,
+                    token: "lan-token".to_string(),
+                }
+            );
+            assert_eq!(
+                load_lan_json_rpc_config(&database.pool)
+                    .await
+                    .expect("LAN config should reload"),
+                lan_config
+            );
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -83,7 +133,6 @@ fn app_config_rejects_unauthorized_default_download_dir() {
                     download_limit: 0,
                     upload_limit: 0,
                     language: "zh-CN".to_string(),
-                    json_rpc_token: String::new(),
                 },
                 "/app/data",
                 &["/app/data".to_string()],
@@ -132,7 +181,12 @@ fn app_config_accepts_legacy_saved_values() {
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
             assert_eq!(loaded.max_concurrent_downloads, 64);
             assert_eq!(loaded.language, "zh-CN");
-            assert_eq!(loaded.json_rpc_token, "");
+            assert_eq!(
+                load_json_rpc_token(&database.pool)
+                    .await
+                    .expect("token should load"),
+                ""
+            );
             let serialized = serde_json::to_value(&loaded).expect("config should serialize");
             assert!(serialized.get("autoStartEnabled").is_none());
             assert!(serialized.get("notificationsEnabled").is_none());
@@ -151,7 +205,6 @@ fn app_config_falls_back_to_default_language_for_invalid_values() {
             download_limit: 0,
             upload_limit: 0,
             language: "fr-FR".to_string(),
-            json_rpc_token: String::new(),
         },
         "/app/data",
     )

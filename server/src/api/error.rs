@@ -1,4 +1,5 @@
-use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ pub struct ApiError {
     status: StatusCode,
     code: String,
     message: String,
+    retry_after_seconds: Option<u64>,
 }
 
 impl ApiError {
@@ -25,6 +27,36 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, code, message)
     }
 
+    pub fn unauthorized(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, code, message)
+    }
+
+    pub fn forbidden(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, code, message)
+    }
+
+    pub fn not_found(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::NOT_FOUND, code, message)
+    }
+
+    pub fn bad_gateway(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_GATEWAY, code, message)
+    }
+
+    pub fn too_many_requests(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        retry_after_seconds: u64,
+    ) -> Self {
+        let mut error = Self::new(StatusCode::TOO_MANY_REQUESTS, code, message);
+        error.retry_after_seconds = Some(retry_after_seconds);
+        error
+    }
+
+    pub fn service_unavailable(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, code, message)
+    }
+
     pub fn internal(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, code, message)
     }
@@ -34,6 +66,7 @@ impl ApiError {
             status,
             code: code.into(),
             message: message.into(),
+            retry_after_seconds: None,
         }
     }
 
@@ -48,6 +81,12 @@ impl IntoResponse for ApiError {
             code: self.code,
             message: self.message,
         };
-        (self.status, Json(body)).into_response()
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(seconds) = self.retry_after_seconds {
+            if let Ok(value) = HeaderValue::from_str(&seconds.to_string()) {
+                response.headers_mut().insert(RETRY_AFTER, value);
+            }
+        }
+        response
     }
 }

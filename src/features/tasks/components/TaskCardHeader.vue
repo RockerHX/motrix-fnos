@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import AppIcon from "../../../components/AppIcon.vue";
+import { t } from "../../../i18n";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
+import TaskSourceIcon from "./TaskSourceIcon.vue";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = withDefaults(
@@ -16,8 +19,18 @@ const props = withDefaults(
 <template>
   <header class="task-card-header" :class="`task-card-header--${props.variant}`">
     <div class="task-card-title-group">
+      <TaskSourceIcon :source-type="props.task.sourceType" :url="props.task.url" />
       <strong class="task-card-title" :title="props.task.fileName">{{ props.task.fileName }}</strong>
       <TaskStatusBadge :task="props.task" />
+      <span
+        v-if="props.task.useProxy"
+        class="task-proxy-indicator"
+        role="img"
+        :title="t('task.proxy.iconHint')"
+        :aria-label="t('task.proxy.iconHint')"
+      >
+        <AppIcon name="proxy" :size="14" />
+      </span>
     </div>
     <aside v-if="$slots.actions" class="task-card-actions">
       <slot name="actions" />
@@ -25,83 +38,4 @@ const props = withDefaults(
   </header>
 </template>
 
-<style scoped>
-.task-card-header {
-  min-width: 0;
-  display: grid;
-  align-items: center;
-  gap: 10px;
-}
-
-.task-card-header--desktop {
-  grid-template-columns: minmax(0, 1fr) max-content;
-}
-
-.task-card-header--mobile {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: flex-start;
-}
-
-.task-card-title-group {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.task-card-header--mobile .task-card-title-group {
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.task-card-title-group :deep(.n-tag) {
-  --n-border-radius: var(--app-radius-pill);
-  flex: 0 0 auto;
-}
-
-.task-card-header--desktop .task-card-title-group :deep(.n-tag) {
-  --n-height: 18px;
-  --n-font-size: 10px;
-  opacity: 0.62;
-}
-
-.task-card-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--app-text-strong);
-  text-overflow: ellipsis;
-}
-
-.task-card-header--desktop .task-card-title {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
-.task-card-header--mobile .task-card-title {
-  display: -webkit-box;
-  font-size: 16px;
-  line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.task-card-actions {
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-}
-
-@media (max-width: 767px) {
-  .task-card-header--mobile {
-    gap: 8px;
-  }
-
-  .task-card-header--mobile .task-card-title {
-    font-size: 15px;
-    line-height: 1.35;
-  }
-}
-</style>
+<style scoped src="./TaskCardHeader.css"></style>

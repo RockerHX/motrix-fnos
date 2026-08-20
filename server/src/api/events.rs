@@ -1,6 +1,7 @@
+use crate::api::auth::{event_context_is_authorized, EventAuthContext};
 use crate::app::{HttpAppState, RuntimeEvent};
-use crate::runtime::visible_tasks_snapshot;
-use axum::extract::State;
+use crate::runtime::current_tasks_snapshot;
+use axum::extract::{Extension, State};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::routing::get;
@@ -9,34 +10,64 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
+const SESSION_REVALIDATION_INTERVAL: Duration = Duration::from_secs(15);
+
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new().route("/events", get(stream_events))
 }
 
-async fn stream_events(State(state): State<Arc<HttpAppState>>) -> impl IntoResponse {
+async fn stream_events(
+    State(state): State<Arc<HttpAppState>>,
+    Extension(event_auth_context): Extension<EventAuthContext>,
+) -> impl IntoResponse {
     let mut receiver = state.runtime_events.subscribe();
-    let initial_event = RuntimeEvent::TasksSnapshot(crate::app::TasksSnapshotPayload {
-        tasks: visible_tasks_snapshot(&state).unwrap_or_default(),
-    });
+    let initial_event =
+        current_tasks_snapshot(&state).unwrap_or_else(|_| crate::app::TasksSnapshotPayload {
+            revision: 0,
+            tasks: Vec::new(),
+        });
     let stream = async_stream::stream! {
-        if let Some(event) = runtime_event_to_sse(initial_event) {
+        if !event_context_is_authorized(&state, &event_auth_context).await {
+            return;
+        }
+        if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(initial_event)) {
             yield Ok::<Event, Infallible>(event);
         }
 
+        let mut session_revalidation = tokio::time::interval(SESSION_REVALIDATION_INTERVAL);
+        session_revalidation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        session_revalidation.tick().await;
         loop {
-            match receiver.recv().await {
-                Ok(event) => {
-                    if let Some(event) = runtime_event_to_sse(event) {
-                        yield Ok::<Event, Infallible>(event);
+            tokio::select! {
+                _ = session_revalidation.tick() => {
+                    if !event_context_is_authorized(&state, &event_auth_context).await {
+                        break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    state.core.debug_logs.warn(
-                        "runtime.events",
-                        format!("SSE 事件流检测到丢帧，已跳过 {} 条事件", skipped),
-                    );
+                received = receiver.recv() => {
+                    if !event_context_is_authorized(&state, &event_auth_context).await {
+                        break;
+                    }
+                    match received {
+                        Ok(event) => {
+                            if let Some(event) = runtime_event_to_sse(event) {
+                                yield Ok::<Event, Infallible>(event);
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            state.core.debug_logs.warn(
+                                "runtime.events",
+                                format!("SSE 事件流检测到丢帧，已跳过 {} 条事件", skipped),
+                            );
+                            if let Ok(snapshot) = current_tasks_snapshot(&state) {
+                                if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(snapshot)) {
+                                    yield Ok::<Event, Infallible>(event);
+                                }
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     };

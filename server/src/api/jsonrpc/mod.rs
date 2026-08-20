@@ -6,7 +6,7 @@ mod types;
 use crate::app::HttpAppState;
 use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::header::{CONTENT_TYPE, SEC_WEBSOCKET_PROTOCOL};
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -16,18 +16,37 @@ use serde_json::Value;
 use std::sync::Arc;
 use types::rpc_error;
 
-pub fn routes() -> Router<Arc<HttpAppState>> {
-    Router::new().route(
-        "/jsonrpc",
-        post(handle_http_jsonrpc)
-            .get(handle_ws_jsonrpc)
-            .options(handle_jsonrpc_options),
-    )
+const JSONRPC_WEBSOCKET_MESSAGE_LIMIT: usize = 256 * 1024;
+const JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE: usize = 128 * 1024;
+const JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE: usize =
+    JSONRPC_WEBSOCKET_MESSAGE_LIMIT + JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum JsonRpcAccess {
+    Proxy,
+    Lan,
 }
 
-async fn handle_http_jsonrpc(State(state): State<Arc<HttpAppState>>, body: Bytes) -> Response {
+pub fn routes(access: JsonRpcAccess) -> Router<Arc<HttpAppState>> {
+    let http_routes = super::with_http_resource_limits(
+        Router::new().route("/jsonrpc", post(handle_http_jsonrpc)),
+        super::JSONRPC_HTTP_LIMITS,
+    );
+    let websocket_routes = Router::new().route(
+        "/jsonrpc",
+        axum::routing::get(handle_ws_jsonrpc).options(handle_jsonrpc_options),
+    );
+
+    http_routes.merge(websocket_routes).layer(Extension(access))
+}
+
+async fn handle_http_jsonrpc(
+    State(state): State<Arc<HttpAppState>>,
+    Extension(access): Extension<JsonRpcAccess>,
+    body: Bytes,
+) -> Response {
     let payload = match serde_json::from_slice::<Value>(&body) {
-        Ok(payload) => methods::handle_jsonrpc_payload(&state, payload).await,
+        Ok(payload) => methods::handle_jsonrpc_payload_with_access(&state, access, payload).await,
         Err(_) => rpc_error(Value::Null, -32700, "Parse error"),
     };
     jsonrpc_http_response(StatusCode::OK, payload)
@@ -41,13 +60,22 @@ async fn handle_jsonrpc_options() -> Response {
 
 async fn handle_ws_jsonrpc(
     State(state): State<Arc<HttpAppState>>,
+    Extension(access): Extension<JsonRpcAccess>,
     ws: WebSocketUpgrade,
 ) -> Response {
     ws.protocols(["jsonrpc"])
-        .on_upgrade(move |socket| handle_jsonrpc_socket(socket, state))
+        .max_frame_size(JSONRPC_WEBSOCKET_MESSAGE_LIMIT)
+        .max_message_size(JSONRPC_WEBSOCKET_MESSAGE_LIMIT)
+        .write_buffer_size(JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE)
+        .max_write_buffer_size(JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE)
+        .on_upgrade(move |socket| handle_jsonrpc_socket(socket, state, access))
 }
 
-async fn handle_jsonrpc_socket(mut socket: WebSocket, state: Arc<HttpAppState>) {
+async fn handle_jsonrpc_socket(
+    mut socket: WebSocket,
+    state: Arc<HttpAppState>,
+    access: JsonRpcAccess,
+) {
     while let Some(message) = socket.recv().await {
         let Ok(message) = message else {
             break;
@@ -65,7 +93,9 @@ async fn handle_jsonrpc_socket(mut socket: WebSocket, state: Arc<HttpAppState>) 
         };
 
         let response = match payload {
-            Ok(payload) => methods::handle_jsonrpc_payload(&state, payload).await,
+            Ok(payload) => {
+                methods::handle_jsonrpc_payload_with_access(&state, access, payload).await
+            }
             Err(_) => rpc_error(Value::Null, -32700, "Parse error"),
         };
 

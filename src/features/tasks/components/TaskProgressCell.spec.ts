@@ -36,6 +36,97 @@ describe("TaskProgressCell", () => {
 
     expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("default");
     expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(50);
+    expect(wrapper.findComponent(TaskProgressBar).props()).not.toHaveProperty("transitionMs");
+  });
+
+  it("advances progress for the same task", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 20 }) },
+    });
+
+    await wrapper.setProps({ task: createTask({ completedLength: 40 }) });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(40);
+  });
+
+  it("does not move backwards for an older event from the same task", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 20 }) },
+    });
+
+    await wrapper.setProps({ task: createTask({ completedLength: 40 }) });
+    await wrapper.setProps({ task: createTask({ completedLength: 30 }) });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(40);
+  });
+
+  it("resets progress when the task id changes", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 80 }) },
+    });
+
+    await wrapper.setProps({ task: createTask({ id: 2, completedLength: 10 }) });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(10);
+  });
+
+  it("resets progress when the task gid changes", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 80 }) },
+    });
+
+    await wrapper.setProps({ task: createTask({ gid: "gid-2", completedLength: 10 }) });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(10);
+  });
+
+  it("recalculates progress when total length changes", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 80, totalLength: 100 }) },
+    });
+
+    await wrapper.setProps({ task: createTask({ completedLength: 20, totalLength: 200 }) });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(10);
+  });
+
+  it("recovers from unknown total length when a size becomes available", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: {
+        task: createTask({ completedLength: 0, totalLength: 0, status: "pending" }),
+      },
+    });
+
+    await wrapper.setProps({
+      task: createTask({ completedLength: 20, totalLength: 100, status: "active" }),
+    });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("default");
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(20);
+  });
+
+  it("forces complete tasks to 100 percent", async () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ completedLength: 20, totalLength: 100 }) },
+    });
+
+    await wrapper.setProps({
+      task: createTask({ completedLength: 20, totalLength: 100, status: "complete" }),
+    });
+
+    expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("complete");
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(100);
+  });
+
+  it("does not render a percentage label when showLabel is false", () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: {
+        task: createTask({ completedLength: 20 }),
+        showLabel: false,
+      },
+    });
+
+    expect(wrapper.find("small").exists()).toBe(false);
   });
 });
 
@@ -54,7 +145,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
-    metadataTorrentPath: null,
+    useProxy: false,
     confirmationRequired: false,
     files: [],
     createdAt: 0,

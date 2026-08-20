@@ -1,18 +1,53 @@
-use super::transport::{rpc_params, GidResponse};
+use super::transport::rpc_params;
+use crate::aria2::{Aria2RpcClient, Aria2RpcError};
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::{log_error, log_info};
 
+#[derive(Debug)]
+pub enum Aria2TaskOptionError {
+    OutcomeUnknown(String),
+    Failed(String),
+}
+
+impl Aria2TaskOptionError {
+    pub fn is_outcome_unknown(&self) -> bool {
+        matches!(self, Self::OutcomeUnknown(_))
+    }
+}
+
+impl std::fmt::Display for Aria2TaskOptionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OutcomeUnknown(message) | Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for Aria2TaskOptionError {}
+
 pub async fn pause_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    pause_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn pause_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
     send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.pause",
-        "motrix-fnos-pause",
+        request_id.unwrap_or("motrix-fnos-pause"),
         "暂停任务",
         debug_logs,
     )
@@ -20,15 +55,27 @@ pub async fn pause_task(
 }
 
 pub async fn unpause_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    unpause_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn unpause_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
     send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.unpause",
-        "motrix-fnos-unpause",
+        request_id.unwrap_or("motrix-fnos-unpause"),
         "恢复任务",
         debug_logs,
     )
@@ -36,60 +83,135 @@ pub async fn unpause_task(
 }
 
 pub async fn change_task_options(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     options: serde_json::Map<String, serde_json::Value>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
-    let request_body = super::build_change_option_request(config, gid, options);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    change_task_options_with_request_id(client, config, gid, options, None, debug_logs)
         .await
+        .map_err(|error| error.to_string())
+}
+
+pub async fn change_task_options_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    options: serde_json::Map<String, serde_json::Value>,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, Aria2TaskOptionError> {
+    let request_body = build_change_option_request_with_id(
+        config,
+        gid,
+        options,
+        request_id.unwrap_or("motrix-fnos-change-option"),
+    );
+    match client
+        .request::<String>(config, &request_body)
+        .await
+        .and_then(|response| response.into_optional_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = "更新任务选项失败：无法连接 Aria2 RPC".to_string();
-            log_error(debug_logs, "aria2.changeOption", &error);
-            return Err(error);
-        }
-    };
-
-    let rpc_response = match response.json::<GidResponse>().await {
-        Ok(response) => response,
+        Ok(Some(gid)) if !gid.trim().is_empty() => Ok(gid),
+        Ok(_) => Ok(gid.to_string()),
         Err(error) => {
-            let error = format!("更新任务选项失败，响应解析失败：{}", error);
-            log_error(debug_logs, "aria2.changeOption", &error);
-            return Err(error);
+            let outcome_unknown = matches!(
+                &error,
+                Aria2RpcError::OutcomeUnknown(_)
+                    | Aria2RpcError::HttpStatus(_)
+                    | Aria2RpcError::InvalidResponse(_)
+            );
+            let message = task_option_rpc_error_message("更新任务选项", &error);
+            log_error(debug_logs, "aria2.changeOption", &message);
+            Err(if outcome_unknown {
+                Aria2TaskOptionError::OutcomeUnknown(message)
+            } else {
+                Aria2TaskOptionError::Failed(message)
+            })
         }
-    };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("更新任务选项失败：{}", error.message);
-        log_error(debug_logs, "aria2.changeOption", &error);
-        return Err(error);
     }
+}
 
-    Ok(rpc_response.result.unwrap_or_else(|| gid.to_string()))
+pub async fn get_task_options(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<serde_json::Map<String, serde_json::Value>, Aria2TaskOptionError> {
+    let request_body = build_get_option_request_with_id(
+        config,
+        gid,
+        request_id.unwrap_or("motrix-fnos-get-option"),
+    );
+    match client
+        .request::<serde_json::Map<String, serde_json::Value>>(config, &request_body)
+        .await
+        .and_then(|response| response.into_optional_result())
+    {
+        Ok(Some(options)) => Ok(options),
+        Ok(None) => Err(Aria2TaskOptionError::Failed(
+            "读取任务选项失败：响应缺少选项".to_string(),
+        )),
+        Err(error) => {
+            let outcome_unknown = matches!(
+                &error,
+                Aria2RpcError::OutcomeUnknown(_)
+                    | Aria2RpcError::HttpStatus(_)
+                    | Aria2RpcError::InvalidResponse(_)
+            );
+            let message = task_option_rpc_error_message("读取任务选项", &error);
+            log_error(debug_logs, "aria2.getOption", &message);
+            Err(if outcome_unknown {
+                Aria2TaskOptionError::OutcomeUnknown(message)
+            } else {
+                Aria2TaskOptionError::Failed(message)
+            })
+        }
+    }
+}
+
+fn task_option_rpc_error_message(action: &str, error: &Aria2RpcError) -> String {
+    match error {
+        Aria2RpcError::Remote(error) => error
+            .code
+            .map(|code| format!("{}失败：Aria2 拒绝请求（代码 {}）", action, code))
+            .unwrap_or_else(|| format!("{}失败：Aria2 拒绝请求", action)),
+        _ => format!("{}失败：{}", action, error),
+    }
 }
 
 pub async fn remove_task(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    remove_task_with_request_id(client, config, gid, None, debug_logs).await
+}
+
+pub async fn remove_task_with_request_id(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    let request_id = request_id.unwrap_or("motrix-fnos-remove");
     match send_gid_control_request(
+        client,
         config,
         gid,
         "aria2.remove",
-        "motrix-fnos-remove",
+        request_id,
         "删除任务",
         debug_logs,
     )
     .await
     {
         Ok(result_gid) => Ok(result_gid),
+        Err(error) if is_aria2_outcome_unknown_error(&error) => Err(error),
         Err(error) => {
             log_info(
                 debug_logs,
@@ -99,11 +221,13 @@ pub async fn remove_task(
                     gid, error
                 ),
             );
+            let result_request_id = format!("{request_id}:remove-result");
             send_gid_control_request(
+                client,
                 config,
                 gid,
                 "aria2.removeDownloadResult",
-                "motrix-fnos-remove-result",
+                &result_request_id,
                 "删除任务结果",
                 debug_logs,
             )
@@ -112,7 +236,12 @@ pub async fn remove_task(
     }
 }
 
+pub(crate) fn is_aria2_outcome_unknown_error(error: &str) -> bool {
+    error.contains("Aria2 RPC 结果未知")
+}
+
 pub(crate) async fn send_gid_control_request(
+    client: &Aria2RpcClient,
     config: &Aria2Config,
     gid: &str,
     method: &str,
@@ -127,39 +256,27 @@ pub(crate) async fn send_gid_control_request(
         format!("开始{}，GID {}", action_label, gid),
     );
     let request_body = super::build_gid_control_request(config, gid, method, request_id);
-    let response = match reqwest::Client::new()
-        .post(config.rpc_url())
-        .json(&request_body)
-        .send()
+    let result_gid = match client
+        .request::<String>(config, &request_body)
         .await
+        .and_then(|response| response.into_result())
     {
-        Ok(response) => response,
-        Err(_) => {
-            let error = format!("{}失败：无法连接 Aria2 RPC", action_label);
+        Ok(result_gid) if !result_gid.trim().is_empty() => result_gid,
+        Ok(_) => {
+            let error = format!("{}失败：响应缺少 GID", action_label);
             log_error(debug_logs, module, format!("GID {} {}", gid, error));
             return Err(error);
         }
-    };
-
-    let rpc_response = match response.json::<GidResponse>().await {
-        Ok(response) => response,
         Err(error) => {
-            let error = format!("{}失败，响应解析失败：{}", action_label, error);
+            let error = if matches!(&error, Aria2RpcError::ConnectionFailed(_)) {
+                format!("{}失败：无法连接 Aria2 RPC", action_label)
+            } else {
+                format!("{}失败：{}", action_label, error)
+            };
             log_error(debug_logs, module, format!("GID {} {}", gid, error));
             return Err(error);
         }
     };
-
-    if let Some(error) = rpc_response.error {
-        let error = format!("{}失败：{}", action_label, error.message);
-        log_error(debug_logs, module, format!("GID {} {}", gid, error));
-        return Err(error);
-    }
-
-    let result_gid = rpc_response
-        .result
-        .filter(|gid| !gid.trim().is_empty())
-        .ok_or_else(|| format!("{}失败：响应缺少 GID", action_label))?;
     log_info(
         debug_logs,
         module,
@@ -185,10 +302,11 @@ pub(crate) fn build_gid_control_request(
     })
 }
 
-pub(crate) fn build_change_option_request(
+pub(crate) fn build_change_option_request_with_id(
     config: &Aria2Config,
     gid: &str,
     options: serde_json::Map<String, serde_json::Value>,
+    request_id: &str,
 ) -> serde_json::Value {
     let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
@@ -196,8 +314,24 @@ pub(crate) fn build_change_option_request(
 
     serde_json::json!({
         "jsonrpc": "2.0",
-        "id": "motrix-fnos-change-option",
+        "id": request_id,
         "method": "aria2.changeOption",
+        "params": params,
+    })
+}
+
+fn build_get_option_request_with_id(
+    config: &Aria2Config,
+    gid: &str,
+    request_id: &str,
+) -> serde_json::Value {
+    let mut params = rpc_params(config);
+    params.push(serde_json::json!(gid));
+
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "aria2.getOption",
         "params": params,
     })
 }

@@ -10,6 +10,7 @@ const props = withDefaults(
   defineProps<{
     activeCategory: MainNavCategory;
     actionStates?: TopbarActionStates;
+    logoutLoading?: boolean;
   }>(),
   {
     actionStates: () => ({}),
@@ -27,6 +28,7 @@ const emit = defineEmits<{
   openDiagnostics: [];
   openHelp: [];
   openSettings: [];
+  logout: [];
 }>();
 
 const { t } = useI18n();
@@ -91,13 +93,21 @@ function openHelp() {
 function openSettings() {
   emit("openSettings");
 }
+
+function logout() {
+  if (!props.logoutLoading) emit("logout");
+}
 </script>
 
 <template>
   <header class="topbar">
     <div class="topbar-title">
       <span>Motrix</span>
-      <strong>{{ activeCategoryLabel }}</strong>
+      <div class="topbar-title-label">
+        <Transition name="app-title-switch">
+          <strong :key="props.activeCategory">{{ activeCategoryLabel }}</strong>
+        </Transition>
+      </div>
     </div>
     <div class="topbar-actions desktop-actions">
       <button
@@ -173,149 +183,9 @@ function openSettings() {
       <button type="button" :title="t('nav.help')" :aria-label="t('nav.help')" @click="openHelp"><AppIcon name="help" :size="18" /></button>
       <button type="button" :title="t('nav.about')" :aria-label="t('nav.about')" @click="openAbout"><AppIcon name="about" :size="18" /></button>
       <button type="button" :title="t('topbar.diagnostics')" :aria-label="t('topbar.diagnostics')" @click="openDiagnostics"><AppIcon name="diagnostics" :size="18" /></button>
+      <button type="button" :disabled="props.logoutLoading" :title="t('auth.logout')" :aria-label="t('auth.logout')" @click="logout"><AppIcon name="logout" :size="18" /></button>
     </div>
   </header>
 </template>
 
-<style scoped>
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--app-color-border-subtle);
-  padding: 0 var(--app-desktop-content-gutter-x);
-  background: var(--app-color-surface);
-}
-
-.topbar-title {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.topbar-title span {
-  color: var(--app-text-dim);
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-.topbar-title strong {
-  color: var(--app-text-strong);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.topbar-actions > button {
-  width: var(--app-toolbar-button-size);
-  min-width: var(--app-toolbar-button-size);
-  height: var(--app-toolbar-button-size);
-  min-height: var(--app-toolbar-button-size);
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 9px;
-  padding: 0;
-  color: var(--app-text-muted);
-  background: transparent;
-  font: inherit;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.topbar-actions > button:hover,
-.topbar-actions > button:focus-visible {
-  color: var(--app-text-strong);
-  background: var(--app-color-card-overlay);
-  outline: none;
-}
-
-.topbar-actions > button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.topbar-actions > button:disabled:hover {
-  color: var(--app-text-secondary);
-  background: transparent;
-}
-
-.topbar-actions > .topbar-primary-button {
-  width: var(--app-toolbar-primary-button-size);
-  min-width: var(--app-toolbar-primary-button-size);
-  height: var(--app-toolbar-primary-button-size);
-  min-height: var(--app-toolbar-primary-button-size);
-  border-radius: var(--app-radius-pill);
-  color: #101710;
-  background: var(--app-text-accent);
-  font-size: 20px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
-}
-
-.topbar-actions > .topbar-primary-button:hover,
-.topbar-actions > .topbar-primary-button:focus-visible {
-  color: #101710;
-  background: var(--app-text-accent-soft);
-}
-
-.topbar-actions > .topbar-primary-button:disabled,
-.topbar-actions > .topbar-primary-button:disabled:hover {
-  color: #101710;
-  background: var(--app-text-accent);
-  box-shadow: none;
-}
-
-@media (min-width: 768px) {
-  .topbar-title span {
-    display: none;
-  }
-
-  .mobile-actions {
-    display: none;
-  }
-}
-
-@media (max-width: 767px) {
-  .desktop-actions {
-    display: none;
-  }
-
-  .topbar {
-    min-height: calc(56px + var(--app-safe-area-top));
-    padding: var(--app-safe-area-top) var(--app-mobile-page-gutter) 0;
-  }
-
-  .topbar-title {
-    gap: 3px;
-  }
-
-  .topbar-title span {
-    font-size: 11px;
-  }
-
-  .topbar-title strong {
-    font-size: 17px;
-    line-height: 1.25;
-  }
-
-  .topbar-actions {
-    gap: 10px;
-  }
-
-  .topbar-actions > button {
-    min-width: var(--app-touch-target-min);
-    min-height: var(--app-touch-target-min);
-    border-radius: var(--app-radius-sm);
-    font-size: 20px;
-  }
-}
-</style>
+<style scoped src="./Topbar.css"></style>

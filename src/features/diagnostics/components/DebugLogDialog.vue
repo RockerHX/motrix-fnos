@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from "pinia";
-import { NButton, NCard, NInput, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
+import { NAlert, NButton, NCard, NInput, NModal, NSelect, NSwitch, useMessage } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import AppMetricGrid from "../../../components/ui/AppMetricGrid.vue";
 import { useDebugLogStore } from "../stores/debugLogStore";
@@ -117,6 +117,10 @@ async function scrollToBottom() {
 
       <AppMetricGrid class="log-metrics" :items="logSummaryItems" :desktop-columns="5" :mobile-columns="1" />
 
+      <NAlert class="debug-log-storage-note" type="info" :show-icon="false">
+        {{ t("logs.storageNote") }}
+      </NAlert>
+
       <div class="log-filters">
         <NInput v-model:value="searchText" clearable :placeholder="t('logs.searchPlaceholder')" />
         <NSelect v-model:value="levelFilter" clearable :options="levelOptions" :placeholder="t('logs.levelFilter')" />
@@ -139,57 +143,4 @@ async function scrollToBottom() {
   />
 </template>
 
-<style scoped>
-.debug-log-dialog {
-  --app-dialog-width: 1120px;
-}
-
-h2 {
-  margin: 0;
-}
-
-.debug-log-actions :deep(.n-button) {
-  white-space: normal;
-}
-
-.log-metrics {
-  margin-bottom: 12px;
-}
-
-.log-filters {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.5fr) minmax(120px, 0.8fr) minmax(140px, 0.9fr) minmax(160px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.problem-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--app-text-muted);
-  white-space: nowrap;
-}
-
-@media (max-width: 900px) {
-  .log-filters {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .problem-toggle {
-    justify-content: flex-start;
-  }
-}
-
-@media (max-width: 767px) {
-  .debug-log-actions :deep(.n-button) {
-    min-width: 0;
-  }
-
-  .log-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-}
-</style>
+<style scoped src="./DebugLogDialog.css"></style>

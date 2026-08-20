@@ -3,6 +3,7 @@ import AboutDialog from "../features/about/components/AboutDialog.vue";
 import DiagnosticsDialog from "../features/diagnostics/components/DiagnosticsDialog.vue";
 import HelpDialog from "../features/help/components/HelpDialog.vue";
 import SettingsDialog from "../features/settings/components/SettingsDialog.vue";
+import JsonRpcGuideDialog from "../features/settings/components/JsonRpcGuideDialog.vue";
 import TaskCreateDialog from "../features/tasks/components/TaskCreateDialog.vue";
 import type { AppInfo, AppUpdateCheck, BackendPing } from "../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
@@ -20,10 +21,12 @@ const props = defineProps<{
   showSettings: boolean;
   showHelp: boolean;
   showDiagnostics: boolean;
+  showJsonRpcGuide: boolean;
   updateCheck: AppUpdateCheck | null;
   isCheckingUpdate: boolean;
   aria2Process: Aria2ProcessStatus | null;
   aria2Rpc: Aria2RpcStatus | null;
+  jsonRpcTokenConfigured: boolean | null;
 }>();
 
 const emit = defineEmits<{
@@ -32,6 +35,9 @@ const emit = defineEmits<{
   "update:showSettings": [value: boolean];
   "update:showHelp": [value: boolean];
   "update:showDiagnostics": [value: boolean];
+  "update:showJsonRpcGuide": [value: boolean];
+  openSettings: [];
+  openRpcGuide: [];
   taskCreated: [];
   checkUpdate: [];
   refreshStatus: [];
@@ -44,6 +50,7 @@ const emit = defineEmits<{
     :show="props.showCreateDialog"
     @update:show="emit('update:showCreateDialog', $event)"
     @created="emit('taskCreated')"
+    @open-settings="emit('openSettings')"
   />
   <AboutDialog
     :show="props.showAbout"
@@ -52,14 +59,22 @@ const emit = defineEmits<{
     :is-checking-update="props.isCheckingUpdate"
     @update:show="emit('update:showAbout', $event)"
     @check-update="emit('checkUpdate')"
+    @open-rpc-guide="emit('openRpcGuide')"
   />
   <SettingsDialog
     :show="props.showSettings"
     @update:show="emit('update:showSettings', $event)"
+    @open-rpc-guide="emit('openRpcGuide')"
+  />
+  <JsonRpcGuideDialog
+    :show="props.showJsonRpcGuide"
+    @update:show="emit('update:showJsonRpcGuide', $event)"
+    @open-settings="emit('openSettings')"
   />
   <HelpDialog
     :show="props.showHelp"
     @update:show="emit('update:showHelp', $event)"
+    @open-rpc-guide="emit('openRpcGuide')"
   />
   <DiagnosticsDialog
     :show="props.showDiagnostics"
@@ -67,8 +82,10 @@ const emit = defineEmits<{
     :backend-ping="props.backendPing"
     :aria2-process="props.aria2Process"
     :aria2-rpc="props.aria2Rpc"
+    :json-rpc-token-configured="props.jsonRpcTokenConfigured"
     @update:show="emit('update:showDiagnostics', $event)"
     @refresh-status="emit('refreshStatus')"
     @engine-status-updated="emit('engineStatusUpdated', $event)"
+    @open-rpc-guide="emit('openRpcGuide')"
   />
 </template>

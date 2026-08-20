@@ -6,18 +6,26 @@ import {
   IconCircleCheck,
   IconDownload,
   IconFileInfo,
+  IconFile,
+  IconFolderOpen,
   IconHelpCircle,
   IconInfoCircle,
+  IconLink,
   IconList,
+  IconLogout,
+  IconMagnet,
   IconPlayerPause,
   IconPlayerPlay,
   IconPlus,
   IconPuzzle,
   IconRefresh,
   IconReload,
+  IconRoute,
+  IconRestore,
   IconSettings,
   IconTrash,
   IconTrashX,
+  IconTopologyRing,
 } from "@tabler/icons-vue";
 import { computed, type Component } from "vue";
 
@@ -44,14 +52,22 @@ const icons: Record<string, Component> = {
   play: IconPlayerPlay,
   pause: IconPlayerPause,
   info: IconFileInfo,
+  file: IconFile,
+  folder: IconFolderOpen,
   confirm: IconCheck,
   redownload: IconReload,
+  proxy: IconRoute,
+  restore: IconRestore,
   delete: IconTrash,
   permanentDelete: IconTrashX,
   settings: IconSettings,
   help: IconHelpCircle,
   about: IconInfoCircle,
+  link: IconLink,
+  torrent: IconTopologyRing,
+  magnet: IconMagnet,
   diagnostics: IconActivityHeartbeat,
+  logout: IconLogout,
 };
 
 const iconComponent = computed(() => icons[props.name] ?? IconAlertTriangle);
@@ -73,11 +89,4 @@ const role = computed(() => (props.decorative ? undefined : "img"));
   />
 </template>
 
-<style scoped>
-.app-icon {
-  display: inline-block;
-  flex: 0 0 auto;
-  color: currentColor;
-  vertical-align: -0.125em;
-}
-</style>
+<style scoped src="./AppIcon.css"></style>

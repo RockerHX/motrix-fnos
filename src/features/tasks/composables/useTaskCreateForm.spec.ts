@@ -5,6 +5,7 @@ import { mountWithPinia, flushPromises } from "../../../test/mount";
 import { getAccessiblePaths } from "../../../services/storage";
 import { getAppConfig } from "../../../services/settings";
 import { createBatchDownloadTasks, createDownloadTask, createTorrentDownloadTask } from "../services/taskService";
+import { getDownloadProxyStatus } from "../../settings/services/downloadProxyService";
 import { useTaskStore } from "../stores/taskStore";
 import { useTaskCreateForm } from "./useTaskCreateForm";
 
@@ -44,6 +45,14 @@ vi.mock("../services/taskService", () => ({
   permanentlyDeleteDownloadTask: vi.fn(),
   redownloadDownloadTask: vi.fn(),
   resumeDownloadTask: vi.fn(),
+  restoreDownloadTask: vi.fn(),
+  updateDownloadTaskProxy: vi.fn(),
+}));
+
+vi.mock("../../settings/services/downloadProxyService", () => ({
+  deleteDownloadProxy: vi.fn(),
+  getDownloadProxyStatus: vi.fn(),
+  updateDownloadProxy: vi.fn(),
 }));
 
 const mockedGetAccessiblePaths = vi.mocked(getAccessiblePaths);
@@ -51,6 +60,7 @@ const mockedGetAppConfig = vi.mocked(getAppConfig);
 const mockedCreateBatchDownloadTasks = vi.mocked(createBatchDownloadTasks);
 const mockedCreateDownloadTask = vi.mocked(createDownloadTask);
 const mockedCreateTorrentDownloadTask = vi.mocked(createTorrentDownloadTask);
+const mockedGetDownloadProxyStatus = vi.mocked(getDownloadProxyStatus);
 
 describe("useTaskCreateForm", () => {
   beforeEach(() => {
@@ -66,8 +76,50 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
+    mockedGetDownloadProxyStatus.mockResolvedValue({
+      configured: true,
+      maskedProxyUrl: "http://127.0.0.1:7890",
+      revision: 1,
+    });
+  });
+
+  it("keeps proxy disabled by default and resets it whenever the dialog reopens", async () => {
+    const { wrapper } = mountHarness();
+    await flushPromises();
+
+    expect(wrapper.vm.form.useProxy).toBe(false);
+    expect(wrapper.vm.canUseProxy).toBe(true);
+
+    wrapper.vm.form.useProxy = true;
+    await wrapper.setProps({ show: false });
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+
+    expect(wrapper.vm.form.useProxy).toBe(false);
+    expect(mockedGetDownloadProxyStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("disables proxy selection when proxy status loading fails", async () => {
+    mockedGetDownloadProxyStatus.mockRejectedValueOnce(new Error("load failed"));
+    const { wrapper } = mountHarness();
+    await flushPromises();
+
+    expect(wrapper.vm.hasProxyStatusError).toBe(true);
+    expect(wrapper.vm.isProxyConfigured).toBe(false);
+    expect(wrapper.vm.canUseProxy).toBe(false);
+    expect(wrapper.vm.form.useProxy).toBe(false);
+  });
+
+  it("closes the create dialog before opening proxy settings", async () => {
+    const { wrapper, onClose, onOpenProxySettings } = mountHarness();
+    await flushPromises();
+
+    wrapper.vm.openProxySettings();
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onOpenProxySettings).toHaveBeenCalledOnce();
+    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(onOpenProxySettings.mock.invocationCallOrder[0]!);
   });
 
   it("requires a valid url before submitting", async () => {
@@ -122,7 +174,6 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
     const { wrapper: rememberedWrapper } = mountHarness();
     await flushPromises();
@@ -135,7 +186,6 @@ describe("useTaskCreateForm", () => {
       downloadLimit: 0,
       uploadLimit: 0,
       language: "zh-CN",
-      jsonRpcToken: "",
     });
     const { wrapper: fallbackWrapper } = mountHarness({
       accessiblePaths: ["/first", "/second"],
@@ -168,7 +218,7 @@ describe("useTaskCreateForm", () => {
     wrapper.vm.form.category = "电影";
     wrapper.vm.form.connections = 8;
     wrapper.vm.form.downloadLimitKb = 512;
-    wrapper.vm.form.proxy = "http://127.0.0.1:7890";
+    wrapper.vm.form.useProxy = true;
 
     await wrapper.vm.submitCreateTask();
 
@@ -180,13 +230,14 @@ describe("useTaskCreateForm", () => {
       advancedOptions: {
         connections: 8,
         downloadLimitKb: 512,
-        proxy: "http://127.0.0.1:7890",
+        useProxy: true,
       },
     });
     expect(localStorage.getItem("motrix-fnos:last-save-dir")).toBe("/backup");
     expect(wrapper.vm.form.urls).toBe("");
     expect(wrapper.vm.form.saveDir).toBe("");
     expect(wrapper.vm.form.category).toBe("默认");
+    expect(wrapper.vm.form.useProxy).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreated).toHaveBeenCalledTimes(1);
   });
@@ -206,6 +257,7 @@ describe("useTaskCreateForm", () => {
           totalLength: 0,
           completedLength: 0,
           downloadSpeed: 0,
+          useProxy: false,
           confirmationRequired: false,
           files: [],
           createdAt: 1,
@@ -228,7 +280,7 @@ describe("useTaskCreateForm", () => {
       advancedOptions: {
         connections: 16,
         downloadLimitKb: 0,
-        proxy: null,
+        useProxy: false,
       },
     });
     expect(wrapper.vm.batchFailedItems).toEqual([
@@ -237,6 +289,12 @@ describe("useTaskCreateForm", () => {
     expect(wrapper.vm.formErrorMessage).toBe("已创建部分任务，1 条链接创建失败");
     expect(onClose).not.toHaveBeenCalled();
     expect(onCreated).toHaveBeenCalledTimes(1);
+
+    wrapper.vm.form.useProxy = true;
+    await wrapper.setProps({ show: false });
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+    expect(wrapper.vm.form.useProxy).toBe(false);
   });
 
   it("submits magnet task with magnet source type", async () => {
@@ -252,6 +310,7 @@ describe("useTaskCreateForm", () => {
       totalLength: 0,
       completedLength: 0,
       downloadSpeed: 0,
+      useProxy: false,
       confirmationRequired: false,
       files: [],
       createdAt: 1,
@@ -262,6 +321,7 @@ describe("useTaskCreateForm", () => {
     wrapper.vm.form.magnet = " magnet:?xt=urn:btih:test ";
     wrapper.vm.form.saveDir = "/downloads";
     wrapper.vm.form.startMode = "paused";
+    wrapper.vm.form.useProxy = true;
 
     await wrapper.vm.submitCreateTask();
 
@@ -271,6 +331,11 @@ describe("useTaskCreateForm", () => {
         fileName: null,
         sourceType: "magnet",
         startMode: "paused",
+        advancedOptions: {
+          connections: 16,
+          downloadLimitKb: 0,
+          useProxy: true,
+        },
       }),
     );
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -291,6 +356,7 @@ describe("useTaskCreateForm", () => {
       totalLength: 0,
       completedLength: 0,
       downloadSpeed: 0,
+      useProxy: false,
       confirmationRequired: false,
       files: [],
       createdAt: 1,
@@ -299,6 +365,7 @@ describe("useTaskCreateForm", () => {
 
     wrapper.vm.activeInputType = "torrent";
     wrapper.vm.form.saveDir = "/downloads";
+    wrapper.vm.form.useProxy = true;
     wrapper.vm.selectTorrentFile(torrent);
 
     await wrapper.vm.submitCreateTask();
@@ -311,7 +378,7 @@ describe("useTaskCreateForm", () => {
       advancedOptions: {
         connections: 16,
         downloadLimitKb: 0,
-        proxy: null,
+        useProxy: true,
       },
     });
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -343,6 +410,7 @@ function mountHarness(options: { accessiblePaths?: string[] } = {}) {
 
   const onClose = vi.fn();
   const onCreated = vi.fn();
+  const onOpenProxySettings = vi.fn();
   const Harness = defineComponent({
     props: {
       show: {
@@ -356,6 +424,7 @@ function mountHarness(options: { accessiblePaths?: string[] } = {}) {
           show: toRef(props, "show"),
           onClose,
           onCreated,
+          onOpenProxySettings,
         }),
       };
     },
@@ -368,5 +437,6 @@ function mountHarness(options: { accessiblePaths?: string[] } = {}) {
     wrapper,
     onClose,
     onCreated,
+    onOpenProxySettings,
   };
 }

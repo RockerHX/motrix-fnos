@@ -3,15 +3,14 @@ use super::{
 };
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
-use crate::config::aria2::Aria2Config;
-use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
+use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, ReadyAria2};
 use crate::tasks::service::TaskService;
-use crate::tasks::DownloadTask;
+use crate::tasks::{DownloadTask, PublicDownloadTask};
 
 pub(super) struct TaskMutationContext<'a> {
     pub(super) state: &'a HttpAppState,
     pub(super) service: TaskService<'a>,
-    pub(super) config: Aria2Config,
+    pub(super) config: ReadyAria2,
 }
 
 impl<'a> TaskMutationContext<'a> {
@@ -45,9 +44,12 @@ impl<'a> TaskMutationContext<'a> {
         })
     }
 
-    pub(super) fn finish(&self, task: DownloadTask) -> Result<axum::Json<DownloadTask>, ApiError> {
+    pub(super) fn finish(
+        &self,
+        task: DownloadTask,
+    ) -> Result<axum::Json<PublicDownloadTask>, ApiError> {
         self.broadcast_snapshot()?;
-        Ok(axum::Json(task))
+        Ok(axum::Json(task.into()))
     }
 
     pub(super) fn broadcast_snapshot(&self) -> Result<(), ApiError> {

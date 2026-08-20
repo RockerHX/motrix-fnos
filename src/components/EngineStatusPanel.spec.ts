@@ -83,6 +83,23 @@ describe("EngineStatusPanel", () => {
 
     expect(wrapper.findAll("button").every((button) => button.attributes("disabled") === undefined)).toBe(true);
   });
+
+  it("shows lifecycle completion, busy and fallback failure feedback", async () => {
+    const { wrapper } = mountWithPinia(EngineStatusPanel);
+    await flushPromises();
+
+    await clickButton(wrapper, "启动引擎");
+    expect(wrapper.text()).toContain("引擎已启动");
+
+    mockStop.mockRejectedValueOnce(new Error("Aria2 正在停止，请稍后重试"));
+    await clickButton(wrapper, "停止引擎");
+    expect(wrapper.text()).toContain("Aria2 正在停止，请稍后重试");
+    expect(wrapper.text()).not.toContain("引擎已停止");
+
+    mockStart.mockRejectedValueOnce(new Error());
+    await clickButton(wrapper, "启动引擎");
+    expect(wrapper.text()).toContain("引擎操作失败，请稍后重试");
+  });
 });
 
 async function clickButton(wrapper: ReturnType<typeof mountWithPinia>["wrapper"], text: string, waitForFlush = true) {

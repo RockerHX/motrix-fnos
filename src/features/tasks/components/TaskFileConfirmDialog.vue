@@ -121,24 +121,4 @@ function confirm() {
   </AppDialog>
 </template>
 
-<style scoped>
-.file-confirm-description {
-  margin: 0 0 14px;
-  color: var(--app-text-secondary);
-}
-
-.file-confirm-table-wrap {
-  max-height: min(52vh, 420px);
-  overflow: auto;
-}
-
-.file-confirm-path {
-  word-break: break-all;
-  color: var(--app-text-secondary);
-}
-
-.file-confirm-error {
-  margin: 12px 0 0;
-  color: var(--app-danger-color);
-}
-</style>
+<style scoped src="./TaskFileConfirmDialog.css"></style>

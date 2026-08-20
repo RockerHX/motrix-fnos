@@ -4,16 +4,30 @@ import TaskCardHeader from "./TaskCardHeader.vue";
 import TaskErrorMessage from "./TaskErrorMessage.vue";
 import TaskMetaItems from "./TaskMetaItems.vue";
 import TaskProgressCell from "./TaskProgressCell.vue";
+import { useMessage } from "naive-ui";
+import { useTaskStore } from "../stores/taskStore";
+import { useTaskStatusActions } from "../composables/useTaskStatusActions";
+import { useI18n } from "../../../i18n";
 import type { DownloadTask } from "../../../types/tasks";
 
 const props = defineProps<{
   tasks: DownloadTask[];
 }>();
+
+const taskStore = useTaskStore();
+const message = useMessage();
+const { t } = useI18n();
+const { handleTaskDoubleClick } = useTaskStatusActions({ taskStore, message, t });
 </script>
 
 <template>
   <section class="task-mobile-list">
-    <article v-for="task in props.tasks" :key="task.id" class="task-card">
+    <article
+      v-for="task in props.tasks"
+      :key="task.id"
+      class="task-card"
+      @dblclick="handleTaskDoubleClick(task, $event)"
+    >
       <TaskCardHeader :task="task" variant="mobile" />
 
       <p class="task-card-url" :title="task.url">{{ task.url }}</p>
@@ -32,62 +46,4 @@ const props = defineProps<{
   </section>
 </template>
 
-<style scoped>
-.task-mobile-list {
-  height: 100%;
-  display: grid;
-  align-content: start;
-  gap: 14px;
-  overflow-y: auto;
-  padding: 16px;
-  padding-bottom: calc(116px + var(--app-safe-area-bottom));
-}
-
-.task-card {
-  min-width: 0;
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--app-color-border-subtle);
-  border-radius: var(--app-radius-lg);
-  background: var(--app-color-surface-elevated);
-  box-shadow: var(--app-shadow-card);
-}
-
-.task-card-url {
-  margin: 0;
-  display: -webkit-box;
-  overflow: hidden;
-  color: #8e9a91;
-  font-size: 13px;
-  line-height: 1.5;
-  word-break: break-word;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.task-card-progress,
-.task-card-actions {
-  min-width: 0;
-}
-
-@media (max-width: 767px) {
-  .task-mobile-list {
-    gap: 12px;
-    padding: 14px var(--app-mobile-page-gutter);
-    padding-bottom: calc(112px + var(--app-safe-area-bottom));
-  }
-
-  .task-card {
-    gap: 10px;
-    padding: 14px;
-    border-radius: var(--app-radius-xl);
-    background: #181b19;
-  }
-
-  .task-card-url {
-    font-size: 12px;
-    line-height: 1.5;
-  }
-}
-</style>
+<style scoped src="./TaskMobileList.css"></style>

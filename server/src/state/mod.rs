@@ -27,6 +27,10 @@ pub struct Aria2RuntimeInfo {
     pub aria2_log_path: Option<String>,
     #[serde(default)]
     pub launch_args: Option<Vec<String>>,
+    #[serde(default)]
+    pub process_start_time: Option<u64>,
+    #[serde(default)]
+    pub process_uid: Option<u32>,
 }
 
 pub const ARIA2_RUNTIME_FILE_NAME: &str = "aria2-runtime.json";
@@ -275,8 +279,28 @@ impl ServerState {
             aria2_session_path: config.session_path.clone(),
             aria2_log_path: config.log_path.clone(),
             launch_args: Some(launch_args),
+            process_start_time: read_process_start_time(pid),
+            process_uid: read_process_uid(pid),
         }
     }
+}
+
+fn read_process_start_time(pid: u32) -> Option<u64> {
+    let content = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let command_end = content.rfind(") ")?;
+    content[command_end + 2..]
+        .split_whitespace()
+        .nth(19)
+        .and_then(|value| value.parse().ok())
+}
+
+fn read_process_uid(pid: u32) -> Option<u32> {
+    let content = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    content
+        .lines()
+        .find(|line| line.starts_with("Uid:"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse().ok())
 }
 
 #[cfg(test)]

@@ -26,7 +26,12 @@ type DataTableColumn = {
 type DataTableRowKey = string | number;
 
 export const naiveUiStubs = {
-  NAlert: slotStub("n-alert"),
+  NAlert: defineComponent({
+    name: "NAlertStub",
+    setup(_, { slots }) {
+      return () => h("div", { "data-test": "n-alert" }, [slots.default?.(), slots.action?.()]);
+    },
+  }),
   NCard: slotStub("n-card"),
   NCollapse: slotStub("n-collapse"),
   NCollapseItem: slotStub("n-collapse-item"),
@@ -310,6 +315,24 @@ export const naiveUiStubs = {
             h("option", { key: option.value, value: option.value }, option.label),
           ),
         );
+    },
+  }),
+  NSwitch: defineComponent({
+    name: "NSwitchStub",
+    props: {
+      value: { type: Boolean, default: false },
+      disabled: { type: Boolean, default: false },
+    },
+    emits: ["update:value"],
+    setup(props, { emit, attrs }) {
+      return () =>
+        h("input", {
+          ...attrs,
+          type: "checkbox",
+          checked: props.value,
+          disabled: props.disabled,
+          onChange: (event: Event) => emit("update:value", (event.target as HTMLInputElement).checked),
+        });
     },
   }),
 };

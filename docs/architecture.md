@@ -1,6 +1,6 @@
 # 飞牛版 Motrix 架构文档
 
-> 本文档只约束长期架构、职责边界、目录组织和运行模型。阶段任务、状态和优先级见 `docs/development-plan.md`；接口细节见 `docs/api-contract.md`；打包命令见 `docs/fpk-packaging.md`；当前 UI 产品需求与视觉规则见 `docs/design/ui-product-requirements.md` 和 `docs/design/DESIGN.md`。
+> 本文档只约束长期架构、职责边界、目录组织和运行模型。开发计划、事项状态、优先级和启动门禁统一见 `docs/future-development-plan.md`；接口细节见 `docs/api-contract.md`；开发命令见 `docs/development-scripts.md`；FPK 打包与实机检查见 `docs/fpk-packaging.md`；当前 UI 产品需求与视觉规则见 `docs/design/ui-product-requirements.md` 和 `docs/design/DESIGN.md`。
 
 ## 1. 架构边界
 
@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：fnOS 桌面入口打开应用 TCP 服务端口，同一 Rust server 承载 Web UI、HTTP API、SSE 与带 token 的 JSON-RPC 兼容入口。
+- 前后端通信：同一 Rust server 共享业务状态并启动三个 TCP 监听器；管理监听器承载 Web UI、HTTP API 与 SSE，回环 RPC 监听器和局域网 RPC 监听器分别承载使用独立 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -30,8 +30,9 @@
 fnOS FPK
   ├─ manifest / config / cmd / wizard / icons
   ├─ Rust server
-  │   ├─ Axum HTTP API
-  │   ├─ SSE 事件流
+  │   ├─ 管理监听器（Web UI、HTTP API、SSE）
+  │   ├─ 回环 RPC 监听器（仅 /jsonrpc）
+  │   ├─ 局域网 RPC 监听器（仅 /jsonrpc）
   │   ├─ Aria2 Next 进程管理
   │   ├─ SQLite 持久化
   │   └─ 调试日志与运行状态
@@ -40,21 +41,59 @@ fnOS FPK
   └─ Aria2 Next Linux sidecar
 ```
 
-### 3.1 交付与运行约束
+### 3.1 阶段 0 fnOS API Probe 历史边界
+
+`FUTURE-FNOS-API-01` 阶段 0 曾使用独立的非生产 Probe 验证 SDK、Token、Unix Socket、共享目录授权和应用账户读写闭环。该 Probe 使用独立应用身份 `motrixapiprobe`、运行用户 `motrix_api_probe`、端口 `17180` 和唯一 Scope `trim.file.sharedAccess`，从未属于正式 Motrix 运行拓扑；其源码、构建接入和产物已在 x86 核心实机验收完成后移出仓库。详细验收证据只保存在开发者本地的 `docs/verification/`，不进入版本库。
+
+阶段 0 只证明平台机制，不证明正式 `motrix` 身份一定获得相同行为。正式包继续使用 `17080`、`17081`、`17082` 三监听器和当前桌面入口；阶段 1 已独立实现 SDK、Scope、Token client 和授权交互，当前等待正式身份实机验收。正式 FPK 要求 fnOS `1.2.0401` 或更高版本；独立浏览器不调用 SDK，只提示用户在 fnOS 宿主内完成授权。
+
+正式 Motrix 精确声明 `trim.file.sharedAccess` 与 `trim.file.path`。前端 SDK 返回值不能成为授权事实。Rust server 必须通过 fnOS 开放 API 查询共享授权目录，成功后原子更新 `accessible-paths.json`；查询失败保留最后一次官方 API 快照。服务启动时在读取授权快照和恢复运行态前安全尝试一次查询，运行时刷新通过受 Web Session 和 CSRF 保护的管理接口触发。
+
+`trim.file.convertPath` 只把当前授权快照或后端按任务 ID 推导出的路径转换为面向用户的语义化展示路径。真实路径继续承担下载、授权、文件存在性和目录边界校验；转换结果不持久化、不缓存，也不接受浏览器提交任意路径。上游失败或结果无法按原始路径精确匹配时仅回退原始路径展示，不得影响任务和 Session。
+
+完成任务的宿主文件操作必须每次按任务 ID重新计算安全上下文。URL 任务只允许操作存在的普通文件，`canonicalize` 后仍须位于当前授权根目录；BT/磁力任务只允许使用持久化的 `owned_task_dir`，且目标必须是非符号链接目录。未完成、文件已删除、授权已撤销、路径缺失或历史布局无法证明归属时不得向前端返回 SDK 操作目标。
+
+SDK 只允许在 fnOS 桌面宿主或飞牛 App WebView 中由用户操作触发。独立浏览器或 SDK 不可用时只展示支持环境说明，不调用依赖 App runtime 的授权或应用设置方法；正式包不接入独立浏览器 App Auth 回调。
+
+支持开放 API 的 fnOS `1.2.0401` 与飞牛 App `1.34.0` 宿主可初始化平台配置。桌面宿主跟随明暗主题并监听变化；移动 WebView 只采用初始化主题；独立浏览器默认深色。Motrix 已保存语言始终优先，宿主语言只在没有本地偏好的登录前初始化阶段生效，配置加载后由 Motrix 设置接管。宿主标题仅设置为 `Motrix`；当前不接入 `setExitPageTips` 或 `close`。
+
+### 3.2 交付与运行约束
 
 - `packaging/fnos/` 只承担 FPK 元数据、权限、生命周期脚本和产物组装；具体目录、命令与产物名称见 `docs/fpk-packaging.md`。
 - x86_64 与 ARM64 分别构建 FPK，安装包必须与设备 CPU 架构匹配。
 - fnOS 生命周期脚本负责启动、停止和查询 Rust server；停止与状态查询必须联合核对 PID、可执行文件和进程启动时间。
+- 停止脚本必须在 fnOS 生命周期超时内收敛：先发送 `SIGINT` 并等待有界优雅退出，随后只对 PID、启动时间和可执行文件均匹配的本应用进程升级为 `SIGTERM`、`SIGKILL`。确认进程退出后才删除运行态记录，禁止使用宽泛进程名匹配终止其他进程。
+- Rust server 收到退出信号后必须立即标记不可就绪并停止接受新请求；HTTP 排空、任务持久化、Aria2 RPC、session 保存和 sidecar 停止共享一个有界总预算。预算耗尽时记录未完成阶段并退出，不得无限等待在途 HTTP、文件清理或逐任务 RPC。
+- 卸载流程不得吞掉停止失败。只有确认本应用 server 与所属 Aria2 sidecar 均已退出后，才允许删除包文件或应用数据；无法确认时失败关闭并保留运行态和用户文件。
+- 启动时只允许根据持久化 PID、启动时间、UID 和可执行文件归属清理本应用孤儿进程。端口被无法证明归属的进程占用时必须拒绝启动并报告诊断信息，不得按端口或进程名误杀。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
-- Web UI、HTTP API、SSE 与 `/jsonrpc` 使用 manifest `service_port` 对应的同一服务端口；FPK 桌面入口必须与该监听地址保持一致。
-- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，后端不得伪装成已接入统一网关鉴权。
+- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，未知路径统一返回 404。
+- 回环 RPC 监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
+- 局域网 RPC 监听器默认绑定 `0.0.0.0:17082`，同样只注册精确的 `/jsonrpc`。监听器始终绑定；局域网入口关闭时所有请求返回 404，开启后只接受真实 TCP 对端位于 IPv4 RFC1918 网段的请求，不读取代理来源 Header。
+- 三个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
+- Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
+- 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
+- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
+
+FPK 应用身份与 FN Connect 短域名：
+
+- `manifest.appname` 是 FPK 的应用身份，当前固定为 `motrix`。
+- `manifest.desktop_appname` 与 `app/ui/config` 的唯一 `.url` 入口必须同时为 `motrix.Application`。
+- `manifest.desktop_applaunchname` 必须保留为空。指定 `motrix.main` 等自定义入口会使 FN Connect 生成带后缀的域名。
+- 以上组合已在 fnOS 实机验证，应用可通过 `motrix.<account>.fnos.net` 打开。它不依赖反向代理或 `config/resource` 的特殊网关字段。
+- 这是新的 FPK 应用身份。旧 `motrix.fnos` 安装不会按普通升级自动迁移，发布前需明确安装、数据保留和回滚策略。
+
+升级不兼容约定：
+
+- 既有公网 JSON-RPC 继续使用回环专用监听器 `127.0.0.1:17081` 和原 Token；局域网客户端使用 `17082` 和独立局域网 Token，不能复用管理监听器或跨入口复用 Token。
+- Web 管理首次使用必须设置独立管理密码；升级不会把 JSON-RPC Token 复用为 Web 密码，也不会根据 fnOS 登录态自动放行。
 
 ## 4. 分层职责
 
 | 层级 | 职责 | 不承担 |
 | --- | --- | --- |
 | FPK 打包层 | manifest、权限、图标、Web 入口、服务脚本、产物组装 | 下载业务、页面交互、业务数据持久化 |
-| Rust server | 任务生命周期、配置校验、路径安全、Aria2 进程与 RPC、SQLite、日志、HTTP/SSE | 页面布局、组件交互、前端临时状态 |
+| Rust server | 任务生命周期、配置校验、路径安全、Aria2 生命周期协调、进程与 RPC、SQLite、日志、HTTP/SSE | 页面布局、组件交互、前端临时状态 |
 | Aria2 Next | HTTP/HTTPS/BT/磁力下载、断点续传、限速、状态上报 | UI、配置/历史存储、fnOS 生命周期 |
 | Vue Web UI | 页面展示、用户交互、轻量输入反馈、调用 service/store | 下载执行、文件系统权限判断、数据库读写 |
 | Pinia | 前端任务状态、筛选、选中项、事件订阅状态、配置缓存、UI 偏好 | SQLite 持久化、Aria2 RPC、复杂后端判断 |
@@ -89,6 +128,9 @@ src/
 - 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue Web UI 源码、Pinia store、service、HTTP API 和 SSE 数据流；不得为手机端另建独立前端工程、独立业务状态或独立后端接口。
 - 响应式适配优先在 `layouts/` 和 `features/*` 展示组件内完成：布局外壳可按桌面/移动拆分组件，信息结构差异明显的功能组件可拆桌面/移动展示组件，但业务操作必须复用同一 store/service。
 - UI 优先使用 Naive UI；自定义 CSS 仅用于整体主题、侧栏、shell、颜色、间距和圆角。
+- 组件样式与组件同目录维护：`Component.vue` 的 scoped 样式放在同目录 `Component.css`，Vue 文件只保留 `<style scoped src="./Component.css"></style>` 声明；迁移时不得改变选择器、声明或视觉表现。
+- `src/styles/` 只保存全局 token、基础重置、弹窗公共样式和移动端基线；业务组件样式不得重新集中堆入全局样式文件。
+- UnoCSS 作为构建期原子布局补充，当前仅允许使用通过试点验证的静态 utility safelist；不得启用全局 preflight/reset、默认 extractor、attributify、shortcuts 或图标 preset。主题 token、语义 class、复杂响应式、`:deep()`、伪元素和状态样式继续使用外部 scoped CSS。
 
 ## 6. 后端约束
 
@@ -101,6 +143,7 @@ server/
     app/
     state/
     api/
+    auth/
     runtime/
     tasks/
       service.rs
@@ -110,6 +153,8 @@ server/
         control.rs
         delete.rs
         magnet.rs
+        proxy.rs
+        restore.rs
     aria2/
     config/
     database/
@@ -121,9 +166,10 @@ server/
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
+- `auth/` 负责 Web 管理密码、服务端 Session、CSRF 校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
 - 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
 - `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
-- `tasks/service.rs` 只保留 `TaskService` 依赖注入、运行态守卫和查询委托；创建、查询、控制、删除与磁链确认流程分别由 `tasks/service/` 子模块承载。
+- `tasks/service.rs` 负责 `TaskService` 依赖注入、运行态守卫，以及跨流程共享的任务操作记录、Aria2 创建与未知结果对账、回滚辅助；创建、查询、控制、删除、磁链确认、代理切换与回收站恢复流程分别由 `tasks/service/` 子模块承载。
 - 新增后端能力按 `api -> service -> domain -> persistence` 分层。
 
 ## 7. 数据流与事件流
@@ -134,8 +180,8 @@ server/
 Vue Component
   -> Pinia Store
   -> Feature Service
-  -> HTTP client
-  -> Axum Route
+  -> HTTP client（Web Session + 写操作 CSRF）
+  -> 管理监听器 Axum Route
   -> Rust Service / Repository
   -> Aria2 JSON-RPC / SQLite
 ```
@@ -146,7 +192,25 @@ Vue Component
 - 批量 URL 按独立任务逐条创建，允许部分成功；单条失败不回滚已创建任务。
 - 磁力任务必须先在应用私有目录解析 metadata，待前端确认文件后，才能在用户授权目录创建真实任务及其专属子目录。解析临时目录必须与任务记录关联，以支持恢复和定向清理。
 - 种子任务与确认后的磁力任务都使用任务专属目录保存下载产物和 Aria2 元数据。删除文件时只能删除该任务专属目录或应用私有临时目录，不得删除授权目录根，也不得根据用户输入拼接任意删除路径。
+- 回收站只保存已移出 Aria2 的任务记录；恢复任务必须重新加入 Aria2，并统一以暂停状态回到正常任务列表。删除时保留的文件用于续传，已删除的文件从头下载。
+- 勾选删除文件时，HTTP 请求只负责把任务文件原子暂存、持久化回收站状态和创建 `file_cleanup_pending` 操作；递归清理由有界后台工作器执行，不得在异步请求内同步调用长时间目录删除。清理成功后完成操作，失败或服务重启后继续按持久化操作对账；清理未完成时恢复和永久删除必须返回明确冲突，不得静默并发修改同一批文件。
+- 已完成任务重新下载时，必须先按原来源创建暂停的 Aria2 任务并持久化新 GID，再把旧文件原子移动到同一文件系统的临时目录；新任务恢复成功后才清理暂存文件。任一步失败必须移除新 GID、恢复旧任务快照和原文件，不得在新任务可靠建立前直接删除用户文件。
+- BT 任务用于恢复的源种子 metadata 必须按任务 ID 保存在应用私有目录，不能依赖用户下载目录长期存在。永久删除回收站记录时同步清理私有 metadata，但不得额外删除用户下载文件。
+- 磁链缺少已保存 metadata 时允许重新解析并再次进入文件确认流程；升级前已删除且源 metadata 已丢失的种子任务必须明确拒绝恢复，不得生成不可用任务。
 - Aria2 自动保存的种子元数据和 session 恢复语义必须保留；具体请求字段、状态和错误响应见 `docs/api-contract.md`。
+
+任务级下载代理约束：
+
+- 应用只保存一个下载代理配置，使用独立的 `app_config.download_proxy` 记录规范化 URL、revision 和更新时间；该配置不并入普通 `AppConfig`，普通设置读取不得返回代理原文。
+- SQLite `download_tasks.use_proxy` 是任务是否要求代理的长期事实；`proxy_source` 只用于内部区分应用配置来源与旧接口兼容来源。Aria2 option 和 session 都不是任务代理意图的事实来源。
+- 旧 `advancedOptions.proxy` 与外部 JSON-RPC `all-proxy` 继续兼容，但原始 URL 只能保存到以任务 ID 关联的私密覆盖记录中。任务 API、SSE、调试日志、操作记录和普通 `Debug` 输出不得暴露代理 URL、来源、revision 或凭据。
+- 新建任务的代理开关每次打开固定为关闭。任务创建后仍可调整；完成和回收站任务只更新将来恢复或重新下载时继承的 SQLite 意图，不唤醒 Aria2。
+- 应用配置来源任务在创建、运行中切换、继续、确认 BT 文件、session 恢复、stale GID 重建、磁链 GID 跟随、恢复和重新下载时解析当前配置。兼容来源任务在这些链路中使用自身私密覆盖。
+- 恢复与重新下载省略覆盖值时继承原任务的完整代理绑定；显式改变开关时改用应用配置来源。关闭兼容来源任务时删除其私密覆盖，之后重新开启使用应用配置。
+- 运行中任务切换先向 Aria2 应用 option，再持久化 SQLite；SQLite 失败时补偿旧 option。RPC 结果未知时保留旧 SQLite 事实和未完成操作，由启动对账收敛。
+- Aria2 启动恢复必须保持暂停，在 unpause 前比较并应用目标 `all-proxy`；代理未配置、解析失败或应用失败时保持暂停或进入可诊断错误状态，不得静默直连。
+- 替换应用代理配置只即时处理已运行且引用应用配置的任务，不为设置操作启动 Aria2；无运行 GID 的任务延后到下一次受控运行点对账。相同规范化 URL 不增加 revision，也不触发重连。
+- 只要仍有 `use_proxy=true` 且来源为应用配置的任务，包含完成和回收站任务，就不得清除应用代理配置。兼容来源任务不阻止清除。
 
 标准事件流：
 
@@ -168,15 +232,29 @@ Rust Runtime Event
 ## 8. 生命周期与安全边界
 
 - 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
+- 管理监听器、回环 RPC 监听器与局域网 RPC 监听器必须在业务服务就绪后共同启动；任一监听器启动失败都不得留下半可用进程。
 - PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
-- 后端启动时准备数据目录、初始化 SQLite、启动或连接 Aria2。
+- 后端启动时准备数据目录、初始化 SQLite；Aria2 仅在恢复工作或其他引擎活动需要时按需启动或连接。
 - 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
+- Aria2 日常空闲停止不复用完整应用退出的任务暂停语义；手动停止在有活动任务或在途操作时返回冲突，只有确认 session 保存和进程退出后才清除运行态。
+- 显式手动启动（`POST /api/aria2/start`）属于生命周期操作，即使当前没有任务也允许启动 Aria2；普通读取接口仍不得因查询唤醒引擎。
+- Aria2 仅在有效任务、metadata 解析、BT 活动、引擎操作或排队请求需要时保持运行；确认等待、暂停、完成、错误和回收站任务在没有有效 GID 或在途操作时允许停止。
+- 自动停止必须由协调器二次确认空闲，依次完成状态持久化、session 保存、进程退出确认和运行态清理；停止期间的新请求必须取消停止、等待重启或收到明确可重试错误。
+- 手动停止遇到活动任务或在途操作时返回冲突，不隐式暂停任务；完整应用退出的暂停和持久化收尾不复用日常空闲停止语义。
+- Aria2 session 只作为恢复输入，SQLite 任务和操作记录仍是长期事实；未知 RPC 结果、未知 GID、暂存文件或 metadata 缺失时保留用户文件并转人工处理。
+- 任务代理恢复同样以 SQLite 意图为准；session 中的 `all-proxy` 只能作为恢复时待核对的运行值，不能反向覆盖任务记录。
 - 前端页面关闭、刷新或重新进入不等于应用退出。
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- FPK 的管理 UI、HTTP API、SSE 与 JSON-RPC 由同一个 Rust TCP listener 提供；桌面入口权限控制可见范围，JSON-RPC 写操作继续使用独立 token。
-- 日志必须隐藏私密 URL query 和敏感配置。
+- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；明文密码、密码哈希、Session ID 与 CSRF Token 不得通过普通设置接口返回或写入日志。
+- 管理 API 与 SSE 默认要求有效的服务端 Web Session；管理写操作还必须校验 CSRF Token。首次启动必须完成密码初始化，关闭管理保护必须验证当前密码并使已有 Session 失效。
+- 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
+- 会话 Cookie 的 `Secure` 属性由 `MOTRIX_WEB_COOKIE_SECURE` 显式控制，默认关闭。反向代理已终止 HTTPS 时才设置为 `true`；server 不根据客户端可伪造的 `X-Forwarded-Proto` 自动判断。
+- 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
+- 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
+- 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
+- 日志必须隐藏私密 URL query 和敏感配置；下载代理的完整 URL、userinfo、私密覆盖值及其错误上下文不得进入文件日志、内存调试日志或诊断导出。
 
 ## 9. fnOS 平台查证规则
 
@@ -196,7 +274,14 @@ Rust Runtime Event
 - 新增前端交互进入 `features/*`，不得重新向入口页面堆叠。
 - 新增通信能力默认走 HTTP API / SSE。
 - 新增长期状态必须考虑 SQLite 持久化路径和迁移策略。
+- 日常提交只执行版本一致性、暂存区空白和 Rust 格式等快速静态检查；分支推送前对该批业务源码执行唯一一次完整测试与构建验证。
+- Release 只允许修改受发布白名单约束的版本文件和 CHANGELOG；这些发布元数据变化与已验证业务源码视为等价，不重复运行源码测试。出现白名单外改动时必须中止发布。
+- Release 只构建并验证新产生的双架构 FPK、SBOM、校验和与构建证明；本地完整打包必须先执行一次完整源码验证，再构建并验收 FPK。
+- 依赖安全审计使用独立的每周定时任务，不并入日常推送验证或 Release。
 - 测试实现必须与业务代码物理分离，不得在 `.rs`、`.ts` 或 `.vue` 业务文件内编写测试函数、测试夹具或内联 `mod tests { ... }`。
 - Rust 单元测试使用独立测试文件：模块文件只允许保留 `#[cfg(test)] mod tests;` 声明，测试实现放在对应的 `tests.rs` 或 `<module>/tests.rs`；跨模块集成测试放在 `server/tests/`。
+- 业务 Rust 文件中的 `#[cfg(test)]` 只能用于上述 `mod tests;` 模块声明；不得借此保留测试专用导出、重导出、包装函数、检查方法、mock 或 fixture。需要共享的测试工具只能放在 `server/src/test_support.rs`。
+- 测试若需访问模块私有实现，必须放在该模块的测试子模块中；不得为了测试扩大生产 API 的可见性，也不得向业务模块加入测试专用接口。
+- `scripts/tests/` 必须有静态守卫测试上述目录与声明约束，新建测试或调整目录时必须同步通过该守卫。
 - 前端测试使用独立的 `*.spec.ts` 文件；构建与发布脚本测试统一放在 `scripts/tests/`。
 - 若本文档与实际演进不匹配，先更新本文档，再继续实现。

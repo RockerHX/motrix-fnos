@@ -6,7 +6,17 @@ fi
 
 CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ -x "${CMD_DIR}/stop" ]; then
-  "${CMD_DIR}/stop" >> "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>&1 || true
+  if ! "${CMD_DIR}/stop" >> "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>&1; then
+    if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+      printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "停止 Motrix 失败，拒绝继续卸载" >> "${TRIM_TEMP_LOGFILE}"
+    fi
+    exit 1
+  fi
+else
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "未找到 stop 脚本，拒绝继续卸载" >> "${TRIM_TEMP_LOGFILE}"
+  fi
+  exit 1
 fi
 
 exit 0

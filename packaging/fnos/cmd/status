@@ -4,18 +4,15 @@ set -eu
 
 . "$(dirname -- "$0")/common.sh"
 
-prepare_runtime_dirs
-export_runtime_env
-clear_stale_pid
-
 pid=$(read_pid || true)
-if [ -n "${pid}" ] && is_running_pid "${pid}"; then
-  log_msg "查询运行状态：运行中，PID ${pid}，HTTP ${HTTP_ADDR}"
-  echo "motrix-fnos-server 运行中，PID ${pid}"
-  exit 0
+if [ -n "${pid}" ] && is_managed_server_instance "${pid}"; then
+  if readiness_request; then
+    echo "motrix-fnos-server 运行中且服务就绪，PID ${pid}"
+    exit 0
+  fi
+  echo "motrix-fnos-server 进程运行但服务未就绪，PID ${pid}" >&2
+  exit 1
 fi
 
-remove_pid_record
-log_msg "查询运行状态：未运行"
 echo "motrix-fnos-server 未运行"
 exit 3

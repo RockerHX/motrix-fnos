@@ -14,20 +14,41 @@ vi.mock("naive-ui", async () => {
       setup(props, { emit, slots }) {
         return () =>
           props.show
-            ? h("div", { "data-test": "n-modal", onClick: () => emit("update:show", false) }, slots.default?.())
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  onClick: () => props.maskClosable && emit("update:show", false),
+                },
+                slots.default?.(),
+              )
             : null;
       },
     }),
     NCard: defineComponent({
       name: "NCardStub",
-      setup(_, { slots, attrs }) {
+      props: {
+        contentClass: { type: String, default: "" },
+        contentStyle: { type: [String, Object], default: undefined },
+      },
+      setup(props, { slots, attrs }) {
         return () =>
-          h("section", { ...attrs, "data-test": "n-card" }, [
-            ...(slots.header?.() ?? []),
-            ...(slots["header-extra"]?.() ?? []),
-            ...(slots.default?.() ?? []),
-            ...(slots.footer?.() ?? []),
-          ]);
+          h(
+            "section",
+            {
+              ...attrs,
+              "data-test": "n-card",
+              "data-content-class": props.contentClass,
+              "data-content-style":
+                typeof props.contentStyle === "string" ? props.contentStyle : JSON.stringify(props.contentStyle),
+            },
+            [
+              ...(slots.header?.() ?? []),
+              ...(slots["header-extra"]?.() ?? []),
+              ...(slots.default?.() ?? []),
+              ...(slots.footer?.() ?? []),
+            ],
+          );
       },
     }),
     NButton: defineComponent({
@@ -76,6 +97,36 @@ describe("AppDialog", () => {
     expect(wrapper.text()).toContain("正文内容");
     expect(wrapper.text()).toContain("底部内容");
     expect(wrapper.get('[data-test="n-card"]').attributes("style")).toContain("--app-dialog-width: 640px");
+    expect(wrapper.get('[data-test="n-card"]').classes()).not.toContain("app-dialog--fixed-body");
+  });
+
+  it("forwards content class and style to the card body", () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        contentClass: "dialog-content",
+        contentStyle: "display: flex;",
+      },
+    });
+
+    const card = wrapper.get('[data-test="n-card"]');
+    expect(card.attributes("data-content-class")).toBe("dialog-content");
+    expect(card.attributes("data-content-style")).toBe("display: flex;");
+  });
+
+  it("adds the fixed body class while preserving a custom card class", () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        cardClass: "settings-dialog",
+        fixedBody: true,
+      },
+    });
+
+    const card = wrapper.get('[data-test="n-card"]');
+    expect(card.classes()).toContain("app-dialog");
+    expect(card.classes()).toContain("settings-dialog");
+    expect(card.classes()).toContain("app-dialog--fixed-body");
   });
 
   it("emits close events from close button", async () => {
@@ -105,6 +156,21 @@ describe("AppDialog", () => {
     await flushPromises();
 
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
+  it("does not close when maskClosable is false", async () => {
+    const { wrapper } = mountWithPinia(AppDialog, {
+      props: {
+        show: true,
+        showClose: false,
+        maskClosable: false,
+      },
+    });
+
+    await wrapper.get('[data-test="n-modal"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.emitted("update:show")).toBeUndefined();
   });
 
   it("does not close when closeDisabled is true", async () => {

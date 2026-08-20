@@ -27,12 +27,15 @@ FPK 按设备 CPU 架构分别发布：
 2. 在飞牛应用中心安装 FPK，并为应用添加需要使用的读写文件夹授权。
 3. 启动 Motrix，打开应用界面后选择授权目录并创建下载任务。
 
-升级默认保留任务、设置和运行数据。卸载时只有明确选择“同时删除 Motrix 应用数据”才会清理应用私有数据，用户下载文件不在清理范围内。
+同一 `appname=motrix` 身份下的后续升级默认保留任务、设置和运行数据。旧 `motrix.fnos` 包切换到 `motrix` 属于新应用安装，旧任务、设置和 JSON-RPC Token 不会自动迁移；安装前应停止旧应用，避免 `17080`、`17081` 端口冲突。
+
+启用 FN Connect 后，当前入口可通过 `https://motrix.<account>.fnos.net/` 打开。卸载时只有明确选择“同时删除 Motrix 应用数据”才会清理应用私有数据，用户下载文件不在清理范围内。
 
 ## 技术文档
 
 - [架构与职责边界](docs/architecture.md)
-- [当前开发阶段](docs/development-plan.md)
+- [开发计划与后续事项](docs/future-development-plan.md)
 - [HTTP、SSE 与 JSON-RPC 接口](docs/api-contract.md)
+- [开发脚本与命令说明](docs/development-scripts.md)
 - [FPK 构建、验证与发布](docs/fpk-packaging.md)
 - [发布记录](CHANGELOG.md)

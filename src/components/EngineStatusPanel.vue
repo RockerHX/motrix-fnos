@@ -10,7 +10,8 @@ import {
   startAria2,
   stopAria2,
 } from "../services/aria2";
-import { useI18n } from "../i18n";
+import { useI18n, type TranslationKey } from "../i18n";
+import { getErrorMessage } from "../app/utils/errors";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
 type EngineStatusSnapshot = {
@@ -27,6 +28,7 @@ const configStatus = ref<Aria2ConfigStatus | null>(null);
 const processStatus = ref<Aria2ProcessStatus | null>(null);
 const rpcStatus = ref<Aria2RpcStatus | null>(null);
 const errorMessage = ref("");
+const successMessage = ref("");
 const loading = ref(false);
 const engineMetrics = computed<AppMetricItem[]>(() => [
   {
@@ -72,9 +74,10 @@ async function refreshEngineStatus() {
   emit("statusUpdated", { process, rpc });
 }
 
-async function runAction(action: () => Promise<Aria2ProcessStatus | Aria2RpcStatus>) {
+async function runAction(action: () => Promise<Aria2ProcessStatus | Aria2RpcStatus>, successKey: TranslationKey) {
   loading.value = true;
   errorMessage.value = "";
+  successMessage.value = "";
 
   try {
     const result = await action();
@@ -84,8 +87,9 @@ async function runAction(action: () => Promise<Aria2ProcessStatus | Aria2RpcStat
       rpcStatus.value = result;
     }
     await refreshEngineStatus();
+    successMessage.value = t(successKey);
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = getErrorMessage(error, t("engine.actionFailed"));
   } finally {
     loading.value = false;
   }
@@ -111,101 +115,38 @@ onMounted(() => {
     <AppMetricGrid class="engine-metrics" :items="engineMetrics" :desktop-columns="3" :mobile-columns="1" />
 
     <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
+    <p v-if="successMessage" class="success-message" aria-live="polite">{{ successMessage }}</p>
 
     <div class="actions">
-      <NButton class="engine-action-button" type="primary" :loading="loading" :disabled="loading" @click="runAction(startAria2)">
+      <NButton
+        class="engine-action-button"
+        type="primary"
+        :loading="loading"
+        :disabled="loading"
+        @click="runAction(startAria2, 'engine.started')"
+      >
         {{ t("engine.start") }}
       </NButton>
-      <NButton class="engine-action-button" secondary :loading="loading" :disabled="loading" @click="runAction(stopAria2)">
+      <NButton
+        class="engine-action-button"
+        secondary
+        :loading="loading"
+        :disabled="loading"
+        @click="runAction(stopAria2, 'engine.stopped')"
+      >
         {{ t("engine.stop") }}
       </NButton>
-      <NButton class="engine-action-button" secondary :loading="loading" :disabled="loading" @click="runAction(pingAria2Rpc)">
+      <NButton
+        class="engine-action-button"
+        secondary
+        :loading="loading"
+        :disabled="loading"
+        @click="runAction(pingAria2Rpc, 'engine.rpcChecked')"
+      >
         {{ t("engine.checkRpc") }}
       </NButton>
     </div>
   </section>
 </template>
 
-<style scoped>
-.engine-panel {
-  padding: 24px;
-  border: 1px solid var(--app-color-border-subtle);
-  border-radius: var(--app-radius-xl);
-  background: var(--app-color-surface-panel);
-}
-
-.panel-header,
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.eyebrow {
-  margin: 0 0 6px;
-  color: var(--app-text-accent-soft);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.engine-metrics {
-  margin: 20px 0;
-}
-
-.engine-action-button {
-  --n-border-radius: var(--app-radius-pill);
-  font-weight: 700;
-}
-
-.ghost-button {
-  color: var(--app-text-secondary);
-}
-
-.actions {
-  justify-content: flex-start;
-}
-
-.error-message {
-  margin-bottom: 16px;
-  color: var(--app-text-danger);
-  white-space: normal;
-}
-
-@media (max-width: 767px) {
-  .engine-panel {
-    padding: 18px;
-    border-radius: var(--app-radius-lg);
-  }
-
-  .panel-header,
-  .actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .ghost-button {
-    width: 100%;
-  }
-
-  .engine-metrics {
-    margin: 16px 0;
-  }
-
-  .actions {
-    justify-content: stretch;
-  }
-
-  .actions :deep(.n-button) {
-    width: 100%;
-  }
-
-}
-</style>
+<style scoped src="./EngineStatusPanel.css"></style>

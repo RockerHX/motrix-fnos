@@ -1,0 +1,46 @@
+.manual-copy-dialog {
+  --app-dialog-width: 900px;
+}
+
+h2 {
+  margin: 0;
+}
+
+.manual-copy-hint {
+  margin: 0 0 12px;
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+}
+
+.manual-copy-input {
+  width: 100%;
+}
+
+.manual-copy-input :deep(textarea),
+.manual-copy-input :deep(.n-input__textarea-el) {
+  min-height: min(460px, calc(100vh - 260px));
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.manual-copy-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 767px) {
+  .manual-copy-input :deep(textarea),
+  .manual-copy-input :deep(.n-input__textarea-el) {
+    min-height: calc(var(--app-viewport-height) - 360px);
+    font-size: 16px;
+  }
+
+  .manual-copy-actions {
+    flex-direction: column-reverse;
+  }
+
+  .manual-copy-actions :deep(.n-button) {
+    width: 100%;
+  }
+}

@@ -1,0 +1,58 @@
+.proxy-settings {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-md);
+  background: var(--app-color-card-overlay);
+}
+
+.proxy-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.proxy-settings-heading h3 {
+  margin: 0 0 4px;
+  color: var(--app-text-strong);
+  font-size: 16px;
+}
+
+.proxy-settings-heading > :deep(.n-text) {
+  flex: 0 0 auto;
+  max-width: 48%;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.proxy-settings-actions {
+  width: 100%;
+}
+
+.proxy-settings-failures {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
+.proxy-settings :deep(.n-alert-body p) {
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .proxy-settings {
+    padding: 14px;
+  }
+
+  .proxy-settings-heading {
+    flex-direction: column;
+  }
+
+  .proxy-settings-heading > :deep(.n-text) {
+    max-width: none;
+    text-align: left;
+  }
+}

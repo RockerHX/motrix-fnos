@@ -87,6 +87,57 @@ describe("useTaskCategoryView", () => {
     tasks.value = [createTask({ id: 21, status: "active" })];
     expect(view.showFloatingAdd.value).toBe(false);
   });
+
+  it("keeps the list content key stable for task field and list-size updates", () => {
+    const tasks = ref<DownloadTask[]>([createTask({ id: 30, status: "active" })]);
+    const view = useTaskCategoryView({
+      tasks,
+      removedTasks: ref([]),
+      isRuntimeExiting: ref(false),
+      isMobileLayout: ref(false),
+    });
+
+    expect(view.contentViewKey.value).toBe("all-list");
+
+    tasks.value = [
+      createTask({
+        id: 30,
+        status: "active",
+        completedLength: 512,
+        downloadSpeed: 256,
+        errorMessage: "temporary network error",
+        updatedAt: 2,
+      }),
+    ];
+    expect(view.contentViewKey.value).toBe("all-list");
+
+    tasks.value = [...tasks.value, createTask({ id: 31, gid: "gid-31", status: "complete" })];
+    expect(view.contentViewKey.value).toBe("all-list");
+
+    view.activeCategory.value = "extensions";
+    expect(view.contentViewKey.value).toBe("extensions-extensions");
+  });
+
+  it("changes the content key only when the visible structure changes", () => {
+    const tasks = ref<DownloadTask[]>([]);
+    const view = useTaskCategoryView({
+      tasks,
+      removedTasks: ref([]),
+      isRuntimeExiting: ref(false),
+      isMobileLayout: ref(false),
+    });
+
+    expect(view.contentViewKey.value).toBe("all-empty");
+
+    tasks.value = [createTask({ id: 40, status: "active" })];
+    expect(view.contentViewKey.value).toBe("all-list");
+
+    view.activeCategory.value = "downloading";
+    expect(view.contentViewKey.value).toBe("downloading-list");
+
+    tasks.value = [createTask({ id: 40, status: "complete" })];
+    expect(view.contentViewKey.value).toBe("downloading-empty");
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
@@ -104,6 +155,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
     errorCode: null,
     errorMessage: null,
     filePath: null,
+    useProxy: false,
     confirmationRequired: false,
     files: [],
     createdAt: 1,

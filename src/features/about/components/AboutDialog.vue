@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { NButton, NDescriptions, NDescriptionsItem, NTag } from "naive-ui";
+import { computed, ref, watch } from "vue";
+import { NButton, NDescriptions, NDescriptionsItem, NTabPane, NTabs, NTag } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
 import { useI18n } from "../../../i18n";
@@ -17,13 +17,26 @@ const props = defineProps<{
 const emit = defineEmits<{
   "update:show": [show: boolean];
   checkUpdate: [];
+  openRpcGuide: [];
 }>();
 
 const { t } = useI18n();
+type AboutTab = "overview" | "changelog";
+
+const activeTab = ref<AboutTab>("overview");
 const appName = computed(() => props.appInfo?.name ?? "Motrix");
 const currentVersion = computed(() => props.appInfo?.version ?? "--");
 const updateStatusType = computed(() => statusTagType(props.updateCheck?.status));
 const releaseAssets = computed(() => props.updateCheck?.assets ?? []);
+
+watch(
+  () => props.show,
+  (show) => {
+    if (show) {
+      activeTab.value = "overview";
+    }
+  },
+);
 
 function updateShow(show: boolean) {
   emit("update:show", show);
@@ -31,6 +44,11 @@ function updateShow(show: boolean) {
 
 function checkUpdate() {
   emit("checkUpdate");
+}
+
+function openRpcGuide() {
+  emit("openRpcGuide");
+  emit("update:show", false);
 }
 
 function statusTagType(status: UpdateCheckStatus | undefined) {
@@ -77,16 +95,26 @@ function targetArchLabel(arch: string | undefined) {
     :eyebrow="t('about.eyebrow')"
     :title="t('about.title', { name: appName })"
     width="760px"
+    fixed-body
+    content-class="about-dialog-content"
     @update:show="updateShow"
   >
-    <div class="about-content">
+    <NTabs
+      v-model:value="activeTab"
+      class="about-tabs"
+      type="line"
+      pane-class="about-pane"
+      :aria-label="t('about.tabs.label')"
+    >
+      <NTabPane name="overview" :tab="t('about.tabs.overview')" display-directive="show:lazy">
+        <div class="about-content">
         <section class="about-hero">
           <div class="app-mark" aria-hidden="true">M</div>
           <div>
             <h3>{{ appName }}</h3>
             <p>{{ t("about.subtitle") }}</p>
             <div class="hero-tags">
-              <NTag type="success" round>v{{ currentVersion }}</NTag>
+              <NTag type="primary" round>v{{ currentVersion }}</NTag>
               <NTag round>{{ targetArchLabel(props.appInfo?.targetArch) }}</NTag>
             </div>
           </div>
@@ -140,6 +168,22 @@ function targetArchLabel(arch: string | undefined) {
         </AppSectionCard>
 
         <AppSectionCard
+          class="about-rpc-guide-entry"
+          :title="t('about.rpcGuide.title')"
+          :description="t('about.rpcGuide.description')"
+        >
+          <template #actions>
+            <NButton secondary size="small" @click="openRpcGuide">
+              {{ t("about.rpcGuide.openGuide") }}
+            </NButton>
+          </template>
+        </AppSectionCard>
+        </div>
+      </NTabPane>
+
+      <NTabPane name="changelog" :tab="t('about.tabs.changelog')" display-directive="show:lazy">
+        <AppSectionCard
+          class="about-changelog-card"
           :title="t('about.changelog.title')"
           :description="t('about.changelog.description')"
         >
@@ -158,168 +202,9 @@ function targetArchLabel(arch: string | undefined) {
             </article>
           </div>
         </AppSectionCard>
-    </div>
+      </NTabPane>
+    </NTabs>
   </AppDialog>
 </template>
 
-<style scoped>
-h2,
-h3,
-p {
-  margin: 0;
-}
-
-.about-content {
-  display: grid;
-  gap: 18px;
-}
-
-.about-hero {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.app-mark {
-  width: 56px;
-  height: 56px;
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: var(--app-radius-lg);
-  color: #102010;
-  background: var(--app-text-accent);
-  font-size: 28px;
-  font-weight: 900;
-}
-
-.about-hero h3 {
-  color: var(--app-text-strong);
-  font-size: 18px;
-  overflow-wrap: anywhere;
-}
-
-.about-hero p,
-.version-line {
-  color: #aeb9ad;
-  font-size: 13px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.update-result p {
-  color: #aeb9ad;
-  font-size: 13px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.hero-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.update-result {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.version-line {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.asset-list {
-  display: grid;
-  gap: 8px;
-}
-
-.asset-list a {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid rgba(142, 240, 138, 0.22);
-  border-radius: var(--app-radius-sm);
-  color: #dfe8dc;
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.asset-list a:hover {
-  border-color: rgba(142, 240, 138, 0.5);
-}
-
-.changelog-list {
-  display: grid;
-  gap: 12px;
-}
-
-.changelog-entry {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: var(--app-radius-sm);
-  background: rgba(0, 0, 0, 0.16);
-}
-
-.changelog-entry header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--app-text-strong);
-}
-
-.changelog-entry header span,
-.changelog-section h4 {
-  color: #9fae9d;
-  font-size: 12px;
-}
-
-.changelog-section {
-  display: grid;
-  gap: 6px;
-}
-
-.changelog-section h4 {
-  margin: 0;
-}
-
-.changelog-section ul {
-  margin: 0;
-  padding-left: 18px;
-  color: #c8d2c5;
-  font-size: 13px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-
-a {
-  color: #8ef08a;
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 767px) {
-  .about-content {
-    gap: 14px;
-  }
-
-  .about-hero,
-  .update-result {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .about-update-card :deep(.n-button) {
-    width: 100%;
-  }
-
-  .changelog-entry header {
-    flex-direction: column;
-    gap: 4px;
-  }
-}
-</style>
+<style scoped src="./AboutDialog.css"></style>

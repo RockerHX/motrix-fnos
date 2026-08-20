@@ -6,6 +6,7 @@ import {
   enUS,
   NConfigProvider,
   NDialogProvider,
+  NGlobalStyle,
   NMessageProvider,
   NNotificationProvider,
   zhCN,
@@ -13,30 +14,55 @@ import {
 import { computed } from "vue";
 import type { GlobalThemeOverrides } from "naive-ui";
 import { language } from "../../i18n";
+import { appTheme } from "../theme";
 
-const themeOverrides: GlobalThemeOverrides = {
+const darkThemeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: "#68ae5a",
-    primaryColorHover: "#7bc96d",
-    primaryColorPressed: "#57964b",
-    primaryColorSuppl: "#8ef08a",
+    primaryColor: "#3374db",
+    primaryColorHover: "#5da9ff",
+    primaryColorPressed: "#285bae",
+    primaryColorSuppl: "#a8c8f0",
     borderRadius: "7px",
-    bodyColor: "#151515",
-    cardColor: "#1b1f1d",
-    modalColor: "#1b1f1d",
-    popoverColor: "#1b1f1d",
+    bodyColor: "#0b0f0e",
+    cardColor: "#151515",
+    modalColor: "#151515",
+    popoverColor: "#1a2331",
     tableColor: "#151515",
-    tableHeaderColor: "#202720",
-    textColorBase: "#d7dfd8",
+    tableHeaderColor: "#1a2331",
+    textColorBase: "#dce8e2",
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+};
+
+const lightThemeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: "#285fbc",
+    primaryColorHover: "#3374db",
+    primaryColorPressed: "#204d98",
+    primaryColorSuppl: "#3374db",
+    borderRadius: "7px",
+    bodyColor: "#f5f8fc",
+    cardColor: "#ffffff",
+    modalColor: "#ffffff",
+    popoverColor: "#ffffff",
+    tableColor: "#ffffff",
+    tableHeaderColor: "#edf3fa",
+    textColorBase: "#142236",
+    borderColor: "#d6e0ec",
   },
 };
 
 const naiveLocale = computed(() => (language.value === "en-US" ? enUS : zhCN));
 const naiveDateLocale = computed(() => (language.value === "en-US" ? dateEnUS : dateZhCN));
+const naiveTheme = computed(() => (appTheme.value === "dark" ? darkTheme : null));
+const themeOverrides = computed(() =>
+  appTheme.value === "dark" ? darkThemeOverrides : lightThemeOverrides,
+);
 </script>
 
 <template>
-  <NConfigProvider :theme="darkTheme" :theme-overrides="themeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
+  <NConfigProvider :theme="naiveTheme" :theme-overrides="themeOverrides" :locale="naiveLocale" :date-locale="naiveDateLocale">
+    <NGlobalStyle />
     <NMessageProvider placement="top">
       <NDialogProvider>
         <NNotificationProvider placement="bottom-right">

@@ -25,6 +25,23 @@ body {
   margin: 0;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --app-motion-duration-fast: 0.01ms;
+    --app-motion-duration-standard: 0.01ms;
+    --app-motion-duration-dialog: 0.01ms;
+    --app-motion-duration-progress: 0.01ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}
+
 @media (max-width: 767px) {
   html,
   body {

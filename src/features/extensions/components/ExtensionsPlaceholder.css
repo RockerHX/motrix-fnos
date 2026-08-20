@@ -1,0 +1,95 @@
+.extensions-page {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.extensions-card {
+  width: min(560px, 100%);
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-lg);
+  padding: 34px;
+  color: var(--app-text-secondary);
+  background: linear-gradient(145deg, var(--app-color-surface-elevated), var(--app-color-surface));
+  box-shadow: var(--app-shadow-hero);
+}
+
+.extensions-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--app-radius-md);
+  color: var(--app-color-on-brand);
+  background: var(--app-color-brand-blue);
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.eyebrow {
+  margin: 22px 0 8px;
+  color: var(--app-text-accent-soft);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 14px;
+  color: var(--app-text-strong);
+  font-size: 26px;
+  font-weight: 500;
+}
+
+p {
+  margin: 0;
+  color: var(--app-text-muted);
+  line-height: 1.7;
+}
+
+ul {
+  margin: 22px 0 0;
+  padding-left: 20px;
+  color: var(--app-text-secondary);
+  line-height: 1.8;
+}
+
+@media (max-width: 767px) {
+  .extensions-page {
+    display: block;
+    height: auto;
+    min-height: 100%;
+    padding: 16px var(--app-mobile-page-gutter) 24px;
+    overflow-y: auto;
+  }
+
+  .extensions-card {
+    width: 100%;
+    padding: 24px 18px;
+    border-radius: var(--app-radius-md);
+  }
+
+  .extensions-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: var(--app-radius-sm);
+    font-size: 26px;
+  }
+
+  .eyebrow {
+    margin-top: 18px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+  }
+
+  h1 {
+    font-size: 22px;
+  }
+
+  p,
+  ul {
+    font-size: 14px;
+  }
+}

@@ -6,10 +6,23 @@ vi.mock("naive-ui", async () => {
   return {
     NModal: defineComponent({
       name: "NModalStub",
-      props: { show: { type: Boolean, default: false } },
+      props: {
+        show: { type: Boolean, default: false },
+        maskClosable: { type: Boolean, default: true },
+      },
       emits: ["update:show"],
-      setup(props, { slots }) {
-        return () => (props.show ? h("div", { "data-test": "n-modal" }, slots.default?.()) : null);
+      setup(props, { emit, slots }) {
+        return () =>
+          props.show
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  onClick: () => props.maskClosable && emit("update:show", false),
+                },
+                slots.default?.(),
+              )
+            : null;
       },
     }),
     NCard: defineComponent({
@@ -34,6 +47,7 @@ vi.mock("naive-ui", async () => {
               disabled: props.disabled,
               "data-loading": props.loading ? "true" : "false",
               onClick: (event: MouseEvent) => {
+                event.stopPropagation();
                 if (!props.disabled) emit("click", event);
               },
             },
@@ -105,6 +119,23 @@ describe("AppConfirmDialog", () => {
 
     expect(wrapper.emitted("cancel")).toBeUndefined();
     expect(wrapper.emitted("confirm")).toBeUndefined();
+  });
+
+  it("blocks mask close while loading or disabled", async () => {
+    for (const props of [{ loading: true }, { disabled: true }]) {
+      const { wrapper } = mountWithPinia(AppConfirmDialog, {
+        props: {
+          show: true,
+          title: "确认操作",
+          ...props,
+        },
+      });
+
+      await wrapper.get('[data-test="n-modal"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.emitted("update:show")).toBeUndefined();
+    }
   });
 });
 

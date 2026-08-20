@@ -1,18 +1,43 @@
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
-use sqlx::{Decode, Row, Sqlite, SqlitePool, Type};
+use crate::database::settings::get_download_proxy_config;
+use crate::tasks::{
+    DownloadTask, DownloadTaskSourceType, DownloadTaskStatus, TaskProxyBinding, TaskProxySource,
+};
+use crate::{
+    database::task_operations::update_task_operation_in_transaction, tasks::TaskOperation,
+};
+use sqlx::{Decode, Row, Sqlite, SqlitePool, Transaction, Type};
 
 pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存下载任务事务失败：{}", error))?;
+    upsert_download_task_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存下载任务事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn upsert_download_task_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
     sqlx::query(
         r#"
         INSERT INTO download_tasks (
-            id, url, file_name, save_dir, category, gid, status, total_length, completed_length,
-            download_speed, error_code, error_message, file_path, metadata_torrent_path, confirmation_required, created_at, updated_at
+            id, url, source_type, file_name, save_dir, owned_task_dir, category, gid, status, total_length, completed_length,
+            download_speed, error_code, error_message, file_path, metadata_torrent_path, files_deleted,
+            selected_file_indexes, confirmation_required, use_proxy, proxy_source, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
+            source_type = excluded.source_type,
             file_name = excluded.file_name,
             save_dir = excluded.save_dir,
+            owned_task_dir = excluded.owned_task_dir,
             category = excluded.category,
             gid = excluded.gid,
             status = excluded.status,
@@ -23,14 +48,20 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
             error_message = excluded.error_message,
             file_path = excluded.file_path,
             metadata_torrent_path = excluded.metadata_torrent_path,
+            files_deleted = excluded.files_deleted,
+            selected_file_indexes = excluded.selected_file_indexes,
             confirmation_required = excluded.confirmation_required,
+            use_proxy = excluded.use_proxy,
+            proxy_source = excluded.proxy_source,
             updated_at = excluded.updated_at
         "#,
     )
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(&task.url)
+    .bind(task.source_type.as_storage_value())
     .bind(&task.file_name)
     .bind(&task.save_dir)
+    .bind(&task.owned_task_dir)
     .bind(&task.category)
     .bind(&task.gid)
     .bind(task.status.as_storage_value())
@@ -41,13 +72,56 @@ pub async fn upsert_download_task(pool: &SqlitePool, task: &DownloadTask) -> Res
     .bind(&task.error_message)
     .bind(&task.file_path)
     .bind(&task.metadata_torrent_path)
+    .bind(if task.files_deleted { 1_i64 } else { 0_i64 })
+    .bind(serde_json::to_string(&task.selected_file_indexes).map_err(|error| {
+        format!("序列化任务文件选择失败：{}", error)
+    })?)
     .bind(if task.confirmation_required { 1_i64 } else { 0_i64 })
+    .bind(if task.use_proxy { 1_i64 } else { 0_i64 })
+    .bind(task.proxy_binding.source().as_storage_value())
     .bind(u64_to_i64(task.created_at, "创建时间")?)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存下载任务失败：{}", error))?;
 
+    persist_task_proxy_override_in_transaction(transaction, task).await?;
+
+    Ok(())
+}
+
+async fn persist_task_proxy_override_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
+    let task_id = u64_to_i64(task.id, "任务 ID")?;
+    if task.use_proxy && task.proxy_binding.source() == TaskProxySource::Override {
+        let proxy_url = task
+            .proxy_binding
+            .effective_proxy_url()
+            .ok_or_else(|| "兼容代理任务缺少私密代理覆盖".to_string())?;
+        sqlx::query(
+            r#"
+            INSERT INTO task_proxy_overrides (task_id, proxy_url, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                proxy_url = excluded.proxy_url,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(task_id)
+        .bind(proxy_url)
+        .bind(u64_to_i64(task.updated_at, "更新时间")?)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("保存任务私密代理覆盖失败：{}", error))?;
+    } else {
+        sqlx::query("DELETE FROM task_proxy_overrides WHERE task_id = ?")
+            .bind(task_id)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("清理任务私密代理覆盖失败：{}", error))?;
+    }
     Ok(())
 }
 
@@ -55,20 +129,55 @@ pub async fn persist_download_task_state(
     pool: &SqlitePool,
     task: &DownloadTask,
 ) -> Result<(), String> {
-    upsert_download_task(pool, task).await?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动持久化任务状态事务失败：{}", error))?;
+    persist_download_task_state_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交持久化任务状态事务失败：{}", error))?;
+    Ok(())
+}
+
+pub async fn persist_download_task_state_with_operation(
+    pool: &SqlitePool,
+    task: &DownloadTask,
+    operation: &TaskOperation,
+) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动持久化任务操作事务失败：{}", error))?;
+    persist_download_task_state_in_transaction(&mut transaction, task).await?;
+    update_task_operation_in_transaction(&mut transaction, operation).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交持久化任务操作事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn persist_download_task_state_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
+    upsert_download_task_in_transaction(transaction, task).await?;
 
     match task.status {
         DownloadTaskStatus::Complete
         | DownloadTaskStatus::Paused
         | DownloadTaskStatus::Error
         | DownloadTaskStatus::Removed => {
-            record_task_history(pool, task, task.error_message.as_deref()).await?;
+            record_task_history_in_transaction(transaction, task, task.error_message.as_deref())
+                .await?;
         }
         DownloadTaskStatus::Pending | DownloadTaskStatus::Active => {}
     }
 
     if task.status == DownloadTaskStatus::Error {
-        record_task_error(pool, task).await?;
+        record_task_error_in_transaction(transaction, task).await?;
     }
 
     Ok(())
@@ -86,20 +195,28 @@ pub async fn persist_download_task_states(
 }
 
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
+    let profile_proxy_url = get_download_proxy_config(pool)
+        .await?
+        .map(|config| config.proxy_url);
     let rows = sqlx::query(
         r#"
-        SELECT id, url, file_name, save_dir, gid, status, total_length, completed_length,
-               category, download_speed, error_code, error_message, file_path,
-               metadata_torrent_path, confirmation_required, created_at, updated_at
+        SELECT download_tasks.id, url, source_type, file_name, save_dir, owned_task_dir, gid, status,
+               total_length, completed_length, category, download_speed, error_code, error_message,
+               file_path, metadata_torrent_path, files_deleted, selected_file_indexes,
+               confirmation_required, use_proxy, proxy_source, task_proxy_overrides.proxy_url AS proxy_override_url,
+               created_at, download_tasks.updated_at
         FROM download_tasks
-        ORDER BY created_at DESC, id DESC
+        LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id
+        ORDER BY created_at DESC, download_tasks.id DESC
         "#,
     )
     .fetch_all(pool)
     .await
     .map_err(|error| format!("读取下载任务失败：{}", error))?;
 
-    rows.into_iter().map(row_to_task).collect()
+    rows.into_iter()
+        .map(|row| row_to_task(row, profile_proxy_url.as_deref()))
+        .collect()
 }
 
 pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
@@ -113,20 +230,68 @@ pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
 
 pub async fn delete_download_task_record(pool: &SqlitePool, task_id: u64) -> Result<bool, String> {
     let task_id = u64_to_i64(task_id, "任务 ID")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动删除任务记录事务失败：{}", error))?;
 
+    let deleted = delete_download_task_record_in_transaction(&mut transaction, task_id).await?;
+
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交删除任务记录事务失败：{}", error))?;
+
+    Ok(deleted)
+}
+
+pub async fn delete_download_task_record_with_operation(
+    pool: &SqlitePool,
+    task_id: u64,
+    operation: &TaskOperation,
+) -> Result<bool, String> {
+    let task_id = u64_to_i64(task_id, "任务 ID")?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动删除任务记录事务失败：{}", error))?;
+
+    let deleted = delete_download_task_record_in_transaction(&mut transaction, task_id).await?;
+    if !deleted {
+        return Ok(false);
+    }
+    update_task_operation_in_transaction(&mut transaction, operation).await?;
+
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交删除任务记录事务失败：{}", error))?;
+
+    Ok(deleted)
+}
+
+async fn delete_download_task_record_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task_id: i64,
+) -> Result<bool, String> {
     sqlx::query("DELETE FROM task_history WHERE task_id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("删除任务历史失败：{}", error))?;
     sqlx::query("DELETE FROM task_errors WHERE task_id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("删除任务错误记录失败：{}", error))?;
+    sqlx::query("DELETE FROM task_proxy_overrides WHERE task_id = ?")
+        .bind(task_id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(|error| format!("删除任务私密代理覆盖失败：{}", error))?;
     let result = sqlx::query("DELETE FROM download_tasks WHERE id = ?")
         .bind(task_id)
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(|error| format!("删除下载任务记录失败：{}", error))?;
 
@@ -135,6 +300,23 @@ pub async fn delete_download_task_record(pool: &SqlitePool, task_id: u64) -> Res
 
 pub async fn record_task_history(
     pool: &SqlitePool,
+    task: &DownloadTask,
+    message: Option<&str>,
+) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存任务历史事务失败：{}", error))?;
+    record_task_history_in_transaction(&mut transaction, task, message).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存任务历史事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn record_task_history_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
     task: &DownloadTask,
     message: Option<&str>,
 ) -> Result<(), String> {
@@ -158,7 +340,7 @@ pub async fn record_task_history(
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(task.status.as_storage_value())
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存任务历史失败：{}", error))?;
 
@@ -166,6 +348,22 @@ pub async fn record_task_history(
 }
 
 pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result<(), String> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|error| format!("启动保存任务错误事务失败：{}", error))?;
+    record_task_error_in_transaction(&mut transaction, task).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交保存任务错误事务失败：{}", error))?;
+    Ok(())
+}
+
+async fn record_task_error_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    task: &DownloadTask,
+) -> Result<(), String> {
     let Some(message) = task
         .error_message
         .as_deref()
@@ -195,20 +393,36 @@ pub async fn record_task_error(pool: &SqlitePool, task: &DownloadTask) -> Result
     .bind(u64_to_i64(task.id, "任务 ID")?)
     .bind(&task.error_code)
     .bind(message)
-    .execute(pool)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存任务错误记录失败：{}", error))?;
 
     Ok(())
 }
 
-fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
+fn row_to_task(
+    row: sqlx::sqlite::SqliteRow,
+    profile_proxy_url: Option<&str>,
+) -> Result<DownloadTask, String> {
     let status: String = get(&row, "status")?;
+    let source_type: String = get(&row, "source_type")?;
+    let use_proxy = get::<i64>(&row, "use_proxy")? != 0;
+    let proxy_source = TaskProxySource::from_storage_value(&get::<String>(&row, "proxy_source")?);
+    let effective_proxy_url = if use_proxy {
+        match proxy_source {
+            TaskProxySource::Profile => profile_proxy_url.map(str::to_owned),
+            TaskProxySource::Override => get(&row, "proxy_override_url")?,
+        }
+    } else {
+        None
+    };
     Ok(DownloadTask {
         id: i64_to_u64(get(&row, "id")?, "任务 ID")?,
         url: get(&row, "url")?,
+        source_type: DownloadTaskSourceType::from_storage_value(&source_type),
         file_name: get(&row, "file_name")?,
         save_dir: get(&row, "save_dir")?,
+        owned_task_dir: get(&row, "owned_task_dir")?,
         category: get(&row, "category")?,
         gid: get(&row, "gid")?,
         status: DownloadTaskStatus::from_storage_value(&status),
@@ -218,7 +432,12 @@ fn row_to_task(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTask, String> {
         error_code: get(&row, "error_code")?,
         error_message: get(&row, "error_message")?,
         file_path: get(&row, "file_path")?,
+        use_proxy,
+        proxy_binding: TaskProxyBinding::from_persisted(proxy_source, effective_proxy_url),
         metadata_torrent_path: get(&row, "metadata_torrent_path")?,
+        files_deleted: get::<i64>(&row, "files_deleted")? != 0,
+        selected_file_indexes: serde_json::from_str(&get::<String>(&row, "selected_file_indexes")?)
+            .map_err(|error| format!("读取任务文件选择字段失败：{}", error))?,
         confirmation_required: get::<i64>(&row, "confirmation_required")? != 0,
         files: Vec::new(),
         created_at: i64_to_u64(get(&row, "created_at")?, "创建时间")?,

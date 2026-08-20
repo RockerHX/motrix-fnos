@@ -1,0 +1,34 @@
+.task-desktop-card {
+  width: 100%;
+  min-width: 0;
+  min-height: 86px;
+  background: transparent;
+}
+
+.task-card-main {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 5px;
+  padding: 14px;
+}
+
+.task-desktop-card :deep(.task-card-actions) {
+  opacity: 0.42;
+  transition: opacity var(--app-transition-fast);
+}
+
+.task-desktop-card:hover :deep(.task-card-actions),
+.task-desktop-card:focus-within :deep(.task-card-actions) {
+  opacity: 1;
+}
+
+.task-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.task-card-progress {
+  min-width: 0;
+}

@@ -1,5 +1,10 @@
 use super::*;
 use crate::database::connect_database;
+use crate::database::settings::{
+    set_app_config_value, StoredDownloadProxyConfig, DOWNLOAD_PROXY_CONFIG_KEY,
+};
+use crate::database::task_operations::begin_task_operation;
+use crate::tasks::{TaskOperationContext, TaskOperationType};
 
 #[test]
 fn repository_inserts_updates_and_lists_tasks() {
@@ -12,6 +17,9 @@ fn repository_inserts_updates_and_lists_tasks() {
                 .await
                 .expect("database should connect");
             let mut task = sample_task();
+            task.owned_task_dir = Some("/downloads/task-1".to_string());
+            task.files_deleted = true;
+            task.selected_file_indexes = vec![1, 3];
 
             upsert_download_task(&database.pool, &task)
                 .await
@@ -31,7 +39,141 @@ fn repository_inserts_updates_and_lists_tasks() {
 
             assert_eq!(tasks.len(), 1);
             assert_eq!(tasks[0].status, DownloadTaskStatus::Paused);
+            assert_eq!(tasks[0].source_type, DownloadTaskSourceType::Url);
+            assert!(tasks[0].files_deleted);
+            assert_eq!(
+                tasks[0].owned_task_dir.as_deref(),
+                Some("/downloads/task-1")
+            );
+            assert_eq!(tasks[0].selected_file_indexes, [1, 3]);
             assert_eq!(max_id, task.id);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_persists_private_override_and_injects_profile_without_serializing_urls() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-proxy-persistence-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            set_app_config_value(
+                &database.pool,
+                DOWNLOAD_PROXY_CONFIG_KEY,
+                &StoredDownloadProxyConfig {
+                    proxy_url: "http://profile-user:profile-pass@profile.example:7890".to_string(),
+                    revision: 1,
+                    updated_at: 1,
+                },
+            )
+            .await
+            .expect("profile should save");
+
+            let mut task = sample_task();
+            task.use_proxy = true;
+            task.proxy_binding = TaskProxyBinding::override_url(
+                "socks5://override-user:override-pass@override.example:1080".to_string(),
+            );
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("override task should persist");
+
+            let stored_override: String =
+                sqlx::query_scalar("SELECT proxy_url FROM task_proxy_overrides WHERE task_id = ?")
+                    .bind(task.id as i64)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("private override should exist");
+            assert_eq!(
+                stored_override,
+                "socks5://override-user:override-pass@override.example:1080"
+            );
+
+            let loaded = list_download_tasks(&database.pool)
+                .await
+                .expect("override task should load")
+                .remove(0);
+            assert!(loaded.use_proxy);
+            assert_eq!(loaded.proxy_binding.source(), TaskProxySource::Override);
+            assert_eq!(
+                loaded.proxy_binding.effective_proxy_url(),
+                Some("socks5://override-user:override-pass@override.example:1080")
+            );
+            let public_json = serde_json::to_string(&loaded).expect("task should serialize");
+            assert!(public_json.contains("\"useProxy\":true"));
+            assert!(!public_json.contains("override-user"));
+            assert!(!public_json.contains("proxyBinding"));
+            assert!(!format!("{loaded:?}").contains("override-pass"));
+
+            task.proxy_binding = TaskProxyBinding::profile(Some(
+                "http://profile-user:profile-pass@profile.example:7890".to_string(),
+            ));
+            task.updated_at += 1;
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("profile task should persist");
+            let override_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM task_proxy_overrides WHERE task_id = ?")
+                    .bind(task.id as i64)
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("override count should be readable");
+            assert_eq!(override_count, 0);
+            let loaded = list_download_tasks(&database.pool)
+                .await
+                .expect("profile task should load")
+                .remove(0);
+            assert_eq!(loaded.proxy_binding.source(), TaskProxySource::Profile);
+            assert_eq!(
+                loaded.proxy_binding.effective_proxy_url(),
+                Some("http://profile-user:profile-pass@profile.example:7890")
+            );
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_rolls_back_task_when_private_override_persistence_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-proxy-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            sqlx::query(
+                "CREATE TRIGGER fail_proxy_override BEFORE INSERT ON task_proxy_overrides BEGIN SELECT RAISE(FAIL, 'forced proxy override failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+            let mut task = sample_task();
+            task.use_proxy = true;
+            task.proxy_binding =
+                TaskProxyBinding::override_url("http://proxy.example:7890".to_string());
+
+            let error = upsert_download_task(&database.pool, &task)
+                .await
+                .expect_err("override failure should roll back task");
+            assert!(error.contains("forced proxy override failure"));
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be readable");
+            assert_eq!(task_count, 0);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -81,6 +223,109 @@ fn repository_records_history_and_error() {
 }
 
 #[test]
+fn persist_task_state_rolls_back_when_error_recording_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-state-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let mut task = sample_task();
+            task.status = DownloadTaskStatus::Error;
+            task.error_code = Some("3".to_string());
+            task.error_message = Some("Resource not found".to_string());
+            sqlx::query(
+                "CREATE TRIGGER fail_task_error BEFORE INSERT ON task_errors BEGIN SELECT RAISE(FAIL, 'forced task error failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+
+            let error = persist_download_task_state(&database.pool, &task)
+                .await
+                .expect_err("persistence should fail at the error record step");
+            assert!(
+                error.contains("forced task error failure"),
+                "unexpected persistence error: {error}"
+            );
+
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be readable");
+            let history_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_history")
+                .fetch_one(&database.pool)
+                .await
+                .expect("history count should be readable");
+            let error_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_errors")
+                .fetch_one(&database.pool)
+                .await
+                .expect("error count should be readable");
+            assert_eq!(task_count, 0);
+            assert_eq!(history_count, 0);
+            assert_eq!(error_count, 0);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn concurrent_task_state_persistence_keeps_related_records_consistent() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-task-state-concurrent-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let mut first = sample_task();
+            first.status = DownloadTaskStatus::Error;
+            first.error_code = Some("3".to_string());
+            first.error_message = Some("first failure".to_string());
+            let mut second = first.clone();
+            second.id = 2;
+            second.url = "https://example.com/second.zip".to_string();
+            second.file_name = "second.zip".to_string();
+            second.gid = Some("def456".to_string());
+            second.error_message = Some("second failure".to_string());
+
+            let (first_result, second_result) = tokio::join!(
+                persist_download_task_state(&database.pool, &first),
+                persist_download_task_state(&database.pool, &second),
+            );
+            first_result.expect("first task should persist");
+            second_result.expect("second task should persist");
+
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be readable");
+            let history_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_history")
+                .fetch_one(&database.pool)
+                .await
+                .expect("history count should be readable");
+            let error_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_errors")
+                .fetch_one(&database.pool)
+                .await
+                .expect("error count should be readable");
+            assert_eq!(task_count, 2);
+            assert_eq!(history_count, 2);
+            assert_eq!(error_count, 2);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
 fn repository_deletes_task_record_history_and_errors() {
     tokio::runtime::Runtime::new()
         .expect("tokio runtime should create")
@@ -96,6 +341,9 @@ fn repository_deletes_task_record_history_and_errors() {
             task.status = DownloadTaskStatus::Error;
             task.error_code = Some("3".to_string());
             task.error_message = Some("Resource not found".to_string());
+            task.use_proxy = true;
+            task.proxy_binding =
+                TaskProxyBinding::override_url("http://proxy.example:7890".to_string());
 
             upsert_download_task(&database.pool, &task)
                 .await
@@ -121,11 +369,123 @@ fn repository_deletes_task_record_history_and_errors() {
                 .fetch_one(&database.pool)
                 .await
                 .expect("error count should be read");
+            let proxy_override_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM task_proxy_overrides")
+                    .fetch_one(&database.pool)
+                    .await
+                    .expect("proxy override count should be read");
 
             assert!(deleted);
             assert!(tasks.is_empty());
             assert_eq!(history_count, 0);
             assert_eq!(error_count, 0);
+            assert_eq!(proxy_override_count, 0);
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn repository_deletes_task_record_and_completes_operation_together() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-delete-record-operation-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let task = sample_task();
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("task should be inserted");
+            let mut operation = TaskOperation::with_id(
+                "delete-operation",
+                task.id,
+                TaskOperationType::PermanentDelete,
+                "prepared",
+                TaskOperationContext::default(),
+            );
+            begin_task_operation(&database.pool, &operation)
+                .await
+                .expect("operation should be inserted");
+            operation.complete("record_deleted");
+
+            let deleted =
+                delete_download_task_record_with_operation(&database.pool, task.id, &operation)
+                    .await
+                    .expect("task record and operation should update together");
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be read");
+            let operation_status: String = sqlx::query_scalar(
+                "SELECT status FROM task_operations WHERE id = 'delete-operation'",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("operation status should be read");
+
+            assert!(deleted);
+            assert_eq!(task_count, 0);
+            assert_eq!(operation_status, "completed");
+
+            database.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn delete_task_record_rolls_back_when_operation_completion_fails() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-delete-record-operation-rollback-test-{}.sqlite",
+                now_ms()
+            ));
+            let database = connect_database(path.clone())
+                .await
+                .expect("database should connect");
+            let task = sample_task();
+            upsert_download_task(&database.pool, &task)
+                .await
+                .expect("task should be inserted");
+            let mut operation = TaskOperation::with_id(
+                "failing-delete-operation",
+                task.id,
+                TaskOperationType::PermanentDelete,
+                "prepared",
+                TaskOperationContext::default(),
+            );
+            begin_task_operation(&database.pool, &operation)
+                .await
+                .expect("operation should be inserted");
+            operation.complete("record_deleted");
+            sqlx::query(
+                "CREATE TRIGGER fail_permanent_delete_operation BEFORE UPDATE ON task_operations WHEN NEW.id = 'failing-delete-operation' BEGIN SELECT RAISE(FAIL, 'forced operation completion failure'); END",
+            )
+            .execute(&database.pool)
+            .await
+            .expect("failure trigger should create");
+
+            let error = delete_download_task_record_with_operation(
+                &database.pool,
+                task.id,
+                &operation,
+            )
+            .await
+            .expect_err("operation completion failure should roll back deletion");
+            let task_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks")
+                .fetch_one(&database.pool)
+                .await
+                .expect("task count should be read");
+
+            assert!(error.contains("forced operation completion failure"));
+            assert_eq!(task_count, 1);
 
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -136,8 +496,10 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Active,
@@ -147,7 +509,11 @@ fn sample_task() -> DownloadTask {
         error_code: None,
         error_message: None,
         file_path: Some("/downloads/file.zip".to_string()),
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,

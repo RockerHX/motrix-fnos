@@ -1,0 +1,177 @@
+name: Prune Old Releases and Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "仅预览将删除的 Release 和 tag"
+        required: true
+        default: true
+        type: boolean
+      confirmation:
+        description: "正式删除时输入 DELETE OLD RELEASES AND TAGS"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-fpk
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Keep Latest Two Releases
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Checkout repository tags
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Preview or delete old releases and tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          readonly confirm_text="DELETE OLD RELEASES AND TAGS"
+          readonly version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ "${DRY_RUN}" != "true" && "${CONFIRMATION}" != "${confirm_text}" ]]; then
+            echo "正式删除必须在 confirmation 中输入：${confirm_text}" >&2
+            exit 1
+          fi
+
+          git fetch origin --tags --force
+
+          mapfile -t release_tags < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[].tag_name' \
+              | awk -v pattern="${version_pattern}" '$0 ~ pattern' \
+              | sort -uV
+          )
+          mapfile -t remote_tags < <(
+            git ls-remote --tags --refs origin \
+              | awk '{ sub("refs/tags/", "", $2); print $2 }' \
+              | awk -v pattern="${version_pattern}" '$0 ~ pattern' \
+              | sort -uV
+          )
+          mapfile -t all_versions < <(
+            printf '%s\n' "${release_tags[@]}" "${remote_tags[@]}" \
+              | awk 'NF' \
+              | sort -urV
+          )
+
+          if (( ${#all_versions[@]} < 2 )); then
+            echo "语义化 Release/tag 少于两个，无需清理。"
+            exit 0
+          fi
+
+          readonly keep_latest="${all_versions[0]}"
+          readonly keep_previous="${all_versions[1]}"
+
+          contains_version() {
+            local expected="$1"
+            shift
+            local version
+            for version in "$@"; do
+              if [[ "${version}" == "${expected}" ]]; then
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          for protected_version in "${keep_latest}" "${keep_previous}"; do
+            if ! contains_version "${protected_version}" "${release_tags[@]}"; then
+              echo "受保护版本 ${protected_version} 缺少 GitHub Release，拒绝清理。" >&2
+              exit 1
+            fi
+            if ! contains_version "${protected_version}" "${remote_tags[@]}"; then
+              echo "受保护版本 ${protected_version} 缺少远程 tag，拒绝清理。" >&2
+              exit 1
+            fi
+          done
+
+          old_releases=()
+          for tag in "${release_tags[@]}"; do
+            if [[ "${tag}" != "${keep_latest}" && "${tag}" != "${keep_previous}" ]]; then
+              old_releases+=("${tag}")
+            fi
+          done
+
+          old_tags=()
+          for tag in "${remote_tags[@]}"; do
+            if [[ "${tag}" != "${keep_latest}" && "${tag}" != "${keep_previous}" ]]; then
+              old_tags+=("${tag}")
+            fi
+          done
+
+          {
+            echo "## Release 清理计划"
+            echo
+            echo "- 保留：\`${keep_latest}\`、\`${keep_previous}\`"
+            echo "- 删除 Release：${#old_releases[@]} 个"
+            echo "- 删除 tag：${#old_tags[@]} 个"
+            echo "- 模式：$([[ "${DRY_RUN}" == "true" ]] && echo '仅预览' || echo '正式删除')"
+            echo
+            echo "### 待删除 Release"
+            if (( ${#old_releases[@]} > 0 )); then
+              printf -- '- `%s`\n' "${old_releases[@]}"
+            else
+              echo "- 无"
+            fi
+            echo
+            echo "### 待删除 tag"
+            if (( ${#old_tags[@]} > 0 )); then
+              printf -- '- `%s`\n' "${old_tags[@]}"
+            else
+              echo "- 无"
+            fi
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "dry-run 完成，未删除任何 Release 或 tag。"
+            exit 0
+          fi
+
+          for tag in "${old_releases[@]}"; do
+            echo "删除 GitHub Release：${tag}"
+            gh release delete "${tag}" --repo "${GITHUB_REPOSITORY}" --yes
+          done
+
+          for tag in "${old_tags[@]}"; do
+            echo "删除远程 tag：${tag}"
+            git push origin ":refs/tags/${tag}"
+          done
+
+          mapfile -t remaining_releases < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[].tag_name' \
+              | awk -v pattern="${version_pattern}" '$0 ~ pattern' \
+              | sort -urV
+          )
+          mapfile -t remaining_tags < <(
+            git ls-remote --tags --refs origin \
+              | awk '{ sub("refs/tags/", "", $2); print $2 }' \
+              | awk -v pattern="${version_pattern}" '$0 ~ pattern' \
+              | sort -urV
+          )
+
+          expected_versions=("${keep_latest}" "${keep_previous}")
+          if [[ "${remaining_releases[*]}" != "${expected_versions[*]}" ]]; then
+            echo "清理后 Release 列表不符合预期：${remaining_releases[*]}" >&2
+            exit 1
+          fi
+          if [[ "${remaining_tags[*]}" != "${expected_versions[*]}" ]]; then
+            echo "清理后 tag 列表不符合预期：${remaining_tags[*]}" >&2
+            exit 1
+          fi
+
+          echo "清理完成，仅保留 ${keep_latest} 和 ${keep_previous} 的 Release 与 tag。"

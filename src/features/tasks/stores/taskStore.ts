@@ -12,6 +12,8 @@ import {
   permanentlyDeleteDownloadTask,
   redownloadDownloadTask,
   resumeDownloadTask,
+  restoreDownloadTask,
+  updateDownloadTaskProxy,
 } from "../services/taskService";
 import { t } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -47,16 +49,23 @@ export const useTaskStore = defineStore("tasks", () => {
   const pendingTaskErrorMessages = ref<string[]>([]);
   const isRuntimeExiting = ref(false);
   const runtimeExitReason = ref("");
+  let tasksRequestGeneration = 0;
+  let removedTasksRequestGeneration = 0;
+  let tasksRequestController: AbortController | null = null;
+  let removedTasksRequestController: AbortController | null = null;
+  let isTasksRequestInFlight = false;
+  let isRemovedTasksRequestInFlight = false;
+  let latestTasksSnapshotRevision = -1;
 
   async function refreshTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
     if (isRuntimeExiting.value) {
       return { taskErrorMessages: [] };
     }
 
+    const request = beginTasksRequest();
     try {
-      isRefreshing.value = true;
-      const nextTasks = await listDownloadTasks();
-      if (isRuntimeExiting.value) {
+      const nextTasks = await listDownloadTasks(request.controller.signal);
+      if (!isCurrentTasksRequest(request) || isRuntimeExiting.value) {
         return { taskErrorMessages: [] };
       }
       const taskErrorMessages = hasLoadedTasks.value
@@ -65,6 +74,9 @@ export const useTaskStore = defineStore("tasks", () => {
       applyResolvedTasks(nextTasks, taskErrorMessages);
       return { taskErrorMessages };
     } catch (error) {
+      if (!isCurrentTasksRequest(request) || isRuntimeExiting.value) {
+        return { taskErrorMessages: [] };
+      }
       const now = Date.now();
       // 时间窗口只抑制自动刷新产生的重复提示；刷新请求仍会照常执行，用户主动刷新也始终返回错误。
       const shouldReport = options.showError || now - lastRefreshErrorAt.value > 10000;
@@ -74,7 +86,7 @@ export const useTaskStore = defineStore("tasks", () => {
       }
       return { taskErrorMessages: [] };
     } finally {
-      isRefreshing.value = false;
+      finishTasksRequest(request);
     }
   }
 
@@ -83,11 +95,18 @@ export const useTaskStore = defineStore("tasks", () => {
       return { taskErrorMessages: [] };
     }
 
+    const request = beginRemovedTasksRequest();
     try {
-      isRefreshing.value = true;
-      removedTasks.value = await listRemovedDownloadTasks();
+      const nextRemovedTasks = await listRemovedDownloadTasks(request.controller.signal);
+      if (!isCurrentRemovedTasksRequest(request) || isRuntimeExiting.value) {
+        return { taskErrorMessages: [] };
+      }
+      removedTasks.value = nextRemovedTasks;
       return { taskErrorMessages: [] };
     } catch (error) {
+      if (!isCurrentRemovedTasksRequest(request) || isRuntimeExiting.value) {
+        return { taskErrorMessages: [] };
+      }
       const now = Date.now();
       const shouldReport = options.showError || now - lastRemovedRefreshErrorAt.value > 10000;
       if (shouldReport) {
@@ -96,7 +115,7 @@ export const useTaskStore = defineStore("tasks", () => {
       }
       return { taskErrorMessages: [] };
     } finally {
-      isRefreshing.value = false;
+      finishRemovedTasksRequest(request);
     }
   }
 
@@ -160,8 +179,12 @@ export const useTaskStore = defineStore("tasks", () => {
     );
   }
 
-  async function redownloadTask(taskId: number): Promise<DownloadTask> {
-    return runTaskOperation(taskId, () => redownloadDownloadTask(taskId));
+  async function updateTaskProxy(taskId: number, enabled: boolean): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => updateDownloadTaskProxy(taskId, enabled));
+  }
+
+  async function redownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => redownloadDownloadTask(taskId, useProxy));
   }
 
   async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
@@ -179,6 +202,21 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
+  async function restoreTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+    ensureRuntimeActive();
+    beginTaskOperation(taskId);
+    try {
+      const task = await restoreDownloadTask(taskId, useProxy);
+      if (!isRuntimeExiting.value) {
+        removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+        upsertTask(task);
+      }
+      return task;
+    } finally {
+      endTaskOperation(taskId);
+    }
+  }
+
   async function runTaskOperation(
     taskId: number,
     operation: () => Promise<DownloadTask>,
@@ -191,7 +229,9 @@ export const useTaskStore = defineStore("tasks", () => {
       if (!isRuntimeExiting.value) {
         if (task.status === "removed") {
           removeTask(task.id);
+          upsertRemovedTask(task);
         } else {
+          removedTasks.value = removedTasks.value.filter((item) => item.id !== task.id);
           upsertTask(task);
         }
       }
@@ -201,12 +241,19 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
-
   function applyTaskSnapshot(payload: TasksSnapshotPayload) {
-    if (isRuntimeExiting.value) {
+    if (
+      isRuntimeExiting.value ||
+      !Number.isSafeInteger(payload.revision) ||
+      payload.revision < latestTasksSnapshotRevision
+    ) {
       return;
     }
 
+    if (payload.revision > latestTasksSnapshotRevision) {
+      latestTasksSnapshotRevision = payload.revision;
+      cancelTasksRequest();
+    }
     const nextTasks = payload.tasks;
     const taskErrorMessages = hasLoadedTasks.value
       ? collectNewTaskErrorMessages(tasks.value, nextTasks)
@@ -253,6 +300,16 @@ export const useTaskStore = defineStore("tasks", () => {
     tasks.value = tasks.value.filter((item) => item.id !== taskId);
   }
 
+  function upsertRemovedTask(task: DownloadTask) {
+    const existingIndex = removedTasks.value.findIndex((item) => item.id === task.id);
+    if (existingIndex < 0) {
+      removedTasks.value = [task, ...removedTasks.value];
+      return;
+    }
+
+    removedTasks.value = removedTasks.value.map((item) => (item.id === task.id ? task : item));
+  }
+
   function applyResolvedTasks(nextTasks: DownloadTask[], taskErrorMessages: string[]) {
     rememberErrorTasks(nextTasks);
     tasks.value = nextTasks;
@@ -266,6 +323,96 @@ export const useTaskStore = defineStore("tasks", () => {
     const messages = [...pendingTaskErrorMessages.value];
     pendingTaskErrorMessages.value = [];
     return messages;
+  }
+
+  function clearSensitiveState() {
+    cancelRefreshRequests();
+    tasks.value = [];
+    removedTasks.value = [];
+    isCreating.value = false;
+    isRefreshing.value = false;
+    operatingTaskIds.value = [];
+    lastRefreshErrorAt.value = 0;
+    lastRemovedRefreshErrorAt.value = 0;
+    hasLoadedTasks.value = false;
+    pendingTaskErrorMessages.value = [];
+    isRuntimeExiting.value = false;
+    runtimeExitReason.value = "";
+    latestTasksSnapshotRevision = -1;
+    notifiedErrorTaskKeys.clear();
+  }
+
+  function cancelRefreshRequests() {
+    cancelTasksRequest();
+    cancelRemovedTasksRequest();
+  }
+
+  function beginTasksRequest() {
+    cancelTasksRequest();
+    const request = {
+      generation: ++tasksRequestGeneration,
+      controller: new AbortController(),
+    };
+    tasksRequestController = request.controller;
+    isTasksRequestInFlight = true;
+    syncRefreshing();
+    return request;
+  }
+
+  function beginRemovedTasksRequest() {
+    cancelRemovedTasksRequest();
+    const request = {
+      generation: ++removedTasksRequestGeneration,
+      controller: new AbortController(),
+    };
+    removedTasksRequestController = request.controller;
+    isRemovedTasksRequestInFlight = true;
+    syncRefreshing();
+    return request;
+  }
+
+  function isCurrentTasksRequest(request: { generation: number; controller: AbortController }) {
+    return tasksRequestGeneration === request.generation && tasksRequestController === request.controller;
+  }
+
+  function isCurrentRemovedTasksRequest(request: { generation: number; controller: AbortController }) {
+    return (
+      removedTasksRequestGeneration === request.generation && removedTasksRequestController === request.controller
+    );
+  }
+
+  function finishTasksRequest(request: { generation: number; controller: AbortController }) {
+    if (!isCurrentTasksRequest(request)) return;
+    tasksRequestController = null;
+    isTasksRequestInFlight = false;
+    syncRefreshing();
+  }
+
+  function finishRemovedTasksRequest(request: { generation: number; controller: AbortController }) {
+    if (!isCurrentRemovedTasksRequest(request)) return;
+    removedTasksRequestController = null;
+    isRemovedTasksRequestInFlight = false;
+    syncRefreshing();
+  }
+
+  function cancelTasksRequest() {
+    tasksRequestGeneration += 1;
+    tasksRequestController?.abort();
+    tasksRequestController = null;
+    isTasksRequestInFlight = false;
+    syncRefreshing();
+  }
+
+  function cancelRemovedTasksRequest() {
+    removedTasksRequestGeneration += 1;
+    removedTasksRequestController?.abort();
+    removedTasksRequestController = null;
+    isRemovedTasksRequestInFlight = false;
+    syncRefreshing();
+  }
+
+  function syncRefreshing() {
+    isRefreshing.value = isTasksRequestInFlight || isRemovedTasksRequestInFlight;
   }
 
   function collectNewTaskErrorMessages(previousTasks: DownloadTask[], nextTasks: DownloadTask[]) {
@@ -309,15 +456,19 @@ export const useTaskStore = defineStore("tasks", () => {
     createTorrentTask,
     pauseTask,
     resumeTask,
+    updateTaskProxy,
     confirmTaskFiles,
     redownloadTask,
     deleteTask,
     permanentlyDeleteTask,
+    restoreTask,
     refreshTasks,
     refreshRemovedTasks,
     applyTaskSnapshot,
     markRuntimeExiting,
     consumeTaskErrorMessages,
+    clearSensitiveState,
+    cancelRefreshRequests,
     isTaskOperating,
   };
 });

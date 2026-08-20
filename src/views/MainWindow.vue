@@ -23,6 +23,9 @@ import MainWindowDialogs from "./MainWindowDialogs.vue";
 import { useMainWindowDialogs } from "./composables/useMainWindowDialogs";
 import { useMainWindowLifecycle } from "./composables/useMainWindowLifecycle";
 import { useI18n } from "../i18n";
+import { useAuthStore } from "../features/auth/stores/authStore";
+import { useJsonRpcTokenStore } from "../features/settings/stores/jsonRpcTokenStore";
+import { getErrorMessage } from "../app/utils/errors";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
 const props = defineProps<{
@@ -35,7 +38,10 @@ const message = useMessage();
 const { t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 const taskStore = useTaskStore();
+const authStore = useAuthStore();
+const jsonRpcTokenStore = useJsonRpcTokenStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
+const { status: jsonRpcTokenStatus } = storeToRefs(jsonRpcTokenStore);
 const isToolbarBulkOperating = ref(false);
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
@@ -70,6 +76,14 @@ const toolbar = useTaskToolbar({
   isTaskOperating: taskStore.isTaskOperating,
 });
 const dialogs = useMainWindowDialogs({ taskStore, toolbar, message, t });
+watch(
+  () => dialogs.showDiagnostics.value,
+  (show) => {
+    if (show && jsonRpcTokenStatus.value === null && !jsonRpcTokenStore.isLoading) {
+      void jsonRpcTokenStore.loadStatus().catch(() => undefined);
+    }
+  },
+);
 const bulkActions = useTaskBulkActions({ taskStore, toolbar, message, t });
 isToolbarBulkOperating.value = bulkActions.isBulkOperating.value;
 watch(bulkActions.isBulkOperating, (value) => (isToolbarBulkOperating.value = value));
@@ -109,6 +123,15 @@ async function handleTaskCreated() {
   void refreshAria2Status();
 }
 
+async function logout() {
+  if (authStore.isSubmitting) return;
+  try {
+    await authStore.logout();
+  } catch (error) {
+    message.error(getErrorMessage(error, t("auth.logoutFailed")));
+  }
+}
+
 </script>
 
 <template>
@@ -116,22 +139,26 @@ async function handleTaskCreated() {
     :app-info="appInfo"
     :active-category="activeCategory"
     :topbar-actions="topbar.topbarActions.value"
+    :protection-enabled="authStore.enabled"
+    :logout-loading="authStore.isSubmitting"
     @create="dialogs.handleToolbarCreate"
     @refresh="topbar.refresh"
     @pause-visible="bulkActions.pauseVisibleTasks"
     @resume-visible="bulkActions.resumeVisibleTasks"
     @delete-visible="bulkActions.requestDeleteVisibleTasks"
     @clear-trash="bulkActions.requestClearTrash"
-    @open-about="dialogs.showAbout.value = true"
-    @open-diagnostics="dialogs.showDiagnostics.value = true"
-    @open-help="dialogs.showHelp.value = true"
-    @open-settings="dialogs.showSettings.value = true"
+    @open-about="dialogs.openAbout"
+    @open-settings="dialogs.openSettings"
+    @open-diagnostics="dialogs.openDiagnostics"
+    @open-help="dialogs.openHelp"
+    @enable-protection="dialogs.openSettings"
+    @logout="logout"
     @select-category="selectCategory"
   >
-    <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
-    <template v-else>
+    <Transition name="app-content-switch">
+      <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
       <TaskEmptyState
-        v-if="!hasVisibleTasks"
+        v-else-if="!hasVisibleTasks"
         :key="contentViewKey"
         :title="t(emptyState.titleKey)"
         :description="t(emptyState.descriptionKey)"
@@ -139,7 +166,7 @@ async function handleTaskCreated() {
         :disable-create-action="taskStore.isRuntimeExiting"
         :show-settings-action="emptyState.showSettingsAction"
         @create="dialogs.openCreateDialog"
-        @open-settings="dialogs.showSettings.value = true"
+        @open-settings="dialogs.openSettings"
       />
       <TaskTable
         v-else
@@ -152,19 +179,21 @@ async function handleTaskCreated() {
         @update:page="pagination.page.value = $event"
         @update:page-size="pagination.pageSize.value = $event"
       />
-    </template>
+    </Transition>
 
     <template #overlay>
-      <button
-        v-if="isMobileLayout && showFloatingAdd"
-        type="button"
-        class="floating-add"
-        :title="t('empty.create')"
-        :aria-label="t('empty.create')"
-        @click="dialogs.openCreateDialog"
-      >
-        <AppIcon name="plus" :size="28" />
-      </button>
+      <Transition name="app-floating-add">
+        <button
+          v-if="isMobileLayout && showFloatingAdd"
+          type="button"
+          class="floating-add"
+          :title="t('empty.create')"
+          :aria-label="t('empty.create')"
+          @click="dialogs.openCreateDialog"
+        >
+          <AppIcon name="plus" :size="28" />
+        </button>
+      </Transition>
 
       <TaskBulkDeleteConfirmDialog
         :show="bulkActions.showBulkDeleteConfirm.value"
@@ -183,15 +212,20 @@ async function handleTaskCreated() {
         :show-settings="dialogs.showSettings.value"
         :show-help="dialogs.showHelp.value"
         :show-diagnostics="dialogs.showDiagnostics.value"
+        :show-json-rpc-guide="dialogs.showJsonRpcGuide.value"
         :update-check="updateCheck"
         :is-checking-update="isCheckingUpdate"
         :aria2-process="aria2Process"
         :aria2-rpc="aria2Rpc"
+        :json-rpc-token-configured="jsonRpcTokenStatus?.configured ?? null"
         @update:show-create-dialog="dialogs.showCreateDialog.value = $event"
         @update:show-about="dialogs.showAbout.value = $event"
         @update:show-settings="dialogs.showSettings.value = $event"
         @update:show-help="dialogs.showHelp.value = $event"
         @update:show-diagnostics="dialogs.showDiagnostics.value = $event"
+        @update:show-json-rpc-guide="dialogs.showJsonRpcGuide.value = $event"
+        @open-settings="dialogs.openSettingsFromJsonRpcGuide"
+        @open-rpc-guide="dialogs.openJsonRpcGuide"
         @task-created="handleTaskCreated"
         @check-update="runUpdateCheck"
         @refresh-status="refreshAria2Status"
@@ -202,32 +236,4 @@ async function handleTaskCreated() {
   </AppShell>
 </template>
 
-<style scoped>
-.floating-add {
-  position: absolute;
-  right: 26px;
-  bottom: 24px;
-  width: 52px;
-  height: 52px;
-  border: 0;
-  border-radius: 999px;
-  color: #101710;
-  background: #68ae5a;
-  font: inherit;
-  font-size: 30px;
-  line-height: 1;
-  box-shadow: var(--app-shadow-floating);
-  cursor: pointer;
-  z-index: 2;
-}
-
-@media (max-width: 767px) {
-  .floating-add {
-    right: var(--app-mobile-fab-offset-right);
-    bottom: calc(72px + var(--app-mobile-fab-offset-bottom));
-    width: 56px;
-    height: 56px;
-    font-size: 32px;
-  }
-}
-</style>
+<style scoped src="./MainWindow.css"></style>

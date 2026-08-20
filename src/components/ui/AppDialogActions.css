@@ -1,0 +1,5 @@
+@media (max-width: 767px) {
+  .app-dialog-actions :deep(.n-button) {
+    width: 100%;
+  }
+}

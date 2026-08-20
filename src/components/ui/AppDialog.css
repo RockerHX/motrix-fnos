@@ -1,0 +1,30 @@
+.app-dialog-title {
+  margin: 0;
+}
+
+.app-dialog--fixed-body {
+  display: flex;
+  flex-direction: column;
+  height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-desktop-margin)));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-dialog--fixed-body :deep(.n-card-content) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-dialog--fixed-body :deep(.n-card-header),
+.app-dialog--fixed-body :deep(.n-card__footer) {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 767px) {
+  .app-dialog--fixed-body {
+    height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-mobile-margin)));
+  }
+}

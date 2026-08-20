@@ -91,6 +91,21 @@ fn process_args_include_session_paths_when_configured() {
     assert!(args.contains(&"--save-session=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
     assert!(args.contains(&"--dht-file-path=/tmp/motrix-fnos/aria2/dht.dat".to_string()));
     assert!(args.contains(&"--log=/tmp/motrix-fnos/aria2/aria2.log".to_string()));
+
+    let log_args = args
+        .iter()
+        .filter(|arg| arg.starts_with("--log-") || arg.starts_with("--log="))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        log_args,
+        vec![
+            "--log-level=warn",
+            "--log-max-size=10M",
+            "--log-max-files=3",
+            "--log=/tmp/motrix-fnos/aria2/aria2.log",
+        ]
+    );
 }
 
 #[test]
@@ -101,6 +116,18 @@ fn summarized_process_args_redact_rpc_secret() {
 
     assert!(summary.contains("--rpc-secret=***"));
     assert!(!summary.contains("super-secret"));
+}
+
+#[test]
+fn process_args_can_use_temporary_detailed_log_level_without_relaxing_rotation_limits() {
+    let mut config = test_config(None);
+    config.log_path = Some("/tmp/motrix-fnos/aria2/aria2.log".to_string());
+
+    let args = process_args_with_log_level(&config, Aria2LogLevel::Debug);
+
+    assert!(args.contains(&"--log-level=debug".to_string()));
+    assert!(args.contains(&"--log-max-size=10M".to_string()));
+    assert!(args.contains(&"--log-max-files=3".to_string()));
 }
 
 #[test]

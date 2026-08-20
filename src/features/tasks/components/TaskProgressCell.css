@@ -1,0 +1,10 @@
+.task-progress-cell {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+small {
+  color: var(--app-text-muted);
+  font-variant-numeric: tabular-nums;
+}

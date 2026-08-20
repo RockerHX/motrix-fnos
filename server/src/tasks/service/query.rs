@@ -1,31 +1,12 @@
 use super::TaskService;
-use crate::config::aria2::Aria2Config;
-use crate::tasks::{refresh_tasks_from_aria2, DownloadTask, DownloadTaskStatus};
+use crate::tasks::{DownloadTask, DownloadTaskStatus};
 
-pub(super) async fn list_download_tasks(
+pub(super) fn list_download_task_snapshot(
     service: &TaskService<'_>,
-    config: &Aria2Config,
 ) -> Result<Vec<DownloadTask>, String> {
-    if service.runtime_guard.is_exiting() {
-        service.debug_logs.info(
-            "tasks.list",
-            "应用正在退出，跳过 Aria2 刷新并返回内存任务快照",
-        );
-        return Ok(visible_tasks(crate::tasks::list_tasks(
-            service.download_tasks,
-        )?));
-    }
-
-    let tasks = refresh_tasks_from_aria2(
+    Ok(visible_tasks(crate::tasks::list_tasks(
         service.download_tasks,
-        service.app_data_dir,
-        config,
-        Some(service.debug_logs),
-    )
-    .await?;
-    sync_tasks_to_database(service, &tasks).await?;
-
-    Ok(visible_tasks(tasks))
+    )?))
 }
 
 pub(super) fn list_removed_download_tasks(
@@ -35,18 +16,18 @@ pub(super) fn list_removed_download_tasks(
     Ok(removed_tasks(tasks))
 }
 
-pub(super) async fn sync_tasks_to_database(
+pub(super) fn get_download_task(
     service: &TaskService<'_>,
-    tasks: &[DownloadTask],
-) -> Result<(), String> {
-    service.repository.persist_task_states(tasks).await
+    task_id: u64,
+) -> Result<Option<DownloadTask>, String> {
+    Ok(find_download_task(
+        crate::tasks::list_tasks(service.download_tasks)?,
+        task_id,
+    ))
 }
 
-pub(super) async fn sync_task_to_database(
-    service: &TaskService<'_>,
-    task: &DownloadTask,
-) -> Result<(), String> {
-    service.repository.persist_task_state(task).await
+fn find_download_task(tasks: Vec<DownloadTask>, task_id: u64) -> Option<DownloadTask> {
+    tasks.into_iter().find(|task| task.id == task_id)
 }
 
 fn visible_tasks(tasks: Vec<DownloadTask>) -> Vec<DownloadTask> {

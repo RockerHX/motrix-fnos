@@ -1,0 +1,131 @@
+.json-rpc-guide {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.json-rpc-guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.json-rpc-guide-header > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.json-rpc-guide-header h3,
+.json-rpc-guide-header p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.json-rpc-guide-header h3 {
+  color: var(--app-text-strong);
+  font-size: 18px;
+}
+
+.json-rpc-guide-header p {
+  color: var(--app-text-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.json-rpc-guide-alert {
+  line-height: 1.6;
+}
+
+.json-rpc-guide-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.json-rpc-guide-steps section {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.json-rpc-guide-step {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--app-color-on-brand);
+  background: var(--app-text-accent);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.json-rpc-guide-steps h4,
+.json-rpc-guide-steps p,
+.json-rpc-guide-note {
+  margin: 0;
+}
+
+.json-rpc-guide-steps h4 {
+  color: var(--app-text-strong);
+  font-size: 14px;
+}
+
+.json-rpc-guide-steps p,
+.json-rpc-guide-note {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.json-rpc-guide-endpoint {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay);
+}
+
+.json-rpc-guide-endpoint > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.json-rpc-guide-label {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+
+.json-rpc-guide-endpoint code {
+  color: var(--app-text-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.json-rpc-guide-endpoint small {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 767px) {
+  .json-rpc-guide-header,
+  .json-rpc-guide-endpoint {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .json-rpc-guide-header :deep(.n-button),
+  .json-rpc-guide-endpoint :deep(.n-button) {
+    width: 100%;
+  }
+}

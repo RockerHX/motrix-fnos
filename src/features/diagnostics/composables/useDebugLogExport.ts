@@ -1,6 +1,6 @@
 import { useMessage } from "naive-ui";
 import type { Ref } from "vue";
-import { getErrorMessage } from "../../../app/utils/errors";
+import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { useI18n } from "../../../i18n";
 import type { DebugLogCategory, DebugLogEntry } from "../types";
 
@@ -29,13 +29,14 @@ export function useDebugLogExport({
     }
 
     const text = formatAllLogs();
-    try {
-      await copyText(text);
+    const result = await copyTextToClipboard(text);
+    if (result.copied) {
       message.success(t("logs.copied"));
-    } catch (error) {
-      onManualCopy(text);
-      message.warning(t("logs.autoCopyLimited", { message: getErrorMessage(error, t("common.unknown")) }));
+      return;
     }
+
+    onManualCopy(text);
+    message.warning(t("common.clipboardManualCopy"));
   }
 
   function downloadAllLogs() {
@@ -64,15 +65,6 @@ export function useDebugLogExport({
       "",
     ].join("\n");
     return `${header}${filteredLogs.value.map(formatLogLine).join("\n")}`;
-  }
-
-  async function copyText(text: string) {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-
-    throw new Error(t("logs.clipboardUnavailable"));
   }
 
   function formatLogLine(log: DebugLogEntry) {

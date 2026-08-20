@@ -20,7 +20,9 @@ describe("useMainWindowLifecycle", () => {
     }));
 
     expect(refreshTasks).toHaveBeenCalledWith(true);
+    expect(refreshTasks).toHaveBeenCalledTimes(1);
     expect(refreshAria2Status).toHaveBeenCalled();
+    expect(refreshAria2Status).toHaveBeenCalledTimes(1);
     errorMessage.value = "backend failed";
     isRuntimeExiting.value = true;
     await nextTick();

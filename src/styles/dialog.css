@@ -1,7 +1,59 @@
 .app-dialog {
   width: min(var(--app-dialog-width), calc(100vw - var(--app-dialog-desktop-margin)));
   max-height: calc(var(--app-viewport-height) - var(--app-dialog-desktop-margin));
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.app-dialog,
+.task-create-fields,
+.file-confirm-table-wrap,
+.log-list {
+  color-scheme: dark;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+/* Keep every modal scroll surface visually quiet and consistent with the dark shell. */
+.app-dialog::-webkit-scrollbar,
+.task-create-fields::-webkit-scrollbar,
+.file-confirm-table-wrap::-webkit-scrollbar,
+.log-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.app-dialog::-webkit-scrollbar-track,
+.task-create-fields::-webkit-scrollbar-track,
+.file-confirm-table-wrap::-webkit-scrollbar-track,
+.log-list::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.app-dialog::-webkit-scrollbar-corner,
+.task-create-fields::-webkit-scrollbar-corner,
+.file-confirm-table-wrap::-webkit-scrollbar-corner,
+.log-list::-webkit-scrollbar-corner {
+  background: var(--app-scrollbar-track);
+}
+
+.app-dialog::-webkit-scrollbar-thumb,
+.task-create-fields::-webkit-scrollbar-thumb,
+.file-confirm-table-wrap::-webkit-scrollbar-thumb,
+.log-list::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.app-dialog::-webkit-scrollbar-thumb:hover,
+.task-create-fields::-webkit-scrollbar-thumb:hover,
+.file-confirm-table-wrap::-webkit-scrollbar-thumb:hover,
+.log-list::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
 }
 
 .app-dialog-eyebrow {

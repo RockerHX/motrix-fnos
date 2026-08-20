@@ -1,4 +1,4 @@
-import { httpDelete, httpGet, httpPost, httpPostFormData } from "../../../services/http";
+import { httpDelete, httpGet, httpPost, httpPostFormData, httpPut } from "../../../services/http";
 import type {
   CreateBatchDownloadTasksRequest,
   CreateBatchDownloadTasksResponse,
@@ -6,6 +6,7 @@ import type {
   CreateDownloadTaskRequest,
   CreateTorrentDownloadTaskRequest,
   DownloadTask,
+  TaskFileContextResponse,
 } from "../../../types/tasks";
 
 export function createDownloadTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
@@ -34,11 +35,17 @@ export function createTorrentDownloadTask(payload: CreateTorrentDownloadTaskRequ
   return httpPostFormData<DownloadTask>("/api/tasks/torrent", formData);
 }
 
-export function listDownloadTasks(): Promise<DownloadTask[]> {
+export function listDownloadTasks(signal?: AbortSignal): Promise<DownloadTask[]> {
+  if (signal) {
+    return httpGet<DownloadTask[]>("/api/tasks", { signal });
+  }
   return httpGet<DownloadTask[]>("/api/tasks");
 }
 
-export function listRemovedDownloadTasks(): Promise<DownloadTask[]> {
+export function listRemovedDownloadTasks(signal?: AbortSignal): Promise<DownloadTask[]> {
+  if (signal) {
+    return httpGet<DownloadTask[]>("/api/tasks?status=removed", { signal });
+  }
   return httpGet<DownloadTask[]>("/api/tasks?status=removed");
 }
 
@@ -50,6 +57,10 @@ export function resumeDownloadTask(taskId: number): Promise<DownloadTask> {
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/resume`);
 }
 
+export function updateDownloadTaskProxy(taskId: number, enabled: boolean): Promise<DownloadTask> {
+  return httpPut<DownloadTask>(`/api/tasks/${taskId}/proxy`, { enabled });
+}
+
 export function confirmDownloadTaskFiles(
   taskId: number,
   payload: ConfirmDownloadTaskFilesRequest,
@@ -57,8 +68,16 @@ export function confirmDownloadTaskFiles(
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/confirm`, payload);
 }
 
-export function redownloadDownloadTask(taskId: number): Promise<DownloadTask> {
-  return httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`);
+export function redownloadDownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  return useProxy === undefined
+    ? httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`)
+    : httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`, { useProxy });
+}
+
+export function restoreDownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  return useProxy === undefined
+    ? httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`)
+    : httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`, { useProxy });
 }
 
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
@@ -67,4 +86,9 @@ export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promis
 
 export function permanentlyDeleteDownloadTask(taskId: number): Promise<void> {
   return httpDelete<void>(`/api/tasks/${taskId}/permanent`);
+}
+
+export function getTaskFileContext(taskId: number, language: string): Promise<TaskFileContextResponse> {
+  const query = new URLSearchParams({ language });
+  return httpGet<TaskFileContextResponse>(`/api/tasks/${taskId}/file-context?${query.toString()}`);
 }

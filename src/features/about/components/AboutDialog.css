@@ -1,0 +1,211 @@
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+:deep(.about-dialog-content) {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.about-tabs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.about-tabs :deep(.about-pane) {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  padding-right: 4px;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.about-tabs :deep(.about-pane)::-webkit-scrollbar-thumb:hover {
+  background: var(--app-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.about-content {
+  display: grid;
+  gap: 18px;
+}
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.app-mark {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--app-radius-lg);
+  color: var(--app-color-on-brand);
+  background: var(--app-text-accent);
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.about-hero h3 {
+  color: var(--app-text-strong);
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.about-hero p,
+.version-line {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.update-result p {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.update-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.version-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.asset-list {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-list a {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--app-text-accent-soft) 22%, transparent);
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-secondary);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.asset-list a:hover {
+  border-color: color-mix(in srgb, var(--app-text-accent-soft) 50%, transparent);
+}
+
+.changelog-list {
+  display: grid;
+  gap: 12px;
+}
+
+.changelog-entry {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--app-radius-sm);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.changelog-entry header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--app-text-strong);
+}
+
+.changelog-entry header span,
+.changelog-section h4 {
+  color: var(--app-text-dim);
+  font-size: 12px;
+}
+
+.changelog-section {
+  display: grid;
+  gap: 6px;
+}
+
+.changelog-section h4 {
+  margin: 0;
+}
+
+.changelog-section ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+a {
+  color: var(--app-text-accent-soft);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .about-tabs :deep(.about-pane) {
+    padding-right: 0;
+  }
+
+  .about-content {
+    gap: 14px;
+  }
+
+  .about-hero,
+  .update-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .about-update-card :deep(.n-button) {
+    width: 100%;
+  }
+
+  .changelog-entry header {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

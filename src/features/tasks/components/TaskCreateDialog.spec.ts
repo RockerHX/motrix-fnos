@@ -101,9 +101,29 @@ vi.mock("naive-ui", async () => {
           type: Boolean,
           default: false,
         },
+        maskClosable: {
+          type: Boolean,
+          default: true,
+        },
       },
-      setup(props, { slots }) {
-        return () => (props.show ? h("div", { "data-test": "n-modal" }, slots.default?.()) : null);
+      emits: ["update:show"],
+      setup(props, { emit, slots }) {
+        return () =>
+          props.show
+            ? h(
+                "div",
+                {
+                  "data-test": "n-modal",
+                  "data-mask-closable": String(props.maskClosable),
+                  onClick: (event: MouseEvent) => {
+                    if (event.target === event.currentTarget && props.maskClosable) {
+                      emit("update:show", false);
+                    }
+                  },
+                },
+                slots.default?.(),
+              )
+            : null;
       },
     }),
     NSelect: defineComponent({
@@ -135,6 +155,30 @@ vi.mock("naive-ui", async () => {
       },
     }),
     NSpace: slotStub("n-space"),
+    NSwitch: defineComponent({
+      name: "NSwitchStub",
+      inheritAttrs: false,
+      props: {
+        value: { type: Boolean, default: false },
+        disabled: { type: Boolean, default: false },
+        loading: { type: Boolean, default: false },
+      },
+      emits: ["update:value"],
+      setup(props, { emit, attrs }) {
+        return () =>
+          h("button", {
+            ...attrs,
+            type: "button",
+            role: "switch",
+            "aria-checked": String(props.value),
+            disabled: props.disabled,
+            "data-loading": String(props.loading),
+            onClick: () => {
+              if (!props.disabled) emit("update:value", !props.value);
+            },
+          });
+      },
+    }),
     NTabPane: slotStub("n-tab-pane"),
     NTabs: slotStub("n-tabs"),
     NUpload: defineComponent({
@@ -166,6 +210,7 @@ vi.mock("naive-ui", async () => {
               type: props.attrType,
               disabled: props.disabled,
               onClick: (event: MouseEvent) => {
+                event.stopPropagation();
                 if (!props.disabled) {
                   emit("click", event);
                 }
@@ -200,6 +245,57 @@ describe("TaskCreateDialog", () => {
     expect(wrapper.text()).toContain("新建下载任务");
   });
 
+  it("keeps dialog actions outside the scrollable form fields", () => {
+    const { wrapper } = mountWithPinia(TaskCreateDialog, {
+      props: {
+        show: true,
+      },
+    });
+
+    const form = wrapper.get('[data-test="n-form"]');
+    const fields = form.get(".task-create-fields");
+    const actions = form.get(".dialog-actions");
+
+    expect(fields.find(".task-create-tabs").exists()).toBe(true);
+    expect(fields.find(".dialog-actions").exists()).toBe(false);
+    expect(actions.element.parentElement).toBe(form.element);
+  });
+
+  it("blocks mask and close controls while creating or exiting", async () => {
+    for (const stateOptions of [{ isCreating: true }, { isRuntimeExiting: true }]) {
+      const state = createComposableState(stateOptions);
+      mockUseTaskCreateForm.mockReturnValue(state);
+      const { wrapper } = mountWithPinia(TaskCreateDialog, {
+        props: { show: true },
+      });
+
+      const modal = wrapper.get('[data-test="n-modal"]');
+      expect(modal.attributes("data-mask-closable")).toBe("false");
+      expect(wrapper.get('button[aria-label="关闭"]').attributes("disabled")).toBeDefined();
+      expect(wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
+
+      await modal.trigger("click");
+      await wrapper.get('button[aria-label="关闭"]').trigger("click");
+      await wrapper.findAll("button").find((button) => button.text() === "取消")!.trigger("click");
+
+      expect(mockCloseDialog).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows a mask close when task creation is unlocked", async () => {
+    const state = createComposableState();
+    mockUseTaskCreateForm.mockReturnValue(state);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, {
+      props: { show: true },
+    });
+
+    const modal = wrapper.get('[data-test="n-modal"]');
+    expect(modal.attributes("data-mask-closable")).toBe("true");
+    await modal.trigger("click");
+
+    expect(mockCloseDialog).toHaveBeenCalledOnce();
+  });
+
   it("binds composable state and handlers to the rendered dialog", async () => {
     mockUseTaskCreateForm.mockReturnValue(
       createComposableState({
@@ -218,16 +314,62 @@ describe("TaskCreateDialog", () => {
     expect(wrapper.text()).toContain("表单错误");
     expect(wrapper.text()).toContain("目录读取失败");
 
-    const buttons = wrapper.findAll("button");
-    expect(buttons[buttons.length - 1]?.attributes("disabled")).toBeDefined();
+    const submitButton = wrapper.findAll("button").find((button) => button.text() === "开始下载");
+    expect(submitButton?.attributes("disabled")).toBeDefined();
 
-    await buttons[0]!.trigger("click");
-    await buttons[1]!.trigger("click");
+    await wrapper.get('button[aria-label="关闭"]').trigger("click");
+    await wrapper.findAll("button").find((button) => button.text() === "取消")!.trigger("click");
     await wrapper.get('[data-test="n-form"]').trigger("submit");
     await flushPromises();
 
     expect(mockCloseDialog).toHaveBeenCalledTimes(2);
     expect(mockSubmitCreateTask).toHaveBeenCalledTimes(1);
+  });
+
+  it("controls proxy selection and opens settings when no proxy is configured", async () => {
+    const configuredState = createComposableState();
+    mockUseTaskCreateForm.mockReturnValue(configuredState);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+
+    const proxySwitch = wrapper.get('button[role="switch"]');
+    expect(proxySwitch.attributes("disabled")).toBeUndefined();
+    await proxySwitch.trigger("click");
+    expect(configuredState.form.useProxy).toBe(true);
+
+    const unavailableState = createComposableState({ canUseProxy: false, isProxyConfigured: false });
+    mockUseTaskCreateForm.mockReturnValue(unavailableState);
+    const { wrapper: unavailableWrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+    expect(unavailableWrapper.get('button[role="switch"]').attributes("disabled")).toBeDefined();
+    const unavailableStateRow = unavailableWrapper.get('[data-test="proxy-unavailable-state"]');
+    expect(unavailableStateRow.text()).toContain("尚未配置下载代理");
+    expect(unavailableWrapper.find(".proxy-state-alert").exists()).toBe(false);
+
+    await unavailableWrapper.findAll("button").find((button) => button.text() === "前往设置")!.trigger("click");
+    expect(unavailableState.openProxySettings).toHaveBeenCalledOnce();
+
+    const lastCall = mockUseTaskCreateForm.mock.calls[mockUseTaskCreateForm.mock.calls.length - 1];
+    const options = lastCall?.[0] as { onOpenProxySettings: () => void };
+    options.onOpenProxySettings();
+    expect(unavailableWrapper.emitted("openSettings")).toHaveLength(1);
+
+    const loadFailedState = createComposableState({ canUseProxy: false, hasProxyStatusError: true });
+    mockUseTaskCreateForm.mockReturnValue(loadFailedState);
+    const { wrapper: loadFailedWrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+    expect(loadFailedWrapper.get('[data-test="proxy-unavailable-state"]').text()).toContain("无法读取下载代理状态");
+  });
+
+  it("offers host folder authorization when no confirmed directory is available", async () => {
+    const composableState = createComposableState({
+      accessiblePaths: [],
+      hostSupportsAuthorization: true,
+    });
+    mockUseTaskCreateForm.mockReturnValue(composableState);
+    const { wrapper } = mountWithPinia(TaskCreateDialog, { props: { show: true } });
+
+    const addButton = wrapper.get('[data-test="add-accessible-path"]');
+    await addButton.trigger("click");
+
+    expect(composableState.addAccessiblePath).toHaveBeenCalledOnce();
   });
 
   it("selects and removes torrent files through Naive UI upload", async () => {
@@ -277,12 +419,21 @@ function createComposableState(overrides: {
   canSubmit?: boolean;
   formErrorMessage?: string;
   accessiblePathsError?: string;
+  accessiblePaths?: string[];
+  hostSupportsAuthorization?: boolean;
+  isCreating?: boolean;
+  isRuntimeExiting?: boolean;
+  canUseProxy?: boolean;
+  isProxyConfigured?: boolean;
+  hasProxyStatusError?: boolean;
 } = {}) {
+  const taskStore = reactive({
+    isCreating: overrides.isCreating ?? false,
+    isRuntimeExiting: overrides.isRuntimeExiting ?? false,
+  });
+
   return {
-    taskStore: reactive({
-      isCreating: false,
-      isRuntimeExiting: false,
-    }),
+    taskStore,
     form: reactive({
       url: "",
       batchUrls: "",
@@ -294,23 +445,38 @@ function createComposableState(overrides: {
       category: "默认",
       connections: 16,
       downloadLimitKb: 0,
-      proxy: "",
+      useProxy: false,
     }),
     activeInputType: ref("url"),
     formErrorMessage: ref(overrides.formErrorMessage ?? ""),
     batchFailedItems: ref([]),
-    accessiblePaths: ref<string[]>(["/downloads"]),
+    accessiblePaths: ref<string[]>(overrides.accessiblePaths ?? ["/downloads"]),
     isLoadingAccessiblePaths: ref(false),
     accessiblePathsError: ref(overrides.accessiblePathsError ?? ""),
     urlFeedback: ref<string | undefined>(undefined),
     urlValidationStatus: ref<string | undefined>(undefined),
     magnetFeedback: ref<string | undefined>(undefined),
     magnetValidationStatus: ref<string | undefined>(undefined),
-    accessiblePathOptions: ref([{ label: "/downloads", value: "/downloads" }]),
+    accessiblePathOptions: ref(
+      (overrides.accessiblePaths ?? ["/downloads"]).map((path) => ({ label: path, value: path })),
+    ),
+    hostSupportsAuthorization: ref(overrides.hostSupportsAuthorization ?? false),
+    isAuthorizingAccessiblePath: ref(false),
+    authorizationMessage: ref(""),
+    addAccessiblePath: vi.fn(),
     canSubmit: ref(overrides.canSubmit ?? true),
-    isMaskClosable: ref(true),
+    isMaskClosable: ref(!taskStore.isCreating && !taskStore.isRuntimeExiting),
+    isProxyConfigured: ref(overrides.isProxyConfigured ?? true),
+    isLoadingProxyStatus: ref(false),
+    hasProxyStatusError: ref(overrides.hasProxyStatusError ?? false),
+    canUseProxy: ref(overrides.canUseProxy ?? true),
     selectTorrentFile: vi.fn(),
     submitCreateTask: mockSubmitCreateTask,
-    closeDialog: mockCloseDialog,
+    closeDialog: () => {
+      if (!taskStore.isCreating && !taskStore.isRuntimeExiting) {
+        mockCloseDialog();
+      }
+    },
+    openProxySettings: vi.fn(),
   };
 }

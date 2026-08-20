@@ -1,5 +1,5 @@
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::files::safe_task_path_component;
+use crate::tasks::files::bt_task_path_component;
 use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
     PreparedDownloadTask, DEFAULT_TASK_CATEGORY,
@@ -49,7 +49,7 @@ pub fn prepare_torrent_task_with_logs(
             source_url: format!("torrent:{}", torrent_file_name),
             display_name: torrent_display_name(&torrent_file_name),
             base_save_dir: request.save_dir,
-            source_type: DownloadTaskSourceType::Url,
+            source_type: DownloadTaskSourceType::Torrent,
             start_mode: request.start_mode,
             category: request.category,
             advanced_options: request.advanced_options,
@@ -93,6 +93,8 @@ pub(crate) fn prepare_bt_download_task_with_logs(
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
         aria2_options,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
     })
 }
 
@@ -146,6 +148,8 @@ fn prepare_task_inner(
         start_mode: request.start_mode,
         advanced_options: request.advanced_options,
         aria2_options,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
     })
 }
 
@@ -221,7 +225,7 @@ fn create_bt_task_dir(
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
     let base_dir = Path::new(base_save_dir);
-    let safe_name = safe_task_path_component(task_name);
+    let safe_name = bt_task_path_component(task_name);
 
     // 通过 create_dir 原子占用名称并逐号避让，保证返回目录由当前任务独占；安全递归删除依赖这一所有权约束。
     for index in 0..1000 {
@@ -331,6 +335,7 @@ fn validate_task_url(source_type: DownloadTaskSourceType, url: &str) -> Result<(
             Ok(())
         }
         DownloadTaskSourceType::Url => Err("当前仅支持 HTTP / HTTPS 下载链接".to_string()),
+        DownloadTaskSourceType::Torrent => Err("种子任务必须通过种子文件创建".to_string()),
         DownloadTaskSourceType::Magnet if lower.starts_with("magnet:?") => Ok(()),
         DownloadTaskSourceType::Magnet => Err("请输入有效的磁力链接".to_string()),
     }

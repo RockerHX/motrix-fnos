@@ -2,6 +2,7 @@ use crate::config::aria2::Aria2BinarySource;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Child;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -44,8 +45,19 @@ impl ManagedAria2Process {
             .map_err(|error| format!("停止 Aria2 进程句柄失败：{}", error))
     }
 
-    pub(super) fn wait(&mut self) {
-        let _ = self.child.wait();
+    pub(super) fn wait_for_exit(&mut self, timeout: Duration) -> Result<bool, String> {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return Ok(true),
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(error) => return Err(format!("等待 Aria2 进程退出失败：{}", error)),
+            }
+        }
+        self.child
+            .try_wait()
+            .map(|status| status.is_some())
+            .map_err(|error| format!("等待 Aria2 进程退出失败：{}", error))
     }
 }
 

@@ -1,16 +1,19 @@
-use super::refresh::{is_stale_aria2_gid_status, pause_status_is_settled};
+use super::aria2_rpc::query::Aria2ActiveTaskActivity;
+use super::refresh::{
+    ensure_pause_status_settled, is_stale_aria2_gid_status, pause_status_is_settled,
+};
 use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
 use crate::tasks::aria2_rpc::{
-    build_add_torrent_request, build_add_uri_request, build_gid_control_request,
-    build_tell_many_request, build_tell_status_request,
+    build_gid_control_request, build_tell_many_request, build_tell_status_request,
 };
-use crate::tasks::files::delete_file_candidates;
+use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
 use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
-use crate::tasks::session::find_matching_sqlite_task;
+use crate::tasks::session::{find_matching_sqlite_task, matching_aria2_task_gids};
 use axum::{extract::Json, routing::post, Router};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
@@ -44,8 +47,10 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
     DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir,
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Active,
@@ -55,12 +60,35 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
         error_code: Some("old".to_string()),
         error_message: Some("old".to_string()),
         file_path,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,
         updated_at: 1,
     }
+}
+
+#[test]
+fn public_download_task_serialization_hides_internal_recovery_fields() {
+    let mut task = sample_task(None, temp_download_dir("public-task"));
+    task.proxy_binding = TaskProxyBinding::override_url(
+        "http://private-user:private-pass@proxy.example:7890".to_string(),
+    );
+    task.metadata_torrent_path = Some("/private/metadata.torrent".to_string());
+    task.files_deleted = true;
+    task.selected_file_indexes = vec![1, 3];
+
+    let serialized =
+        serde_json::to_value(PublicDownloadTask::from(task)).expect("public task should serialize");
+
+    assert!(serialized.get("proxyBinding").is_none());
+    assert!(serialized.get("metadataTorrentPath").is_none());
+    assert!(serialized.get("filesDeleted").is_none());
+    assert!(serialized.get("selectedFileIndexes").is_none());
 }
 
 #[test]
@@ -131,7 +159,7 @@ fn prepare_torrent_task_creates_dedicated_task_dir() {
 
     let task = prepare_torrent_task_with_logs(
         CreateTorrentDownloadTaskRequest {
-            torrent_file_name: "Ubuntu ISO.torrent".to_string(),
+            torrent_file_name: "archlinux.iso.torrent".to_string(),
             torrent_data: b"torrent-bytes".to_vec(),
             save_dir: base_dir.clone(),
             start_mode: DownloadTaskStartMode::Now,
@@ -142,14 +170,40 @@ fn prepare_torrent_task_creates_dedicated_task_dir() {
     )
     .expect("torrent task should be prepared");
 
-    assert_eq!(task.file_name, "Ubuntu ISO");
-    assert_eq!(Path::new(&task.save_dir).file_name().unwrap(), "Ubuntu ISO");
+    assert_eq!(task.file_name, "archlinux.iso");
+    assert_eq!(Path::new(&task.save_dir).file_name().unwrap(), "archlinux");
     assert!(Path::new(&task.save_dir).is_dir());
-    assert!(Path::new(&task.save_dir).starts_with(base_dir));
+    assert!(Path::new(&task.save_dir).starts_with(&base_dir));
+
+    let duplicate = prepare_torrent_task_with_logs(
+        CreateTorrentDownloadTaskRequest {
+            torrent_file_name: "archlinux.iso.torrent".to_string(),
+            torrent_data: b"torrent-bytes".to_vec(),
+            save_dir: base_dir,
+            start_mode: DownloadTaskStartMode::Now,
+            category: None,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+        },
+        &debug_logs,
+    )
+    .expect("duplicate torrent task should be prepared");
+
+    assert_eq!(
+        Path::new(&duplicate.save_dir).file_name().unwrap(),
+        "archlinux (1)"
+    );
 }
 
 #[test]
-fn prepare_task_maps_advanced_options_and_category() {
+fn bt_task_path_component_removes_only_the_last_extension() {
+    assert_eq!(bt_task_path_component("archive.tar.gz"), "archive.tar");
+    assert_eq!(bt_task_path_component("Ubuntu ISO"), "Ubuntu ISO");
+    assert_eq!(bt_task_path_component(".hidden"), "hidden");
+    assert_eq!(bt_task_path_component(".."), "未命名种子任务");
+}
+
+#[test]
+fn prepare_task_maps_non_proxy_advanced_options_and_category() {
     let task = prepare_task(CreateDownloadTaskRequest {
         url: "https://example.com/file.zip".to_string(),
         file_name: None,
@@ -160,7 +214,8 @@ fn prepare_task_maps_advanced_options_and_category() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: Some(8),
             download_limit_kb: Some(512),
-            proxy: Some(" http://127.0.0.1:7890 ".to_string()),
+            use_proxy: None,
+            proxy: None,
         },
         aria2_options: serde_json::Map::from_iter([
             (
@@ -179,7 +234,7 @@ fn prepare_task_maps_advanced_options_and_category() {
     assert_eq!(task.aria2_options["split"], "8");
     assert_eq!(task.aria2_options["max-connection-per-server"], "8");
     assert_eq!(task.aria2_options["max-download-limit"], "524288");
-    assert_eq!(task.aria2_options["all-proxy"], "http://127.0.0.1:7890");
+    assert!(!task.aria2_options.contains_key("all-proxy"));
     assert_eq!(task.aria2_options["user-agent"], "Motrix");
     assert!(!task.aria2_options.contains_key("unknown-option"));
 }
@@ -196,6 +251,7 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: Some(65),
             download_limit_kb: None,
+            use_proxy: None,
             proxy: None,
         },
         aria2_options: serde_json::Map::new(),
@@ -213,12 +269,13 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: None,
             download_limit_kb: None,
+            use_proxy: None,
             proxy: Some("   ".to_string()),
         },
         aria2_options: serde_json::Map::new(),
     })
     .expect_err("blank proxy should fail");
-    assert!(blank_proxy.contains("代理地址不能为空"));
+    assert!(blank_proxy.contains("代理选择尚未解析"));
 
     let invalid_proxy = prepare_task(CreateDownloadTaskRequest {
         url: "https://example.com/file.zip".to_string(),
@@ -230,12 +287,41 @@ fn prepare_task_rejects_invalid_advanced_options() {
         advanced_options: CreateTaskAdvancedOptions {
             connections: None,
             download_limit_kb: None,
+            use_proxy: None,
             proxy: Some("ftp://127.0.0.1:7890".to_string()),
         },
         aria2_options: serde_json::Map::new(),
     })
     .expect_err("unsupported proxy should fail");
-    assert!(invalid_proxy.contains("代理地址必须"));
+    assert!(invalid_proxy.contains("代理选择尚未解析"));
+}
+
+#[test]
+fn create_request_debug_redacts_legacy_proxy_values() {
+    let request = CreateDownloadTaskRequest {
+        url: "https://example.com/archive.zip".to_string(),
+        file_name: None,
+        save_dir: Some("/downloads".to_string()),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions {
+            proxy: Some("http://legacy-user:legacy-password@proxy.example.com:7890".to_string()),
+            ..CreateTaskAdvancedOptions::default()
+        },
+        aria2_options: serde_json::Map::from_iter([(
+            "all-proxy".to_string(),
+            serde_json::json!("socks5://rpc-user:rpc-password@proxy.example.com:1080"),
+        )]),
+    };
+
+    let debug = format!("{request:?}");
+    assert!(!debug.contains("legacy-user"));
+    assert!(!debug.contains("legacy-password"));
+    assert!(!debug.contains("rpc-user"));
+    assert!(!debug.contains("rpc-password"));
+    assert!(debug.contains("[REDACTED]"));
+    assert!(debug.contains("all-proxy"));
 }
 
 #[test]
@@ -256,6 +342,8 @@ fn store_created_task_persists_gid() {
             start_mode: DownloadTaskStartMode::Now,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
     )
@@ -287,6 +375,8 @@ fn store_created_task_preserves_paused_start_mode() {
             start_mode: DownloadTaskStartMode::Paused,
             advanced_options: CreateTaskAdvancedOptions::default(),
             aria2_options: serde_json::Map::new(),
+            use_proxy: false,
+            proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
     )
@@ -418,7 +508,43 @@ fn mark_task_redownloaded_rejects_unfinished_task() {
 }
 
 #[test]
-fn delete_task_files_removes_completed_file_before_redownload() {
+fn task_operation_guard_rejects_parallel_operation_and_releases_on_drop() {
+    let tasks = TaskMemoryState::new(Vec::new());
+    let guard = tasks
+        .begin_operation(1)
+        .expect("first operation should lock");
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        1
+    );
+
+    let error = match tasks.begin_operation(1) {
+        Ok(_) => panic!("parallel operation should reject"),
+        Err(error) => error,
+    };
+    assert!(error.contains("已有操作"));
+
+    let different_task_guard = tasks
+        .begin_operation(2)
+        .expect("different task should lock independently");
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        2
+    );
+
+    drop(guard);
+    drop(different_task_guard);
+    assert_eq!(
+        tasks.active_operation_count().expect("count should load"),
+        0
+    );
+    tasks
+        .begin_operation(1)
+        .expect("operation should unlock after guard drop");
+}
+
+#[test]
+fn delete_task_files_removes_completed_file_and_control_file() {
     let save_dir = PathBuf::from(temp_download_dir("redownload-delete"));
     fs::create_dir_all(&save_dir).expect("save dir should be created");
     let file_path = save_dir.join("file.zip");
@@ -435,6 +561,63 @@ fn delete_task_files_removes_completed_file_before_redownload() {
 
     assert!(!file_path.exists());
     assert!(!aria2_path.exists());
+}
+
+#[test]
+fn delete_task_files_accepts_bt_directory_without_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-bt-extensionless-dir"));
+    let task_dir = base_dir.join("archlinux");
+    fs::create_dir_all(&task_dir).expect("BT task dir should be created");
+    fs::write(task_dir.join("archlinux.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("archlinux.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "torrent:archlinux.iso.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "archlinux.iso".to_string();
+
+    delete_task_files(&task).expect("BT task dir should delete");
+
+    assert!(!task_dir.exists());
+}
+
+#[test]
+fn delete_task_files_accepts_legacy_bt_directory_with_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-bt-legacy-dir"));
+    let task_dir = base_dir.join("archlinux.iso");
+    fs::create_dir_all(&task_dir).expect("BT task dir should be created");
+    fs::write(task_dir.join("archlinux.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("archlinux.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "torrent:archlinux.iso.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "archlinux.iso".to_string();
+
+    delete_task_files(&task).expect("legacy BT task dir should delete");
+
+    assert!(!task_dir.exists());
+}
+
+#[test]
+fn delete_task_files_accepts_legacy_magnet_directory_with_task_extension() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-magnet-legacy-dir"));
+    let task_dir = base_dir.join("Ubuntu ISO.mp4");
+    fs::create_dir_all(&task_dir).expect("magnet task dir should be created");
+    fs::write(task_dir.join("ubuntu.iso"), b"completed").expect("file should be written");
+    let mut task = sample_task(
+        Some(task_dir.join("ubuntu.iso").display().to_string()),
+        task_dir.display().to_string(),
+    );
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "Ubuntu ISO.mp4".to_string();
+
+    delete_task_files(&task).expect("legacy magnet task dir should delete");
+
+    assert!(!task_dir.exists());
 }
 
 fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatus {
@@ -527,8 +710,10 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
     let task = DownloadTask {
         id: 1,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("metadata-gid".to_string()),
         status: DownloadTaskStatus::Error,
@@ -538,7 +723,11 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
         error_code: None,
         error_message: Some("磁链 metadata 解析任务已失效，请重新添加磁链".to_string()),
         file_path: None,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,
@@ -582,8 +771,10 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     let tasks = TaskMemoryState::new(vec![DownloadTask {
         id: 1,
         url: "magnet:?xt=urn:btih:test".to_string(),
+        source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("metadata-gid".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -593,7 +784,11 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
         error_code: None,
         error_message: None,
         file_path: None,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,
@@ -605,7 +800,8 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
         ..test_config()
     };
 
-    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &config, None)
+    let client = crate::aria2::Aria2RpcClient::new();
+    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &client, &config, None)
         .await
         .expect("refresh should succeed");
 
@@ -662,6 +858,81 @@ fn mark_task_removed_deletes_torrent_task_dir() {
     assert_eq!(task.status, DownloadTaskStatus::Removed);
     assert!(!task_dir.exists());
     assert!(base_dir.exists());
+}
+
+#[test]
+fn delete_task_files_uses_owned_bt_dir_when_display_name_differs() {
+    let base_dir = PathBuf::from(temp_download_dir("delete-owned-bt-dir"));
+    let owned_dir = base_dir.join("角头：斗阵欸.1080p.HD国语中字");
+    let nested_dir = owned_dir.join("角头：斗阵欸.6v电影 地址发布页");
+    fs::create_dir_all(&nested_dir).expect("nested BT directory should be created");
+    fs::write(nested_dir.join("movie.mkv"), b"movie").expect("downloaded file should be written");
+    fs::write(owned_dir.join("source.torrent"), b"torrent").expect("torrent should be written");
+    fs::write(
+        owned_dir.join("角头：斗阵欸.6v电影 地址发布页.aria2"),
+        b"control",
+    )
+    .expect("aria2 control file should be written");
+
+    let mut task = sample_task(
+        Some(nested_dir.join("movie.mkv").display().to_string()),
+        owned_dir.display().to_string(),
+    );
+    task.url = "torrent:source.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.file_name = "角头：斗阵欸.6v电影 地址发布页".to_string();
+    task.owned_task_dir = Some(owned_dir.display().to_string());
+
+    delete_task_files(&task).expect("owned BT directory should delete");
+
+    assert!(!owned_dir.exists());
+    assert!(base_dir.exists());
+    let _ = fs::remove_dir_all(base_dir);
+}
+
+#[test]
+fn delete_pending_magnet_does_not_delete_authorized_root() {
+    let save_dir = PathBuf::from(temp_download_dir("delete-pending-magnet"));
+    fs::create_dir_all(&save_dir).expect("save directory should be created");
+    fs::write(save_dir.join("keep.txt"), b"keep").expect("root file should be written");
+    let mut task = sample_task(None, save_dir.display().to_string());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "磁力链接任务".to_string();
+    task.file_path = None;
+    task.metadata_torrent_path = None;
+    task.confirmation_required = false;
+    task.owned_task_dir = None;
+
+    delete_task_files(&task).expect("pending magnet should not delete base directory");
+
+    assert!(save_dir.join("keep.txt").exists());
+    let _ = fs::remove_dir_all(save_dir);
+}
+
+#[test]
+fn delete_unconfirmed_magnet_does_not_delete_authorized_root_when_names_match() {
+    let save_dir = PathBuf::from(temp_download_dir("delete-unconfirmed-magnet"));
+    fs::create_dir_all(&save_dir).expect("save directory should be created");
+    fs::write(save_dir.join("keep.txt"), b"keep").expect("root file should be written");
+    let root_name = save_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("save directory should have a name")
+        .to_string();
+    let mut task = sample_task(None, save_dir.display().to_string());
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = root_name;
+    task.file_path = None;
+    task.metadata_torrent_path = Some("/private/task-metadata/source.torrent".to_string());
+    task.confirmation_required = true;
+    task.owned_task_dir = None;
+
+    delete_task_files(&task).expect("unconfirmed magnet should not delete base directory");
+
+    assert!(save_dir.join("keep.txt").exists());
+    let _ = fs::remove_dir_all(save_dir);
 }
 
 #[cfg(unix)]
@@ -779,8 +1050,10 @@ fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "download".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -790,7 +1063,11 @@ fn apply_aria2_status_updates_progress_fields() {
         error_code: None,
         error_message: None,
         file_path: None,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,
@@ -860,6 +1137,33 @@ fn aria2_status_deserializes_file_index_from_string() {
 }
 
 #[test]
+fn active_task_activity_detects_bt_seeding_and_upload_speed() {
+    let seeding: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "0",
+        "seeder": true,
+        "bittorrent": {}
+    }))
+    .expect("seeding activity should deserialize");
+    assert!(seeding.is_bt_uploading());
+
+    let uploading: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "128",
+        "seeder": false,
+        "bittorrent": {}
+    }))
+    .expect("upload activity should deserialize");
+    assert!(uploading.is_bt_uploading());
+
+    let idle: Aria2ActiveTaskActivity = serde_json::from_value(serde_json::json!({
+        "uploadSpeed": "0",
+        "seeder": false,
+        "bittorrent": {}
+    }))
+    .expect("idle activity should deserialize");
+    assert!(!idle.is_bt_uploading());
+}
+
+#[test]
 fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.url = "magnet:?xt=urn:btih:test".to_string();
@@ -905,7 +1209,7 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
     assert_eq!(task.completed_length, 0);
     assert_eq!(task.download_speed, 0);
     assert_eq!(task.files.len(), 1);
-    assert_eq!(task.files[0].path, "/downloads/archlinux.iso/archlinux.iso");
+    assert_eq!(task.files[0].path, "/downloads/archlinux/archlinux.iso");
     assert!(task.file_path.is_none());
     assert_eq!(
         task.metadata_torrent_path.as_deref(),
@@ -1042,6 +1346,8 @@ fn pause_status_settles_only_after_paused_progress_is_stable() {
     assert!(!pause_status_is_settled(&paused, None));
     assert!(!pause_status_is_settled(&paused, Some(79)));
     assert!(pause_status_is_settled(&paused, Some(80)));
+    assert!(ensure_pause_status_settled("abc123", &active, false).is_err());
+    assert!(ensure_pause_status_settled("abc123", &paused, true).is_ok());
 }
 
 #[test]
@@ -1077,8 +1383,10 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
     let mut task = DownloadTask {
         id: 1,
         url: "https://example.com/file.zip".to_string(),
+        source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
         save_dir: "/downloads".to_string(),
+        owned_task_dir: None,
         category: "默认".to_string(),
         gid: Some("abc123".to_string()),
         status: DownloadTaskStatus::Pending,
@@ -1088,7 +1396,11 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         error_code: Some("old".to_string()),
         error_message: Some("old".to_string()),
         file_path: None,
+        use_proxy: false,
+        proxy_binding: crate::tasks::TaskProxyBinding::default(),
         metadata_torrent_path: None,
+        files_deleted: false,
+        selected_file_indexes: Vec::new(),
         confirmation_required: false,
         files: Vec::new(),
         created_at: 1,
@@ -1290,165 +1602,6 @@ fn default_download_dir_uses_downloads_under_home() {
 }
 
 #[test]
-fn add_uri_request_contains_url_and_options() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "https://example.com/file.zip".to_string(),
-            file_name: "custom.zip".to_string(),
-            output_file_name: Some("custom.zip".to_string()),
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Url,
-            start_mode: DownloadTaskStartMode::Now,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::from_iter([
-                (
-                    "split".to_string(),
-                    serde_json::Value::String("8".to_string()),
-                ),
-                (
-                    "max-connection-per-server".to_string(),
-                    serde_json::Value::String("8".to_string()),
-                ),
-                (
-                    "max-download-limit".to_string(),
-                    serde_json::Value::String("524288".to_string()),
-                ),
-                (
-                    "all-proxy".to_string(),
-                    serde_json::Value::String("http://127.0.0.1:7890".to_string()),
-                ),
-            ]),
-        },
-    );
-
-    assert_eq!(request["method"], "aria2.addUri");
-    assert_eq!(request["params"][0][0], "https://example.com/file.zip");
-    assert_eq!(request["params"][1]["dir"], "/downloads");
-    assert_eq!(request["params"][1]["out"], "custom.zip");
-    assert_eq!(request["params"][1]["split"], "8");
-    assert_eq!(request["params"][1]["max-connection-per-server"], "8");
-    assert_eq!(request["params"][1]["max-download-limit"], "524288");
-    assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
-    assert_eq!(request["params"][1]["pause"], "false");
-}
-
-#[test]
-fn add_uri_request_does_not_force_inferred_display_name_as_output() {
-    let task = prepare_task(CreateDownloadTaskRequest {
-        url: "https://example.com/download?id=123".to_string(),
-        file_name: None,
-        save_dir: Some(temp_download_dir("inferred-output")),
-        source_type: DownloadTaskSourceType::Url,
-        start_mode: DownloadTaskStartMode::Now,
-        category: None,
-        advanced_options: CreateTaskAdvancedOptions::default(),
-        aria2_options: serde_json::Map::new(),
-    })
-    .expect("URL task should be prepared");
-
-    assert_eq!(task.file_name, "download");
-    assert_eq!(task.output_file_name, None);
-    let request = build_add_uri_request(&test_config(), &task);
-    assert!(request["params"][1].get("out").is_none());
-}
-
-#[test]
-fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "magnet:?xt=urn:btih:test".to_string(),
-            file_name: "磁力链接任务".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: Some("/app-data/magnet-metadata/task-1".to_string()),
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Magnet,
-            start_mode: DownloadTaskStartMode::Paused,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-        },
-    );
-
-    assert_eq!(request["method"], "aria2.addUri");
-    assert_eq!(request["params"][0][0], "magnet:?xt=urn:btih:test");
-    assert_eq!(
-        request["params"][1]["dir"],
-        "/app-data/magnet-metadata/task-1"
-    );
-    assert_eq!(request["params"][1]["pause"], "false");
-    assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
-    assert!(request["params"][1]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
-    assert!(request["params"][1].get("out").is_none());
-}
-
-#[test]
-fn add_uri_request_sets_pause_metadata_for_started_magnet() {
-    let request = build_add_uri_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "magnet:?xt=urn:btih:test".to_string(),
-            file_name: "磁力链接任务".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Magnet,
-            start_mode: DownloadTaskStartMode::Now,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-        },
-    );
-
-    assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
-    assert_eq!(request["params"][1]["pause"], "false");
-    assert!(request["params"][1]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
-}
-
-#[test]
-fn add_torrent_request_contains_base64_payload_and_options() {
-    let request = build_add_torrent_request(
-        &test_config(),
-        &PreparedDownloadTask {
-            url: "torrent:example.torrent".to_string(),
-            file_name: "example".to_string(),
-            output_file_name: None,
-            save_dir: "/downloads".to_string(),
-            aria2_save_dir: None,
-            category: "默认".to_string(),
-            source_type: DownloadTaskSourceType::Url,
-            start_mode: DownloadTaskStartMode::Paused,
-            advanced_options: CreateTaskAdvancedOptions::default(),
-            aria2_options: serde_json::Map::new(),
-        },
-        b"torrent-bytes",
-    );
-
-    assert_eq!(request["method"], "aria2.addTorrent");
-    assert_eq!(request["params"][0], "dG9ycmVudC1ieXRlcw==");
-    assert_eq!(request["params"][1], serde_json::json!([]));
-    assert_eq!(request["params"][2]["dir"], "/downloads");
-    assert_eq!(request["params"][2]["pause"], "true");
-    assert_eq!(request["params"][2]["pause-metadata"], "true");
-    assert_eq!(request["params"][2]["seed-time"], "0");
-    assert!(request["params"][2]["bt-tracker"]
-        .as_str()
-        .expect("bt-tracker should be string")
-        .contains("tracker.opentrackr.org"));
-}
-
-#[test]
 fn gid_control_request_contains_method_and_gid() {
     let request = build_gid_control_request(&test_config(), "abc123", "aria2.pause", "pause-test");
 
@@ -1508,6 +1661,47 @@ fn readded_gid_updates_task_without_clearing_progress() {
     assert!(task.error_message.is_none());
     let expected_file_path = Path::new(&save_dir).join("file.zip").display().to_string();
     assert_eq!(task.file_path.as_deref(), Some(expected_file_path.as_str()));
+}
+
+#[test]
+fn unknown_aria2_request_matching_excludes_known_gids() {
+    let request = Aria2TaskRequest {
+        request_id: "operation-1".to_string(),
+        source_url: "https://example.com/file.zip".to_string(),
+        save_dir: "/downloads".to_string(),
+        file_name: "file.zip".to_string(),
+    };
+    let session_tasks: Vec<Aria2TaskStatus> = [
+        ("known-gid", "file.zip"),
+        ("different-file-gid", "other.zip"),
+        ("new-gid", "file.zip"),
+    ]
+    .into_iter()
+    .map(|(gid, file_name)| {
+        serde_json::from_value(json!({
+            "gid": gid,
+            "status": "waiting",
+            "totalLength": "0",
+            "completedLength": "0",
+            "downloadSpeed": "0",
+            "dir": "/downloads",
+            "files": [{
+                "index": "1",
+                "path": format!("/downloads/{file_name}"),
+                "uris": [{ "uri": "https://example.com/file.zip" }]
+            }]
+        }))
+        .expect("Aria2 task should deserialize")
+    })
+    .collect();
+
+    let candidates = matching_aria2_task_gids(
+        &session_tasks,
+        &request,
+        &BTreeSet::from(["known-gid".to_string()]),
+    );
+
+    assert_eq!(candidates, BTreeSet::from(["new-gid".to_string()]));
 }
 
 struct MockStaleAria2Server {
