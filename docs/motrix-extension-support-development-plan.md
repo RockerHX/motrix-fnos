@@ -509,7 +509,7 @@ match method {
 1. `pauseAll`：读取一次可见任务快照，选出 `Active/Pending` 且有 GID 的任务，按 `created_at ASC, id ASC` 顺序逐项调用 `pause_by_aria2_gid`；已 `Paused`、终态、Removed、无 GID 和 confirmation 阶段跳过。每项 service 调用可以复用同一已获取的运行配置，但不能绕过 TaskOperation；如果现有 pause service 只能自己取得配置，应先增加接收运行上下文的内部变体，不能在批量层直调 Aria2。
 2. `unpauseAll`：读取一次快照，只选 `Paused` 且有 GID 的任务；目标非空时批次开始前只取得一次 Aria2 运行上下文，逐项调用 `unpause_by_aria2_gid`。目标为空时不得启动 Aria2。stale GID 的重建必须继续使用现有 `resume_download_task` 语义，并将新 GID 写回任务后才算该项成功。
 3. `purgeDownloadResult`：读取一次完整 stopped 集合，按 `updated_at ASC, id ASC` 顺序逐项调用 `remove_download_result_by_aria2_gid`；已 Removed 或无 GID 跳过。绝不调用底层 `aria2.purgeDownloadResult`。若 Aria2 当前运行，批次复用一次已确认的配置；若已停止，全部项目跳过 sidecar 清理并直接走统一回收站迁移。
-4. 每项成功立即持久化并完成自己的 TaskOperation；某项失败时记录该项错误，继续处理后续项。结果汇总为：目标为空或全部成功返回 `"OK"`；部分或全部失败返回 `-32000`，消息只包含失败数量和可诊断的非敏感原因，不伪造成功。跳过项不计入失败。
+4. 每项成功立即持久化并完成自己的 TaskOperation；某项失败时记录该项错误，继续处理后续项。结果汇总为：目标为空或全部成功返回 `"OK"`；部分或全部失败返回 `-32006`，消息只包含稳定的失败数量（当前格式为“批量操作失败：N 个任务失败”），不伪造成功。跳过项不计入失败。
 5. 批次结束后最多广播一次最新任务快照；即使部分失败也必须广播已成功迁移/暂停的任务状态。每个子任务的未知 RPC 结果由已有 TaskOperation 和启动对账机制处理。
 6. 批量方法的 JSON-RPC handler 只负责 Token、空参数、调用 service、广播和结果包装；不得在 handler 中 `for` 循环直接调用 `aria2_rpc` 或修改任务数组。
 

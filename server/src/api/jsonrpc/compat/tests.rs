@@ -91,6 +91,25 @@ fn rejects_unknown_keys_and_large_pages() {
 }
 
 #[test]
+fn enforces_gid_byte_length_limit() {
+    let accepted = "g".repeat(256);
+    assert!(matches!(
+        parse_method("aria2.pause", &json!(["token:test", accepted])),
+        Ok(CompatCommand::Control { .. })
+    ));
+
+    let rejected = "g".repeat(257);
+    let error = parse_method("aria2.pause", &json!(["token:test", rejected]))
+        .expect_err("GID longer than 256 bytes must be rejected");
+    assert_eq!(error.code, -32602);
+
+    let multibyte = "中".repeat(86);
+    let error = parse_method("aria2.pause", &json!(["token:test", multibyte]))
+        .expect_err("GID byte length, not character count, must be enforced");
+    assert_eq!(error.code, -32602);
+}
+
+#[test]
 fn serializes_compat_task_fields_with_aria2_string_types() {
     let task = Aria2CompatTask {
         gid: "gid-1".to_string(),

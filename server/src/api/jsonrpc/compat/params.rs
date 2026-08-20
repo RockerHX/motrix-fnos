@@ -128,12 +128,18 @@ fn parse_gid(params: &Value, method: &str) -> Result<String, RpcFault> {
             "{method} requires exactly one GID"
         )));
     }
-    params[0]
+    let gid = params[0]
         .as_str()
         .map(str::trim)
         .filter(|gid| !gid.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| RpcFault::invalid_params(format!("{method} requires a non-empty GID")))
+        .ok_or_else(|| RpcFault::invalid_params(format!("{method} requires a non-empty GID")))?;
+    if gid.len() > 256 {
+        return Err(RpcFault::invalid_params(format!(
+            "{method} GID exceeds 256 bytes"
+        )));
+    }
+    Ok(gid)
 }
 
 fn parse_keys(params: &Value, method: &str) -> Result<Vec<String>, RpcFault> {
