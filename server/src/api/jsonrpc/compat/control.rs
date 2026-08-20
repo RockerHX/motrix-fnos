@@ -6,6 +6,7 @@ use crate::config::aria2::Aria2Config;
 use crate::runtime::{
     broadcast_tasks_snapshot, ensure_aria2_ready, process_status, Aria2Lease, Aria2LifecyclePhase,
 };
+use crate::storage::load_accessible_paths;
 use crate::tasks::service::{
     CompatAria2Requirement, CompatBatchOperation, CompatBatchResult, CompatTaskError,
     CompatTaskOperation,
@@ -55,9 +56,11 @@ pub(super) async fn execute_batch(
 ) -> Result<Value, RpcFault> {
     let operation =
         batch_operation(operation).ok_or_else(|| RpcFault::server_error("不是批量兼容方法"))?;
+    let accessible_paths = load_accessible_paths(&state.runtime.accessible_paths_path)
+        .map_err(RpcFault::server_error)?;
     let service = task_service(state);
     let plan = service
-        .plan_compat_batch(operation)
+        .plan_compat_batch(operation, &accessible_paths)
         .map_err(map_compat_error)?;
 
     let result = match plan.aria2_requirement {

@@ -159,11 +159,14 @@ impl<'a> TaskService<'a> {
     pub fn plan_compat_batch(
         &self,
         operation: CompatBatchOperation,
+        accessible_paths: &[String],
     ) -> Result<CompatBatchPlan, CompatTaskError> {
         let mut tasks = self
             .list_download_task_snapshot()
             .map_err(|_| CompatTaskError::Internal)?;
-        tasks.retain(|task| compat_batch_includes(operation, task));
+        tasks.retain(|task| {
+            compat_batch_includes(operation, task) && task_is_compat_visible(task, accessible_paths)
+        });
         tasks.sort_by(|left, right| compat_batch_order(operation, left, right));
 
         let gids = tasks
@@ -222,6 +225,11 @@ impl<'a> TaskService<'a> {
             .map_err(|_| CompatTaskError::Internal)?
             .ok_or(CompatTaskError::GidNotFound)
     }
+}
+
+fn task_is_compat_visible(task: &DownloadTask, accessible_paths: &[String]) -> bool {
+    let save_dir = task.save_dir.trim();
+    !save_dir.is_empty() && accessible_paths.iter().any(|path| path == save_dir)
 }
 
 fn compat_batch_includes(operation: CompatBatchOperation, task: &DownloadTask) -> bool {

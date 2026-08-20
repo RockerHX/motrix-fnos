@@ -1199,6 +1199,12 @@ async fn compat_batch_plan_freezes_targets_in_stable_order() {
                 "removed",
                 "/downloads".to_string(),
             ),
+            sample_task(
+                5,
+                DownloadTaskStatus::Complete,
+                "unauthorized",
+                "/private".to_string(),
+            ),
         ],
         false,
     );
@@ -1212,7 +1218,10 @@ async fn compat_batch_plan_freezes_targets_in_stable_order() {
 
     let plan = fixture
         .service()
-        .plan_compat_batch(CompatBatchOperation::PurgeDownloadResult)
+        .plan_compat_batch(
+            CompatBatchOperation::PurgeDownloadResult,
+            &["/downloads".to_string()],
+        )
         .expect("purge plan should create");
 
     assert_eq!(plan.aria2_requirement, CompatAria2Requirement::IfRunning);
@@ -1248,7 +1257,10 @@ async fn compat_batch_continues_after_task_conflict_and_counts_failures() {
         .expect("task snapshot should update");
     let plan = fixture
         .service()
-        .plan_compat_batch(CompatBatchOperation::PurgeDownloadResult)
+        .plan_compat_batch(
+            CompatBatchOperation::PurgeDownloadResult,
+            &["/downloads".to_string()],
+        )
         .expect("purge plan should create");
     let _busy = fixture
         .tasks
