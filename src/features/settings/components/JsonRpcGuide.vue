@@ -74,6 +74,10 @@ onUnmounted(() => {
       {{ t("rpcGuide.portWarning") }}
     </NAlert>
 
+    <NAlert type="info" :bordered="false">
+      {{ t("rpcGuide.protocolScope") }}
+    </NAlert>
+
     <div class="json-rpc-guide-steps">
       <section>
         <span class="json-rpc-guide-step">1</span>

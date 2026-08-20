@@ -127,6 +127,7 @@ export const zhCN = {
   "rpcGuide.description": "为 Aria2 客户端或外部工具配置独立的 JSON-RPC 入口。",
   "rpcGuide.openSettings": "配置 Token",
   "rpcGuide.portWarning": "17080 是 Motrix 管理端口。17081 是仅供本机反向代理使用的入口，17082 是受开关、来源过滤和独立 Token 保护的局域网入口。",
+  "rpcGuide.protocolScope": "Motrix Extension 兼容层仍在开发。当前远程创建仅支持 HTTP / HTTPS 和 magnet:?；ed2k://、thunder:// 不支持，不能视为创建成功。",
   "rpcGuide.stepToken.title": "选择入口和对应 Token",
   "rpcGuide.stepToken.body": "公网反向代理使用“公网 / 反向代理 Token”；局域网客户端启用“局域网推送”后使用服务端签发的独立 Token。两个 Token 不能混用。",
   "rpcGuide.stepLocal.title": "局域网设备直连",

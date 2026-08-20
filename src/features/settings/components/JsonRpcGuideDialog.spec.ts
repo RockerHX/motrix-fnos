@@ -59,6 +59,8 @@ describe("JsonRpcGuideDialog", () => {
     expect(wrapper.get('[data-test="json-rpc-lan-endpoint"]').text()).toBe("http://<飞牛局域网IP>:17082/jsonrpc");
     expect(wrapper.text()).toContain("公网 Token：已配置");
     expect(wrapper.text()).toContain("局域网入口：已启用，Token：已配置");
+    expect(wrapper.text()).toContain("当前远程创建仅支持 HTTP / HTTPS 和 magnet:?");
+    expect(wrapper.text()).toContain("ed2k://、thunder:// 不支持");
     await wrapper.findAll("button").find((button) => button.text() === "复制地址")!.trigger("click");
     await flushPromises();
 

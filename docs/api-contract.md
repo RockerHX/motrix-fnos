@@ -851,6 +851,8 @@ Session 与 Cookie 约定：
 
 `/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。公网反代入口注册在 `127.0.0.1:17081`，局域网入口注册在 `0.0.0.0:17082`；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
 
+Motrix Extension 兼容声明：截至 Motrix server `v1.9.3`，仅已有 `aria2.getVersion` 与 `aria2.addUri` 两个扩展调用路径的外部入口；完整的 13 个方法兼容层仍在开发，不能据此宣称支持完整 Aria2、AriaNg 或 Motrix Extension。远程创建只支持 HTTP/HTTPS URL 与 `magnet:?`；`ed2k://` 和 `thunder://` 明确不支持，客户端不得把它们当作成功创建的下载任务。
+
 不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理首次使用必须先设置独立管理密码。
 
 | 方法 | 路径 | 说明 |
@@ -906,7 +908,7 @@ Session 与 Cookie 约定：
 - 为兼容会删除 Unix 路径首个 `/` 的第三方发送页，JSON-RPC 仅在请求值不含空组件、`.`、`..` 或反斜杠，且补回一个 `/` 后能唯一、精确匹配授权目录时接受该值；任务最终仍使用授权列表中的原始绝对路径，不允许借此访问授权目录的任意子目录。
 - `out` 会映射为 Motrix 任务文件名。
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
-- 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
+- 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`；`ed2k://` 与 `thunder://` 明确不支持，不得返回成功 GID。远程入口不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。

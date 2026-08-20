@@ -129,6 +129,7 @@ export const enUS: Record<TranslationKey, string> = {
   "rpcGuide.description": "Configure the dedicated JSON-RPC entry for Aria2 clients and external tools.",
   "rpcGuide.openSettings": "Configure Token",
   "rpcGuide.portWarning": "17080 is the Motrix management port. 17081 is the loopback-only reverse-proxy entry; 17082 is the LAN entry protected by its switch, peer filter, and separate Token.",
+  "rpcGuide.protocolScope": "Motrix Extension compatibility is still in development. Remote creation currently supports only HTTP / HTTPS and magnet:?; ed2k:// and thunder:// are unsupported and must not be treated as successful task creation.",
   "rpcGuide.stepToken.title": "Choose an entry and its Token",
   "rpcGuide.stepToken.body": "Public reverse proxies use the Public / Reverse Proxy Token. LAN clients enable LAN Push and use its separately issued Token. The Tokens are not interchangeable.",
   "rpcGuide.stepLocal.title": "Connect directly from the LAN",
