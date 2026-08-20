@@ -123,6 +123,15 @@ async fn get_global_option(
 }
 
 async fn get_version(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
+    let _activity = state
+        .aria2_lifecycle
+        .acquire_activity()
+        .map_err(RpcFault::aria2_busy)?;
+    let _operation = state
+        .aria2_lifecycle
+        .lock_lifecycle_operation_for_request()
+        .await
+        .map_err(RpcFault::aria2_busy)?;
     if state
         .aria2_lifecycle
         .snapshot()
