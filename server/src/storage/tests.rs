@@ -100,3 +100,17 @@ fn validate_task_save_dir_accepts_only_exact_authorized_path() {
         Err(TaskSaveDirError::Unauthorized)
     );
 }
+
+#[test]
+fn authorized_path_rejects_dot_segments() {
+    assert!(!is_authorized_path(
+        Path::new("/downloads/../private"),
+        &["/downloads".to_string()],
+        true,
+    ));
+    assert!(!is_authorized_path(
+        Path::new("/downloads/./file"),
+        &["/downloads".to_string()],
+        true,
+    ));
+}

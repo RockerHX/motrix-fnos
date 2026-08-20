@@ -45,7 +45,10 @@ pub(super) struct Aria2CompatTask {
 }
 
 impl Aria2CompatTask {
-    pub(super) fn from_download_task(task: &DownloadTask) -> Option<Self> {
+    pub(super) fn from_download_task_with_paths(
+        task: &DownloadTask,
+        accessible_paths: &[String],
+    ) -> Option<Self> {
         let gid = task
             .gid
             .as_deref()
@@ -55,11 +58,23 @@ impl Aria2CompatTask {
         let status = status_for_task(task)?;
         let save_dir = task.save_dir.trim();
         let save_dir_path = Path::new(save_dir);
-        let expose_paths = !save_dir.is_empty() && save_dir_path.is_absolute();
+        let expose_paths = !save_dir.is_empty()
+            && if accessible_paths.is_empty() {
+                save_dir_path.is_absolute()
+            } else {
+                crate::storage::is_authorized_path(save_dir_path, accessible_paths, true)
+            };
         let files = if task.files.is_empty() {
             task.file_path
                 .as_deref()
-                .filter(|path| expose_paths && is_path_under(Path::new(path.trim()), save_dir_path))
+                .filter(|path| {
+                    expose_paths
+                        && is_safe_path_under(
+                            Path::new(path.trim()),
+                            save_dir_path,
+                            accessible_paths,
+                        )
+                })
                 .map(|path| {
                     vec![Aria2CompatFile {
                         index: 1,
@@ -74,7 +89,12 @@ impl Aria2CompatTask {
             task.files
                 .iter()
                 .filter(|file| {
-                    expose_paths && is_path_under(Path::new(file.path.trim()), save_dir_path)
+                    expose_paths
+                        && is_safe_path_under(
+                            Path::new(file.path.trim()),
+                            save_dir_path,
+                            accessible_paths,
+                        )
                 })
                 .map(|file| Aria2CompatFile {
                     index: file.index,
@@ -153,11 +173,17 @@ impl Aria2CompatTask {
     }
 }
 
-pub(super) fn serialize_tasks(tasks: &[DownloadTask], keys: &[String]) -> Value {
+pub(super) fn serialize_tasks(
+    tasks: &[DownloadTask],
+    keys: &[String],
+    accessible_paths: &[String],
+) -> Value {
     Value::Array(
         tasks
             .iter()
-            .filter_map(Aria2CompatTask::from_download_task)
+            .filter_map(|task| {
+                Aria2CompatTask::from_download_task_with_paths(task, accessible_paths)
+            })
             .map(|task| task.to_value(keys))
             .collect(),
     )
@@ -177,6 +203,24 @@ fn is_path_under(path: &Path, save_dir: &Path) -> bool {
         && !path
             .components()
             .any(|component| component == Component::ParentDir)
+}
+
+fn is_safe_path_under(path: &Path, save_dir: &Path, accessible_paths: &[String]) -> bool {
+    if accessible_paths.is_empty() {
+        return is_path_under(path, save_dir);
+    }
+    if !crate::storage::is_safe_path_syntax(path) || !crate::storage::is_safe_path_syntax(save_dir)
+    {
+        return false;
+    }
+    let Some(path) = crate::storage::canonicalize_path_or_parent(path) else {
+        return false;
+    };
+    let Some(save_dir) = crate::storage::canonicalize_path_or_parent(save_dir) else {
+        return false;
+    };
+    path.starts_with(&save_dir)
+        && crate::storage::is_authorized_path(&save_dir, accessible_paths, true)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -131,6 +131,88 @@ pub fn normalize_paths(paths: Vec<String>) -> Vec<String> {
     normalized
 }
 
+pub(crate) fn is_authorized_path(
+    path: &Path,
+    accessible_paths: &[String],
+    allow_descendant: bool,
+) -> bool {
+    let Some(path) = canonicalize_path_or_parent(path) else {
+        return false;
+    };
+    accessible_paths.iter().any(|root| {
+        let Some(root) = canonicalize_path_or_parent(Path::new(root)) else {
+            return false;
+        };
+        if allow_descendant {
+            path.starts_with(root)
+        } else {
+            path == root
+        }
+    })
+}
+
+pub(crate) fn is_authorized_directory_path(
+    path: &Path,
+    accessible_paths: &[String],
+    allow_descendant: bool,
+) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => return false,
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return false,
+    }
+    is_authorized_path(path, accessible_paths, allow_descendant)
+}
+
+pub(crate) fn is_safe_path_syntax(path: &Path) -> bool {
+    let Some(value) = path.to_str() else {
+        return false;
+    };
+    path.is_absolute()
+        && !value.contains(['\0', '\\'])
+        && !value
+            .split('/')
+            .any(|segment| matches!(segment, "." | ".."))
+}
+
+pub(crate) fn canonicalize_path_or_parent(path: &Path) -> Option<PathBuf> {
+    if !is_safe_path_syntax(path) {
+        return None;
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() {
+                return None;
+            }
+            return path.canonicalize().ok();
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return None,
+    }
+
+    let mut suffix = Vec::new();
+    let mut current = path;
+    loop {
+        match std::fs::symlink_metadata(current) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return None;
+                }
+                let mut canonical = current.canonicalize().ok()?;
+                for component in suffix.iter().rev() {
+                    canonical.push(component);
+                }
+                return Some(canonical);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+        suffix.push(current.file_name()?.to_os_string());
+        current = current.parent()?;
+    }
+}
+
 fn is_data_path(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
     normalized.ends_with("/data") || normalized == "data" || normalized.contains("/data/")

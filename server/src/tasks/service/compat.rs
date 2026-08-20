@@ -1,6 +1,8 @@
 use super::TaskService;
 use crate::config::aria2::Aria2Config;
-use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::storage::{is_authorized_directory_path, is_authorized_path};
+use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompatTaskOperation {
@@ -229,7 +231,22 @@ impl<'a> TaskService<'a> {
 
 fn task_is_compat_visible(task: &DownloadTask, accessible_paths: &[String]) -> bool {
     let save_dir = task.save_dir.trim();
-    !save_dir.is_empty() && accessible_paths.iter().any(|path| path == save_dir)
+    if save_dir.is_empty() {
+        return false;
+    }
+    match task.source_type {
+        DownloadTaskSourceType::Url => {
+            is_authorized_path(Path::new(save_dir), accessible_paths, false)
+        }
+        DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
+            let Some(owned_task_dir) = task.owned_task_dir.as_deref().map(str::trim) else {
+                return is_authorized_directory_path(Path::new(save_dir), accessible_paths, false);
+            };
+            !owned_task_dir.is_empty()
+                && owned_task_dir == save_dir
+                && is_authorized_directory_path(Path::new(owned_task_dir), accessible_paths, true)
+        }
+    }
 }
 
 fn compat_batch_includes(operation: CompatBatchOperation, task: &DownloadTask) -> bool {
@@ -256,9 +273,9 @@ fn compat_batch_order(
             .created_at
             .cmp(&right.created_at)
             .then_with(|| left.id.cmp(&right.id)),
-        CompatBatchOperation::PurgeDownloadResult => right
+        CompatBatchOperation::PurgeDownloadResult => left
             .updated_at
-            .cmp(&left.updated_at)
+            .cmp(&right.updated_at)
             .then_with(|| left.id.cmp(&right.id)),
     }
 }

@@ -168,7 +168,7 @@ fn converts_download_tasks_with_status_defaults_and_safe_paths() {
             selected: true,
         });
 
-        let compat = Aria2CompatTask::from_download_task(&task)
+        let compat = Aria2CompatTask::from_download_task_with_paths(&task, &[])
             .expect("visible task with a GID should convert");
         assert_eq!(compat.status, expected);
         assert_eq!(compat.error_code, "0");
@@ -187,11 +187,11 @@ fn converts_download_tasks_with_status_defaults_and_safe_paths() {
 #[test]
 fn hides_removed_and_gidless_tasks() {
     let removed = download_task(DownloadTaskStatus::Removed);
-    assert!(Aria2CompatTask::from_download_task(&removed).is_none());
+    assert!(Aria2CompatTask::from_download_task_with_paths(&removed, &[]).is_none());
 
     let mut gidless = download_task(DownloadTaskStatus::Active);
     gidless.gid = None;
-    assert!(Aria2CompatTask::from_download_task(&gidless).is_none());
+    assert!(Aria2CompatTask::from_download_task_with_paths(&gidless, &[]).is_none());
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn exposes_bt_name_and_magnet_metadata_with_their_current_gid() {
     let mut torrent = download_task(DownloadTaskStatus::Active);
     torrent.source_type = DownloadTaskSourceType::Torrent;
     torrent.file_name = "Ubuntu.iso".to_string();
-    let torrent_compat = Aria2CompatTask::from_download_task(&torrent)
+    let torrent_compat = Aria2CompatTask::from_download_task_with_paths(&torrent, &[])
         .expect("torrent task with a GID should convert");
     assert_eq!(
         torrent_compat.bittorrent_name.as_deref(),
@@ -210,13 +210,42 @@ fn exposes_bt_name_and_magnet_metadata_with_their_current_gid() {
     magnet.source_type = DownloadTaskSourceType::Magnet;
     magnet.file_name = "metadata-name".to_string();
     magnet.confirmation_required = true;
-    let magnet_compat = Aria2CompatTask::from_download_task(&magnet)
+    let magnet_compat = Aria2CompatTask::from_download_task_with_paths(&magnet, &[])
         .expect("magnet metadata task with a temporary GID should convert");
     assert_eq!(magnet_compat.status, "waiting");
     assert_eq!(
         magnet_compat.bittorrent_name.as_deref(),
         Some("metadata-name")
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn strict_path_conversion_rejects_symlink_escape() {
+    use std::os::unix::fs::symlink;
+
+    let suffix = format!("{}-{}", std::process::id(), 1);
+    let root = std::env::temp_dir().join(format!("motrix-compat-root-{suffix}"));
+    let outside = std::env::temp_dir().join(format!("motrix-compat-outside-{suffix}"));
+    std::fs::create_dir_all(&root).expect("root should create");
+    std::fs::create_dir_all(&outside).expect("outside should create");
+    let outside_file = outside.join("secret.bin");
+    std::fs::write(&outside_file, b"secret").expect("outside file should write");
+    let link = root.join("link.bin");
+    symlink(&outside_file, &link).expect("symlink should create");
+
+    let mut task = download_task(DownloadTaskStatus::Complete);
+    task.save_dir = root.display().to_string();
+    task.file_path = Some(link.display().to_string());
+    task.files.clear();
+    let compat =
+        Aria2CompatTask::from_download_task_with_paths(&task, &[root.display().to_string()])
+            .expect("task should retain safe fields");
+
+    assert_eq!(compat.dir.as_deref(), Some(root.to_str().unwrap()));
+    assert!(compat.files.is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outside);
 }
 
 fn download_task(status: DownloadTaskStatus) -> DownloadTask {

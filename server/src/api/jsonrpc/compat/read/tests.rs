@@ -47,16 +47,30 @@ fn lane_filter_and_order_match_extension_semantics() {
         "/downloads".to_string(),
     );
     stopped_new.updated_at = 20;
+    let mut stopped_same_time_low_id = sample_task(
+        5,
+        DownloadTaskStatus::Complete,
+        "stopped-same-low",
+        "/downloads".to_string(),
+    );
+    stopped_same_time_low_id.updated_at = 20;
 
     let mut waiting = vec![waiting_new.clone(), waiting_old.clone()];
     waiting.retain(|task| super::TaskLane::Waiting.includes(task));
     waiting.sort_by(|left, right| super::TaskLane::Waiting.compare(left, right));
     assert_eq!(waiting, vec![waiting_old, waiting_new]);
 
-    let mut stopped = vec![stopped_old.clone(), stopped_new.clone()];
+    let mut stopped = vec![
+        stopped_old.clone(),
+        stopped_new.clone(),
+        stopped_same_time_low_id.clone(),
+    ];
     stopped.retain(|task| super::TaskLane::Stopped.includes(task));
     stopped.sort_by(|left, right| super::TaskLane::Stopped.compare(left, right));
-    assert_eq!(stopped, vec![stopped_new, stopped_old]);
+    assert_eq!(
+        stopped,
+        vec![stopped_same_time_low_id, stopped_new, stopped_old]
+    );
 }
 
 #[test]

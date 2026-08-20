@@ -1211,10 +1211,28 @@ async fn compat_batch_plan_freezes_targets_in_stable_order() {
     fixture
         .tasks
         .with_tasks_mut(|tasks| {
-            tasks[0].updated_at = 10;
+            tasks[0].updated_at = 20;
             tasks[1].updated_at = 20;
+            tasks[0].id = 5;
+            tasks[1].id = 2;
         })
         .expect("task snapshot should update");
+    fixture
+        .tasks
+        .with_tasks_mut(|tasks| {
+            tasks.push({
+                let mut task = sample_task(
+                    6,
+                    DownloadTaskStatus::Complete,
+                    "torrent-visible",
+                    "/downloads/torrent-task".to_string(),
+                );
+                task.source_type = crate::tasks::DownloadTaskSourceType::Torrent;
+                task.owned_task_dir = Some(task.save_dir.clone());
+                task
+            });
+        })
+        .expect("BT task should be added to the snapshot");
 
     let plan = fixture
         .service()
@@ -1225,8 +1243,74 @@ async fn compat_batch_plan_freezes_targets_in_stable_order() {
         .expect("purge plan should create");
 
     assert_eq!(plan.aria2_requirement, CompatAria2Requirement::IfRunning);
-    assert_eq!(plan.target_count(), 2);
-    assert_eq!(plan.gids(), &["complete-new", "complete-old"]);
+    assert_eq!(plan.target_count(), 3);
+    assert_eq!(
+        plan.gids(),
+        &["torrent-visible", "complete-new", "complete-old"]
+    );
+}
+
+#[test]
+fn compat_batch_visibility_rejects_dot_segments() {
+    let fixture = ServiceFixture::new(
+        vec![{
+            let mut task = sample_task(
+                1,
+                DownloadTaskStatus::Complete,
+                "unsafe-gid",
+                "/downloads/../private".to_string(),
+            );
+            task.source_type = DownloadTaskSourceType::Torrent;
+            task.owned_task_dir = Some(task.save_dir.clone());
+            task
+        }],
+        false,
+    );
+
+    let plan = fixture
+        .service()
+        .plan_compat_batch(
+            CompatBatchOperation::PurgeDownloadResult,
+            &["/downloads".to_string()],
+        )
+        .expect("batch plan should be created");
+
+    assert_eq!(plan.target_count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn compat_batch_visibility_rejects_symlink_task_directory() {
+    use std::os::unix::fs::symlink;
+
+    let suffix = format!("{}-{}", std::process::id(), 1);
+    let root = std::env::temp_dir().join(format!("motrix-batch-root-{suffix}"));
+    let outside = std::env::temp_dir().join(format!("motrix-batch-outside-{suffix}"));
+    std::fs::create_dir_all(&root).expect("root should create");
+    std::fs::create_dir_all(&outside).expect("outside should create");
+    let link = root.join("task");
+    symlink(&outside, &link).expect("task symlink should create");
+
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "symlink-gid",
+        link.display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.owned_task_dir = Some(task.save_dir.clone());
+    let fixture = ServiceFixture::new(vec![task], false);
+    let plan = fixture
+        .service()
+        .plan_compat_batch(
+            CompatBatchOperation::PurgeDownloadResult,
+            &[root.display().to_string()],
+        )
+        .expect("batch plan should be created");
+
+    assert_eq!(plan.target_count(), 0);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outside);
 }
 
 #[tokio::test]

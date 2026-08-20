@@ -3,13 +3,13 @@ use super::params::{TaskLane, MAX_PAGE_SIZE};
 use crate::api::jsonrpc::types::RpcFault;
 use crate::api::tasks::task_service;
 use crate::app::HttpAppState;
-use crate::storage::load_accessible_paths;
+use crate::storage::{is_authorized_directory_path, is_authorized_path, load_accessible_paths};
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use serde_json::Value;
 use std::sync::Arc;
 
 pub(super) fn global_stat(state: &Arc<HttpAppState>) -> Result<Value, RpcFault> {
-    let tasks = visible_compat_tasks(state)?;
+    let (tasks, _) = visible_compat_tasks(state)?;
     let mut stat = Aria2GlobalStat::empty();
     for task in tasks {
         match task.status {
@@ -32,29 +32,36 @@ pub(super) fn tell(
     num: u64,
     keys: &[String],
 ) -> Result<Value, RpcFault> {
-    let mut tasks = visible_compat_tasks(state)?
+    let (tasks, accessible_paths) = visible_compat_tasks(state)?;
+    let mut tasks = tasks
         .into_iter()
         .filter(|task| lane.includes(task))
         .collect::<Vec<_>>();
     tasks.sort_by(|left, right| lane.compare(left, right));
 
     let range = page_range(tasks.len(), offset, num)?;
-    Ok(serialize_tasks(&tasks[range], keys))
+    Ok(serialize_tasks(&tasks[range], keys, &accessible_paths))
 }
 
-fn visible_compat_tasks(state: &Arc<HttpAppState>) -> Result<Vec<DownloadTask>, RpcFault> {
+fn visible_compat_tasks(
+    state: &Arc<HttpAppState>,
+) -> Result<(Vec<DownloadTask>, Vec<String>), RpcFault> {
     let accessible_paths = load_accessible_paths(&state.runtime.accessible_paths_path)
         .map_err(RpcFault::server_error)?;
-    task_service(state)
+    let tasks = task_service(state)
         .list_download_task_snapshot()
         .map_err(RpcFault::server_error)
         .map(|tasks| {
             tasks
                 .into_iter()
                 .filter(|task| is_compat_visible(task, &accessible_paths))
-                .filter(|task| Aria2CompatTask::from_download_task(task).is_some())
+                .filter(|task| {
+                    Aria2CompatTask::from_download_task_with_paths(task, &accessible_paths)
+                        .is_some()
+                })
                 .collect()
-        })
+        })?;
+    Ok((tasks, accessible_paths))
 }
 
 fn is_compat_visible(task: &DownloadTask, accessible_paths: &[String]) -> bool {
@@ -65,21 +72,15 @@ fn is_compat_visible(task: &DownloadTask, accessible_paths: &[String]) -> bool {
     let save_dir = std::path::Path::new(save_dir);
 
     match task.source_type {
-        DownloadTaskSourceType::Url => accessible_paths
-            .iter()
-            .any(|path| save_dir == std::path::Path::new(path)),
+        DownloadTaskSourceType::Url => is_authorized_path(save_dir, accessible_paths, false),
         DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
             let Some(owned_task_dir) = task.owned_task_dir.as_deref() else {
-                return accessible_paths
-                    .iter()
-                    .any(|path| save_dir == std::path::Path::new(path));
+                return is_authorized_directory_path(save_dir, accessible_paths, false);
             };
             let owned_task_dir = std::path::Path::new(owned_task_dir.trim());
             !owned_task_dir.as_os_str().is_empty()
                 && save_dir == owned_task_dir
-                && accessible_paths
-                    .iter()
-                    .any(|path| owned_task_dir.starts_with(std::path::Path::new(path)))
+                && is_authorized_directory_path(owned_task_dir, accessible_paths, true)
         }
     }
 }
@@ -121,7 +122,7 @@ impl TaskLane {
             Self::Stopped => right
                 .updated_at
                 .cmp(&left.updated_at)
-                .then_with(|| left.id.cmp(&right.id)),
+                .then_with(|| right.id.cmp(&left.id)),
             Self::Active | Self::Waiting => left
                 .created_at
                 .cmp(&right.created_at)
