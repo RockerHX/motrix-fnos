@@ -679,7 +679,7 @@ async fn compat_empty_pause_batch_is_idempotent_without_starting_sidecar() {
 }
 
 #[tokio::test]
-async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
+async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar_or_database() {
     let state = test_state().await;
     state.remember_json_rpc_token("public-secret");
     let authorized = "/downloads";
@@ -744,6 +744,7 @@ async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
         .aria2_lifecycle
         .snapshot()
         .expect("lifecycle snapshot should be readable");
+    state.core.database.pool.close().await;
 
     let stat = execute_method(
         &state,
@@ -824,6 +825,49 @@ async fn compat_reads_filter_authorized_tasks_and_aggregate_without_sidecar() {
             .snapshot()
             .expect("lifecycle snapshot should be readable"),
         lifecycle_before
+    );
+    assert!(state.core.database.pool.is_closed());
+    assert!(!stopped.to_string().contains("token=secret"));
+}
+
+#[tokio::test]
+async fn compat_control_reports_lifecycle_stopping_as_retryable_busy() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        json!({"paths": ["/downloads"]}).to_string(),
+    )
+    .expect("accessible paths should write");
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| {
+            *tasks = vec![compat_sample_task(
+                1,
+                DownloadTaskStatus::Active,
+                "active-gid",
+                "/downloads".to_string(),
+            )]
+        })
+        .expect("task snapshot should update");
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Stopping)
+        .expect("lifecycle should enter stopping");
+
+    let error = execute_method(
+        &state,
+        "aria2.pause",
+        &json!(["token:public-secret", "active-gid"]),
+    )
+    .await
+    .expect_err("control should reject while Aria2 is stopping");
+    assert_eq!(error.code, -32004);
+    assert_eq!(error.message, "Aria2 正在停止，请稍后重试");
+    assert_eq!(
+        state.core.download_tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Active
     );
 }
 

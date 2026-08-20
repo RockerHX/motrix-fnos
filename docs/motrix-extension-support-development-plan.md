@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-05 已完成，ME-06 待实施
+状态：ME-06 已完成，ME-07 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -670,6 +670,8 @@ match method {
 5. 覆盖分页、keys、字段字符串类型、文件索引 one-based、BT 名称、普通 URL 文件名和错误文本脱敏。
 
 完成条件：新增测试全部通过，既有 `server/src/api/jsonrpc/tests.rs`、TaskService、生命周期和打包静态守卫没有回归。
+
+完成记录（2026-08-20）：已补齐 JSON-RPC HTTP `POST` 的单请求、批量请求和解析错误回归，`OPTIONS` CORS 预检、WebSocket 精确入口与消息限制、LAN 真实 RFC1918 对端过滤；公网 Token、LAN Token、缺失/错误/空 Token 和 `system.multicall` 子调用鉴权均有覆盖。新增未知方法、非法参数、未知 GID、任务状态冲突和 Aria2 `Stopping` 可重试错误测试；只读统计/列表在 sidecar 停止和 SQLite 连接关闭时仍从内存快照返回，不启动进程、不写数据库，错误 URL query 与敏感字段保持脱敏。`docs/api-contract.md` 已同步 13 个 Motrix Extension 方法、入口 Token 规则和 `-32003`～`-32006` 错误语义。全量 Rust 测试与快速提交校验通过。
 
 ### ME-07：真实扩展手工验收
 

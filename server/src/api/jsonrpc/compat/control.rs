@@ -34,7 +34,7 @@ pub(super) async fn execute(
         CompatAria2Requirement::IfRunning => {
             let context = running_aria2_context(state)
                 .await
-                .map_err(RpcFault::server_error)?;
+                .map_err(map_runtime_error)?;
             execute_with_config(
                 &service,
                 operation,
@@ -65,7 +65,7 @@ pub(super) async fn execute_batch(
             let context = if plan.aria2_requirement == CompatAria2Requirement::IfRunning {
                 running_aria2_context(state)
                     .await
-                    .map_err(RpcFault::server_error)?
+                    .map_err(map_runtime_error)?
             } else {
                 None
             };
@@ -181,7 +181,11 @@ async fn running_aria2_context(
 }
 
 fn map_runtime_error(error: String) -> RpcFault {
-    if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝") {
+    if error.contains("生命周期转换超时")
+        || error.contains("生命周期请求被拒绝")
+        || error.contains("Aria2 正在停止")
+        || error.contains("Aria2 正在切换运行状态")
+    {
         RpcFault::aria2_busy(error)
     } else {
         RpcFault::server_error(error)
