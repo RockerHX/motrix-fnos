@@ -31,6 +31,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::repository::TaskRepository;
 
+mod compat;
 mod control;
 mod create;
 mod delete;
@@ -366,6 +367,10 @@ impl<'a> TaskService<'a> {
 
     pub fn get_download_task(&self, task_id: u64) -> Result<Option<DownloadTask>, String> {
         query::get_download_task(self, task_id)
+    }
+
+    pub fn get_download_task_by_gid(&self, gid: &str) -> Result<Option<DownloadTask>, String> {
+        compat::get_download_task_by_gid(self, gid)
     }
 
     pub(super) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {

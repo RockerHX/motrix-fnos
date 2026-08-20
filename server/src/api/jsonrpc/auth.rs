@@ -23,6 +23,15 @@ pub(super) async fn ensure_global_option_token(
     validate_add_uri_token(&token, params)
 }
 
+pub(super) async fn ensure_compat_token(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    params: &Value,
+) -> Result<(), RpcFault> {
+    let token = configured_token(state, access).await;
+    validate_add_uri_token(&token, params)
+}
+
 async fn configured_token(state: &HttpAppState, access: JsonRpcAccess) -> String {
     match access {
         JsonRpcAccess::Proxy => state.json_rpc_token(),

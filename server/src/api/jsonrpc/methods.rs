@@ -1,5 +1,6 @@
 use super::add_uri::add_uri;
 use super::auth::ensure_global_option_token;
+use super::compat;
 use super::types::{
     positional_params, rpc_error, rpc_success, strip_token_param, JsonRpcRequest, MulticallItem,
     RpcFault,
@@ -93,6 +94,17 @@ pub(super) async fn execute_method_with_access(
         "aria2.addUri" => add_uri(state, access, params).await.map(Value::String),
         "aria2.getGlobalOption" => get_global_option(state, access, params).await,
         "aria2.getVersion" => get_version(state).await,
+        "aria2.getGlobalStat"
+        | "aria2.tellActive"
+        | "aria2.tellWaiting"
+        | "aria2.tellStopped"
+        | "aria2.pause"
+        | "aria2.unpause"
+        | "aria2.remove"
+        | "aria2.removeDownloadResult"
+        | "aria2.pauseAll"
+        | "aria2.unpauseAll"
+        | "aria2.purgeDownloadResult" => compat::dispatch(state, access, method, params).await,
         _ => Err(RpcFault::method_not_found(format!(
             "Method not found: {method}"
         ))),

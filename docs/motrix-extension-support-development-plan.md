@@ -1,6 +1,6 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-00 已完成，ME-01 待实施
+状态：ME-01 已完成，ME-02 待实施
 
 版本：v1.1（2026-08-20）
 
@@ -89,7 +89,7 @@ Issue 原文：[`RockerHX/motrix-fnos#11`](https://github.com/RockerHX/motrix-fn
 截至本计划基线，13 个目标的对外实现状态为：
 
 - 已有外部入口：`aria2.getVersion`、`aria2.addUri`（后者仍需以扩展真实 payload 做兼容验收）。
-- 待实现外部兼容层：`aria2.getGlobalStat`、`aria2.tellActive`、`aria2.tellWaiting`、`aria2.tellStopped`、`aria2.pause`、`aria2.unpause`、`aria2.remove`、`aria2.removeDownloadResult`、`aria2.pauseAll`、`aria2.unpauseAll`、`aria2.purgeDownloadResult`。
+- ME-01 已建立外部兼容层骨架：上述 11 个方法均已进入受控白名单，完成入口级 Token 校验、参数解析、keys 白名单、分页边界、GID 唯一定位、`-32003` 错误映射和响应模型序列化；只读快照行为仍待 ME-02，任务控制和清理行为仍待 ME-04/ME-05。
 
 上述“待实现”不表示要重写 11 套 Aria2 能力：查询方法读取 Motrix 任务快照；单任务控制复用 `TaskService`；批量方法复用同一 service 的批量领域操作。内部 `aria2.tell*`、`pause`、`unpause`、`remove` 等 sidecar 调用始终只由这些 service 间接触发。
 
@@ -581,6 +581,8 @@ match method {
 5. 抽取 `api::tasks::task_service`（或同等共享构造函数），让 `add_uri` 和 compat service 使用同一依赖注入路径；只读方法不构造需要 `ensure_aria2_ready` 的 mutation context。
 
 完成条件：不接入真实 sidecar 也能通过单元测试验证 13 个方法的参数形状和响应 JSON。
+
+完成记录（2026-08-20）：已抽取共享 `TaskService` 构造入口，新增 `compat` adapter 的参数、Token、错误和响应模型；`addUri` 与兼容入口复用同一服务依赖注入路径。新增参数/模型、GID 唯一定位、JSON-RPC `id` 回显、multicall 子调用鉴权和旧入口回归测试；未启动真实 sidecar，`getGlobalStat`/`tell*` 的快照读取留给 ME-02，控制/清理业务留给 ME-04/ME-05。
 
 ### ME-02：实现只读统计和任务列表
 

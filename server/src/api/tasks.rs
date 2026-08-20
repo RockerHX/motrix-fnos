@@ -380,7 +380,7 @@ async fn permanently_delete_task(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn task_service(state: &HttpAppState) -> TaskService<'_> {
+pub(super) fn task_service(state: &HttpAppState) -> TaskService<'_> {
     TaskService::new(
         Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
         &state.core.download_tasks,

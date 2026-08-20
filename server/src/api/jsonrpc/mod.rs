@@ -1,5 +1,6 @@
 mod add_uri;
 mod auth;
+mod compat;
 mod methods;
 mod types;
 

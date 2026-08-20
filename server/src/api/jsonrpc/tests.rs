@@ -153,6 +153,83 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
 }
 
 #[tokio::test]
+async fn compat_dispatch_validates_token_and_wraps_read_models() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+
+    let global_stat = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "stat-request",
+            "method": "aria2.getGlobalStat",
+            "params": ["token:public-secret"]
+        }),
+    )
+    .await;
+    assert_eq!(global_stat["id"], "stat-request");
+    assert_eq!(global_stat["result"]["downloadSpeed"], "0");
+    assert_eq!(global_stat["result"]["numStoppedTotal"], "0");
+
+    let active = execute_method(
+        &state,
+        "aria2.tellActive",
+        &json!(["token:public-secret", ["gid", "status"]]),
+    )
+    .await
+    .expect("read adapter skeleton should return an array");
+    assert_eq!(active, json!([]));
+
+    let wrong_token = execute_method(
+        &state,
+        "aria2.tellWaiting",
+        &json!(["token:wrong", 0, 20, ["gid"]]),
+    )
+    .await
+    .expect_err("compat reads must reject an incorrect token");
+    assert_eq!(wrong_token.code, -32001);
+
+    let unknown_gid = execute_method(
+        &state,
+        "aria2.pause",
+        &json!(["token:public-secret", "missing-gid"]),
+    )
+    .await
+    .expect_err("unknown GIDs must use the dedicated error");
+    assert_eq!(unknown_gid.code, -32003);
+}
+
+#[tokio::test]
+async fn multicall_validates_each_compat_subcall_token() {
+    let state = test_state().await;
+    state.remember_json_rpc_token("public-secret");
+
+    let response = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "system.multicall",
+            "params": [[
+                {
+                    "methodName": "aria2.getGlobalStat",
+                    "params": ["token:public-secret"]
+                },
+                {
+                    "methodName": "aria2.tellStopped",
+                    "params": ["token:wrong", 0, 20, ["gid"]]
+                }
+            ]]
+        }),
+    )
+    .await;
+
+    assert_eq!(response["id"], 7);
+    assert_eq!(response["result"][0][0]["numActive"], "0");
+    assert_eq!(response["result"][1]["faultCode"], -32001);
+}
+
+#[tokio::test]
 async fn change_global_option_remains_rejected_by_public_jsonrpc_whitelist() {
     let state = test_state().await;
 

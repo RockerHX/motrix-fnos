@@ -53,6 +53,13 @@ impl RpcFault {
         }
     }
 
+    pub(super) fn gid_not_found(gid: &str) -> Self {
+        Self {
+            code: -32003,
+            message: format!("Download task not found for GID {gid}"),
+        }
+    }
+
     pub(super) fn token_invalid() -> Self {
         Self {
             code: -32001,
