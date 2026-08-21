@@ -2212,17 +2212,17 @@ impl ServiceFixture {
     }
 
     fn service(&self) -> TaskService<'_> {
-        TaskService::new(
-            Box::new(self.repository.clone()),
-            &self.tasks,
-            &self.next_task_id,
-            &self.app_data_dir,
-            &self.debug_logs,
-            &self.aria2_rpc,
-            &self.aria2_lifecycle,
-            &self.proxy_update_lock,
-            RuntimeGuard::new(&self.shutdown),
-        )
+        TaskService::new(TaskServiceDependencies {
+            repository: Box::new(self.repository.clone()),
+            download_tasks: &self.tasks,
+            next_task_id: &self.next_task_id,
+            app_data_dir: &self.app_data_dir,
+            debug_logs: &self.debug_logs,
+            aria2_rpc: &self.aria2_rpc,
+            aria2_lifecycle: &self.aria2_lifecycle,
+            proxy_update_lock: &self.proxy_update_lock,
+            runtime_guard: RuntimeGuard::new(&self.shutdown),
+        })
     }
 }
 

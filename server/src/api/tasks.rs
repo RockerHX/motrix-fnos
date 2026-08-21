@@ -4,7 +4,7 @@ use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, spawn_file_cleanup_worker};
 use crate::storage::TaskSaveDirError;
 use crate::tasks::repository::SqliteTaskRepository;
-use crate::tasks::service::{RuntimeGuard, TaskService};
+use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
     PublicDownloadTask,
@@ -381,17 +381,17 @@ async fn permanently_delete_task(
 }
 
 fn task_service(state: &HttpAppState) -> TaskService<'_> {
-    TaskService::new(
-        Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
-        &state.core.download_tasks,
-        &state.core.next_task_id,
-        &state.core.app_data_dir,
-        &state.core.debug_logs,
-        &state.aria2_rpc,
-        &state.aria2_lifecycle,
-        &state.download_proxy_update_lock,
-        RuntimeGuard::new(&state.core.shutdown),
-    )
+    TaskService::new(TaskServiceDependencies {
+        repository: Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
+        download_tasks: &state.core.download_tasks,
+        next_task_id: &state.core.next_task_id,
+        app_data_dir: &state.core.app_data_dir,
+        debug_logs: &state.core.debug_logs,
+        aria2_rpc: &state.aria2_rpc,
+        aria2_lifecycle: &state.aria2_lifecycle,
+        proxy_update_lock: &state.download_proxy_update_lock,
+        runtime_guard: RuntimeGuard::new(&state.core.shutdown),
+    })
 }
 
 fn validate_create_preconditions(

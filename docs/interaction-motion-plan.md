@@ -188,6 +188,5 @@
 满足以下条件后才开始修改 UI 代码：
 
 1. 用户批准本计划。
-2. 对应阶段 13 Figma frame 已按 `docs/development-plan.md` 的门禁获得批准。
+2. 对应阶段 13 Figma frame 已按 `docs/future-development-plan.md` 的启动门禁获得批准。
 3. 实施前再次核对获批 frame 的 hover、pressed、focus-visible、loading 和 reduced-motion 标注；若与本计划冲突，先更新本文档并重新确认。
-

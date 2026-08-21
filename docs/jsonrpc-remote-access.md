@@ -1,8 +1,17 @@
-# JSON-RPC 公网接入与排障记录
+# JSON-RPC 公网接入与排障指南
 
-> 记录日期：2026-07-05  
-> 最近验证：2026-07-14
+> 文档核对：2026-08-22；公网实机记录：2026-07-14（历史记录）
 > 目标：在外网通过解析站的 Aria2 发送能力，把任务提交到 NAS 上的 Motrix FNOS，由 NAS 本地 Aria2 Next 下载。
+
+端口边界先看这里：
+
+| 端口 | 用途 | 可访问范围 |
+| --- | --- | --- |
+| `17080` | Web 管理面、HTTP API、SSE | NAS 管理入口；业务 API 需要 Web Session |
+| `17081` | 回环 JSON-RPC | 仅 NAS 本机和本机反向代理；Lucky 应代理到这里 |
+| `17082` | 局域网 JSON-RPC | 始终监听；仅 RFC1918 IPv4 客户端，使用独立 Token |
+
+公网解析站只应访问 `/jsonrpc`。不要把 `17080`、`17082` 或 Aria2 的 `6800` 直接暴露到公网。
 
 ## 1. 最终推荐拓扑
 
@@ -12,7 +21,7 @@
   -> Cloudflare 代理（AAAA / 橙云）
   -> 家宽公网 IPv6
   -> Lucky Web 服务（TLS / 8443）
-  -> http://127.0.0.1:17080/jsonrpc
+  -> http://127.0.0.1:17081/jsonrpc
   -> motrix-fnos Rust server
   -> 127.0.0.1:6800 Aria2 Next RPC
 ```
@@ -47,35 +56,20 @@ curl -i https://motrix-fnos-main.rockerhx.fnos.net/jsonrpc
 
 ## 3. 先验证 NAS 本地服务
 
-### 3.1 Motrix FNOS 后端
+### 3.1 管理面就绪检查
 
 ```bash
-curl -i http://192.168.1.12:17080/api/aria2/rpc
-curl -i http://192.168.1.12:17080/api/tasks
+curl -i http://192.168.1.12:17080/api/app/ready
 ```
 
-期望：
+该接口只用于生命周期探测，不代表已登录管理面。任务、设置和授权目录接口都需要 Web Session；请从 fnOS 桌面打开 Motrix 完成登录后再检查这些功能。
 
-```json
-{"connected":true,"version":"2.4.9"}
-```
+### 3.2 本地 JSON-RPC
 
-### 3.2 授权保存目录
+在 NAS 本机执行：
 
 ```bash
-curl -s http://192.168.1.12:17080/api/storage/accessible-paths
-```
-
-示例：
-
-```json
-{"paths":["/vol1/1000/tmp"]}
-```
-
-### 3.3 本地 JSON-RPC
-
-```bash
-curl -i http://192.168.1.12:17080/jsonrpc \
+curl -i http://127.0.0.1:17081/jsonrpc \
   -H 'Content-Type: application/json' \
   -d '{
     "jsonrpc": "2.0",
@@ -85,9 +79,9 @@ curl -i http://192.168.1.12:17080/jsonrpc \
   }'
 ```
 
-成功后再配置公网反代。
+`aria2.getVersion` 成功后再配置公网反代。`17081` 绑定回环地址，直接从 NAS 局域网地址访问通常会失败，这是预期行为。
 
-### 3.4 配置 JSON-RPC 密钥
+### 3.3 配置 JSON-RPC 密钥
 
 在 Motrix FNOS 设置页找到“JSON-RPC 密钥”：
 
@@ -379,7 +373,7 @@ WAN IPv6 -> NAS IPv6 TCP 8443
 ```text
 服务类型：反向代理
 前端地址：motrix.andy-singapore.ccwu.cc
-后端地址：http://127.0.0.1:17080
+后端地址：http://127.0.0.1:17081
 CorazaWAF：无
 万事大吉：启用
 忽略后端TLS证书验证：无所谓，后端是 http
@@ -391,32 +385,29 @@ CorazaWAF：无
 注意：
 
 - 前端地址不要带 `https://`。
-- fnOS 当前实测 Lucky 与 Motrix 可通过 `http://127.0.0.1:17080` 通信，优先使用回环地址，避免依赖 NAS 局域网地址变化。
-- 如果以后改成 Docker / 隔离环境，`127.0.0.1` 可能指向 Lucky 自身；此时改用 `http://192.168.1.12:17080` 或实际 NAS 局域网地址。
+- Lucky 必须代理到 `http://127.0.0.1:17081`，不能代理到管理端口 `17080`。
+- 如果 Lucky 运行在 Docker 或其他隔离网络命名空间，`127.0.0.1` 可能指向 Lucky 自身；此时应让 Lucky 与 Motrix 共享网络命名空间，或使用仅 NAS 内部可达的地址，并保持 `17081` 不对外映射。
 
 当前实测配置使用：
 
 ```text
 前端域名：motrix.andy-singapore.ccwu.cc
 外部端口：8443
-后端地址：http://127.0.0.1:17080
+后端地址：http://127.0.0.1:17081
 ```
 
-`POST /jsonrpc` 已通过 Cloudflare、家庭 IPv6 和 Lucky 反代返回 Aria2 Next `2.4.9`，证明当前 Lucky 与 Motrix 可以通过回环地址通信。
+`POST /jsonrpc` 已通过 Cloudflare、家庭 IPv6 和 Lucky 反代返回 Aria2 Next `2.4.9`，证明当前 Lucky 与 Motrix 可以通过回环地址通信。版本号以实际运行的 Aria2 Next 为准。
 
 ## 6. 外网测试命令
 
-### 6.1 页面连通性
+### 6.1 管理面隔离检查
 
 ```bash
-curl -i https://motrix.andy-singapore.ccwu.cc:8443/api/app/info
+curl -i https://motrix.andy-singapore.ccwu.cc:8443/
+curl -i https://motrix.andy-singapore.ccwu.cc:8443/api/settings
 ```
 
-或浏览器打开：
-
-```text
-https://motrix.andy-singapore.ccwu.cc:8443/
-```
+这两个请求应返回 `404`（或由上游网关返回 `403`），不能打开 Web UI 或管理 API。管理页面请使用 fnOS/FN Connect 的内部入口。
 
 ### 6.2 JSON-RPC getVersion
 
@@ -528,9 +519,9 @@ RPC密钥：填写设置页保存的 JSON-RPC 密钥
 | 橙云 `nas` 偶发 `522` | Cloudflare 可能尝试不可入站的家庭 IPv4源站 | 删除不可用 A，让 DDNS 只维护 AAAA |
 | 能访问 `:5666`，但 `:8443` 不通 | 只证明 `5666` 开放，不代表 `8443` 开放 | 路由器/光猫 IPv6 防火墙放行 NAS TCP 8443 |
 | Lucky 子规则无流量 | 请求没到 Lucky 或域名没匹配 | 检查 DNS、Cloudflare 代理状态、Lucky 前端地址不要带协议 |
-| Lucky 反代 `127.0.0.1` 不通 | Lucky 与 Motrix 不在同一网络命名空间 | 改后端为 `http://192.168.1.12:17080` |
+| Lucky 反代 `127.0.0.1` 不通 | Lucky 与 Motrix 不在同一网络命名空间 | 让两者共享网络命名空间，或使用 NAS 内部可达地址；不要把 `17081` 加入公网/端口映射 |
 | FN Connect 返回 403 | 飞牛公网应用入口需要登录态 | 不用 FN Connect 做第三方解析站 JSON-RPC 入口，改用 Lucky |
-| 页面能开但 `/jsonrpc` 失败 | 路由或 CORS/WebSocket 问题 | 分别测试 `/api/app/info`、`POST /jsonrpc`、`OPTIONS /jsonrpc`、`wscat` |
+| 根路径或 `/api/*` 能从公网打开 | Lucky 错误地代理到了管理端口 | 将后端改为 `http://127.0.0.1:17081`，再确认根路径和 `/api/*` 返回 404/403 |
 
 ## 9. 安全注意
 
@@ -588,7 +579,7 @@ motrix.andy-singapore.ccwu.cc:8443
   -> Cloudflare 橙云
   -> NAS IPv6:8443
   -> Lucky
-  -> Motrix 17080
+  -> Motrix 17081
 ```
 
 判断访问行为时必须同时检查：DNS代理状态、协议、端口、Host、TLS终止位置和反向代理后端。

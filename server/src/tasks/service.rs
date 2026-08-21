@@ -74,28 +74,30 @@ pub struct TaskService<'a> {
     runtime_guard: RuntimeGuard<'a>,
 }
 
+pub struct TaskServiceDependencies<'a> {
+    pub repository: Box<dyn TaskRepository + 'a>,
+    pub download_tasks: &'a TaskMemoryState,
+    pub next_task_id: &'a AtomicU64,
+    pub app_data_dir: &'a Path,
+    pub debug_logs: &'a DebugLogStore,
+    pub aria2_rpc: &'a Aria2RpcClient,
+    pub aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
+    pub proxy_update_lock: &'a tokio::sync::Mutex<()>,
+    pub runtime_guard: RuntimeGuard<'a>,
+}
+
 impl<'a> TaskService<'a> {
-    pub fn new(
-        repository: Box<dyn TaskRepository + 'a>,
-        download_tasks: &'a TaskMemoryState,
-        next_task_id: &'a AtomicU64,
-        app_data_dir: &'a Path,
-        debug_logs: &'a DebugLogStore,
-        aria2_rpc: &'a Aria2RpcClient,
-        aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
-        proxy_update_lock: &'a tokio::sync::Mutex<()>,
-        runtime_guard: RuntimeGuard<'a>,
-    ) -> Self {
+    pub fn new(dependencies: TaskServiceDependencies<'a>) -> Self {
         Self {
-            repository,
-            download_tasks,
-            next_task_id,
-            app_data_dir,
-            debug_logs,
-            aria2_rpc,
-            aria2_lifecycle,
-            proxy_update_lock,
-            runtime_guard,
+            repository: dependencies.repository,
+            download_tasks: dependencies.download_tasks,
+            next_task_id: dependencies.next_task_id,
+            app_data_dir: dependencies.app_data_dir,
+            debug_logs: dependencies.debug_logs,
+            aria2_rpc: dependencies.aria2_rpc,
+            aria2_lifecycle: dependencies.aria2_lifecycle,
+            proxy_update_lock: dependencies.proxy_update_lock,
+            runtime_guard: dependencies.runtime_guard,
         }
     }
 

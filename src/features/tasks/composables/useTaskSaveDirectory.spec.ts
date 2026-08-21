@@ -86,7 +86,7 @@ describe("useTaskSaveDirectory", () => {
     expect(form.saveDir).toBe("/downloads");
   });
 
-  it("clears selection and exposes loading errors", async () => {
+  it("clears unconfirmed input and exposes initial loading errors", async () => {
     mockedGetAccessiblePaths.mockRejectedValueOnce(new Error("load failed"));
     const form = reactive(createTaskCreateFormState());
     form.saveDir = "/old";
@@ -97,6 +97,37 @@ describe("useTaskSaveDirectory", () => {
     expect(form.saveDir).toBe("");
     expect(saveDirectory.accessiblePaths.value).toEqual([]);
     expect(saveDirectory.accessiblePathsError.value).toBe("load failed");
+  });
+
+  it("keeps the last confirmed directory snapshot when a refresh fails", async () => {
+    const form = reactive(createTaskCreateFormState());
+    const saveDirectory = useTaskSaveDirectory(form);
+    await saveDirectory.refreshAccessiblePaths();
+    form.saveDir = "/backup";
+    mockedGetAccessiblePaths.mockRejectedValueOnce(new Error("temporary failure"));
+
+    await saveDirectory.refreshAccessiblePaths();
+
+    expect(saveDirectory.accessiblePaths.value).toEqual(["/downloads", "/backup"]);
+    expect(saveDirectory.accessiblePathOptions.value).toEqual([
+      { label: "存储空间1/downloads", value: "/downloads" },
+      { label: "存储空间1/backup", value: "/backup" },
+    ]);
+    expect(form.saveDir).toBe("/backup");
+    expect(saveDirectory.accessiblePathsError.value).toBe("temporary failure");
+  });
+
+  it("clears a selection that is outside the confirmed snapshot after refresh failure", async () => {
+    const form = reactive(createTaskCreateFormState());
+    const saveDirectory = useTaskSaveDirectory(form);
+    await saveDirectory.refreshAccessiblePaths();
+    form.saveDir = "/not-authorized";
+    mockedGetAccessiblePaths.mockRejectedValueOnce(new Error("temporary failure"));
+
+    await saveDirectory.refreshAccessiblePaths();
+
+    expect(saveDirectory.accessiblePaths.value).toEqual(["/downloads", "/backup"]);
+    expect(form.saveDir).toBe("");
   });
 
   it("queries the official API after a successful picker result and selects the confirmed path", async () => {
@@ -128,17 +159,18 @@ describe("useTaskSaveDirectory", () => {
     expect(form.saveDir).toBe("");
   });
 
-  it("clears the unconfirmed selection when the official refresh fails", async () => {
+  it("keeps the previous confirmed directories when the official refresh fails", async () => {
     mockedRefreshAccessiblePaths.mockRejectedValueOnce(new Error("上游刷新失败"));
     const form = reactive(createTaskCreateFormState());
-    form.saveDir = "/old";
     const saveDirectory = useTaskSaveDirectory(form);
+    await saveDirectory.refreshAccessiblePaths();
+    form.saveDir = "/backup";
     await saveDirectory.detectHostKind();
 
     await saveDirectory.addAccessiblePath();
 
-    expect(form.saveDir).toBe("");
-    expect(saveDirectory.accessiblePaths.value).toEqual([]);
+    expect(form.saveDir).toBe("/backup");
+    expect(saveDirectory.accessiblePaths.value).toEqual(["/downloads", "/backup"]);
     expect(saveDirectory.authorizationMessage.value).toBe("当前目录列表可能已过期，仍保留上一次确认的目录。");
   });
 });
