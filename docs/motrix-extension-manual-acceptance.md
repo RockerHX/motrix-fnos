@@ -1,5 +1,9 @@
 # Motrix Extension 真实扩展手工验收
 
+> 当前文档已暂停使用。原文档针对 `reagin/motrix-extension`，而当前实际安装
+> 的 Chrome 插件及 `AnInsomniacy/motrix-next-extension` 均不是该扩展基线；在
+> 重新确定支持路线前，不得按本文执行 ME-07 或将结果记为兼容验收通过。
+
 > 适用阶段：ME-07。  
 > 验收对象：Motrix fnOS 当前待发布构建与 Motrix Extension `v2026.07.08.18091`。  
 > 本文是现场验收步骤和证据模板；支持范围、固定版本和接口契约仍以

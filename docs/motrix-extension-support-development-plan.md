@@ -1,10 +1,36 @@
 # Motrix Extension 支持调研与开发计划
 
-状态：ME-06 已完成，ME-07 待实施
+状态：暂停；ME-07 及真实扩展回归验收无效，等待重新确定扩展基线
 
 版本：v1.1（2026-08-20）
 
 范围：只支持 Motrix Extension 的核心下载转发和任务控制。不把 Aria2 Explorer、AriaNg 或“完整 Aria2 RPC 兼容”纳入本计划。
+
+## 当前暂停说明（2026-08-21）
+
+本计划在 ME-00 冻结时错误地把 `reagin/motrix-extension` 作为目标扩展，随后
+ME-01 至 ME-06 实现的是面向该扩展的受控 Aria2 JSON-RPC 兼容层。该实现及其
+自动化测试保留在本 feature 分支，不能据此宣称用户当前安装的 Chrome 扩展已
+兼容，也不能继续执行原 ME-07 手工验收。
+
+重新核对用户实际安装的扩展和候选项目后确认：
+
+- Chrome Web Store 插件 `djlkbfdlljbachafjmfomhaciglnmkgj` 对应
+  `gautamkrishnar/motrix-webextension`，Host 固定为 `127.0.0.1`，仅配置端口
+  和密钥，不能连接飞牛 `NAS_IP:17082`。
+- `AnInsomniacy/motrix-next-extension` 当前有 Chrome Web Store 版本
+  `ofeajdebdjajhkmcmamagokecnbephhl`，但同样固定访问 `127.0.0.1`；它使用
+  Motrix Next REST API（`/ping`、`/stat`、`/add`、`/pause-all`、
+  `/resume-all`），不是本项目的 JSON-RPC。其作者在
+  [Issue #20](https://github.com/AnInsomniacy/motrix-next-extension/issues/20)
+  明确说明 JSON-RPC 已从 Motrix Next 和扩展移除。
+- 因此不能把 AnInsomniacy 扩展直接替换进当前 JSON-RPC 验收，也不能只修改
+  服务端 URL 就完成远端适配。
+
+本次停止原因是兼容目标不成立，而不是已发现当前 JSON-RPC 代码必然错误。后续
+必须先重新确定产品路线：要么维护一个支持远端 URL 的 JSON-RPC 扩展 fork，
+继续复用本分支服务端；要么另立 Motrix Next REST 兼容项目，同时修改扩展和
+服务端。路线确定前，ME-07、真实扩展回归和发布兼容声明均保持暂停。
 
 ## 1. 目标和结论
 
