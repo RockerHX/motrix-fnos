@@ -26,6 +26,9 @@ EOF
 # Markdown 允许用两个行尾空格表示强制换行，排除 Markdown 后检查其余暂存内容。
 git diff --cached --check -- . ':(exclude,glob)**/*.md' ':(exclude,glob)**/*.mdx'
 
+# 文档策略不能因 docs-only 提交而跳过；本地 verification 证据必须保持未跟踪。
+node scripts/verify/check-document-policy.mjs
+
 if [ "$has_staged_file" -eq 1 ] && [ "$only_docs_or_assets" -eq 1 ]; then
   echo "仅文档或非代码资源变更，跳过 Rust/前端测试。"
   exit 0

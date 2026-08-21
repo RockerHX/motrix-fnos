@@ -256,7 +256,28 @@ Rust Runtime Event
 - 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
 - 日志必须隐藏私密 URL query 和敏感配置；下载代理的完整 URL、userinfo、私密覆盖值及其错误上下文不得进入文件日志、内存调试日志或诊断导出。
 
-## 9. fnOS 平台查证规则
+## 9. 文档生命周期
+
+仓库只保存可长期复用的事实来源，不把阶段性执行记录当作产品文档提交。
+
+长期文档白名单：
+
+- `docs/architecture.md`：架构、职责边界、运行与安全模型。
+- `docs/api-contract.md`：HTTP、SSE 和外部 JSON-RPC 契约。
+- `docs/development-scripts.md`：公开开发与验证命令。
+- `docs/fpk-packaging.md`：FPK 构建、产物和 fnOS 实机检查。
+- `docs/future-development-plan.md`：唯一的未完成事项、状态和启动门禁来源。
+- `docs/design/`：长期 UI 产品需求与设计系统。
+- `docs/motrix-extension-manual-acceptance.md`：可重复执行的真实扩展验收手册。
+
+例外与生命周期：
+
+- `docs/motrix-extension-support-development-plan.md` 仅作为 ME-07/ME-08 尚未完成期间的临时豁免；验收和发布记录迁移到 API 契约、验收手册与 CHANGELOG 后必须删除。
+- `ME-*` 阶段计划、一次性调研、迁移草案、个人环境排障记录和临时完成记录不得新增到 `docs/`。需要保留的稳定结论必须先迁移到上述事实来源。
+- 实机日志、截图、校验和及失败现场只允许放在本地 `docs/verification/`；该目录不得被 Git 跟踪。
+- 文档新增、删除或迁移必须同步更新引用；不得留下指向已删除计划文档的链接。
+
+## 10. fnOS 平台查证规则
 
 涉及 fnOS / FPK / 应用中心 / manifest / `config/resource` / `config/privilege` / `cmd/*` 生命周期 / `TRIM_*` 环境变量 / 文件夹授权 / 端口入口 / 安装、升级、卸载行为时，必须先查证资料或实机验证，不能只凭通用 Linux、NAS 或既有记忆下结论。
 
@@ -269,7 +290,7 @@ Rust Runtime Event
 
 修改涉及 fnOS 平台行为的实现或文档时，应同步记录查证来源或验证方式。
 
-## 10. 开发约束
+## 11. 开发约束
 
 - 新增前端交互进入 `features/*`，不得重新向入口页面堆叠。
 - 新增通信能力默认走 HTTP API / SSE。

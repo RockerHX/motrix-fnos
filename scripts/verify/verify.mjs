@@ -8,10 +8,12 @@ const packageManager = resolvePackageManager();
 
 const steps = quick
   ? [
+      { title: "文档生命周期守卫", command: "node", args: ["scripts/verify/check-document-policy.mjs"], detail: "检查 docs 长期文档白名单和过渡文档引用" },
       { title: "项目版本一致性检查", command: "node", args: ["scripts/version/version-check.mjs"], detail: "核对所有版本来源" },
       { title: "Rust 格式检查", command: "cargo", args: ["fmt", "--manifest-path", "server/Cargo.toml", "--all", "--", "--check"], detail: "检查 Rust 源码格式" },
     ]
   : [
+      { title: "文档生命周期守卫", command: "node", args: ["scripts/verify/check-document-policy.mjs"], detail: "检查 docs 长期文档白名单和过渡文档引用" },
       { title: "项目版本一致性检查", command: "node", args: ["scripts/version/version-check.mjs"], detail: "核对所有版本来源" },
       { title: "Rust 格式检查", command: "cargo", args: ["fmt", "--manifest-path", "server/Cargo.toml", "--all", "--", "--check"], detail: "检查 Rust 源码格式" },
       { title: "构建与发布脚本测试", command: packageManager, args: ["run", "test:scripts"], detail: "收集 Node.js 测试" },
