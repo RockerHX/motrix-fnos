@@ -347,3 +347,24 @@ cargo clippy --manifest-path server/Cargo.toml --all-targets -- -D warnings
 - 迁移前必须先更新 `docs/architecture.md`、`docs/api-contract.md` 和 `docs/fpk-packaging.md`，并明确端口模式回退方案。
 - Motrix 的候选实现必须单独验证 FPK 最终产物和真实 fnOS 转发链路；仅有 Axum Router 测试或 Unix Socket 直连测试不算通过。
 - 任一注册、鉴权、路径或长连接场景失败时，Motrix 继续保持当前端口入口，不合并实验代码。
+
+## 7. FUTURE-FNOS-API-01：fnOS 开放 API / SDK 接入
+
+状态：进行中；阶段 0 的独立 Probe 已归档，阶段 1 和阶段 2 的代码开发已完成，等待正式 `motrix` 身份的 fnOS 实机验收。该事项不阻塞当前下载、JSON-RPC 或 UI 回归。
+
+长期事实来源：`docs/architecture.md`、`docs/api-contract.md`、`docs/fpk-packaging.md` 和 `docs/design/ui-product-requirements.md`。本节只记录状态、范围和启动门禁，不保存阶段实施日志或临时验证证据。
+
+范围与边界：
+
+- 正式包只使用 `trim.file.sharedAccess` 与 `trim.file.path`，最低 fnOS 版本为 `1.2.0401`，飞牛 App WebView 要求 `1.34.0`。
+- 共享授权目录的事实必须来自 Rust server 通过官方 Unix Socket API 查询的结果；SDK 返回路径只用于触发宿主交互，不能直接成为后端授权事实。
+- `trim.file.convertPath` 只生成展示路径，不持久化、不缓存，也不参与授权、下载或文件系统判断。
+- 独立浏览器、旧 fnOS 或 SDK 不可用时不调用宿主方法，只提示用户在受支持的 fnOS 宿主内完成授权；用户级授权和统一网关身份继续延期。
+- 实机证据、FPK 校验和与临时报告保存在开发者本地的 `docs/verification/`，不得提交到版本库。
+
+完成门禁：
+
+1. 使用正式 `motrix` 身份在至少一台 x86 fnOS `1.2.0401` 设备完成共享授权、刷新、路径展示和完成任务文件操作验收。
+2. 在目标 ARM 设备和飞牛 App WebView 可用后补测对应宿主行为；不以 x86 结果替代 ARM 证据。
+3. 验证授权撤销、查询失败回退、旧快照保留、未授权目录拒绝和宿主不可用降级，不得改变现有任务与文件安全边界。
+4. 通过双架构 FPK 构建、解包检查和目标设备安装/升级验证后，更新 `CHANGELOG.md`，再将本事项标记为已完成并从未完成索引移除。
