@@ -1,6 +1,5 @@
-use super::{
-    classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir, task_service,
-};
+use super::{classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir};
+use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready, ReadyAria2};
@@ -29,7 +28,7 @@ impl<'a> TaskMutationContext<'a> {
         state: &'a HttpAppState,
         save_dir: Option<Option<&str>>,
     ) -> Result<Self, ApiError> {
-        let service = task_service(state);
+        let service = build_task_service(state);
         service.ensure_not_exiting().map_err(classify_task_error)?;
         if let Some(save_dir) = save_dir {
             ensure_authorized_save_dir(state, save_dir)?;

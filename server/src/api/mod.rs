@@ -12,6 +12,8 @@ mod storage;
 mod tasks;
 
 use crate::app::HttpAppState;
+use crate::tasks::repository::SqliteTaskRepository;
+use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
@@ -82,6 +84,20 @@ pub fn lan_jsonrpc_router(state: Arc<HttpAppState>) -> Router {
         ))
         .layer(middleware::from_fn(request_context))
         .with_state(state)
+}
+
+pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
+    TaskService::new(TaskServiceDependencies {
+        repository: Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
+        download_tasks: &state.core.download_tasks,
+        next_task_id: &state.core.next_task_id,
+        app_data_dir: &state.core.app_data_dir,
+        debug_logs: &state.core.debug_logs,
+        aria2_rpc: &state.aria2_rpc,
+        aria2_lifecycle: &state.aria2_lifecycle,
+        proxy_update_lock: &state.download_proxy_update_lock,
+        runtime_guard: RuntimeGuard::new(&state.core.shutdown),
+    })
 }
 
 async fn authorize_lan_jsonrpc_peer(

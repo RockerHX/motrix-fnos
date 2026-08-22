@@ -1,10 +1,9 @@
 use super::auth::ensure_add_uri_token;
 use super::types::{positional_params, strip_token_param, RpcFault};
 use super::JsonRpcAccess;
+use crate::api::build_task_service;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
-use crate::tasks::repository::SqliteTaskRepository;
-use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use crate::tasks::{
     sanitize_aria2_options, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
     DownloadTaskSourceType, DownloadTaskStartMode,
@@ -49,17 +48,7 @@ pub(super) async fn add_uri(
     };
     let save_dir = authorized_save_dir(state, &save_dir)?;
 
-    let service = TaskService::new(TaskServiceDependencies {
-        repository: Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
-        download_tasks: &state.core.download_tasks,
-        next_task_id: &state.core.next_task_id,
-        app_data_dir: &state.core.app_data_dir,
-        debug_logs: &state.core.debug_logs,
-        aria2_rpc: &state.aria2_rpc,
-        aria2_lifecycle: &state.aria2_lifecycle,
-        proxy_update_lock: &state.download_proxy_update_lock,
-        runtime_guard: RuntimeGuard::new(&state.core.shutdown),
-    });
+    let service = build_task_service(state);
     service
         .ensure_not_exiting()
         .map_err(RpcFault::server_error)?;
