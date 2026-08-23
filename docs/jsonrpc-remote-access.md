@@ -42,6 +42,8 @@
 4. Lucky 与 Motrix 必须处于同一网络命名空间，或使用 NAS 内部可达地址；不要把 `17081` 加入端口映射。
 5. Cloudflare 建议使用 `Full (strict)`，源站 TLS 服务绑定 Origin CA 或其他受信任证书。
 
+FN Connect / 应用子域名依赖 fnOS 登录态，第三方解析站不会携带该 Cookie；它只能作为管理入口，不能替代公网 JSON-RPC 反向代理。公网调用必须走 Lucky/Cloudflare 到 `127.0.0.1:17081/jsonrpc`。
+
 ## 4. NAS 本地验证
 
 ### 4.1 服务就绪
@@ -84,6 +86,7 @@ curl -i http://127.0.0.1:17081/jsonrpc \
 - Cloudflare API Token 只授予目标 Zone 的读取和 DNS 编辑权限，不使用全局 Token。
 - 多级托管域名需要在 Lucky 中配置正确的自定义后缀；出现 `zone not found` 时先检查 Zone 与主机记录拆分。
 - 橙云开启后，公共 `dig` 查询返回 Cloudflare 地址而不是家庭 IPv6，这是正常现象；真实源站值以 Cloudflare 控制台和 Lucky 日志为准。
+- DDNS 只同步可入站的全局 IPv6，不要使用 `fe80::` 链路本地地址；DNS 只决定目标地址，端口、协议、TLS 和 Host 仍需单独核对。
 
 ### 5.2 TLS 服务
 
@@ -96,6 +99,8 @@ Cloudflare：Full (strict)
 ```
 
 Cloudflare `526` 通常表示源站证书不匹配、过期或未绑定到 Lucky；临时切换 `Full` 只用于定位问题，修复后应恢复 `Full (strict)`。
+
+Origin CA 证书只用于 Cloudflare 到 Lucky 的回源，普通浏览器不信任；改为灰云直连时必须使用受浏览器信任的公共证书。
 
 ### 5.3 反向代理
 

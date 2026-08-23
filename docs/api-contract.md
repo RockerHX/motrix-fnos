@@ -140,6 +140,7 @@
 - 密码修改、保护状态变更与本地重置必须递增 `authVersion` 并撤销已有 Session；修改密码成功时可只为当前请求签发新 Session。
 - 关闭保护不会删除密码哈希，也不会更改 JSON-RPC Token；重新启用保护仍需当前密码。
 - 密码明文、密码哈希、Session ID、Cookie 与 CSRF Token 不得写入日志、普通设置响应或调试日志。
+- `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
 
 Session 与 Cookie 约定：
 

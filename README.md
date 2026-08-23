@@ -47,6 +47,8 @@ FPK 按设备 CPU 架构分别发布：
 
 启用 FN Connect 后，当前入口可通过 `https://motrix.<account>.fnos.net/` 打开。卸载时只有明确选择“同时删除 Motrix 应用数据”才会清理应用私有数据，用户下载文件不在清理范围内。
 
+FN Connect / 应用子域名依赖 fnOS 登录态，只适合作为管理入口；第三方解析站不会携带该登录态，公网 JSON-RPC 仍需通过 Lucky/Cloudflare 反向代理到回环 `17081`。
+
 ## 技术文档
 
 - [架构与职责边界](docs/architecture.md)
