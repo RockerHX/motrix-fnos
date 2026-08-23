@@ -89,6 +89,41 @@ fn validation_without_activity_does_not_extend_idle_timeout() {
 }
 
 #[test]
+fn detailed_validation_reports_expiration_and_auth_version_failures() {
+    let now = Arc::new(AtomicU64::new(1_000));
+    let clock_now = now.clone();
+    let store = SessionStore::with_clock(Arc::new(move || clock_now.load(Ordering::Relaxed)));
+    let session = store
+        .create(SessionKind::Admin, 7)
+        .expect("session should create");
+
+    assert!(matches!(
+        store
+            .validate_detailed(&session.id, 8, true)
+            .expect("validation should run"),
+        SessionValidation::Invalid(SessionValidationFailure::AuthVersionMismatch)
+    ));
+
+    let expired = store
+        .create(SessionKind::Admin, 7)
+        .expect("session should create");
+    now.store(30 * 60 * 1_000 + 1_001, Ordering::Relaxed);
+    assert!(matches!(
+        store
+            .validate_detailed(&expired.id, 7, true)
+            .expect("validation should run"),
+        SessionValidation::Invalid(SessionValidationFailure::Expired)
+    ));
+
+    assert!(matches!(
+        store
+            .validate_detailed("missing-session", 7, true)
+            .expect("validation should run"),
+        SessionValidation::Invalid(SessionValidationFailure::NotFound)
+    ));
+}
+
+#[test]
 fn rejects_auth_version_changes_and_cross_session_csrf() {
     let store = SessionStore::new();
     let first = store

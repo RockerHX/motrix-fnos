@@ -12,7 +12,7 @@ pub use process_lock::ServerProcessLock;
 pub use rate_limit::{LoginRateLimitError, LoginRateLimiter, UNKNOWN_LOGIN_SOURCE};
 pub use session::{
     clear_session_cookie, session_cookie, CreatedSession, SessionError, SessionKind, SessionStore,
-    ValidatedSession, SESSION_COOKIE_NAME,
+    SessionValidation, SessionValidationFailure, ValidatedSession, SESSION_COOKIE_NAME,
 };
 
 #[derive(Clone)]

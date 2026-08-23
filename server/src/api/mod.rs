@@ -39,6 +39,12 @@ pub(super) const JSONRPC_HTTP_CONCURRENCY_LIMIT: usize = 32;
 const REQUEST_ID_HEADER: &str = "x-request-id";
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+#[derive(Clone)]
+pub(super) struct RequestContext {
+    pub(super) request_id: String,
+    pub(super) path: String,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct HttpResourceLimits {
     pub(super) body_limit: usize,
@@ -211,10 +217,14 @@ async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {
     response
 }
 
-async fn request_context(request: Request<Body>, next: Next) -> Response {
+async fn request_context(mut request: Request<Body>, next: Next) -> Response {
     let request_id = new_request_id();
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    request.extensions_mut().insert(RequestContext {
+        request_id: request_id.clone(),
+        path: path.clone(),
+    });
     let span = tracing::info_span!(
         "http_request",
         request_id = %request_id,

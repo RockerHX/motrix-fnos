@@ -709,6 +709,14 @@ async fn diagnostics_log_mode_requires_session_and_csrf_and_does_not_start_stopp
     )
     .await;
     assert_eq!(no_session.code, "authentication_required");
+    assert_eq!(no_session.reason.as_deref(), Some("session_cookie_missing"));
+    assert!(state
+        .core
+        .debug_logs
+        .list()
+        .iter()
+        .any(|entry| entry.module == "auth.failure"
+            && entry.message.contains("session_cookie_missing")));
 
     let auth_state = state
         .auth
@@ -901,6 +909,75 @@ async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs(
         assert!(!contents.contains(secret), "secret leaked: {secret}");
     }
     assert!(contents.contains("[REDACTED]"));
+}
+
+#[tokio::test]
+async fn login_diagnostic_bundle_is_public_and_excludes_business_logs() {
+    let state = raw_test_state(None).await;
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("logs"))
+        .expect("logs directory should create");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/lifecycle.log"),
+        "password=lifecycle-secret\n",
+    )
+    .expect("lifecycle log should write");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/server.log"),
+        "server-secret\n",
+    )
+    .expect("server log should write");
+    state
+        .core
+        .debug_logs
+        .warn("auth.failure", "session=auth-secret");
+    state.core.debug_logs.error("tasks.create", "task-secret");
+    let app = management_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/login-diagnostic")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/zip")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename=\"motrix-fnos-login-diagnostic.zip\"")
+    );
+
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("bundle body should read");
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("bundle should be a valid zip");
+    let mut names = Vec::new();
+    let mut contents = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("zip entry should open");
+        names.push(entry.name().to_string());
+        entry
+            .read_to_string(&mut contents)
+            .expect("zip entry should be text");
+    }
+    assert!(names.iter().any(|name| name == "summary.json"));
+    assert!(names.iter().any(|name| name == "logs/auth-debug.jsonl"));
+    assert!(names.iter().any(|name| name == "logs/lifecycle.log"));
+    assert!(!names.iter().any(|name| name.contains("server")));
+    assert!(!contents.contains("auth-secret"));
+    assert!(!contents.contains("lifecycle-secret"));
+    assert!(!contents.contains("task-secret"));
 }
 
 #[tokio::test]

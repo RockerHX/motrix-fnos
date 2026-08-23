@@ -1,9 +1,11 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
+use crate::api::RequestContext;
 use crate::app::HttpAppState;
 use crate::auth::{
     clear_session_cookie, session_cookie, AuthError, AuthState, CreatedSession, SessionKind,
-    ValidatedSession, SESSION_COOKIE_NAME, UNKNOWN_LOGIN_SOURCE,
+    SessionValidation, SessionValidationFailure, ValidatedSession, SESSION_COOKIE_NAME,
+    UNKNOWN_LOGIN_SOURCE,
 };
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
@@ -18,10 +20,58 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 const CSRF_HEADER: &str = "x-csrf-token";
-
 #[derive(Clone)]
 pub(crate) struct EventAuthContext {
     session_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionFailureReason {
+    CookieMissing,
+    CookieInvalid,
+    NotFound,
+    Expired,
+    AuthVersionMismatch,
+    InsufficientPrivileges,
+}
+
+impl SessionFailureReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::CookieMissing => "session_cookie_missing",
+            Self::CookieInvalid => "session_cookie_invalid",
+            Self::NotFound => "session_not_found",
+            Self::Expired => "session_expired",
+            Self::AuthVersionMismatch => "session_auth_version_mismatch",
+            Self::InsufficientPrivileges => "session_kind_insufficient",
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::CookieMissing => "未收到有效的管理会话 Cookie，请重新登录",
+            Self::CookieInvalid => "管理会话 Cookie 无效，请重新登录",
+            Self::NotFound => "管理会话不存在，可能服务刚刚重启，请重新登录",
+            Self::Expired => "管理会话已过期，请重新登录",
+            Self::AuthVersionMismatch => "管理会话已失效，请重新登录",
+            Self::InsufficientPrivileges => "需要管理员登录会话",
+        }
+    }
+}
+
+impl From<SessionValidationFailure> for SessionFailureReason {
+    fn from(value: SessionValidationFailure) -> Self {
+        match value {
+            SessionValidationFailure::NotFound => Self::NotFound,
+            SessionValidationFailure::Expired => Self::Expired,
+            SessionValidationFailure::AuthVersionMismatch => Self::AuthVersionMismatch,
+        }
+    }
+}
+
+struct SessionLookup {
+    session: Option<ValidatedSession>,
+    failure: Option<SessionFailureReason>,
 }
 
 pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
@@ -46,7 +96,15 @@ pub(crate) async fn management_auth(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_management_request(&state, request.headers(), request.method()).await {
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_management_request(
+        &state,
+        request.headers(),
+        request.method(),
+        context.as_ref(),
+    )
+    .await
+    {
         Ok(()) => next.run(request).await,
         Err(error) => error.into_response(),
     }
@@ -57,7 +115,8 @@ pub(crate) async fn event_auth(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_event_request(&state, request.headers()).await {
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_event_request(&state, request.headers(), context.as_ref()).await {
         Ok(context) => {
             request.extensions_mut().insert(context);
             next.run(request).await
@@ -91,7 +150,9 @@ pub(crate) async fn session_auth(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_context_request(&state, request.headers(), false, true).await {
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_context_request(&state, request.headers(), false, true, context.as_ref()).await
+    {
         Ok(()) => next.run(request).await,
         Err(error) => error.into_response(),
     }
@@ -102,7 +163,8 @@ pub(crate) async fn admin_auth(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_context_request(&state, request.headers(), true, true).await {
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_context_request(&state, request.headers(), true, true, context.as_ref()).await {
         Ok(()) => next.run(request).await,
         Err(error) => error.into_response(),
     }
@@ -145,7 +207,7 @@ async fn status(
         return auth_status_response(&auth_state, None, None, state.runtime.web_cookie_secure);
     }
 
-    let existing = validated_session(&state, &headers, &auth_state)?;
+    let existing = validated_session(&state, &headers, &auth_state)?.session;
     if auth_state.enabled {
         return auth_status_response(&auth_state, existing, None, state.runtime.web_cookie_secure);
     }
@@ -349,15 +411,26 @@ async fn authorize_management_request(
     state: &HttpAppState,
     headers: &HeaderMap,
     method: &Method,
+    context: Option<&RequestContext>,
 ) -> Result<(), ApiError> {
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
     }
     if auth_state.enabled {
-        let session = validated_session(state, headers, &auth_state)?
+        let validation = validated_session(state, headers, &auth_state)?;
+        let session = validation
+            .session
             .filter(|session| session.kind == SessionKind::Admin)
-            .ok_or_else(authentication_required)?;
+            .ok_or_else(|| {
+                authentication_required_with_context(
+                    state,
+                    context,
+                    validation
+                        .failure
+                        .unwrap_or(SessionFailureReason::InsufficientPrivileges),
+                )
+            })?;
         if is_write_method(method) {
             validate_csrf(state, headers, &auth_state, &session)?;
         }
@@ -366,8 +439,16 @@ async fn authorize_management_request(
     if !is_write_method(method) {
         return Ok(());
     }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    let validation = validated_session(state, headers, &auth_state)?;
+    let session = validation.session.ok_or_else(|| {
+        authentication_required_with_context(
+            state,
+            context,
+            validation
+                .failure
+                .unwrap_or(SessionFailureReason::CookieMissing),
+        )
+    })?;
     validate_csrf(state, headers, &auth_state, &session)
 }
 
@@ -376,21 +457,35 @@ async fn authorize_context_request(
     headers: &HeaderMap,
     admin_only: bool,
     require_csrf: bool,
+    context: Option<&RequestContext>,
 ) -> Result<(), ApiError> {
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
     }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    let validation = validated_session(state, headers, &auth_state)?;
+    let session = validation.session.ok_or_else(|| {
+        authentication_required_with_context(
+            state,
+            context,
+            validation
+                .failure
+                .unwrap_or(SessionFailureReason::CookieMissing),
+        )
+    })?;
     if admin_only && session.kind != SessionKind::Admin {
-        return Err(ApiError::unauthorized(
-            "admin_authentication_required",
-            "需要管理员登录会话",
+        return Err(admin_authentication_required_with_context(
+            state,
+            context,
+            SessionFailureReason::InsufficientPrivileges,
         ));
     }
     if auth_state.enabled && session.kind != SessionKind::Admin {
-        return Err(authentication_required());
+        return Err(authentication_required_with_context(
+            state,
+            context,
+            SessionFailureReason::InsufficientPrivileges,
+        ));
     }
     if require_csrf {
         validate_csrf(state, headers, &auth_state, &session)?;
@@ -401,15 +496,28 @@ async fn authorize_context_request(
 async fn authorize_event_request(
     state: &HttpAppState,
     headers: &HeaderMap,
+    context: Option<&RequestContext>,
 ) -> Result<EventAuthContext, ApiError> {
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
     }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
+    let validation = validated_session(state, headers, &auth_state)?;
+    let session = validation.session.ok_or_else(|| {
+        authentication_required_with_context(
+            state,
+            context,
+            validation
+                .failure
+                .unwrap_or(SessionFailureReason::CookieMissing),
+        )
+    })?;
     if auth_state.enabled && session.kind != SessionKind::Admin {
-        return Err(authentication_required());
+        return Err(authentication_required_with_context(
+            state,
+            context,
+            SessionFailureReason::InsufficientPrivileges,
+        ));
     }
     Ok(EventAuthContext {
         session_id: session.id,
@@ -450,12 +558,21 @@ fn require_session_with_csrf(
     auth_state: &AuthState,
     admin_only: bool,
 ) -> Result<ValidatedSession, ApiError> {
-    let session = validated_session(state, headers, auth_state)?
-        .ok_or_else(|| ApiError::unauthorized("authentication_required", "需要有效的管理会话"))?;
+    let validation = validated_session(state, headers, auth_state)?;
+    let session = validation.session.ok_or_else(|| {
+        authentication_required_with_context(
+            state,
+            None,
+            validation
+                .failure
+                .unwrap_or(SessionFailureReason::CookieMissing),
+        )
+    })?;
     if admin_only && session.kind != SessionKind::Admin {
-        return Err(ApiError::unauthorized(
+        return Err(ApiError::unauthorized_with_reason(
             "admin_authentication_required",
             "需要管理员登录会话",
+            SessionFailureReason::InsufficientPrivileges.as_str(),
         ));
     }
     let csrf = headers
@@ -477,15 +594,34 @@ fn validated_session(
     state: &HttpAppState,
     headers: &HeaderMap,
     auth_state: &AuthState,
-) -> Result<Option<ValidatedSession>, ApiError> {
+) -> Result<SessionLookup, ApiError> {
     let Some(session_id) = session_id(headers) else {
-        return Ok(None);
+        return Ok(SessionLookup {
+            session: None,
+            failure: Some(SessionFailureReason::CookieMissing),
+        });
     };
-    state
+    if session_id.is_empty() {
+        return Ok(SessionLookup {
+            session: None,
+            failure: Some(SessionFailureReason::CookieInvalid),
+        });
+    }
+    let result = state
         .auth
         .sessions
-        .validate(session_id, auth_state.auth_version)
-        .map_err(session_error)
+        .validate_detailed(session_id, auth_state.auth_version, true)
+        .map_err(session_error)?;
+    Ok(match result {
+        SessionValidation::Valid(session) => SessionLookup {
+            session: Some(session),
+            failure: None,
+        },
+        SessionValidation::Invalid(failure) => SessionLookup {
+            session: None,
+            failure: Some(SessionFailureReason::from(failure)),
+        },
+    })
 }
 
 fn session_id(headers: &HeaderMap) -> Option<&str> {
@@ -583,6 +719,44 @@ fn invalid_credentials() -> ApiError {
 
 fn authentication_required() -> ApiError {
     ApiError::unauthorized("authentication_required", "需要有效的管理会话")
+}
+
+fn authentication_required_with_context(
+    state: &HttpAppState,
+    context: Option<&RequestContext>,
+    reason: SessionFailureReason,
+) -> ApiError {
+    authentication_required_with_code(state, context, "authentication_required", reason)
+}
+
+fn admin_authentication_required_with_context(
+    state: &HttpAppState,
+    context: Option<&RequestContext>,
+    reason: SessionFailureReason,
+) -> ApiError {
+    authentication_required_with_code(state, context, "admin_authentication_required", reason)
+}
+
+fn authentication_required_with_code(
+    state: &HttpAppState,
+    context: Option<&RequestContext>,
+    code: &'static str,
+    reason: SessionFailureReason,
+) -> ApiError {
+    let request_id = context
+        .map(|value| value.request_id.as_str())
+        .unwrap_or("unknown");
+    let path = context
+        .map(|value| value.path.as_str())
+        .unwrap_or("unknown");
+    state.core.debug_logs.warn(
+        "auth.failure",
+        format!(
+            "request_id={request_id} path={path} auth_failure={}",
+            reason.as_str()
+        ),
+    );
+    ApiError::unauthorized_with_reason(code, reason.message(), reason.as_str())
 }
 
 fn rate_limited(seconds: u64) -> ApiError {

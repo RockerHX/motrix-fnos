@@ -38,6 +38,19 @@ pub enum SessionError {
     StoreUnavailable,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionValidationFailure {
+    NotFound,
+    Expired,
+    AuthVersionMismatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionValidation {
+    Valid(ValidatedSession),
+    Invalid(SessionValidationFailure),
+}
+
 #[derive(Clone)]
 pub struct SessionStore {
     sessions: Arc<Mutex<HashMap<String, Session>>>,
@@ -94,7 +107,10 @@ impl SessionStore {
         id: &str,
         auth_version: u64,
     ) -> Result<Option<ValidatedSession>, SessionError> {
-        self.validate_with_activity(id, auth_version, true)
+        Ok(match self.validate_detailed(id, auth_version, true)? {
+            SessionValidation::Valid(session) => Some(session),
+            SessionValidation::Invalid(_) => None,
+        })
     }
 
     pub(crate) fn validate_without_activity(
@@ -102,32 +118,47 @@ impl SessionStore {
         id: &str,
         auth_version: u64,
     ) -> Result<Option<ValidatedSession>, SessionError> {
-        self.validate_with_activity(id, auth_version, false)
+        Ok(match self.validate_detailed(id, auth_version, false)? {
+            SessionValidation::Valid(session) => Some(session),
+            SessionValidation::Invalid(_) => None,
+        })
     }
 
-    fn validate_with_activity(
+    pub(crate) fn validate_detailed(
         &self,
         id: &str,
         auth_version: u64,
         refresh_activity: bool,
-    ) -> Result<Option<ValidatedSession>, SessionError> {
+    ) -> Result<SessionValidation, SessionError> {
         let now = (self.clock)();
         let mut sessions = self
             .sessions
             .lock()
             .map_err(|_| SessionError::StoreUnavailable)?;
-        sessions.retain(|_, session| !is_expired(session, now));
-        let Some(session) = sessions.get_mut(id) else {
-            return Ok(None);
+        let Some(existing) = sessions.get(id) else {
+            return Ok(SessionValidation::Invalid(
+                SessionValidationFailure::NotFound,
+            ));
         };
-        if session.auth_version != auth_version {
+        if is_expired(existing, now) {
             sessions.remove(id);
-            return Ok(None);
+            return Ok(SessionValidation::Invalid(
+                SessionValidationFailure::Expired,
+            ));
         }
+        if existing.auth_version != auth_version {
+            sessions.remove(id);
+            return Ok(SessionValidation::Invalid(
+                SessionValidationFailure::AuthVersionMismatch,
+            ));
+        }
+        let session = sessions
+            .get_mut(id)
+            .expect("session should remain after validation checks");
         if refresh_activity {
             session.last_active_at_ms = now;
         }
-        Ok(Some(ValidatedSession {
+        Ok(SessionValidation::Valid(ValidatedSession {
             id: id.to_string(),
             csrf_token: URL_SAFE_NO_PAD.encode(session.csrf_token),
             kind: session.kind,
