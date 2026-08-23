@@ -85,6 +85,7 @@
 | `GET` | `/api/auth/status` | 匿名 | 返回初始化、保护和当前会话状态 |
 | `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并创建 Session |
 | `POST` | `/api/auth/login` | 匿名 | 验证密码并创建 Session |
+| `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
 | `POST` | `/api/auth/logout` | Session + CSRF | 撤销当前 Session |
 | `PUT` | `/api/auth/password` | Session + CSRF + 当前密码 | 修改密码并撤销其他 Session |
 | `PUT` | `/api/auth/protection` | Session + CSRF + 当前密码 | 启用或关闭 Web 管理保护 |
@@ -106,6 +107,8 @@
 - `csrfToken` 只在当前浏览器具备管理访问权时返回；未登录且保护已启用时为 `null`。保护关闭时，服务端可为匿名管理浏览器签发短期访问上下文并返回对应 CSRF Token。
 - 前端不得把 CSRF Token 写入持久存储；Session 失效后必须丢弃旧 Token。
 - 鉴权配置读取失败时 `status` 安全失败，不得把 `enabled` 自动降级为 `false`。
+
+登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。该接口不要求 Web Session，只返回版本、管理监听地址、Secure Cookie 开关、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、Cookie、Session、CSRF、Token、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
 `POST /api/auth/setup` 与 `POST /api/auth/login` 请求：
 
@@ -158,6 +161,17 @@ Session 与 Cookie 约定：
   "message": "请先登录 Web 管理界面"
 }
 ```
+
+鉴权失败响应可以附带可选的 `reason` 字段，用于区分排障原因；旧客户端可忽略该字段。当前枚举为：
+
+- `session_cookie_missing`：请求未携带 Session Cookie
+- `session_cookie_invalid`：Cookie 格式无效
+- `session_not_found`：Session 不存在（例如服务重启后旧 Session）
+- `session_expired`：Session 已过期
+- `session_auth_version_mismatch`：密码或鉴权配置变更后旧 Session 失效
+- `session_kind_insufficient`：Session 存在但权限级别不足
+
+服务端会在脱敏调试日志中记录 `request_id`、请求路径和上述原因，不记录 Cookie、Session ID、CSRF 或密码。
 
 ### 4.2 应用信息
 
@@ -773,6 +787,7 @@ Session 与 Cookie 约定：
 - 诊断包生成使用独立并发门禁，同一时间只处理一个导出请求；已有导出任务运行时返回 `429 diagnostic_bundle_busy` 和 `Retry-After: 1`。
 - 诊断包总未压缩输入预算为 16 MiB；Aria2、server、lifecycle 分组预算分别为 10 MiB、4 MiB、2 MiB，应用内调试记录最多 512 KiB，摘要最多 64 KiB。所有文本逐行复用服务端脱敏规则并优先保留最新尾部。
 - 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、Token、Cookie、Session 或 CSRF 数据；只读取固定目录内普通文件并拒绝符号链接。
+- 登录诊断包文件名固定为 `motrix-fnos-login-diagnostic.zip`，只包含 `summary.json`、`logs/auth-debug.jsonl` 和存在时的 `logs/lifecycle.log(.1-.3)`；它用于登录页排障，不需要先登录，也不包含完整诊断包中的 server/Aria2 日志。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
 
 ### 4.9 存储目录

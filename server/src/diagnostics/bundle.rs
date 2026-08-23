@@ -16,6 +16,10 @@ pub(crate) const LIFECYCLE_LOG_BUNDLE_MAX_BYTES: usize = 2 * 1024 * 1024;
 const APP_DEBUG_LOG_BUNDLE_MAX_BYTES: usize = 512 * 1024;
 const SUMMARY_BUNDLE_MAX_BYTES: usize = 64 * 1024;
 const HISTORY_LOG_MIN_TAIL_BYTES: usize = 256 * 1024;
+const LOGIN_DIAGNOSTIC_BUNDLE_MAX_INPUT_BYTES: usize = 2 * 1024 * 1024;
+const LOGIN_DEBUG_LOG_BUNDLE_MAX_BYTES: usize = 256 * 1024;
+const LOGIN_SUMMARY_BUNDLE_MAX_BYTES: usize = 16 * 1024;
+const LOGIN_LIFECYCLE_LOG_BUNDLE_MAX_BYTES: usize = 512 * 1024;
 
 const SERVER_LOG_FILES: &[(&str, &str)] = &[
     ("logs/server.log", "logs/server.log"),
@@ -48,6 +52,16 @@ struct DiagnosticSummary {
     aria2_running: bool,
     aria2_lifecycle_phase: String,
     aria2_log_mode: crate::aria2::Aria2LogModeStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LoginDiagnosticSummary {
+    generated_at_ms: u64,
+    app_version: &'static str,
+    management_listener: String,
+    secure_cookie_enabled: bool,
+    included_logs: &'static str,
 }
 
 struct ArchiveEntry {
@@ -87,6 +101,65 @@ pub(crate) fn build_diagnostic_bundle(state: &HttpAppState) -> Result<Vec<u8>, S
         &state.core.debug_logs.list(),
         summary,
     )
+}
+
+pub(crate) fn build_login_diagnostic_bundle(state: &HttpAppState) -> Result<Vec<u8>, String> {
+    let summary = LoginDiagnosticSummary {
+        generated_at_ms: current_timestamp_ms(),
+        app_version: env!("CARGO_PKG_VERSION"),
+        management_listener: state.runtime.http_addr.to_string(),
+        secure_cookie_enabled: state.runtime.web_cookie_secure,
+        included_logs: "脱敏鉴权记录与生命周期日志",
+    };
+    let debug_logs = state
+        .core
+        .debug_logs
+        .list()
+        .into_iter()
+        .filter(|entry| entry.module == "auth.failure" || entry.module.starts_with("auth."))
+        .collect::<Vec<_>>();
+    build_login_diagnostic_bundle_from_parts(&state.runtime.app_data_dir, &debug_logs, summary)
+}
+
+fn build_login_diagnostic_bundle_from_parts(
+    app_data_dir: &Path,
+    debug_logs: &[DebugLogEntry],
+    summary: LoginDiagnosticSummary,
+) -> Result<Vec<u8>, String> {
+    let mut entries = Vec::new();
+    let mut budget = BundleBudget {
+        remaining: LOGIN_DIAGNOSTIC_BUNDLE_MAX_INPUT_BYTES,
+    };
+    let summary = serde_json::to_string_pretty(&summary)
+        .map_err(|error| format!("序列化登录诊断摘要失败：{error}"))?;
+    append_text_entry(
+        &mut entries,
+        "summary.json",
+        &summary,
+        LOGIN_SUMMARY_BUNDLE_MAX_BYTES,
+        &mut budget,
+    );
+    append_text_entry(
+        &mut entries,
+        "logs/auth-debug.jsonl",
+        &format_debug_logs(
+            &debug_logs
+                .iter()
+                .filter(|entry| entry.module == "auth.failure" || entry.module.starts_with("auth."))
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        LOGIN_DEBUG_LOG_BUNDLE_MAX_BYTES,
+        &mut budget,
+    );
+    append_log_group(
+        &mut entries,
+        app_data_dir,
+        LIFECYCLE_LOG_FILES,
+        LOGIN_LIFECYCLE_LOG_BUNDLE_MAX_BYTES,
+        &mut budget,
+    );
+    write_zip(entries)
 }
 
 fn build_diagnostic_bundle_from_parts(

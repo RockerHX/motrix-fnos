@@ -350,7 +350,11 @@ rtk packaging/fnos/cmd/stop
 
 ### 无需 SSH 的日志排障
 
-普通用户优先在已登录的 Motrix 管理面板完成以下流程，无需访问 `$TRIM_PKGVAR`：
+普通用户优先在 Motrix 页面完成以下流程，无需访问 `$TRIM_PKGVAR` 或浏览器开发者工具：
+
+登录页本身提供“复制登录排障信息”和“下载登录诊断”两个按钮。它们不要求登录：复制内容只包含访问协议、Origin、是否 iframe、Cookie 是否启用、安全上下文和 User-Agent；下载的 `motrix-fnos-login-diagnostic.zip` 只包含版本/监听地址摘要、Secure Cookie 开关、脱敏鉴权记录和生命周期日志尾部，不包含密码、Cookie、Session、CSRF、Token、SQLite、Aria2 或下载内容。请把复制的文本和 ZIP 一起附在 Issue 中。
+
+已登录时再按以下流程收集完整运行诊断，无需访问 `$TRIM_PKGVAR`：
 
 1. 打开“诊断”，先查看 Aria2、Rust 服务、生命周期和日志总占用；达到 80 MiB 预警线时会显示明确警告。
 2. 问题难以复现时，在操作前开启“详细日志（30 分钟）”。该模式只把 Aria2 文件日志临时切换为 `debug`，30 分钟后自动恢复 `warn`，单文件 10 MiB 和最多 3 个文件的上限不会变化。

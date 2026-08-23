@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { httpGet, httpPost, httpPut } from "../../../services/http";
+import { httpGet, httpGetBlob, httpPost, httpPut } from "../../../services/http";
 import {
   changeAuthPassword,
   changeAuthProtection,
   getAuthStatus,
   loginAuth,
+  downloadLoginDiagnostic,
   logoutAuth,
   setupAuth,
 } from "./authService";
 
 vi.mock("../../../services/http", () => ({
   httpGet: vi.fn(),
+  httpGetBlob: vi.fn(),
   httpPost: vi.fn(),
   httpPut: vi.fn(),
 }));
@@ -47,6 +49,13 @@ describe("authService", () => {
     expect(httpPut).toHaveBeenCalledWith("/api/auth/protection", {
       enabled: false,
       currentPassword: "old",
+    });
+  });
+
+  it("downloads the unauthenticated login diagnostic endpoint", () => {
+    downloadLoginDiagnostic();
+    expect(httpGetBlob).toHaveBeenCalledWith("/api/auth/login-diagnostic", {
+      handleUnauthorized: false,
     });
   });
 });

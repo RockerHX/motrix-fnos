@@ -7,12 +7,14 @@ export interface ApiErrorResponse {
 export class ApiError extends Error {
   code: string;
   status: number;
+  reason?: string;
 
   constructor(status: number, payload: ApiErrorResponse) {
     super(payload.message || `请求失败（${status}）`);
     this.name = "ApiError";
     this.code = payload.code;
     this.status = status;
+    this.reason = payload.reason;
   }
 }
 

@@ -9,7 +9,7 @@ use crate::auth::{
 };
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
-use axum::http::header::{COOKIE, SET_COOKIE};
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -17,9 +17,12 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const CSRF_HEADER: &str = "x-csrf-token";
+static LOGIN_DIAGNOSTIC_SLOTS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(1)));
 #[derive(Clone)]
 pub(crate) struct EventAuthContext {
     session_id: String,
@@ -79,6 +82,7 @@ pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
         .route("/auth/status", get(status))
         .route("/auth/setup", post(setup))
         .route("/auth/login", post(login))
+        .route("/auth/login-diagnostic", get(login_diagnostic))
 }
 
 pub(crate) fn session_routes() -> Router<Arc<HttpAppState>> {
@@ -313,6 +317,47 @@ async fn login(
         Some(session),
         state.runtime.web_cookie_secure,
     )
+}
+
+async fn login_diagnostic(State(state): State<Arc<HttpAppState>>) -> Result<Response, ApiError> {
+    let permit = Arc::clone(&*LOGIN_DIAGNOSTIC_SLOTS)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError::too_many_requests(
+                "login_diagnostic_busy",
+                "已有登录诊断正在生成，请稍后重试",
+                1,
+            )
+        })?;
+    let bundle_state = Arc::clone(&state);
+    let bundle = tokio::task::spawn_blocking(move || {
+        let _permit: OwnedSemaphorePermit = permit;
+        crate::diagnostics::build_login_diagnostic_bundle(&bundle_state)
+    })
+    .await
+    .map_err(|error| {
+        state.core.debug_logs.error(
+            "diagnostics.login_bundle",
+            format!("生成登录诊断包任务异常：{error}"),
+        );
+        ApiError::internal("login_diagnostic_failed", "生成登录诊断失败，请稍后重试")
+    })?
+    .map_err(|error| {
+        state.core.debug_logs.error(
+            "diagnostics.login_bundle",
+            format!("生成登录诊断包失败：{error}"),
+        );
+        ApiError::internal("login_diagnostic_failed", "生成登录诊断失败，请稍后重试")
+    })?;
+    let mut response = Body::from(bundle).into_response();
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"motrix-fnos-login-diagnostic.zip\""),
+    );
+    Ok(response)
 }
 
 async fn logout(

@@ -1,4 +1,4 @@
-import { httpGet, httpPost, httpPut } from "../../../services/http";
+import { httpGet, httpGetBlob, httpPost, httpPut } from "../../../services/http";
 import type { AuthStatus, ChangePasswordRequest, ChangeProtectionRequest } from "../types";
 
 const publicRequest = { handleUnauthorized: false } as const;
@@ -13,6 +13,10 @@ export function setupAuth(password: string) {
 
 export function loginAuth(password: string) {
   return httpPost<AuthStatus>("/api/auth/login", { password }, publicRequest);
+}
+
+export function downloadLoginDiagnostic() {
+  return httpGetBlob("/api/auth/login-diagnostic", { handleUnauthorized: false });
 }
 
 export function logoutAuth() {

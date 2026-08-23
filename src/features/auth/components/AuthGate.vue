@@ -22,11 +22,15 @@ import {
   type AppLanguage,
 } from "../../../i18n";
 import { useAuthStore } from "../stores/authStore";
+import { downloadLoginDiagnostic } from "../services/authService";
 
 const authStore = useAuthStore();
 const { t } = useI18n();
 const passwordInput = ref<InputInst | null>(null);
 const submitError = ref("");
+const diagnosticError = ref("");
+const diagnosticText = ref("");
+const isDownloadingDiagnostic = ref(false);
 const form = reactive({ password: "", confirmPassword: "" });
 const languageOptions = computed(() =>
   supportedLanguages.map((value) => ({
@@ -63,6 +67,62 @@ async function submit() {
   } catch (error) {
     submitError.value = getErrorMessage(error, t("auth.submitFailed"));
     await focusPassword();
+  }
+}
+
+function loginDiagnosticInfo() {
+  const location = window.location;
+  const origin = location.origin || `${location.protocol}//${location.host}`;
+  return [
+    "Motrix 登录排障信息",
+    `访问协议：${location.protocol.replace(":", "") || "未知"}`,
+    `访问地址：${origin}`,
+    `是否 iframe：${window.self !== window.top ? "是" : "否"}`,
+    `Cookie 是否启用：${navigator.cookieEnabled ? "是" : "否"}`,
+    `是否安全上下文：${window.isSecureContext ? "是" : "否"}`,
+    `User-Agent：${navigator.userAgent || "未知"}`,
+  ].join("\n");
+}
+
+async function copyLoginDiagnostic() {
+  diagnosticError.value = "";
+  const text = loginDiagnosticInfo();
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (!copied) throw new Error("clipboard copy failed");
+    }
+  } catch {
+    diagnosticText.value = text;
+    diagnosticError.value = t("auth.loginDiagnosticCopyFailed");
+  }
+}
+
+async function downloadDiagnostic() {
+  diagnosticError.value = "";
+  isDownloadingDiagnostic.value = true;
+  try {
+    const blob = await downloadLoginDiagnostic();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "motrix-fnos-login-diagnostic.zip";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    diagnosticError.value = t("auth.loginDiagnosticFailed");
+  } finally {
+    isDownloadingDiagnostic.value = false;
   }
 }
 
@@ -139,6 +199,27 @@ async function focusPassword() {
           {{ t(isSetup ? "auth.setup.submit" : "auth.login.submit") }}
         </NButton>
       </NForm>
+
+      <section v-if="authStore.phase === 'setup' || authStore.phase === 'login'" class="auth-diagnostics" data-test="auth-diagnostics">
+        <p class="auth-diagnostics-title">{{ t("auth.loginDiagnosticInfo") }}</p>
+        <div class="auth-diagnostics-actions">
+          <NButton attr-type="button" secondary @click="copyLoginDiagnostic" data-test="auth-copy-diagnostic">
+            {{ t("auth.copyLoginDiagnostic") }}
+          </NButton>
+          <NButton attr-type="button" secondary :loading="isDownloadingDiagnostic" @click="downloadDiagnostic" data-test="auth-download-diagnostic">
+            {{ t("auth.downloadLoginDiagnostic") }}
+          </NButton>
+        </div>
+        <NAlert v-if="diagnosticError" type="error" data-test="auth-diagnostic-error">{{ diagnosticError }}</NAlert>
+        <textarea
+          v-if="diagnosticText"
+          class="auth-diagnostics-text"
+          :value="diagnosticText"
+          readonly
+          data-test="auth-diagnostic-text"
+          aria-label="Login troubleshooting details"
+        />
+      </section>
 
       <div class="auth-language">
         <span>{{ t("auth.language") }}</span>

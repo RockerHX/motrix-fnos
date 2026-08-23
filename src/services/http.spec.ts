@@ -107,16 +107,19 @@ describe("http client", () => {
   it("throws structured API errors", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ code: "save_dir_unauthorized", message: "目录未授权" }, 400)),
+      vi.fn().mockResolvedValue(
+        jsonResponse({ code: "authentication_required", message: "管理会话已过期", reason: "session_expired" }, 401),
+      ),
     );
 
     const promise = httpGet("/api/storage/accessible-paths");
 
     await expect(promise).rejects.toMatchObject({
       name: "ApiError",
-      code: "save_dir_unauthorized",
-      status: 400,
-      message: "目录未授权",
+      code: "authentication_required",
+      status: 401,
+      message: "管理会话已过期",
+      reason: "session_expired",
     });
   });
 
