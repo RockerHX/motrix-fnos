@@ -36,6 +36,7 @@ export const zhCN = {
   "auth.setup.submit": "完成设置",
   "auth.login.submit": "登录",
   "auth.submitFailed": "鉴权操作失败",
+  "auth.sessionVerificationFailed": "密码正确，但管理会话未生效。请检查浏览器 Cookie 设置后重试，或下载登录诊断信息。",
   "auth.language": "界面语言",
   "auth.logout": "退出登录",
   "auth.logoutFailed": "退出登录失败",

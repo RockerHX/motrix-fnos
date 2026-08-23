@@ -49,10 +49,12 @@ describe("authStore", () => {
   it("supports setup, login and logout while clearing sensitive stores", async () => {
     const store = useAuthStore();
     mockedSetup.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "setup-csrf" }));
+    mockedStatus.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "setup-csrf" }));
     await store.setup("new password value");
     expect(store.phase).toBe("ready");
 
     mockedLogin.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "login-csrf" }));
+    mockedStatus.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "login-csrf" }));
     await store.login("current password");
     expect(store.csrfToken).toBe("login-csrf");
 
@@ -72,6 +74,17 @@ describe("authStore", () => {
     expect(settingsStore.accessiblePaths).toEqual([]);
     expect(debugStore.logs).toEqual([]);
     expect(tokenStore.draftToken).toBe("");
+  });
+
+  it("does not enter the business UI when the login response cookie is not usable", async () => {
+    const store = useAuthStore();
+    mockedLogin.mockResolvedValueOnce(status({ authenticated: true, csrfToken: "login-csrf" }));
+    mockedStatus.mockResolvedValueOnce(status({ authenticated: false, csrfToken: null }));
+
+    await expect(store.login("current password")).rejects.toThrow("管理会话");
+    expect(store.phase).toBe("login");
+    expect(store.authenticated).toBe(false);
+    expect(store.csrfToken).toBeNull();
   });
 
   it("rechecks status after a business 401 and clears sensitive state", async () => {

@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
-import { loginAuth, setupAuth } from "../services/authService";
+import { getAuthStatus, loginAuth, setupAuth } from "../services/authService";
 import { useAuthStore } from "../stores/authStore";
 import AuthGate from "./AuthGate.vue";
 
@@ -41,6 +41,12 @@ describe("AuthGate", () => {
     const store = useAuthStore();
     store.phase = "setup";
     vi.mocked(setupAuth).mockResolvedValueOnce({
+      setupRequired: false,
+      enabled: true,
+      authenticated: true,
+      csrfToken: "csrf",
+    });
+    vi.mocked(getAuthStatus).mockResolvedValueOnce({
       setupRequired: false,
       enabled: true,
       authenticated: true,

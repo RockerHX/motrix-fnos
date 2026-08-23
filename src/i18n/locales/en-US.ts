@@ -38,6 +38,7 @@ export const enUS: Record<TranslationKey, string> = {
   "auth.setup.submit": "Finish setup",
   "auth.login.submit": "Sign in",
   "auth.submitFailed": "Authentication failed",
+  "auth.sessionVerificationFailed": "The password was accepted, but the management session was not established. Check browser cookie settings or download a login diagnostic.",
   "auth.language": "Language",
   "auth.logout": "Sign out",
   "auth.logoutFailed": "Sign out failed",

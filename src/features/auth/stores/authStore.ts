@@ -15,6 +15,7 @@ import {
   setupAuth,
 } from "../services/authService";
 import type { AuthChannelMessage, AuthPhase, AuthStatus, ChangePasswordRequest } from "../types";
+import { t } from "../../../i18n";
 
 export const useAuthStore = defineStore("auth", () => {
   const phase = ref<AuthPhase>("loading");
@@ -47,11 +48,11 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   async function setup(password: string) {
-    return submit(() => setupAuth(password));
+    return submit(() => setupAuth(password), true);
   }
 
   async function login(password: string) {
-    return submit(() => loginAuth(password));
+    return submit(() => loginAuth(password), true);
   }
 
   async function logout() {
@@ -105,11 +106,23 @@ export const useAuthStore = defineStore("auth", () => {
     channel = null;
   }
 
-  async function submit(operation: () => Promise<AuthStatus>) {
+  async function submit(operation: () => Promise<AuthStatus>, verifySession = false) {
     isSubmitting.value = true;
     errorMessage.value = "";
     try {
-      const status = await operation();
+      let status = await operation();
+      if (verifySession) {
+        try {
+          status = await getAuthStatus();
+        } catch (error) {
+          lockToLogin();
+          throw error;
+        }
+        if (!status.authenticated) {
+          applyStatus(status);
+          throw new Error(t("auth.sessionVerificationFailed"));
+        }
+      }
       applyStatus(status);
       channel?.post({ type: "auth-updated" });
       return status;
