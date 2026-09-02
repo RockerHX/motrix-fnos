@@ -6,7 +6,7 @@ import {
   httpPost,
   httpPostFormData,
   httpPut,
-  setCsrfTokenProvider,
+  setAccessTokenProvider,
   setUnauthorizedHandler,
 } from "./http";
 
@@ -14,7 +14,7 @@ describe("http client", () => {
   afterEach(() => {
     window.history.replaceState({}, "", "/");
     vi.unstubAllGlobals();
-    setCsrfTokenProvider(null);
+    setAccessTokenProvider(null);
     setUnauthorizedHandler(null);
   });
 
@@ -28,7 +28,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "omit",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: "https://example.com/a.iso" }),
     });
@@ -44,7 +44,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks/torrent", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "omit",
       headers: {},
       body: formData,
     });
@@ -59,7 +59,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "GET",
-      credentials: "same-origin",
+      credentials: "omit",
       headers: {},
       body: undefined,
       signal: controller.signal,
@@ -98,7 +98,7 @@ describe("http client", () => {
     await expect(blob.arrayBuffer()).resolves.toEqual(new Uint8Array([80, 75, 3, 4]).buffer);
     expect(fetchMock).toHaveBeenCalledWith("/api/diagnostics/diagnostic-bundle", {
       method: "GET",
-      credentials: "same-origin",
+      credentials: "omit",
       headers: {},
       body: undefined,
     });
@@ -142,18 +142,18 @@ describe("http client", () => {
     });
   });
 
-  it("adds an in-memory csrf token only to write requests", async () => {
+  it("adds an in-memory bearer token to authenticated requests", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
     vi.stubGlobal("fetch", fetchMock);
-    setCsrfTokenProvider(() => "csrf-value");
+    setAccessTokenProvider(() => "token-value");
 
     await httpGet("/api/tasks");
     await httpPut("/api/settings", {});
 
-    expect(fetchMock.mock.calls[0][1].headers).toEqual({});
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ Authorization: "Bearer token-value" });
     expect(fetchMock.mock.calls[1][1].headers).toEqual({
       "content-type": "application/json",
-      "X-CSRF-Token": "csrf-value",
+      Authorization: "Bearer token-value",
     });
   });
 

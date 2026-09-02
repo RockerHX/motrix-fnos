@@ -28,12 +28,12 @@ describe("authService", () => {
     expect(httpPost).toHaveBeenCalledWith(
       "/api/auth/setup",
       { password: "new password value" },
-      { handleUnauthorized: false },
+      { handleUnauthorized: false, includeAuth: false },
     );
     expect(httpPost).toHaveBeenCalledWith(
       "/api/auth/login",
       { password: "current password" },
-      { handleUnauthorized: false },
+      { handleUnauthorized: false, includeAuth: false },
     );
   });
 
@@ -45,17 +45,18 @@ describe("authService", () => {
     expect(httpPut).toHaveBeenCalledWith("/api/auth/password", {
       currentPassword: "old",
       newPassword: "new password value",
-    });
+    }, { handleUnauthorized: false, includeAuth: false });
     expect(httpPut).toHaveBeenCalledWith("/api/auth/protection", {
       enabled: false,
       currentPassword: "old",
-    });
+    }, { handleUnauthorized: false, includeAuth: false });
   });
 
   it("downloads the unauthenticated login diagnostic endpoint", () => {
     downloadLoginDiagnostic();
     expect(httpGetBlob).toHaveBeenCalledWith("/api/auth/login-diagnostic", {
       handleUnauthorized: false,
+      includeAuth: false,
     });
   });
 });

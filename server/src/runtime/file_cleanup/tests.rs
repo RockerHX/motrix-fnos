@@ -162,7 +162,6 @@ async fn state_without_operation(root: &Path) -> Arc<HttpAppState> {
         aria2_path: None,
         accessible_paths_path: root.join("accessible-paths.json"),
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let database = connect_database(runtime.database_path.clone())
         .await

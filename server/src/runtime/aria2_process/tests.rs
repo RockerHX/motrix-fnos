@@ -234,7 +234,6 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: Some(aria2_path),
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let mut state = crate::app::bootstrap_http_app_state(&runtime)
         .await
@@ -300,7 +299,6 @@ async fn start_failure_keeps_stopped_runtime_state() {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: Some(temp_dir.join("missing-aria2")),
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await
@@ -348,7 +346,6 @@ fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     }
 }
 

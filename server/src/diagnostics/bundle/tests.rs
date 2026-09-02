@@ -178,6 +178,9 @@ fn login_diagnostic_bundle_contains_only_auth_and_lifecycle_logs() {
     assert!(!contents.contains("task-secret"));
     assert!(!contents.contains("lifecycle-secret"));
     assert!(contents.contains("[REDACTED]"));
+    assert!(contents.contains("\"webAuthMode\": \"jwt_bearer\""));
+    assert!(contents.contains("\"jwtTransport\": \"authorization_header\""));
+    assert!(!contents.contains("cookieAuthSupported"));
     remove_temp_dir(root);
 }
 
@@ -280,7 +283,8 @@ fn login_summary() -> LoginDiagnosticSummary {
         generated_at_ms: 1,
         app_version: "test",
         management_listener: "0.0.0.0:17080".to_string(),
-        secure_cookie_enabled: false,
+        web_auth_mode: "jwt_bearer",
+        jwt_transport: "authorization_header",
         included_logs: "脱敏鉴权记录与生命周期日志",
     }
 }

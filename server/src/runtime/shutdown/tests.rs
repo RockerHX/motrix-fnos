@@ -382,7 +382,6 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await

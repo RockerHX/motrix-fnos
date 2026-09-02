@@ -218,7 +218,7 @@ describe("MainWindow floating create button", () => {
   it("logs out through the shell and clears sensitive task state", async () => {
     const { wrapper } = mountMainWindow();
     const authStore = useAuthStore();
-    authStore.handleUnauthorizedStatus({ setupRequired: false, enabled: true, authenticated: true, csrfToken: "csrf" });
+    authStore.handleUnauthorizedStatus({ setupRequired: false, enabled: true, authenticated: true, accessToken: "jwt" });
     const taskStore = useTaskStore();
     taskStore.tasks = [{ id: 1 } as never];
 

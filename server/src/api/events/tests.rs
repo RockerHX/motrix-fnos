@@ -2,7 +2,6 @@ use super::*;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::auth::SessionKind;
 use crate::runtime::broadcast_tasks_snapshot;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
 use axum::body::Body;
@@ -25,7 +24,6 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await
@@ -43,13 +41,13 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
         .with_tasks_mut(|tasks| tasks.push(task))
         .expect("tasks should lock");
     broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
-    let (app, session_id) = authenticated_events_app(state.clone()).await;
+    let (app, token) = authenticated_events_app(state.clone()).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/events")
-                .header("cookie", format!("motrix_web_session={session_id}"))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -86,7 +84,6 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await
@@ -96,13 +93,13 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(sample_task()))
         .expect("tasks should lock");
-    let (app, session_id) = authenticated_events_app(state.clone()).await;
+    let (app, token) = authenticated_events_app(state.clone()).await;
 
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/events")
-                .header("cookie", format!("motrix_web_session={session_id}"))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -128,8 +125,8 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
 }
 
 #[tokio::test]
-async fn sse_route_closes_when_its_session_is_revoked() {
-    let app_data_dir = temp_dir("events-revoked-session");
+async fn sse_route_closes_when_its_jwt_is_invalidated() {
+    let app_data_dir = temp_dir("events-invalidated-jwt");
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
@@ -139,17 +136,16 @@ async fn sse_route_closes_when_its_session_is_revoked() {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
-    let (app, session_id) = authenticated_events_app(state.clone()).await;
+    let (app, token) = authenticated_events_app(state.clone()).await;
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/events")
-                .header("cookie", format!("motrix_web_session={session_id}"))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -160,9 +156,10 @@ async fn sse_route_closes_when_its_session_is_revoked() {
 
     state
         .auth
-        .sessions
-        .revoke(&session_id)
-        .expect("session should revoke");
+        .service
+        .change_password("events-test-password", "events-replacement-password")
+        .await
+        .expect("protection should change");
     broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
 
     let next = tokio::time::timeout(Duration::from_secs(1), body.frame())
@@ -178,11 +175,12 @@ async fn authenticated_events_app(state: Arc<HttpAppState>) -> (Router, String) 
         .setup("events-test-password")
         .await
         .expect("auth should initialize");
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, auth_state.auth_version)
-        .expect("session should create");
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .expect("token should issue");
     let app = Router::new()
         .nest(
             "/api",
@@ -192,7 +190,7 @@ async fn authenticated_events_app(state: Arc<HttpAppState>) -> (Router, String) 
             )),
         )
         .with_state(state);
-    (app, session.id)
+    (app, token)
 }
 
 async fn next_sse_frame(body: &mut Body) -> String {

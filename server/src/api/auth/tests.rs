@@ -1,346 +1,300 @@
 use super::*;
 use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
+    bootstrap_http_app_state, HttpAppState, ServerRuntimeConfig, DEFAULT_HTTP_ADDR,
+    DEFAULT_JSONRPC_ADDR,
 };
 use axum::body::{to_bytes, Body};
-use axum::extract::ConnectInfo;
-use axum::http::{HeaderMap, HeaderValue, Request};
+use axum::http::{Request, StatusCode};
+use axum::middleware;
+use axum::response::Response;
+use axum::routing::get;
 use serde_json::{json, Value};
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn test_routes() -> Router<Arc<HttpAppState>> {
-    Router::new()
-        .merge(public_routes())
-        .merge(session_routes())
-        .merge(admin_routes())
-}
-
 #[tokio::test]
-async fn auth_api_supports_setup_logout_password_and_protection_lifecycle() {
-    let state = test_state("lifecycle").await;
-    let router = test_routes().with_state(state.clone());
-
-    let initial = send(&router, "GET", "/auth/status", None, None, None).await;
-    assert_eq!(initial.status(), StatusCode::OK);
-    assert_eq!(json_body(initial).await["setupRequired"], true);
+async fn setup_and_login_return_bearer_tokens_without_cookies() {
+    let state = test_state("login").await;
+    let router = public_routes().with_state(state.clone());
 
     let setup = send(
         &router,
         "POST",
         "/auth/setup",
-        Some(json!({ "password": "correct horse battery" })),
-        None,
+        Some(json!({"password": "correct horse battery"})),
         None,
     )
     .await;
     assert_eq!(setup.status(), StatusCode::OK);
-    let first_cookie = response_cookie(&setup);
+    assert!(setup.headers().get("set-cookie").is_none());
     let setup_body = json_body(setup).await;
-    let first_csrf = setup_body["csrfToken"].as_str().expect("csrf should exist");
+    let setup_token = setup_body["accessToken"].as_str().expect("setup token");
+    assert!(!setup_token.is_empty());
     assert_eq!(setup_body["authenticated"], true);
 
-    let duplicate = send(
+    let status = send(&router, "GET", "/auth/status", None, Some(setup_token)).await;
+    let status_body = json_body(status).await;
+    assert_eq!(status_body["authenticated"], true);
+    assert!(status_body.get("accessToken").is_none());
+
+    let login = send(
         &router,
+        "POST",
+        "/auth/login",
+        Some(json!({"password": "correct horse battery"})),
+        None,
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::OK);
+    assert!(login.headers().get("set-cookie").is_none());
+    assert!(json_body(login).await["accessToken"].is_string());
+}
+
+#[tokio::test]
+async fn protected_management_requests_report_bearer_failure_codes() {
+    let state = test_state("codes").await;
+    let public = public_routes().with_state(state.clone());
+    let setup = send(
+        &public,
         "POST",
         "/auth/setup",
-        Some(json!({ "password": "another secure password" })),
-        None,
-        None,
-    )
-    .await;
-    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
-
-    let missing_csrf = send(
-        &router,
-        "POST",
-        "/auth/logout",
-        None,
-        Some(&first_cookie),
+        Some(json!({"password": "correct horse battery"})),
         None,
     )
     .await;
-    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
-
-    let changed = send(
-        &router,
-        "PUT",
-        "/auth/password",
-        Some(json!({
-            "currentPassword": "correct horse battery",
-            "newPassword": "replacement password"
-        })),
-        Some(&first_cookie),
-        Some(first_csrf),
-    )
-    .await;
-    assert_eq!(changed.status(), StatusCode::OK);
-    let second_cookie = response_cookie(&changed);
-    let changed_body = json_body(changed).await;
-    let second_csrf = changed_body["csrfToken"]
+    let token = json_body(setup).await["accessToken"]
         .as_str()
-        .expect("csrf should exist");
-    assert_ne!(first_cookie, second_cookie);
+        .unwrap()
+        .to_string();
+    let protected = Router::new()
+        .route("/protected", get(get_probe))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            management_auth,
+        ))
+        .with_state(state.clone());
 
-    let old_status = send(
-        &router,
-        "GET",
-        "/auth/status",
-        None,
-        Some(&first_cookie),
+    let missing = protected
+        .clone()
+        .oneshot(Request::get("/protected").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(missing).await["code"], "jwt_missing");
+
+    let malformed = protected
+        .clone()
+        .oneshot(
+            Request::get("/protected")
+                .header("authorization", "Basic x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(json_body(malformed).await["code"], "jwt_malformed");
+
+    let valid = protected
+        .clone()
+        .oneshot(
+            Request::get("/protected")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(valid.status(), StatusCode::OK);
+
+    let invalid = protected
+        .clone()
+        .oneshot(
+            Request::get("/protected")
+                .header("authorization", format!("Bearer {}", tamper_token(&token)))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(json_body(invalid).await["code"], "jwt_invalid");
+
+    state
+        .auth
+        .service
+        .change_password("correct horse battery", "replacement password")
+        .await
+        .expect("password should change");
+    let version_mismatch = protected
+        .oneshot(
+            Request::get("/protected")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        json_body(version_mismatch).await["code"],
+        "jwt_auth_version_mismatch"
+    );
+}
+
+#[tokio::test]
+async fn protection_disabled_allows_anonymous_management_and_sse_context() {
+    let state = test_state("anonymous").await;
+    let public = public_routes().with_state(state.clone());
+    let setup = send(
+        &public,
+        "POST",
+        "/auth/setup",
+        Some(json!({"password": "correct horse battery"})),
         None,
     )
     .await;
-    assert_eq!(json_body(old_status).await["authenticated"], false);
-
-    let disabled = send(
-        &router,
+    let token = json_body(setup).await["accessToken"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let changed = send(
+        &public,
         "PUT",
         "/auth/protection",
-        Some(json!({
-            "enabled": false,
-            "currentPassword": "replacement password"
-        })),
-        Some(&second_cookie),
-        Some(second_csrf),
-    )
-    .await;
-    assert_eq!(disabled.status(), StatusCode::OK);
-    let disabled_body = json_body(disabled).await;
-    assert_eq!(disabled_body["enabled"], false);
-    assert_eq!(disabled_body["authenticated"], true);
-
-    let anonymous = send(&router, "GET", "/auth/status", None, None, None).await;
-    assert!(anonymous.headers().contains_key(SET_COOKIE));
-    let anonymous_body = json_body(anonymous).await;
-    assert_eq!(anonymous_body["authenticated"], false);
-    assert!(anonymous_body["csrfToken"].is_string());
-}
-
-#[tokio::test]
-async fn secure_cookie_setting_applies_to_login_password_change_and_logout() {
-    let state = test_state_with_cookie_secure("secure-cookie", true).await;
-    let router = test_routes().with_state(state);
-
-    let setup = send(
-        &router,
-        "POST",
-        "/auth/setup",
-        Some(json!({ "password": "correct horse battery" })),
-        None,
-        None,
-    )
-    .await;
-    let setup_cookie_header = setup
-        .headers()
-        .get(SET_COOKIE)
-        .expect("setup cookie should exist")
-        .to_str()
-        .expect("setup cookie should be text")
-        .to_string();
-    assert!(setup_cookie_header.contains("Secure"));
-    let setup_cookie = response_cookie(&setup);
-    let setup_csrf = json_body(setup).await["csrfToken"]
-        .as_str()
-        .expect("setup csrf should exist")
-        .to_string();
-
-    let changed = send(
-        &router,
-        "PUT",
-        "/auth/password",
-        Some(json!({
-            "currentPassword": "correct horse battery",
-            "newPassword": "replacement password"
-        })),
-        Some(&setup_cookie),
-        Some(&setup_csrf),
+        Some(json!({"enabled": false, "currentPassword": "correct horse battery"})),
+        Some(&token),
     )
     .await;
     assert_eq!(changed.status(), StatusCode::OK);
-    let changed_cookie_header = changed
-        .headers()
-        .get(SET_COOKIE)
-        .expect("changed cookie should exist")
-        .to_str()
-        .expect("changed cookie should be text");
-    assert!(changed_cookie_header.contains("Secure"));
-    let changed_cookie = response_cookie(&changed);
-    let changed_csrf = json_body(changed).await["csrfToken"]
-        .as_str()
-        .expect("changed csrf should exist")
-        .to_string();
 
-    let logout = send(
-        &router,
-        "POST",
-        "/auth/logout",
-        None,
-        Some(&changed_cookie),
-        Some(&changed_csrf),
-    )
-    .await;
-    assert_eq!(logout.status(), StatusCode::NO_CONTENT);
-    let logout_cookie_header = logout
-        .headers()
-        .get(SET_COOKIE)
-        .expect("logout cookie should exist")
-        .to_str()
-        .expect("logout cookie should be text");
-    assert!(logout_cookie_header.contains("Secure"));
-    assert!(logout_cookie_header.contains("Max-Age=0"));
+    let protected = Router::new()
+        .route("/protected", get(get_probe))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            management_auth,
+        ))
+        .with_state(state.clone());
+    let anonymous = protected
+        .oneshot(Request::get("/protected").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), StatusCode::OK);
+
+    let events = Router::new()
+        .route("/events", get(get_probe))
+        .route_layer(middleware::from_fn_with_state(state, event_auth));
+    let anonymous_event = events
+        .oneshot(Request::get("/events").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(anonymous_event.status(), StatusCode::OK);
 }
 
 #[tokio::test]
-async fn login_uses_generic_errors_and_rate_limit() {
-    let state = test_state("rate-limit").await;
-    let router = test_routes().with_state(state);
+async fn password_and_protection_changes_accept_current_password_without_a_bearer_token() {
+    let state = test_state("invalidate").await;
+    let public = public_routes().with_state(state.clone());
     let setup = send(
-        &router,
+        &public,
         "POST",
         "/auth/setup",
-        Some(json!({ "password": "correct horse battery" })),
-        None,
+        Some(json!({"password": "correct horse battery"})),
         None,
     )
     .await;
-    assert_eq!(setup.status(), StatusCode::OK);
+    let old_token = json_body(setup).await["accessToken"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let changed = send(&public, "PUT", "/auth/password", Some(json!({"currentPassword": "correct horse battery", "newPassword": "replacement password"})), None).await;
+    assert_eq!(changed.status(), StatusCode::OK);
 
-    for _ in 0..4 {
-        let failed = send(
-            &router,
-            "POST",
-            "/auth/login",
-            Some(json!({ "password": "incorrect password" })),
-            None,
-            None,
-        )
-        .await;
-        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(json_body(failed).await["code"], "invalid_credentials");
-    }
-    let limited = send(
-        &router,
-        "POST",
-        "/auth/login",
-        Some(json!({ "password": "incorrect password" })),
-        None,
+    let old_status = send(&public, "GET", "/auth/status", None, Some(&old_token)).await;
+    assert_eq!(json_body(old_status).await["authenticated"], false);
+    let new_token = json_body(changed).await["accessToken"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let new_status = send(&public, "GET", "/auth/status", None, Some(&new_token)).await;
+    assert_eq!(json_body(new_status).await["authenticated"], true);
+
+    let protection = send(
+        &public,
+        "PUT",
+        "/auth/protection",
+        Some(json!({"enabled": false, "currentPassword": "replacement password"})),
         None,
     )
     .await;
-    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(limited.headers()["retry-after"], "30");
-    assert_eq!(json_body(limited).await["code"], "login_rate_limited");
+    assert_eq!(protection.status(), StatusCode::OK);
+    assert!(json_body(protection).await["accessToken"].is_string());
 }
 
 #[tokio::test]
-async fn login_rate_limit_isolated_by_connect_source() {
-    let state = test_state("rate-limit-source").await;
-    let router = test_routes().with_state(state);
-    let setup = send_from(
-        &router,
+async fn auth_configuration_changes_reject_an_incorrect_current_password() {
+    let state = test_state("configuration-password").await;
+    let public = public_routes().with_state(state);
+    let setup = send(
+        &public,
         "POST",
         "/auth/setup",
-        Some(json!({ "password": "correct horse battery" })),
+        Some(json!({"password": "correct horse battery"})),
         None,
-        None,
-        Some("192.0.2.10:1000"),
     )
     .await;
     assert_eq!(setup.status(), StatusCode::OK);
 
-    for _ in 0..4 {
-        let failed = send_from(
-            &router,
-            "POST",
-            "/auth/login",
-            Some(json!({ "password": "incorrect password" })),
-            None,
-            None,
-            Some("192.0.2.10:1000"),
-        )
-        .await;
-        assert_eq!(failed.status(), StatusCode::UNAUTHORIZED);
+    for (uri, body) in [
+        (
+            "/auth/password",
+            json!({"currentPassword": "wrong password", "newPassword": "replacement password"}),
+        ),
+        (
+            "/auth/protection",
+            json!({"enabled": false, "currentPassword": "wrong password"}),
+        ),
+    ] {
+        let response = send(&public, "PUT", uri, Some(body), None).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(json_body(response).await["code"], "invalid_credentials");
     }
-    let other_source = send_from(
-        &router,
-        "POST",
-        "/auth/login",
-        Some(json!({ "password": "incorrect password" })),
-        None,
-        None,
-        Some("192.0.2.11:1000"),
-    )
-    .await;
-    assert_eq!(other_source.status(), StatusCode::UNAUTHORIZED);
-
-    let locked = send_from(
-        &router,
-        "POST",
-        "/auth/login",
-        Some(json!({ "password": "incorrect password" })),
-        None,
-        None,
-        Some("192.0.2.10:2000"),
-    )
-    .await;
-    assert_eq!(locked.status(), StatusCode::TOO_MANY_REQUESTS);
-
-    let other_source_again = send_from(
-        &router,
-        "POST",
-        "/auth/login",
-        Some(json!({ "password": "incorrect password" })),
-        None,
-        None,
-        Some("192.0.2.11:2000"),
-    )
-    .await;
-    assert_eq!(other_source_again.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[test]
-fn login_source_trusts_forwarded_for_only_from_configured_proxy() {
-    let forwarded = |value: &'static str| {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", HeaderValue::from_static(value));
-        headers
-    };
-    let proxy: SocketAddr = "192.0.2.10:1000".parse().expect("proxy should parse");
-    let other_proxy: SocketAddr = "192.0.2.11:1000".parse().expect("proxy should parse");
+fn jwt_failure_reasons_have_stable_error_codes() {
+    for (failure, expected) in [
+        (JwtValidationFailure::Malformed, "jwt_malformed"),
+        (JwtValidationFailure::Invalid, "jwt_invalid"),
+        (JwtValidationFailure::Expired, "jwt_expired"),
+        (
+            JwtValidationFailure::AuthVersionMismatch,
+            "jwt_auth_version_mismatch",
+        ),
+        (
+            JwtValidationFailure::InsufficientPrivileges,
+            "jwt_insufficient_privileges",
+        ),
+    ] {
+        assert_eq!(JwtFailureReason::from(failure).code(), expected);
+    }
+}
 
-    assert_eq!(
-        login_source(
-            Some(ConnectInfo(proxy)),
-            &forwarded("198.51.100.20, 192.0.2.10"),
-            &[proxy.ip()],
-        ),
-        "198.51.100.20"
-    );
-    assert_eq!(
-        login_source(
-            Some(ConnectInfo(proxy)),
-            &forwarded("not-an-ip, 198.51.100.21"),
-            &[proxy.ip()],
-        ),
-        "198.51.100.21"
-    );
-    assert_eq!(
-        login_source(
-            Some(ConnectInfo(other_proxy)),
-            &forwarded("198.51.100.22"),
-            &[proxy.ip()],
-        ),
-        "192.0.2.11"
-    );
-    assert_eq!(
-        login_source(None, &forwarded("198.51.100.23"), &[proxy.ip()]),
-        UNKNOWN_LOGIN_SOURCE
-    );
+async fn get_probe() -> StatusCode {
+    StatusCode::OK
+}
+
+fn tamper_token(token: &str) -> String {
+    let (prefix, signature) = token
+        .rsplit_once('.')
+        .expect("JWT should contain a signature");
+    let mut signature = signature.as_bytes().to_vec();
+    signature[0] = if signature[0] == b'a' { b'b' } else { b'a' };
+    format!(
+        "{prefix}.{}",
+        String::from_utf8(signature).expect("JWT should be UTF-8")
+    )
 }
 
 async fn send(
@@ -348,90 +302,46 @@ async fn send(
     method: &str,
     uri: &str,
     body: Option<Value>,
-    cookie: Option<&str>,
-    csrf: Option<&str>,
-) -> Response {
-    send_from(router, method, uri, body, cookie, csrf, None).await
-}
-
-async fn send_from(
-    router: &Router,
-    method: &str,
-    uri: &str,
-    body: Option<Value>,
-    cookie: Option<&str>,
-    csrf: Option<&str>,
-    source: Option<&str>,
+    token: Option<&str>,
 ) -> Response {
     let mut builder = Request::builder().method(method).uri(uri);
     if body.is_some() {
         builder = builder.header("content-type", "application/json");
     }
-    if let Some(cookie) = cookie {
-        builder = builder.header(COOKIE, cookie);
-    }
-    if let Some(csrf) = csrf {
-        builder = builder.header(CSRF_HEADER, csrf);
-    }
-    let mut request = builder
-        .body(Body::from(
-            body.map(|value| value.to_string()).unwrap_or_default(),
-        ))
-        .expect("request should build");
-    if let Some(source) = source {
-        request.extensions_mut().insert(ConnectInfo(
-            source
-                .parse::<std::net::SocketAddr>()
-                .expect("source should parse"),
-        ));
+    if let Some(token) = token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
     }
     router
         .clone()
-        .oneshot(request)
+        .oneshot(
+            builder
+                .body(Body::from(
+                    body.map(|value| value.to_string()).unwrap_or_default(),
+                ))
+                .unwrap(),
+        )
         .await
-        .expect("request should complete")
-}
-
-fn response_cookie(response: &Response) -> String {
-    response
-        .headers()
-        .get(SET_COOKIE)
-        .expect("set-cookie should exist")
-        .to_str()
-        .expect("cookie should be text")
-        .split(';')
-        .next()
-        .expect("cookie pair should exist")
-        .to_string()
+        .unwrap()
 }
 
 async fn json_body(response: Response) -> Value {
-    let bytes = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("body should read");
-    serde_json::from_slice(&bytes).expect("body should be json")
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    serde_json::from_slice(&bytes).unwrap()
 }
 
 async fn test_state(label: &str) -> Arc<HttpAppState> {
-    test_state_with_cookie_secure(label, false).await
-}
-
-async fn test_state_with_cookie_secure(label: &str, web_cookie_secure: bool) -> Arc<HttpAppState> {
     let app_data_dir = temp_dir(label);
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
         app_data_dir,
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
+        http_addr: DEFAULT_HTTP_ADDR.parse().unwrap(),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().unwrap(),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure,
     };
-    bootstrap_http_app_state(&runtime)
-        .await
-        .expect("state should bootstrap")
+    bootstrap_http_app_state(&runtime).await.unwrap()
 }
 
 fn temp_dir(label: &str) -> PathBuf {

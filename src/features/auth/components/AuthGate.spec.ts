@@ -45,13 +45,13 @@ describe("AuthGate", () => {
       setupRequired: false,
       enabled: true,
       authenticated: true,
-      csrfToken: "csrf",
+      accessToken: "setup-jwt",
     });
     vi.mocked(getAuthStatus).mockResolvedValueOnce({
       setupRequired: false,
       enabled: true,
       authenticated: true,
-      csrfToken: "csrf",
+      accessToken: "setup-jwt",
     });
     const { wrapper } = mountWithPinia(AuthGate, { pinia });
     const inputs = wrapper.findAll('input[type="password"]');
@@ -82,9 +82,10 @@ describe("AuthGate", () => {
     expect(JSON.stringify(localStorage)).not.toContain("incorrect password");
   });
 
-  it("offers login diagnostics without requiring a session", async () => {
+  it("offers login diagnostics without requiring login", async () => {
     const store = useAuthStore();
     store.phase = "login";
+    store.accessToken = "jwt-must-not-appear-in-diagnostics";
     vi.mocked(downloadLoginDiagnostic).mockResolvedValueOnce(new Blob(["zip"]));
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {
@@ -98,7 +99,9 @@ describe("AuthGate", () => {
 
     expect(wrapper.find('[data-test="auth-diagnostics"]').exists()).toBe(true);
     await wrapper.find('[data-test="auth-copy-diagnostic"]').trigger("click");
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("访问地址："));
+    const copied = writeText.mock.calls[0]?.[0] as string;
+    expect(copied).toContain("访问地址：");
+    expect(copied).not.toContain("jwt-must-not-appear-in-diagnostics");
 
     await wrapper.find('[data-test="auth-download-diagnostic"]').trigger("click");
     await flushPromises();
