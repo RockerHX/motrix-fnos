@@ -60,7 +60,8 @@ struct LoginDiagnosticSummary {
     generated_at_ms: u64,
     app_version: &'static str,
     management_listener: String,
-    secure_cookie_enabled: bool,
+    web_auth_mode: &'static str,
+    jwt_transport: &'static str,
     included_logs: &'static str,
 }
 
@@ -108,7 +109,8 @@ pub(crate) fn build_login_diagnostic_bundle(state: &HttpAppState) -> Result<Vec<
         generated_at_ms: current_timestamp_ms(),
         app_version: env!("CARGO_PKG_VERSION"),
         management_listener: state.runtime.http_addr.to_string(),
-        secure_cookie_enabled: state.runtime.web_cookie_secure,
+        web_auth_mode: "jwt_bearer",
+        jwt_transport: "authorization_header",
         included_logs: "脱敏鉴权记录与生命周期日志",
     };
     let debug_logs = state

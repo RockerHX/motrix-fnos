@@ -7,7 +7,7 @@
 
 | 端口 | 用途 | 访问范围 |
 | --- | --- | --- |
-| `17080` | Web 管理面、HTTP API、SSE | fnOS 管理入口；业务 API 需要 Web Session |
+| `17080` | Web 管理面、HTTP API、SSE | fnOS 管理入口；保护开启时业务 API 需要 Web 管理 JWT |
 | `17081` | 回环 JSON-RPC | 仅 NAS 本机和本机反向代理；Lucky 应代理到这里 |
 | `17082` | 局域网 JSON-RPC | 仅 RFC1918 IPv4 客户端；使用独立 Token |
 | `6800` | Aria2 内部 RPC | 仅 Rust server 使用，不对外开放 |
@@ -42,7 +42,7 @@
 4. Lucky 与 Motrix 必须处于同一网络命名空间，或使用 NAS 内部可达地址；不要把 `17081` 加入端口映射。
 5. Cloudflare 建议使用 `Full (strict)`，源站 TLS 服务绑定 Origin CA 或其他受信任证书。
 
-FN Connect / 应用子域名依赖 fnOS 登录态，第三方解析站不会携带该 Cookie；它只能作为管理入口，不能替代公网 JSON-RPC 反向代理。公网调用必须走 Lucky/Cloudflare 到 `127.0.0.1:17081/jsonrpc`。
+FN Connect / 应用子域名依赖 fnOS 登录态，第三方解析站不会携带该 fnOS 登录 Cookie；它只能作为管理入口，不能替代公网 JSON-RPC 反向代理。公网调用必须走 Lucky/Cloudflare 到 `127.0.0.1:17081/jsonrpc`。
 
 ## 4. NAS 本地验证
 

@@ -1,24 +1,22 @@
+mod jwt;
 mod password;
 mod process_lock;
 mod rate_limit;
-mod session;
 
 use crate::database::web_auth::{self, WebAuthRow};
 use password::{hash_password, validate_password, verify_password_hash};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub use jwt::{
+    generate_secret as generate_jwt_secret, Claims, JwtValidationFailure, JWT_LIFETIME_SECONDS,
+};
 pub use process_lock::ServerProcessLock;
 pub use rate_limit::{LoginRateLimitError, LoginRateLimiter, UNKNOWN_LOGIN_SOURCE};
-pub use session::{
-    clear_session_cookie, session_cookie, CreatedSession, SessionError, SessionKind, SessionStore,
-    SessionValidation, SessionValidationFailure, ValidatedSession, SESSION_COOKIE_NAME,
-};
 
 #[derive(Clone)]
 pub struct AuthRuntime {
     pub service: AuthService,
-    pub sessions: SessionStore,
     pub login_limiter: LoginRateLimiter,
 }
 
@@ -26,7 +24,6 @@ impl AuthRuntime {
     pub fn new(pool: SqlitePool) -> Self {
         Self {
             service: AuthService::new(pool),
-            sessions: SessionStore::new(),
             login_limiter: LoginRateLimiter::new(),
         }
     }
@@ -79,11 +76,13 @@ impl AuthService {
         if existing.is_configured() {
             return Err(AuthError::AlreadyInitialized);
         }
+        let jwt_secret = existing.jwt_secret.unwrap_or_else(jwt::generate_secret);
         let initialized = web_auth::initialize_password(
             &self.pool,
             &password_hash,
             current_timestamp_ms()?,
             existing.exists,
+            &jwt_secret,
         )
         .await
         .map_err(AuthError::Storage)?;
@@ -159,9 +158,39 @@ impl AuthService {
     }
 
     pub async fn reset(&self) -> Result<(), AuthError> {
-        web_auth::reset(&self.pool)
+        let jwt_secret = web_auth::load(&self.pool)
+            .await
+            .map_err(AuthError::Storage)?
+            .and_then(|row| row.jwt_secret)
+            .unwrap_or_else(jwt::generate_secret);
+        web_auth::reset(&self.pool, &jwt_secret)
             .await
             .map_err(AuthError::Storage)
+    }
+
+    pub async fn issue_admin_token(&self, auth_state: &AuthState) -> Result<String, AuthError> {
+        let record = validated_record(
+            web_auth::load(&self.pool)
+                .await
+                .map_err(AuthError::Storage)?,
+        )?;
+        let secret = record
+            .jwt_secret
+            .ok_or_else(|| invalid_state("JWT 密钥缺失"))?;
+        jwt::issue_now(&secret, auth_state.auth_version).map_err(AuthError::Storage)
+    }
+
+    pub async fn validate_admin_token(
+        &self,
+        token: &str,
+        auth_version: u64,
+    ) -> Result<Claims, JwtValidationFailure> {
+        let row = web_auth::load(&self.pool)
+            .await
+            .map_err(|_| JwtValidationFailure::Invalid)?;
+        let record = validated_record(row).map_err(|_| JwtValidationFailure::Invalid)?;
+        let secret = record.jwt_secret.ok_or(JwtValidationFailure::Invalid)?;
+        jwt::validate(&secret, token, auth_version)
     }
 }
 
@@ -171,6 +200,7 @@ struct ValidatedAuthRecord {
     password_hash: Option<String>,
     password_updated_at: Option<i64>,
     auth_version: u64,
+    jwt_secret: Option<String>,
 }
 
 impl ValidatedAuthRecord {
@@ -196,6 +226,7 @@ fn validated_record(row: Option<WebAuthRow>) -> Result<ValidatedAuthRecord, Auth
             password_hash: None,
             password_updated_at: None,
             auth_version: 0,
+            jwt_secret: None,
         });
     };
     let enabled = match row.enabled {
@@ -212,12 +243,16 @@ fn validated_record(row: Option<WebAuthRow>) -> Result<ValidatedAuthRecord, Auth
         (Some(hash), Some(updated_at)) if !hash.is_empty() && updated_at > 0 => {}
         _ => return Err(invalid_state("密码字段组合不完整")),
     }
+    if row.jwt_secret.as_deref().is_none_or(str::is_empty) {
+        return Err(invalid_state("JWT 密钥缺失"));
+    }
     Ok(ValidatedAuthRecord {
         exists: true,
         enabled,
         password_hash: row.password_hash,
         password_updated_at: row.password_updated_at,
         auth_version,
+        jwt_secret: row.jwt_secret,
     })
 }
 

@@ -14,7 +14,6 @@
 | `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` | fnOS 已授权目录快照文件 | `MOTRIX_FNOS_APP_DATA_DIR/accessible-paths.json` |
 | `TRIM_API_TOKEN` | fnOS 为已声明 Scope 的 FPK 进程注入的开放 API Token，只按请求读取 | 无；缺失时保留最后一次官方 API 快照 |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 可信反向代理的直接对端 IP，逗号分隔 | 空，不读取代理来源 Header |
-| `MOTRIX_WEB_COOKIE_SECURE` | 是否为 Web Session Cookie 添加 `Secure` | `false` |
 
 `MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE` 只保存 Rust server 通过官方 API 确认的授权目录快照；正式包不再读取 `TRIM_DATA_ACCESSIBLE_PATHS` 或从应用设置回写旧快照。
 
@@ -33,11 +32,11 @@
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- 浏览器请求使用同源服务端 Session Cookie；管理写操作通过 `X-CSRF-Token` 请求头携带 CSRF Token。
+- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 使用 `credentials: "omit"`，不依赖 Cookie。
 - `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
-- SSE 使用浏览器原生 `EventSource`。
+- SSE 使用 `fetch` 和 `ReadableStream` 解析，以请求头传递 JWT，令牌不得写入 URL。
 - 错误提示优先展示响应体中的 `message`；响应体不符合统一错误结构时按 HTTP 状态码展示通用错误。
 - 下载保存目录只允许从后端返回的 fnOS 已授权目录中选择；Web UI 不提供任意本地路径选择器。
 
@@ -57,8 +56,8 @@
 | 状态码 | 含义 |
 | --- | --- |
 | `400 Bad Request` | 请求参数非法或业务校验失败 |
-| `401 Unauthorized` | 管理 Session 缺失、无效或过期；不得返回 SPA HTML |
-| `403 Forbidden` | CSRF Token 缺失或错误，或当前凭据无权执行操作 |
+| `401 Unauthorized` | 管理 JWT 缺失、格式错误、无效、过期或失效；不得返回 SPA HTML |
+| `403 Forbidden` | 当前凭据无权执行操作 |
 | `404 Not Found` | `/api` 下不存在的路径；可能不带 JSON body |
 | `408 Request Timeout` | 请求在资源限制层超时；可能不带 JSON body |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
@@ -78,17 +77,17 @@
 
 ### 4.1 Web 管理鉴权
 
-静态资源允许匿名加载，但不得包含任务、路径、设置、日志或 Token 等业务数据。除本节明确标记为匿名的接口外，所有 `/api/*` 与 `/api/events` 默认要求有效 Session；保护关闭时，普通管理 API 可进入显式匿名管理模式，鉴权配置变更仍按本节要求校验当前密码。
+静态资源允许匿名加载，但不得包含任务、路径、设置、日志或 Token 等业务数据。除本节明确标记为匿名的接口外，保护开启时所有 `/api/*` 与 `/api/events` 都要求有效管理员 JWT；保护关闭时，普通管理 API 和 SSE 匿名可用。密码与保护状态变更始终通过请求体中的当前密码确认，不依赖 JWT。
 
 | 方法 | 路径 | 访问要求 | 作用 |
 | --- | --- | --- | --- |
-| `GET` | `/api/auth/status` | 匿名 | 返回初始化、保护和当前会话状态 |
-| `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并创建 Session |
-| `POST` | `/api/auth/login` | 匿名 | 验证密码并创建 Session |
+| `GET` | `/api/auth/status` | 匿名 | 返回初始化、保护和当前 JWT 状态 |
+| `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并签发 JWT |
+| `POST` | `/api/auth/login` | 匿名 | 验证密码并签发 JWT |
 | `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
-| `POST` | `/api/auth/logout` | Session + CSRF | 撤销当前 Session |
-| `PUT` | `/api/auth/password` | Session + CSRF + 当前密码 | 修改密码并撤销其他 Session |
-| `PUT` | `/api/auth/protection` | Session + CSRF + 当前密码 | 启用或关闭 Web 管理保护 |
+| `POST` | `/api/auth/logout` | 匿名 | 返回 `204`；前端清除 JWT |
+| `PUT` | `/api/auth/password` | 当前密码 | 修改密码并签发新 JWT |
+| `PUT` | `/api/auth/protection` | 当前密码 | 启用或关闭 Web 管理保护并签发新 JWT |
 
 `GET /api/auth/status` 响应：
 
@@ -96,19 +95,19 @@
 {
   "setupRequired": false,
   "enabled": true,
-  "authenticated": true,
-  "csrfToken": "opaque-csrf-token"
+  "authenticated": true
 }
 ```
 
 约定：
 
 - `setupRequired=true` 时，除 `GET /api/auth/status`、`POST /api/auth/setup`、`GET /api/app/ready` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
-- `csrfToken` 只在当前浏览器具备管理访问权时返回；未登录且保护已启用时为 `null`。保护关闭时，服务端可为匿名管理浏览器签发短期访问上下文并返回对应 CSRF Token。
-- 前端不得把 CSRF Token 写入持久存储；Session 失效后必须丢弃旧 Token。
+- `status` 只验证当前请求的 `Authorization`，不会签发或返回新的 JWT。JWT 缺失、格式错误或无效时返回 `authenticated=false`。
+- `setup`、`login`、密码修改和保护状态变更成功时，在上述状态字段外返回 `accessToken`；前端先保存它，再调用 `status` 确认后启动业务请求。
+- 前端以内存保存 JWT，并尽力写入 `localStorage` 以支持刷新恢复；浏览器禁止存储时退化为当前页面会话。JWT 原文不得写入诊断、日志、URL 或跨标签页消息。
 - 鉴权配置读取失败时 `status` 安全失败，不得把 `enabled` 自动降级为 `false`。
 
-登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。该接口不要求 Web Session，只返回版本、管理监听地址、Secure Cookie 开关、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、Cookie、Session、CSRF、Token、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
+登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
 `POST /api/auth/setup` 与 `POST /api/auth/login` 请求：
 
@@ -140,38 +139,36 @@
 }
 ```
 
-- 密码修改、保护状态变更与本地重置必须递增 `authVersion` 并撤销已有 Session；修改密码成功时可只为当前请求签发新 Session。
+- JWT 使用 HS256，Claims 固定包含 `sub="admin"`、`role="admin"`、`iat`、`exp` 和 `auth_version`；有效期为 12 小时。签名密钥为 32 字节随机值，持久化在 SQLite，重启后仍可验证既有 JWT。
+- 密码修改、保护状态变更与本地重置必须递增 `authVersion`，使旧 JWT 失效；成功响应返回新 JWT。
 - 关闭保护不会删除密码哈希，也不会更改 JSON-RPC Token；重新启用保护仍需当前密码。
-- 密码明文、密码哈希、Session ID、Cookie 与 CSRF Token 不得写入日志、普通设置响应或调试日志。
+- `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
+- 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
 - `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
+- 升级后旧浏览器 Cookie 不再生效，用户需重新登录；任务、设置和下载数据不受影响。
 
-Session 与 Cookie 约定：
-
-- 密码使用 Argon2id 和随机 salt 保存不可逆哈希；Session ID 使用密码学安全随机源生成，仅在服务端内存保存。
-- Cookie 名固定为 `motrix_web_session`，只保存不透明 Session ID，并设置 `HttpOnly`、`SameSite=Strict`、`Path=/` 和固定最长有效期；`MOTRIX_WEB_COOKIE_SECURE=false` 时不带 `Secure`，显式设为 `true` 时登录、密码变更、退出清除等 Cookie 都带 `Secure`。server 不根据客户端可伪造的代理 Header 自动切换该属性。
-- Session 同时受固定最长有效期和空闲超时限制；server 重启后允许全部失效，不提供永久 Session。
-- `POST`、`PUT`、`PATCH`、`DELETE` 等管理写操作必须校验与当前访问上下文绑定的 `X-CSRF-Token`，缺失或错误时返回结构化 `403 Forbidden`。
-- `/api/events` 必须校验 Session 或已关闭保护的匿名访问上下文；失效时返回 `401`，前端停止无限重连并回到登录页。
+密码使用 Argon2id 和随机 salt 保存不可逆哈希。Web 管理不使用 Cookie、服务端 Session 或 CSRF Token。
 
 统一鉴权错误示例：
 
 ```json
 {
-  "code": "authentication_required",
-  "message": "请先登录 Web 管理界面"
+  "code": "jwt_expired",
+  "message": "管理访问令牌已过期，请重新登录",
+  "reason": "jwt_expired"
 }
 ```
 
-鉴权失败响应可以附带可选的 `reason` 字段，用于区分排障原因；旧客户端可忽略该字段。当前枚举为：
+JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排障；前端收到 `401` 后清除 JWT、停止业务请求并回到登录页。当前枚举为：
 
-- `session_cookie_missing`：请求未携带 Session Cookie
-- `session_cookie_invalid`：Cookie 格式无效
-- `session_not_found`：Session 不存在（例如服务重启后旧 Session）
-- `session_expired`：Session 已过期
-- `session_auth_version_mismatch`：密码或鉴权配置变更后旧 Session 失效
-- `session_kind_insufficient`：Session 存在但权限级别不足
+- `jwt_missing`：请求未携带 Bearer JWT
+- `jwt_malformed`：Authorization 或 JWT 格式无效
+- `jwt_invalid`：JWT 签名、算法或内容无效
+- `jwt_expired`：JWT 已过期
+- `jwt_auth_version_mismatch`：密码、保护状态或重置后旧 JWT 失效
+- `jwt_insufficient_privileges`：JWT 不具有管理员权限
 
-服务端会在脱敏调试日志中记录 `request_id`、请求路径和上述原因，不记录 Cookie、Session ID、CSRF 或密码。
+服务端会在脱敏调试日志中记录 `request_id`、请求路径和上述原因，不记录 JWT 原文或密码。
 
 ### 4.2 应用信息
 
@@ -207,7 +204,7 @@ Session 与 Cookie 约定：
 
 约定：
 
-- `/api/app/ready` 仅用于 Rust 服务生命周期探测，无需管理 Session。
+- `/api/app/ready` 仅用于 Rust 服务生命周期探测，无需管理 JWT。
 - 只有管理与 JSON-RPC listener 已绑定、启动门禁已经完成且服务未进入退出状态时返回 `200 OK`；其他状态返回 `503 Service Unavailable` 和 `app_not_ready`。
 - SQLite 初始化仍是 listener 标记就绪前的启动门禁，但 ready 请求本身只读取内存状态，不获取数据库连接、不执行 SQL、不写日志。
 
@@ -656,7 +653,7 @@ Session 与 Cookie 约定：
 - `category` 可为 `app`、`task`、`aria2`、`settings`、`storage`、`api`、`runtime`。
 - 应用内调试日志与 `app/data/logs/server.log` 默认只记录关键生命周期、用户操作、状态转换、警告和错误；应用信息、通信检查、设置读取、Aria2 状态、`aria2.getVersion` 和 `aria2.getGlobalOption` 等常规只读成功请求不写文件日志。`server.log` 单文件上限为 10 MiB，保留当前文件和最多 3 个历史文件；fnOS 生命周期脚本和进程标准输出进入同目录的 `lifecycle.log`，默认单文件上限为 1 MiB，也保留最多 3 个历史文件。
 - Aria2 原生日志位于应用数据目录的 `aria2/aria2.log`，与应用内调试日志相互独立。默认只记录 `warn` 及以上事件，单文件上限为 10 MiB，总计最多保留 3 个文件（当前文件和 2 个历史文件）。
-- 文件日志和内存调试日志共用敏感字段脱敏规则：URL 的 query/fragment、Token、密码、Session、CSRF、Cookie、Authorization 和 RPC secret 不写入日志。排障时可用响应头 `X-Request-ID` 将管理 API、SSE 和 JSON-RPC 请求与日志关联。
+- 文件日志和内存调试日志共用敏感字段脱敏规则：URL 的 query/fragment、JWT、各类 Token、密码、Authorization 和 RPC secret 不写入日志。排障时可用响应头 `X-Request-ID` 将管理 API、SSE 和 JSON-RPC 请求与日志关联。
 - 下载代理 URL、userinfo、兼容私密覆盖、应用配置 revision 与 Aria2 `all-proxy` 值不进入普通操作日志、调试日志或诊断响应；任务相关记录只允许使用 `useProxy` 布尔值。
 - 连续相同级别、模块和消息会折叠为一条，`repeatCount` 记录次数，`lastTimestampMs` 记录最后发生时间。
 
@@ -680,7 +677,7 @@ Session 与 Cookie 约定：
 }
 ```
 
-- 详细模式只允许管理面板通过 Web Session 和 CSRF 写接口启用，固定为 `debug` 并在 30 分钟后自动恢复 `warn`；状态只保存在内存，服务重启后必定恢复普通日志。
+- 详细模式只允许通过管理 API 启用；保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。模式固定为 `debug`，30 分钟后自动恢复 `warn`；状态只保存在内存，服务重启后必定恢复普通日志。
 - 已确认运行且处于 `Ready` 的 sidecar 由服务端私有回环 RPC 调用 `aria2.changeGlobalOption` 即时切换；停止时不启动引擎，`appliesOnNextStart=true` 表示将在下一次受控启动时生效。启动或停止转换中返回 `409 aria2_log_mode_conflict`。
 - 外部 JSON-RPC 白名单不包含 `aria2.changeGlobalOption`，也不提供日志模式、日志清理或诊断导出方法。任何模式下单文件大小与保留数量均不放宽。
 
@@ -779,14 +776,14 @@ Session 与 Cookie 约定：
 
 约定：
 
-- 三个接口都要求有效的 Web 管理 Session；`DELETE` 还要求 CSRF Token。它们不注册到任何 JSON-RPC listener。
+- 三个接口都遵循管理 API 鉴权：保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。它们不注册到任何 JSON-RPC listener。
 - 占用统计只读取应用数据目录内固定的普通文件：Aria2 当前日志及兼容的新旧轮转命名、`logs/server.log(.1-.3)` 和 `logs/lifecycle.log(.1-.3)`。符号链接、未知文件和下载目录均不计入，也不返回应用数据目录的绝对路径。
 - 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
 - Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
 - 诊断包文件名固定为 `motrix-fnos-diagnostic-bundle.zip`，在内存中生成，不在应用数据目录长期落盘。ZIP 至少包含 `summary.json` 和 `logs/app-debug.jsonl`，并按存在情况加入 `logs/server.log(.1-.3)`、`logs/lifecycle.log(.1-.3)` 及 `logs/aria2/` 下的新旧命名 Aria2 日志尾部。
 - 诊断包生成使用独立并发门禁，同一时间只处理一个导出请求；已有导出任务运行时返回 `429 diagnostic_bundle_busy` 和 `Retry-After: 1`。
 - 诊断包总未压缩输入预算为 16 MiB；Aria2、server、lifecycle 分组预算分别为 10 MiB、4 MiB、2 MiB，应用内调试记录最多 512 KiB，摘要最多 64 KiB。所有文本逐行复用服务端脱敏规则并优先保留最新尾部。
-- 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、Token、Cookie、Session 或 CSRF 数据；只读取固定目录内普通文件并拒绝符号链接。
+- 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、JWT 或其他 Token；只读取固定目录内普通文件并拒绝符号链接。
 - 登录诊断包文件名固定为 `motrix-fnos-login-diagnostic.zip`，只包含 `summary.json`、`logs/auth-debug.jsonl` 和存在时的 `logs/lifecycle.log(.1-.3)`；它用于登录页排障，不需要先登录，也不包含完整诊断包中的 server/Aria2 日志。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
 
@@ -824,7 +821,7 @@ Session 与 Cookie 约定：
 - `GET` 只读取当前已确认快照，响应结构保持兼容，不调用 fnOS 外部服务。
 - `GET /display` 只转换当前授权快照中的路径，不接受客户端路径。`language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
 - server 通过 `trim.file.convertPath` 请求语义化路径。上游失败或 Token/Socket 不可用时整批回退原始路径；上游缺项、重复项或空语义路径时只对相应原始路径回退。结果按原始路径精确匹配，不持久化、不缓存。
-- `POST` 无请求体，要求有效 Web 管理 Session 与 CSRF Token；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
+- `POST` 无请求体，遵循管理 API 鉴权：保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
 - 官方查询成功后校验全部路径并原子覆盖快照；空数组是有效结果。查询、响应校验或持久化失败时不修改旧快照。
 - 官方路径必须是非根绝对 Unix 路径，不允许首尾空白、反斜杠、NUL、`.` 或 `..` 组件；任一非法项拒绝整次刷新。合法路径去重并保留官方顺序。
 - 上游失败映射为 `502` 或 `503`，不得映射为浏览器 `401`。成功刷新后同步更新 JSON-RPC 默认下载目录缓存。
@@ -843,7 +840,7 @@ Session 与 Cookie 约定：
 - 可见任务列表发生变化时推送 `tasks.snapshot`。
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
-- Session 失效时连接终止；重新订阅返回 `401 Unauthorized`，不会发送任务快照。
+- JWT 失效时连接终止；重新订阅在保护开启时返回 `401 Unauthorized`，不会发送任务快照。保护关闭时允许匿名订阅。
 
 `tasks.snapshot`：
 

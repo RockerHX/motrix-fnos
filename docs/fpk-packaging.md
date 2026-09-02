@@ -94,7 +94,6 @@ FPK 启动脚本必须向同一个 Rust server 注入三个地址：
 | `MOTRIX_FNOS_JSONRPC_ADDR` | `127.0.0.1:17081` | 仅 NAS 本机反向代理可访问，不进入任何 fnOS 端口声明 |
 | `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | `0.0.0.0:17082` | 由 `MotrixFNOS.sc` 与管理端口共同声明，manifest 与桌面入口仍不引用 |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 空 | 仅填写直接连接到管理 listener 的可信代理 IP；未配置时忽略 `X-Forwarded-For` |
-| `MOTRIX_WEB_COOKIE_SECURE` | `false` | HTTPS 终止代理场景显式设为 `true`；直接 HTTP 场景保持 `false` |
 
 固定规则：
 
@@ -103,9 +102,8 @@ FPK 启动脚本必须向同一个 Rust server 注入三个地址：
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
 - `17082` 始终监听但由服务端开关和 RFC1918 IPv4 来源检查共同保护；局域网 Token 不得在 `17081` 使用。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
-- FPK 日志可以记录三个监听地址，但不得记录 Web 密码、Session、CSRF、JSON-RPC Token 或 Aria2 secret。
+- FPK 日志可以记录三个监听地址，但不得记录 Web 密码、JWT、JSON-RPC Token 或 Aria2 secret。
 - 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。
-- 反向代理终止 HTTPS 时必须同时确认代理地址已加入 `MOTRIX_TRUSTED_PROXY_IPS`，并显式设置 `MOTRIX_WEB_COOKIE_SECURE=true`。该开关不会验证代理是否真的使用 HTTPS。
 
 多端口声明查证：飞牛官方 manifest 文档目前只定义单个 `service_port`；可验证第三方 FPK 仓库 `conversun/fnos-apps` 的 AdGuardHome 与 Forgejo 分别使用同一 `.sc` 文件声明 `3080/tcp,53/tcp,53/udp` 和 `3005/tcp,2223/tcp`。本项目据此只扩展协议文件，不增加第二桌面入口；正式发布前仍须在目标 fnOS 实机确认安装、防火墙、局域网 TCP 对端地址和卸载清理行为。
 
@@ -352,7 +350,7 @@ rtk packaging/fnos/cmd/stop
 
 普通用户优先在 Motrix 页面完成以下流程，无需访问 `$TRIM_PKGVAR` 或浏览器开发者工具：
 
-登录页本身提供“复制登录排障信息”和“下载登录诊断”两个按钮。它们不要求登录：复制内容只包含访问协议、Origin、是否 iframe、Cookie 是否启用、安全上下文和 User-Agent；下载的 `motrix-fnos-login-diagnostic.zip` 只包含版本/监听地址摘要、Secure Cookie 开关、脱敏鉴权记录和生命周期日志尾部，不包含密码、Cookie、Session、CSRF、Token、SQLite、Aria2 或下载内容。请把复制的文本和 ZIP 一起附在 Issue 中。
+登录页本身提供“复制登录排障信息”和“下载登录诊断”两个按钮。它们不要求登录：复制内容只包含访问协议、Origin、是否 iframe、`localStorage` 是否可用、是否已有管理访问令牌、安全上下文和 User-Agent；下载的 `motrix-fnos-login-diagnostic.zip` 只包含版本/监听地址摘要、JWT 传输方式、脱敏鉴权记录和生命周期日志尾部，不包含密码、JWT 原文、SQLite、Aria2 或下载内容。请把复制的文本和 ZIP 一起附在 Issue 中。
 
 已登录时再按以下流程收集完整运行诊断，无需访问 `$TRIM_PKGVAR`：
 
@@ -362,7 +360,7 @@ rtk packaging/fnos/cmd/stop
 4. 需要释放 Aria2 日志空间时先停止引擎，再点击“清理 Aria2 日志”并二次确认。运行中、切换中或归属无法确认时界面禁用操作，服务端也会返回 `409 aria2_log_in_use`，不会自动停止引擎。
 5. 调试日志窗口中的“清空应用内调试记录”只清空内存记录，不会释放 Aria2 原生日志文件空间；磁盘占用以诊断页指标为准。
 
-诊断 ZIP 在内存中生成，不创建长期临时文件。它不会包含 SQLite、session、运行态 JSON、设置原文、密码、Token、Cookie、CSRF 或用户下载文件；固定日志输入总计最多 16 MiB，并拒绝符号链接。若升级前已有 50 GiB 等超限 `aria2.log`，下一次安全启动会保留最后 10 MiB；停止引擎后也可用手动按钮清空全部已识别 Aria2 日志。
+诊断 ZIP 在内存中生成，不创建长期临时文件。它不会包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、JWT 或其他 Token、用户下载文件；固定日志输入总计最多 16 MiB，并拒绝符号链接。若升级前已有 50 GiB 等超限 `aria2.log`，下一次安全启动会保留最后 10 MiB；停止引擎后也可用手动按钮清空全部已识别 Aria2 日志。
 
 ## 数据保留与卸载向导
 

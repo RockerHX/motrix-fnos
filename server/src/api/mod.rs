@@ -155,20 +155,10 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
         state.clone(),
         auth::event_auth,
     ));
-    let session_auth_routes = auth::session_routes().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::session_auth,
-    ));
-    let admin_auth_routes = auth::admin_routes().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::admin_auth,
-    ));
     let api_routes = with_http_resource_limits(
         Router::new()
             .merge(auth::public_routes())
             .merge(app::readiness_routes())
-            .merge(session_auth_routes)
-            .merge(admin_auth_routes)
             .merge(management_routes),
         MANAGEMENT_HTTP_LIMITS,
     )

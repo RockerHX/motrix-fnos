@@ -16,6 +16,7 @@ async-stream = "0.3"
 axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 base64 = "0.22"
 fs2 = "0.4"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 http-body-util = "0.1"
 hyper = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }

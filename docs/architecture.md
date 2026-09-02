@@ -63,7 +63,7 @@ fnOS FPK
 - 三个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
 - 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
-- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
+- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和 JWT，不得伪装成已接入统一网关鉴权。
 
 FPK 身份、入口、权限、安装升级和回滚细节统一见 `docs/fpk-packaging.md`；接口兼容与 Token 语义见 `docs/api-contract.md`。本架构只要求管理端口和两个 RPC 端口保持职责隔离，三类凭据不能跨入口复用。
 
@@ -145,7 +145,7 @@ server/
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
-- `auth/` 负责 Web 管理密码、服务端 Session、CSRF 校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
+- `auth/` 负责 Web 管理密码、JWT 签发与校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
 - 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
 - `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
 - `tasks/service.rs` 负责 `TaskService` 依赖注入、运行态守卫，以及跨流程共享的任务操作记录、Aria2 创建与未知结果对账、回滚辅助；创建、查询、控制、删除、磁链确认、代理切换与回收站恢复流程分别由 `tasks/service/` 子模块承载。
@@ -159,7 +159,7 @@ server/
 Vue Component
   -> Pinia Store
   -> Feature Service
-  -> HTTP client（Web Session + 写操作 CSRF）
+  -> HTTP client（JWT Bearer 请求头）
   -> 管理监听器 Axum Route
   -> Rust Service / Repository
   -> Aria2 JSON-RPC / SQLite
@@ -226,10 +226,10 @@ Rust Runtime Event
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；明文密码、密码哈希、Session ID 与 CSRF Token 不得通过普通设置接口返回或写入日志。
-- 管理 API 与 SSE 默认要求有效的服务端 Web Session；管理写操作还必须校验 CSRF Token。首次启动必须完成密码初始化，关闭管理保护必须验证当前密码并使已有 Session 失效。
+- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
+- 管理 API 与 SSE 在保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、保护状态变更和重置递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，关闭或重新启用管理保护都必须验证当前密码。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
-- 会话 Cookie 的 `Secure` 属性由 `MOTRIX_WEB_COOKIE_SECURE` 显式控制，默认关闭。反向代理已终止 HTTPS 时才设置为 `true`；server 不根据客户端可伪造的 `X-Forwarded-Proto` 自动判断。
+- Web 管理不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。
 - 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
 - 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
 - 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
