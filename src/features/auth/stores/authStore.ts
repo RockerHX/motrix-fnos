@@ -4,7 +4,7 @@ import { useDebugLogStore } from "../../diagnostics/stores/debugLogStore";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useTaskStore } from "../../tasks/stores/taskStore";
 import { useJsonRpcTokenStore } from "../../settings/stores/jsonRpcTokenStore";
-import { setCsrfTokenProvider, setUnauthorizedHandler } from "../../../services/http";
+import { setAccessTokenProvider, setUnauthorizedHandler } from "../../../services/http";
 import { createAuthChannel, type AuthChannel } from "../services/authChannel";
 import {
   changeAuthPassword,
@@ -17,20 +17,29 @@ import {
 import type { AuthChannelMessage, AuthPhase, AuthStatus, ChangePasswordRequest } from "../types";
 import { t } from "../../../i18n";
 
+const ACCESS_TOKEN_STORAGE_KEY = "motrix-fnos:web-access-token";
+
 export const useAuthStore = defineStore("auth", () => {
   const phase = ref<AuthPhase>("loading");
   const enabled = ref(true);
   const authenticated = ref(false);
-  const csrfToken = ref<string | null>(null);
+  const accessToken = ref<string | null>(null);
+  const localStorageAvailable = ref(true);
   const errorMessage = ref("");
   const isSubmitting = ref(false);
   let channel: AuthChannel | null = null;
 
   const isReady = computed(() => phase.value === "ready");
+  const hasAccessToken = computed(() => Boolean(accessToken.value));
+
+  function getAccessToken() {
+    return accessToken.value;
+  }
 
   async function initialize() {
     phase.value = "loading";
     errorMessage.value = "";
+    restoreAccessToken();
     try {
       applyStatus(await getAuthStatus());
     } catch (error) {
@@ -61,57 +70,64 @@ export const useAuthStore = defineStore("auth", () => {
       await logoutAuth();
     } finally {
       lockToLogin();
-      channel?.post({ type: "session-invalidated" });
+      channel?.post({ type: "auth-invalidated" });
       isSubmitting.value = false;
     }
   }
 
   async function changePassword(payload: ChangePasswordRequest) {
-    return submit(() => changeAuthPassword(payload));
+    return submit(() => changeAuthPassword(payload), true);
   }
 
   async function setProtection(nextEnabled: boolean, currentPassword: string) {
-    return submit(() => changeAuthProtection({ enabled: nextEnabled, currentPassword }));
+    return submit(() => changeAuthProtection({ enabled: nextEnabled, currentPassword }), true);
   }
 
   async function handleUnauthorized() {
     clearSensitiveState();
-    clearAuthState();
+    clearAccessToken();
     try {
       applyStatus(await getAuthStatus());
     } catch {
       phase.value = "login";
     }
-    channel?.post({ type: "session-invalidated" });
+    channel?.post({ type: "auth-invalidated" });
   }
 
   function handleUnauthorizedStatus(status: AuthStatus) {
+    if (!status.authenticated) {
+      clearAccessToken();
+    }
     applyStatus(status);
     if (!isReady.value) {
       clearSensitiveState();
-      channel?.post({ type: "session-invalidated" });
+      channel?.post({ type: "auth-invalidated" });
     }
   }
 
   function startCoordination() {
-    setCsrfTokenProvider(() => csrfToken.value);
+    setAccessTokenProvider(() => accessToken.value);
     setUnauthorizedHandler(handleUnauthorized);
     channel ??= createAuthChannel(handleChannelMessage);
   }
 
   function stopCoordination() {
-    setCsrfTokenProvider(null);
+    setAccessTokenProvider(null);
     setUnauthorizedHandler(null);
     channel?.close();
     channel = null;
   }
 
-  async function submit(operation: () => Promise<AuthStatus>, verifySession = false) {
+  async function submit(operation: () => Promise<AuthStatus>, verifyToken: boolean) {
     isSubmitting.value = true;
     errorMessage.value = "";
     try {
-      let status = await operation();
-      if (verifySession) {
+      const response = await operation();
+      if (response.accessToken) {
+        saveAccessToken(response.accessToken);
+      }
+      let status = response;
+      if (verifyToken) {
         try {
           status = await getAuthStatus();
         } catch (error) {
@@ -119,8 +135,8 @@ export const useAuthStore = defineStore("auth", () => {
           throw error;
         }
         if (!status.authenticated) {
-          applyStatus(status);
-          throw new Error(t("auth.sessionVerificationFailed"));
+          lockToLogin();
+          throw new Error(t("auth.tokenVerificationFailed"));
         }
       }
       applyStatus(status);
@@ -132,7 +148,7 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   async function handleChannelMessage(message: AuthChannelMessage) {
-    if (message.type === "session-invalidated") {
+    if (message.type === "auth-invalidated") {
       lockToLogin();
       return;
     }
@@ -147,14 +163,13 @@ export const useAuthStore = defineStore("auth", () => {
     const wasReady = isReady.value;
     enabled.value = status.enabled;
     authenticated.value = status.authenticated;
-    csrfToken.value = status.csrfToken;
     errorMessage.value = "";
     if (status.setupRequired) {
       phase.value = "setup";
-      csrfToken.value = null;
+      clearAccessToken();
     } else if (status.enabled && !status.authenticated) {
       phase.value = "login";
-      csrfToken.value = null;
+      clearAccessToken();
     } else {
       phase.value = "ready";
     }
@@ -166,12 +181,12 @@ export const useAuthStore = defineStore("auth", () => {
   function lockToLogin() {
     clearSensitiveState();
     clearAuthState();
+    clearAccessToken();
     phase.value = "login";
   }
 
   function clearAuthState() {
     authenticated.value = false;
-    csrfToken.value = null;
   }
 
   function clearSensitiveState() {
@@ -181,11 +196,43 @@ export const useAuthStore = defineStore("auth", () => {
     useDebugLogStore().clearSensitiveState();
   }
 
+  function restoreAccessToken() {
+    try {
+      accessToken.value = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+      localStorageAvailable.value = true;
+    } catch {
+      accessToken.value = null;
+      localStorageAvailable.value = false;
+    }
+  }
+
+  function saveAccessToken(token: string) {
+    accessToken.value = token;
+    try {
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+      localStorageAvailable.value = true;
+    } catch {
+      localStorageAvailable.value = false;
+    }
+  }
+
+  function clearAccessToken() {
+    accessToken.value = null;
+    try {
+      window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    } catch {
+      localStorageAvailable.value = false;
+    }
+  }
+
   return {
     phase,
     enabled,
     authenticated,
-    csrfToken,
+    accessToken,
+    hasAccessToken,
+    getAccessToken,
+    localStorageAvailable,
     errorMessage,
     isSubmitting,
     isReady,

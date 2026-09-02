@@ -13,7 +13,7 @@ export function createAuthChannel(onMessage: (message: AuthChannelMessage) => vo
   }
   const channel = new BroadcastChannel(CHANNEL_NAME);
   channel.addEventListener("message", (event: MessageEvent<AuthChannelMessage>) => {
-    if (event.data?.type === "session-invalidated" || event.data?.type === "auth-updated") {
+    if (event.data?.type === "auth-invalidated" || event.data?.type === "auth-updated") {
       onMessage(event.data);
     }
   });

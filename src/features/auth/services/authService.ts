@@ -1,10 +1,10 @@
 import { httpGet, httpGetBlob, httpPost, httpPut } from "../../../services/http";
 import type { AuthStatus, ChangePasswordRequest, ChangeProtectionRequest } from "../types";
 
-const publicRequest = { handleUnauthorized: false } as const;
+const publicRequest = { handleUnauthorized: false, includeAuth: false } as const;
 
 export function getAuthStatus() {
-  return httpGet<AuthStatus>("/api/auth/status", publicRequest);
+  return httpGet<AuthStatus>("/api/auth/status", { handleUnauthorized: false });
 }
 
 export function setupAuth(password: string) {
@@ -16,7 +16,7 @@ export function loginAuth(password: string) {
 }
 
 export function downloadLoginDiagnostic() {
-  return httpGetBlob("/api/auth/login-diagnostic", { handleUnauthorized: false });
+  return httpGetBlob("/api/auth/login-diagnostic", publicRequest);
 }
 
 export function logoutAuth() {
@@ -24,9 +24,9 @@ export function logoutAuth() {
 }
 
 export function changeAuthPassword(payload: ChangePasswordRequest) {
-  return httpPut<AuthStatus>("/api/auth/password", payload);
+  return httpPut<AuthStatus>("/api/auth/password", payload, publicRequest);
 }
 
 export function changeAuthProtection(payload: ChangeProtectionRequest) {
-  return httpPut<AuthStatus>("/api/auth/protection", payload);
+  return httpPut<AuthStatus>("/api/auth/protection", payload, publicRequest);
 }

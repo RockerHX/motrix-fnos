@@ -78,7 +78,8 @@ function loginDiagnosticInfo() {
     `访问协议：${location.protocol.replace(":", "") || "未知"}`,
     `访问地址：${origin}`,
     `是否 iframe：${window.self !== window.top ? "是" : "否"}`,
-    `Cookie 是否启用：${navigator.cookieEnabled ? "是" : "否"}`,
+    `localStorage 是否可用：${authStore.localStorageAvailable ? "是" : "否"}`,
+    `登录令牌是否存在：${authStore.hasAccessToken ? "是" : "否"}`,
     `是否安全上下文：${window.isSecureContext ? "是" : "否"}`,
     `User-Agent：${navigator.userAgent || "未知"}`,
   ].join("\n");

@@ -17,7 +17,7 @@ const protectionError = ref("");
 const requestedProtection = ref(true);
 const passwordForm = reactive({ currentPassword: "", newPassword: "", confirmPassword: "" });
 const protectionForm = reactive({ currentPassword: "" });
-const canManage = computed(() => authStore.authenticated);
+const canManage = computed(() => authStore.authenticated || !authStore.enabled);
 const securityModalStyle = {
   width: "min(520px, calc(100vw - 32px))",
   maxWidth: "calc(100vw - 32px)",
