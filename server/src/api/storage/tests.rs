@@ -5,7 +5,6 @@ use crate::app::tests::replace_fnos_api_client;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::auth::SessionKind;
 use crate::fnos::{FnosApiClient, API_TOKEN_ENV};
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
@@ -41,13 +40,13 @@ fn test_api_token() -> TestApiTokenGuard {
 }
 
 #[tokio::test]
-async fn refresh_route_requires_management_session_and_csrf() {
+async fn refresh_route_requires_management_bearer_token() {
     let state = test_state("auth").await;
     let app = management_router(state.clone());
 
     let unauthenticated = app
         .clone()
-        .oneshot(refresh_request(None, None))
+        .oneshot(refresh_request(None))
         .await
         .expect("request should complete");
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
@@ -58,23 +57,15 @@ async fn refresh_route_requires_management_session_and_csrf() {
         .setup("test management password")
         .await
         .expect("auth should initialize");
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, auth_state.auth_version)
-        .expect("session should create");
-    let missing_csrf = app
-        .clone()
-        .oneshot(refresh_request(Some(&session.id), None))
+        .service
+        .issue_admin_token(&auth_state)
         .await
-        .expect("request should complete");
-    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+        .expect("token should issue");
 
     let unavailable = app
-        .oneshot(refresh_request(
-            Some(&session.id),
-            Some(&session.csrf_token),
-        ))
+        .oneshot(refresh_request(Some(&token)))
         .await
         .expect("request should complete");
     let error = response_json::<ErrorResponse>(unavailable, StatusCode::SERVICE_UNAVAILABLE).await;
@@ -332,15 +323,12 @@ async fn refresh_errors_never_map_to_browser_unauthorized() {
     }
 }
 
-fn refresh_request(session: Option<&str>, csrf: Option<&str>) -> Request<Body> {
+fn refresh_request(token: Option<&str>) -> Request<Body> {
     let mut builder = Request::builder()
         .method("POST")
         .uri("/api/storage/accessible-paths/refresh");
-    if let Some(session) = session {
-        builder = builder.header("cookie", format!("motrix_web_session={session}"));
-    }
-    if let Some(csrf) = csrf {
-        builder = builder.header("x-csrf-token", csrf);
+    if let Some(token) = token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
     }
     builder.body(Body::empty()).expect("request should build")
 }
@@ -367,7 +355,6 @@ async fn test_state(label: &str) -> Arc<HttpAppState> {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     bootstrap_http_app_state(&runtime)
         .await

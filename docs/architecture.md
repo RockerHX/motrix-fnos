@@ -41,21 +41,11 @@ fnOS FPK
   └─ Aria2 Next Linux sidecar
 ```
 
-### 3.1 阶段 0 fnOS API Probe 历史边界
+### 3.1 fnOS 开放 API 边界
 
-`FUTURE-FNOS-API-01` 阶段 0 曾使用独立的非生产 Probe 验证 SDK、Token、Unix Socket、共享目录授权和应用账户读写闭环。该 Probe 使用独立应用身份 `motrixapiprobe`、运行用户 `motrix_api_probe`、端口 `17180` 和唯一 Scope `trim.file.sharedAccess`，从未属于正式 Motrix 运行拓扑；其源码、构建接入和产物已在 x86 核心实机验收完成后移出仓库。详细验收证据只保存在开发者本地的 `docs/verification/`，不进入版本库。
+正式包使用 fnOS 开放 API 查询共享目录授权，并以服务端确认的目录快照作为授权事实；SDK 返回值、浏览器提交路径和语义化展示路径都不能绕过 Rust server 的授权与归属校验。SDK 只在 fnOS 桌面或飞牛 App WebView 中由用户操作触发，独立浏览器只显示降级提示。
 
-阶段 0 只证明平台机制，不证明正式 `motrix` 身份一定获得相同行为。正式包继续使用 `17080`、`17081`、`17082` 三监听器和当前桌面入口；阶段 1 已独立实现 SDK、Scope、Token client 和授权交互，当前等待正式身份实机验收。正式 FPK 要求 fnOS `1.2.0401` 或更高版本；独立浏览器不调用 SDK，只提示用户在 fnOS 宿主内完成授权。
-
-正式 Motrix 精确声明 `trim.file.sharedAccess` 与 `trim.file.path`。前端 SDK 返回值不能成为授权事实。Rust server 必须通过 fnOS 开放 API 查询共享授权目录，成功后原子更新 `accessible-paths.json`；查询失败保留最后一次官方 API 快照。服务启动时在读取授权快照和恢复运行态前安全尝试一次查询，运行时刷新通过受 Web Session 和 CSRF 保护的管理接口触发。
-
-`trim.file.convertPath` 只把当前授权快照或后端按任务 ID 推导出的路径转换为面向用户的语义化展示路径。真实路径继续承担下载、授权、文件存在性和目录边界校验；转换结果不持久化、不缓存，也不接受浏览器提交任意路径。上游失败或结果无法按原始路径精确匹配时仅回退原始路径展示，不得影响任务和 Session。
-
-完成任务的宿主文件操作必须每次按任务 ID重新计算安全上下文。URL 任务只允许操作存在的普通文件，`canonicalize` 后仍须位于当前授权根目录；BT/磁力任务只允许使用持久化的 `owned_task_dir`，且目标必须是非符号链接目录。未完成、文件已删除、授权已撤销、路径缺失或历史布局无法证明归属时不得向前端返回 SDK 操作目标。
-
-SDK 只允许在 fnOS 桌面宿主或飞牛 App WebView 中由用户操作触发。独立浏览器或 SDK 不可用时只展示支持环境说明，不调用依赖 App runtime 的授权或应用设置方法；正式包不接入独立浏览器 App Auth 回调。
-
-支持开放 API 的 fnOS `1.2.0401` 与飞牛 App `1.34.0` 宿主可初始化平台配置。桌面宿主跟随明暗主题并监听变化；移动 WebView 只采用初始化主题；独立浏览器默认深色。Motrix 已保存语言始终优先，宿主语言只在没有本地偏好的登录前初始化阶段生效，配置加载后由 Motrix 设置接管。宿主标题仅设置为 `Motrix`；当前不接入 `setExitPageTips` 或 `close`。
+阶段 0 的独立 Probe 仅用于验证平台机制，不属于正式 Motrix 拓扑；其范围、Scope、实机证据和阶段状态统一记录在 `docs/fnos-open-api-development-plan.md`。正式包继续使用 `17080`、`17081`、`17082` 三监听器，正式身份的 fnOS 实机验收仍以该计划为准。
 
 ### 3.2 交付与运行约束
 
@@ -73,20 +63,9 @@ SDK 只允许在 fnOS 桌面宿主或飞牛 App WebView 中由用户操作触发
 - 三个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
 - 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
-- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和服务端 Session，不得伪装成已接入统一网关鉴权。
+- 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和 JWT，不得伪装成已接入统一网关鉴权。
 
-FPK 应用身份与 FN Connect 短域名：
-
-- `manifest.appname` 是 FPK 的应用身份，当前固定为 `motrix`。
-- `manifest.desktop_appname` 与 `app/ui/config` 的唯一 `.url` 入口必须同时为 `motrix.Application`。
-- `manifest.desktop_applaunchname` 必须保留为空。指定 `motrix.main` 等自定义入口会使 FN Connect 生成带后缀的域名。
-- 以上组合已在 fnOS 实机验证，应用可通过 `motrix.<account>.fnos.net` 打开。它不依赖反向代理或 `config/resource` 的特殊网关字段。
-- 这是新的 FPK 应用身份。旧 `motrix.fnos` 安装不会按普通升级自动迁移，发布前需明确安装、数据保留和回滚策略。
-
-升级不兼容约定：
-
-- 既有公网 JSON-RPC 继续使用回环专用监听器 `127.0.0.1:17081` 和原 Token；局域网客户端使用 `17082` 和独立局域网 Token，不能复用管理监听器或跨入口复用 Token。
-- Web 管理首次使用必须设置独立管理密码；升级不会把 JSON-RPC Token 复用为 Web 密码，也不会根据 fnOS 登录态自动放行。
+FPK 身份、入口、权限、安装升级和回滚细节统一见 `docs/fpk-packaging.md`；接口兼容与 Token 语义见 `docs/api-contract.md`。本架构只要求管理端口和两个 RPC 端口保持职责隔离，三类凭据不能跨入口复用。
 
 ## 4. 分层职责
 
@@ -166,7 +145,7 @@ server/
 约束：
 
 - `api/` 只负责 HTTP handler 和请求/响应转换。
-- `auth/` 负责 Web 管理密码、服务端 Session、CSRF 校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
+- `auth/` 负责 Web 管理密码、JWT 签发与校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
 - 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
 - `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
 - `tasks/service.rs` 负责 `TaskService` 依赖注入、运行态守卫，以及跨流程共享的任务操作记录、Aria2 创建与未知结果对账、回滚辅助；创建、查询、控制、删除、磁链确认、代理切换与回收站恢复流程分别由 `tasks/service/` 子模块承载。
@@ -180,7 +159,7 @@ server/
 Vue Component
   -> Pinia Store
   -> Feature Service
-  -> HTTP client（Web Session + 写操作 CSRF）
+  -> HTTP client（JWT Bearer 请求头）
   -> 管理监听器 Axum Route
   -> Rust Service / Repository
   -> Aria2 JSON-RPC / SQLite
@@ -247,10 +226,10 @@ Rust Runtime Event
 - SQLite、Aria2 session、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；明文密码、密码哈希、Session ID 与 CSRF Token 不得通过普通设置接口返回或写入日志。
-- 管理 API 与 SSE 默认要求有效的服务端 Web Session；管理写操作还必须校验 CSRF Token。首次启动必须完成密码初始化，关闭管理保护必须验证当前密码并使已有 Session 失效。
+- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
+- 管理 API 与 SSE 在保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、保护状态变更和重置递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，关闭或重新启用管理保护都必须验证当前密码。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
-- 会话 Cookie 的 `Secure` 属性由 `MOTRIX_WEB_COOKIE_SECURE` 显式控制，默认关闭。反向代理已终止 HTTPS 时才设置为 `true`；server 不根据客户端可伪造的 `X-Forwarded-Proto` 自动判断。
+- Web 管理不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。
 - 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
 - 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
 - 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。

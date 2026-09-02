@@ -41,7 +41,7 @@ vi.mock("../services/authService", () => ({
   changeAuthProtection: vi.fn(),
 }));
 
-import { changeAuthPassword, changeAuthProtection } from "../services/authService";
+import { changeAuthPassword, changeAuthProtection, getAuthStatus } from "../services/authService";
 import { useAuthStore } from "../stores/authStore";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import WebAuthSettings from "./WebAuthSettings.vue";
@@ -53,6 +53,7 @@ describe("WebAuthSettings", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    vi.mocked(getAuthStatus).mockResolvedValue(status());
   });
 
   it("changes the password only after validating the protected form", async () => {
@@ -69,7 +70,7 @@ describe("WebAuthSettings", () => {
 
     await passwordInputs[1]!.setValue("12345678");
     await passwordInputs[2]!.setValue("12345678");
-    mockedPassword.mockResolvedValueOnce(status({ csrfToken: "next-csrf" }));
+    mockedPassword.mockResolvedValueOnce(status({ accessToken: "next-jwt" }));
 
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -78,7 +79,7 @@ describe("WebAuthSettings", () => {
       currentPassword: "current password",
       newPassword: "12345678",
     });
-    expect(useAuthStore().csrfToken).toBe("next-csrf");
+    expect(useAuthStore().accessToken).toBe("next-jwt");
   });
 
   it("keeps the protection switch controlled until confirmation succeeds", async () => {
@@ -91,13 +92,14 @@ describe("WebAuthSettings", () => {
     expect(authStore.enabled).toBe(true);
     const passwordInput = wrapper.get('input[type="password"]');
     await passwordInput.setValue("current password");
-    mockedProtection.mockResolvedValueOnce(status({ enabled: false, csrfToken: "anonymous-csrf" }));
+    mockedProtection.mockResolvedValueOnce(status({ enabled: false, accessToken: "anonymous-jwt" }));
+    vi.mocked(getAuthStatus).mockResolvedValueOnce(status({ enabled: false, authenticated: true, accessToken: null }));
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
     expect(mockedProtection).toHaveBeenCalledWith({ enabled: false, currentPassword: "current password" });
     expect(authStore.enabled).toBe(false);
-    expect(authStore.csrfToken).toBe("anonymous-csrf");
+    expect(authStore.accessToken).toBe("anonymous-jwt");
   });
 
   it("keeps the original protection state when confirmation fails", async () => {
@@ -142,12 +144,11 @@ describe("WebAuthSettings", () => {
     expect(protection.wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
   });
 
-  it("prevents anonymous management contexts from opening privileged operations", async () => {
+  it("allows management configuration while protection is disabled", async () => {
     const { wrapper } = mountReadySettings(false);
     const buttons = wrapper.findAll("button");
-    expect(buttons.find((button) => button.text() === "修改密码")!.attributes("disabled")).toBeDefined();
-    expect(wrapper.findComponent(NSwitch).props("disabled")).toBe(true);
-    expect(wrapper.text()).toContain("匿名管理上下文");
+    expect(buttons.find((button) => button.text() === "修改密码")!.attributes("disabled")).toBeUndefined();
+    expect(wrapper.findComponent(NSwitch).props("disabled")).toBe(false);
   });
 });
 
@@ -155,7 +156,7 @@ function mountReadySettings(authenticated = true) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
-  authStore.handleUnauthorizedStatus(status({ enabled: authenticated, authenticated, csrfToken: "csrf" }));
+  authStore.handleUnauthorizedStatus(status({ enabled: authenticated, authenticated, accessToken: "jwt" }));
   return mountWithPinia(WebAuthSettings, {
     pinia,
     global: { stubs: { teleport: true } },
@@ -167,5 +168,5 @@ function status(overrides: Partial<ReturnType<typeof baseStatus>> = {}) {
 }
 
 function baseStatus() {
-  return { setupRequired: false, enabled: true, authenticated: true, csrfToken: "csrf" as string | null };
+  return { setupRequired: false, enabled: true, authenticated: true, accessToken: "jwt" as string | null };
 }

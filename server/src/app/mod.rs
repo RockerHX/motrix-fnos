@@ -39,7 +39,6 @@ pub const JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_JSONRPC_ADDR";
 pub const LAN_JSONRPC_ADDR_ENV: &str = "MOTRIX_FNOS_LAN_JSONRPC_ADDR";
 pub const ACCESSIBLE_PATHS_FILE_ENV: &str = "MOTRIX_FNOS_ACCESSIBLE_PATHS_FILE";
 pub const TRUSTED_PROXY_IPS_ENV: &str = "MOTRIX_TRUSTED_PROXY_IPS";
-pub const WEB_COOKIE_SECURE_ENV: &str = "MOTRIX_WEB_COOKIE_SECURE";
 pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
 pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
 pub const DEFAULT_LAN_JSONRPC_ADDR: &str = "0.0.0.0:17082";
@@ -56,7 +55,6 @@ pub struct ServerRuntimeConfig {
     pub aria2_path: Option<PathBuf>,
     pub accessible_paths_path: PathBuf,
     pub trusted_proxy_ips: Vec<IpAddr>,
-    pub web_cookie_secure: bool,
 }
 
 impl ServerRuntimeConfig {
@@ -101,7 +99,6 @@ impl ServerRuntimeConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME));
         let trusted_proxy_ips = parse_trusted_proxy_ips()?;
-        let web_cookie_secure = parse_bool_env(WEB_COOKIE_SECURE_ENV, false)?;
         Ok(Self {
             app_data_dir,
             database_path,
@@ -111,7 +108,6 @@ impl ServerRuntimeConfig {
             aria2_path,
             accessible_paths_path,
             trusted_proxy_ips,
-            web_cookie_secure,
         })
     }
 }
@@ -993,17 +989,6 @@ fn parse_trusted_proxy_ips() -> Result<Vec<IpAddr>, String> {
         }
     }
     Ok(addresses)
-}
-
-fn parse_bool_env(name: &str, default: bool) -> Result<bool, String> {
-    let Some(value) = env::var(name).ok().filter(|value| !value.trim().is_empty()) else {
-        return Ok(default);
-    };
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Ok(true),
-        "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err(format!("解析布尔配置失败：{}={}", name, value)),
-    }
 }
 
 fn default_local_app_data_dir() -> PathBuf {

@@ -11,7 +11,6 @@ use crate::aria2::{
     Aria2ConfigStatus, Aria2LogLevel, Aria2LogModeStatus, Aria2LogModeWorkerAction, Aria2RpcClient,
     Aria2RpcStatus,
 };
-use crate::auth::SessionKind;
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
@@ -120,25 +119,26 @@ async fn management_requests_receive_unique_server_request_ids() {
 
 #[tokio::test]
 async fn sse_requests_receive_server_request_ids() {
-    let state = test_state(None).await;
+    let state = raw_test_state(None).await;
     let auth_state = state
         .auth
         .service
-        .state()
+        .setup("sse test password")
         .await
-        .expect("auth state should load");
-    let session = state
+        .expect("auth should initialize");
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::AnonymousManagement, auth_state.auth_version)
-        .expect("anonymous session should create");
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .expect("token should issue");
     let app = management_router(state);
     let response = app
         .oneshot(
             Request::builder()
                 .method("GET")
                 .uri("/api/events")
-                .header("cookie", format!("motrix_web_session={}", session.id))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -674,7 +674,7 @@ async fn aria2_routes_return_status_payloads() {
 }
 
 #[tokio::test]
-async fn diagnostics_log_mode_requires_session_and_csrf_and_does_not_start_stopped_aria2() {
+async fn diagnostics_log_mode_does_not_start_stopped_aria2() {
     let state = test_state(None).await;
     let app = management_router(state.clone());
 
@@ -695,49 +695,6 @@ async fn diagnostics_log_mode_requires_session_and_csrf_and_does_not_start_stopp
     assert!(!initial.detailed);
     assert_eq!(initial.max_file_size_bytes, 10 * 1024 * 1024);
     assert_eq!(initial.max_file_count, 3);
-
-    let no_session = response_json::<ErrorResponse>(
-        app.clone()
-            .oneshot(json_request(
-                "PUT",
-                "/api/diagnostics/aria2-log-mode",
-                &json!({ "detailed": true }),
-            ))
-            .await
-            .expect("response should succeed"),
-        StatusCode::UNAUTHORIZED,
-    )
-    .await;
-    assert_eq!(no_session.code, "authentication_required");
-
-    let auth_state = state
-        .auth
-        .service
-        .state()
-        .await
-        .expect("auth state should load");
-    let session = state
-        .auth
-        .sessions
-        .create(SessionKind::AnonymousManagement, auth_state.auth_version)
-        .expect("session should create");
-    let no_csrf = response_json::<ErrorResponse>(
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri("/api/diagnostics/aria2-log-mode")
-                    .header("content-type", "application/json")
-                    .header("cookie", format!("motrix_web_session={}", session.id))
-                    .body(Body::from(json!({ "detailed": true }).to_string()))
-                    .expect("request should build"),
-            )
-            .await
-            .expect("response should succeed"),
-        StatusCode::FORBIDDEN,
-    )
-    .await;
-    assert_eq!(no_csrf.code, "csrf_invalid");
 
     let enabled = response_json::<Aria2LogModeStatus>(
         app.clone()
@@ -832,16 +789,17 @@ async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs(
         .setup("test management password")
         .await
         .expect("auth should initialize");
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, configured.auth_version)
-        .expect("admin session should create");
+        .service
+        .issue_admin_token(&configured)
+        .await
+        .expect("admin token should issue");
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/api/diagnostics/diagnostic-bundle")
-                .header("cookie", format!("motrix_web_session={}", session.id))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -904,6 +862,75 @@ async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs(
 }
 
 #[tokio::test]
+async fn login_diagnostic_bundle_is_public_and_excludes_business_logs() {
+    let state = raw_test_state(None).await;
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("logs"))
+        .expect("logs directory should create");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/lifecycle.log"),
+        "password=lifecycle-secret\n",
+    )
+    .expect("lifecycle log should write");
+    std::fs::write(
+        state.runtime.app_data_dir.join("logs/server.log"),
+        "server-secret\n",
+    )
+    .expect("server log should write");
+    state
+        .core
+        .debug_logs
+        .warn("auth.failure", "session=auth-secret");
+    state.core.debug_logs.error("tasks.create", "task-secret");
+    let app = management_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/auth/login-diagnostic")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/zip")
+    );
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok()),
+        Some("attachment; filename=\"motrix-fnos-login-diagnostic.zip\"")
+    );
+
+    let bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("bundle body should read");
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).expect("bundle should be a valid zip");
+    let mut names = Vec::new();
+    let mut contents = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).expect("zip entry should open");
+        names.push(entry.name().to_string());
+        entry
+            .read_to_string(&mut contents)
+            .expect("zip entry should be text");
+    }
+    assert!(names.iter().any(|name| name == "summary.json"));
+    assert!(names.iter().any(|name| name == "logs/auth-debug.jsonl"));
+    assert!(names.iter().any(|name| name == "logs/lifecycle.log"));
+    assert!(!names.iter().any(|name| name.contains("server")));
+    assert!(!contents.contains("auth-secret"));
+    assert!(!contents.contains("lifecycle-secret"));
+    assert!(!contents.contains("task-secret"));
+}
+
+#[tokio::test]
 async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy() {
     let state = raw_test_state(None).await;
     let configured = state
@@ -941,16 +968,17 @@ async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy(
         .expect("response should succeed");
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
 
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, configured.auth_version)
-        .expect("admin session should create");
+        .service
+        .issue_admin_token(&configured)
+        .await
+        .expect("admin token should issue");
     let usage = response_json::<DiagnosticsLogUsageResponse>(
         app.oneshot(
             Request::builder()
                 .uri("/api/diagnostics/logs")
-                .header("cookie", format!("motrix_web_session={}", session.id))
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -973,7 +1001,7 @@ async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy(
 }
 
 #[tokio::test]
-async fn diagnostics_aria2_log_cleanup_requires_csrf_and_returns_latest_usage() {
+async fn diagnostics_aria2_log_cleanup_returns_latest_usage() {
     let state = raw_test_state(None).await;
     let configured = state
         .auth
@@ -1006,32 +1034,19 @@ async fn diagnostics_aria2_log_cleanup_requires_csrf_and_returns_latest_usage() 
         .expect("response should succeed");
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
 
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, configured.auth_version)
-        .expect("admin session should create");
-    let missing_csrf = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("DELETE")
-                .uri("/api/diagnostics/aria2-logs")
-                .header("cookie", format!("motrix_web_session={}", session.id))
-                .body(Body::empty())
-                .expect("request should build"),
-        )
+        .service
+        .issue_admin_token(&configured)
         .await
-        .expect("response should succeed");
-    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+        .expect("admin token should issue");
 
     let response = response_json::<Aria2LogCleanupResponse>(
         app.oneshot(
             Request::builder()
                 .method("DELETE")
                 .uri("/api/diagnostics/aria2-logs")
-                .header("cookie", format!("motrix_web_session={}", session.id))
-                .header("x-csrf-token", session.csrf_token)
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -2014,7 +2029,7 @@ async fn invalid_json_payload_uses_unified_error_response() {
 }
 
 #[tokio::test]
-async fn management_router_requires_setup_session_csrf_and_event_context() {
+async fn management_router_requires_bearer_and_allows_anonymous_when_disabled() {
     let state = raw_test_state(None).await;
     let app = management_router(state.clone());
     for uri in [
@@ -2042,18 +2057,18 @@ async fn management_router_requires_setup_session_csrf_and_event_context() {
         .setup("test management password")
         .await
         .expect("auth should initialize");
-    let admin = state
+    let token = state
         .auth
-        .sessions
-        .create(crate::auth::SessionKind::Admin, configured.auth_version)
-        .expect("admin session should create");
-    let admin_cookie = format!("motrix_web_session={}", admin.id);
+        .service
+        .issue_admin_token(&configured)
+        .await
+        .expect("admin token should issue");
     let authenticated = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/app/ping")
-                .header("cookie", &admin_cookie)
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .expect("request should build"),
         )
@@ -2061,21 +2076,20 @@ async fn management_router_requires_setup_session_csrf_and_event_context() {
         .expect("response should succeed");
     assert_eq!(authenticated.status(), StatusCode::OK);
 
-    let missing_csrf = app
+    let missing_token = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/api/aria2/stop")
-                .header("cookie", &admin_cookie)
                 .body(Body::empty())
                 .expect("request should build"),
         )
         .await
         .expect("response should succeed");
-    assert_eq!(missing_csrf.status(), StatusCode::FORBIDDEN);
+    assert_eq!(missing_token.status(), StatusCode::UNAUTHORIZED);
 
-    let disabled = state
+    state
         .auth
         .service
         .set_protection(false, "test management password")
@@ -2103,7 +2117,7 @@ async fn management_router_requires_setup_session_csrf_and_event_context() {
         )
         .await
         .expect("response should succeed");
-    assert_eq!(anonymous_write.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(anonymous_write.status(), StatusCode::NO_CONTENT);
     let anonymous_event = app
         .clone()
         .oneshot(
@@ -2114,29 +2128,7 @@ async fn management_router_requires_setup_session_csrf_and_event_context() {
         )
         .await
         .expect("response should succeed");
-    assert_eq!(anonymous_event.status(), StatusCode::UNAUTHORIZED);
-
-    let anonymous = state
-        .auth
-        .sessions
-        .create(
-            crate::auth::SessionKind::AnonymousManagement,
-            disabled.auth_version,
-        )
-        .expect("anonymous session should create");
-    let protected_write = app
-        .oneshot(
-            Request::builder()
-                .method("DELETE")
-                .uri("/api/debug-logs")
-                .header("cookie", format!("motrix_web_session={}", anonymous.id))
-                .header("x-csrf-token", anonymous.csrf_token)
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(protected_write.status(), StatusCode::NO_CONTENT);
+    assert_eq!(anonymous_event.status(), StatusCode::OK);
 }
 
 async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
@@ -2167,7 +2159,6 @@ async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
         aria2_path: aria2_path.map(PathBuf::from),
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
 
     bootstrap_http_app_state(&runtime)
@@ -2230,22 +2221,19 @@ async fn authorized_request(
         .state()
         .await
         .expect("auth state should load");
-    let session = state
-        .auth
-        .sessions
-        .create(
-            crate::auth::SessionKind::AnonymousManagement,
-            auth_state.auth_version,
-        )
-        .expect("test session should create");
-    Request::builder()
+    let token = if auth_state.setup_required {
+        None
+    } else {
+        state.auth.service.issue_admin_token(&auth_state).await.ok()
+    };
+    let mut builder = Request::builder()
         .method(method)
         .uri(uri)
-        .header("content-type", "application/json")
-        .header("cookie", format!("motrix_web_session={}", session.id))
-        .header("x-csrf-token", session.csrf_token)
-        .body(body)
-        .expect("request should build")
+        .header("content-type", "application/json");
+    if let Some(token) = token {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
+    builder.body(body).expect("request should build")
 }
 
 async fn authorized_multipart_request(

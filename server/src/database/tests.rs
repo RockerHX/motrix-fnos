@@ -470,6 +470,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     (2, "task_operations".to_string()),
                     (3, "task_query_indexes".to_string()),
                     (4, "task_proxy_state".to_string()),
+                    (5, "web_auth_jwt_secret".to_string()),
                 ]
             );
 
@@ -482,7 +483,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .fetch_one(&reopened.pool)
                 .await
                 .expect("migration record count should be readable");
-            assert_eq!(migration_count, 4);
+            assert_eq!(migration_count, 5);
             assert_task_query_indexes(&reopened.pool).await;
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);
@@ -609,6 +610,111 @@ fn connect_database_migrates_1_8_x_task_schema_to_proxy_state_v4() {
             .await
             .expect("v4 migration count should be readable");
             assert_eq!(migration_count, 1);
+            reopened.pool.close().await;
+            let _ = std::fs::remove_file(path);
+        });
+}
+
+#[test]
+fn connect_database_migrates_and_persists_web_auth_jwt_secret() {
+    tokio::runtime::Runtime::new()
+        .expect("tokio runtime should create")
+        .block_on(async {
+            use base64::Engine;
+
+            let path = std::env::temp_dir().join(format!(
+                "motrix-fnos-db-web-auth-jwt-migrate-{}.sqlite",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system time should be valid")
+                    .as_nanos()
+            ));
+            let options = SqliteConnectOptions::from_str(&format!("sqlite://{}", path.display()))
+                .expect("sqlite options should build")
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .expect("legacy database should connect");
+            sqlx::query(
+                r#"
+                CREATE TABLE web_auth_config (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+                    password_hash TEXT,
+                    password_updated_at INTEGER,
+                    auth_version INTEGER NOT NULL CHECK (auth_version > 0)
+                )
+                "#,
+            )
+            .execute(&pool)
+            .await
+            .expect("legacy web auth table should create");
+            sqlx::query(
+                "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)",
+            )
+            .execute(&pool)
+            .await
+            .expect("migration table should create");
+            for (version, name) in [
+                (1_i64, "legacy_download_tasks_baseline"),
+                (2_i64, "task_operations"),
+                (3_i64, "task_query_indexes"),
+                (4_i64, "task_proxy_state"),
+            ] {
+                sqlx::query(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, 1)",
+                )
+                .bind(version)
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("legacy migration should insert");
+            }
+            sqlx::query(
+                "INSERT INTO web_auth_config (id, enabled, password_hash, password_updated_at, auth_version) VALUES (1, 1, 'hash', 1, 7)",
+            )
+            .execute(&pool)
+            .await
+            .expect("legacy web auth row should insert");
+            pool.close().await;
+
+            let database = connect_database(path.clone())
+                .await
+                .expect("legacy web auth database should migrate");
+            let secret: String = sqlx::query_scalar(
+                "SELECT jwt_secret FROM web_auth_config WHERE id = 1",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("JWT secret should be generated");
+            assert_eq!(
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .decode(&secret)
+                    .expect("JWT secret should be base64url")
+                    .len(),
+                32
+            );
+            let migration_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 5 AND name = 'web_auth_jwt_secret'",
+            )
+            .fetch_one(&database.pool)
+            .await
+            .expect("JWT migration should be recorded");
+            assert_eq!(migration_count, 1);
+            database.pool.close().await;
+
+            let reopened = connect_database(path.clone())
+                .await
+                .expect("migrated database should reopen");
+            let reopened_secret: String = sqlx::query_scalar(
+                "SELECT jwt_secret FROM web_auth_config WHERE id = 1",
+            )
+            .fetch_one(&reopened.pool)
+            .await
+            .expect("JWT secret should persist");
+            assert_eq!(reopened_secret, secret);
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);
         });

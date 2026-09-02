@@ -4,7 +4,7 @@ export interface AuthStatus {
   setupRequired: boolean;
   enabled: boolean;
   authenticated: boolean;
-  csrfToken: string | null;
+  accessToken?: string | null;
 }
 
 export interface ChangePasswordRequest {
@@ -17,4 +17,4 @@ export interface ChangeProtectionRequest {
   currentPassword: string;
 }
 
-export type AuthChannelMessage = { type: "session-invalidated" } | { type: "auth-updated" };
+export type AuthChannelMessage = { type: "auth-invalidated" } | { type: "auth-updated" };

@@ -10,7 +10,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-const SESSION_REVALIDATION_INTERVAL: Duration = Duration::from_secs(15);
+const AUTH_REVALIDATION_INTERVAL: Duration = Duration::from_secs(15);
 
 pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new().route("/events", get(stream_events))
@@ -34,12 +34,12 @@ async fn stream_events(
             yield Ok::<Event, Infallible>(event);
         }
 
-        let mut session_revalidation = tokio::time::interval(SESSION_REVALIDATION_INTERVAL);
-        session_revalidation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        session_revalidation.tick().await;
+        let mut auth_revalidation = tokio::time::interval(AUTH_REVALIDATION_INTERVAL);
+        auth_revalidation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        auth_revalidation.tick().await;
         loop {
             tokio::select! {
-                _ = session_revalidation.tick() => {
+                _ = auth_revalidation.tick() => {
                     if !event_context_is_authorized(&state, &event_auth_context).await {
                         break;
                     }

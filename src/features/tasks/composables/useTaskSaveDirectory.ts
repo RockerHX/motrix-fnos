@@ -39,6 +39,8 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
     isLoadingAccessiblePaths.value = true;
     accessiblePathsError.value = "";
     authorizationMessage.value = "";
+    const hadConfirmedPaths = accessiblePaths.value.length > 0;
+    const previousSaveDir = form.saveDir;
 
     try {
       const pathsRequest = options.queryOfficial ? refreshAccessiblePathsFromApi() : getAccessiblePaths();
@@ -48,9 +50,14 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
       syncSelectedSaveDir(config.defaultDownloadDir);
       return true;
     } catch (error) {
-      accessiblePaths.value = [];
-      displayAccessiblePaths.value = [];
-      form.saveDir = "";
+      // 已有已确认目录快照时保留它，避免一次临时刷新失败阻断创建任务；初次加载仍清空未确认输入。
+      if (!hadConfirmedPaths) {
+        accessiblePaths.value = [];
+        displayAccessiblePaths.value = [];
+        form.saveDir = "";
+      } else if (!accessiblePaths.value.includes(previousSaveDir)) {
+        form.saveDir = "";
+      }
       accessiblePathsError.value = getErrorMessage(error, t("task.operationFailed"));
       return false;
     } finally {

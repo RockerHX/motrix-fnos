@@ -8,6 +8,6 @@ test('日志运行维护文档记录轮转、脱敏和请求关联规则', () =>
 
   assert.match(packagingDoc, /logs\/server\.log.*10 MiB/);
   assert.match(packagingDoc, /logs\/lifecycle\.log.*1 MiB/);
-  assert.match(apiDoc, /URL 的 query\/fragment、Token、密码、Session、CSRF、Cookie、Authorization/);
+  assert.match(apiDoc, /URL 的 query\/fragment、JWT、各类 Token、密码、Authorization/);
   assert.match(apiDoc, /X-Request-ID/);
 });

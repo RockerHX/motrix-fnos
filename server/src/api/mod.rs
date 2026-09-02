@@ -12,6 +12,8 @@ mod storage;
 mod tasks;
 
 use crate::app::HttpAppState;
+use crate::tasks::repository::SqliteTaskRepository;
+use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
@@ -36,6 +38,12 @@ const TORRENT_UPLOAD_CONCURRENCY_LIMIT: usize = 8;
 pub(super) const JSONRPC_HTTP_CONCURRENCY_LIMIT: usize = 32;
 const REQUEST_ID_HEADER: &str = "x-request-id";
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone)]
+pub(super) struct RequestContext {
+    pub(super) request_id: String,
+    pub(super) path: String,
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct HttpResourceLimits {
@@ -82,6 +90,20 @@ pub fn lan_jsonrpc_router(state: Arc<HttpAppState>) -> Router {
         ))
         .layer(middleware::from_fn(request_context))
         .with_state(state)
+}
+
+pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
+    TaskService::new(TaskServiceDependencies {
+        repository: Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
+        download_tasks: &state.core.download_tasks,
+        next_task_id: &state.core.next_task_id,
+        app_data_dir: &state.core.app_data_dir,
+        debug_logs: &state.core.debug_logs,
+        aria2_rpc: &state.aria2_rpc,
+        aria2_lifecycle: &state.aria2_lifecycle,
+        proxy_update_lock: &state.download_proxy_update_lock,
+        runtime_guard: RuntimeGuard::new(&state.core.shutdown),
+    })
 }
 
 async fn authorize_lan_jsonrpc_peer(
@@ -133,20 +155,10 @@ fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathB
         state.clone(),
         auth::event_auth,
     ));
-    let session_auth_routes = auth::session_routes().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::session_auth,
-    ));
-    let admin_auth_routes = auth::admin_routes().route_layer(middleware::from_fn_with_state(
-        state.clone(),
-        auth::admin_auth,
-    ));
     let api_routes = with_http_resource_limits(
         Router::new()
             .merge(auth::public_routes())
             .merge(app::readiness_routes())
-            .merge(session_auth_routes)
-            .merge(admin_auth_routes)
             .merge(management_routes),
         MANAGEMENT_HTTP_LIMITS,
     )
@@ -195,10 +207,14 @@ async fn no_cache_headers(request: Request<Body>, next: Next) -> Response {
     response
 }
 
-async fn request_context(request: Request<Body>, next: Next) -> Response {
+async fn request_context(mut request: Request<Body>, next: Next) -> Response {
     let request_id = new_request_id();
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    request.extensions_mut().insert(RequestContext {
+        request_id: request_id.clone(),
+        path: path.clone(),
+    });
     let span = tracing::info_span!(
         "http_request",
         request_id = %request_id,

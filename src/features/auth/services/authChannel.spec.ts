@@ -21,13 +21,13 @@ describe("authChannel", () => {
     const onMessage = vi.fn();
     const channel = createAuthChannel(onMessage);
 
-    channel?.post({ type: "session-invalidated" });
+    channel?.post({ type: "auth-invalidated" });
     channel?.post({ type: "auth-updated" });
-    expect(posted).toEqual([{ type: "session-invalidated" }, { type: "auth-updated" }]);
-    expect(JSON.stringify(posted)).not.toMatch(/csrf|password|cookie|sessionId/i);
+    expect(posted).toEqual([{ type: "auth-invalidated" }, { type: "auth-updated" }]);
+    expect(JSON.stringify(posted)).not.toMatch(/token|password|cookie|sessionId/i);
 
-    listeners[0]?.({ data: { type: "session-invalidated" } } as MessageEvent);
-    expect(onMessage).toHaveBeenCalledWith({ type: "session-invalidated" });
+    listeners[0]?.({ data: { type: "auth-invalidated" } } as MessageEvent);
+    expect(onMessage).toHaveBeenCalledWith({ type: "auth-invalidated" });
     channel?.close();
     expect(close).toHaveBeenCalledOnce();
   });

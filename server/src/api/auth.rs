@@ -1,27 +1,73 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
+use crate::api::RequestContext;
 use crate::app::HttpAppState;
-use crate::auth::{
-    clear_session_cookie, session_cookie, AuthError, AuthState, CreatedSession, SessionKind,
-    ValidatedSession, SESSION_COOKIE_NAME, UNKNOWN_LOGIN_SOURCE,
-};
+use crate::auth::{AuthError, AuthState, JwtValidationFailure, UNKNOWN_LOGIN_SOURCE};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, State};
-use axum::http::header::{COOKIE, SET_COOKIE};
-use axum::http::{HeaderMap, HeaderValue, Method, Request, StatusCode};
+use axum::http::header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-const CSRF_HEADER: &str = "x-csrf-token";
+static LOGIN_DIAGNOSTIC_SLOTS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(1)));
 
 #[derive(Clone)]
 pub(crate) struct EventAuthContext {
-    session_id: String,
+    pub(crate) token: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JwtFailureReason {
+    Missing,
+    Malformed,
+    Invalid,
+    Expired,
+    AuthVersionMismatch,
+    InsufficientPrivileges,
+}
+
+impl JwtFailureReason {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Missing => "jwt_missing",
+            Self::Malformed => "jwt_malformed",
+            Self::Invalid => "jwt_invalid",
+            Self::Expired => "jwt_expired",
+            Self::AuthVersionMismatch => "jwt_auth_version_mismatch",
+            Self::InsufficientPrivileges => "jwt_insufficient_privileges",
+        }
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::Missing => "未收到管理访问令牌，请重新登录",
+            Self::Malformed => "管理访问令牌格式无效，请重新登录",
+            Self::Invalid => "管理访问令牌无效，请重新登录",
+            Self::Expired => "管理访问令牌已过期，请重新登录",
+            Self::AuthVersionMismatch => "管理访问令牌已失效，请重新登录",
+            Self::InsufficientPrivileges => "管理访问令牌权限不足",
+        }
+    }
+}
+
+impl From<JwtValidationFailure> for JwtFailureReason {
+    fn from(value: JwtValidationFailure) -> Self {
+        match value {
+            JwtValidationFailure::Malformed => Self::Malformed,
+            JwtValidationFailure::Invalid => Self::Invalid,
+            JwtValidationFailure::Expired => Self::Expired,
+            JwtValidationFailure::AuthVersionMismatch => Self::AuthVersionMismatch,
+            JwtValidationFailure::InsufficientPrivileges => Self::InsufficientPrivileges,
+        }
+    }
 }
 
 pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
@@ -29,16 +75,10 @@ pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
         .route("/auth/status", get(status))
         .route("/auth/setup", post(setup))
         .route("/auth/login", post(login))
-}
-
-pub(crate) fn session_routes() -> Router<Arc<HttpAppState>> {
-    Router::new().route("/auth/logout", post(logout))
-}
-
-pub(crate) fn admin_routes() -> Router<Arc<HttpAppState>> {
-    Router::new()
+        .route("/auth/logout", post(logout))
         .route("/auth/password", put(change_password))
         .route("/auth/protection", put(change_protection))
+        .route("/auth/login-diagnostic", get(login_diagnostic))
 }
 
 pub(crate) async fn management_auth(
@@ -46,7 +86,8 @@ pub(crate) async fn management_auth(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_management_request(&state, request.headers(), request.method()).await {
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_management_request(&state, request.headers(), context.as_ref()).await {
         Ok(()) => next.run(request).await,
         Err(error) => error.into_response(),
     }
@@ -57,9 +98,10 @@ pub(crate) async fn event_auth(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
-    match authorize_event_request(&state, request.headers()).await {
-        Ok(context) => {
-            request.extensions_mut().insert(context);
+    let context = request.extensions().get::<RequestContext>().cloned();
+    match authorize_event_request(&state, request.headers(), context.as_ref()).await {
+        Ok(auth_context) => {
+            request.extensions_mut().insert(auth_context);
             next.run(request).await
         }
         Err(error) => error.into_response(),
@@ -76,36 +118,18 @@ pub(crate) async fn event_context_is_authorized(
     if auth_state.setup_required {
         return false;
     }
-    let Ok(Some(session)) = state
-        .auth
-        .sessions
-        .validate_without_activity(&context.session_id, auth_state.auth_version)
-    else {
+    if !auth_state.enabled {
+        return true;
+    }
+    let Some(token) = context.token.as_deref() else {
         return false;
     };
-    !auth_state.enabled || session.kind == SessionKind::Admin
-}
-
-pub(crate) async fn session_auth(
-    State(state): State<Arc<HttpAppState>>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
-    match authorize_context_request(&state, request.headers(), false, true).await {
-        Ok(()) => next.run(request).await,
-        Err(error) => error.into_response(),
-    }
-}
-
-pub(crate) async fn admin_auth(
-    State(state): State<Arc<HttpAppState>>,
-    request: Request<Body>,
-    next: Next,
-) -> Response {
-    match authorize_context_request(&state, request.headers(), true, true).await {
-        Ok(()) => next.run(request).await,
-        Err(error) => error.into_response(),
-    }
+    state
+        .auth
+        .service
+        .validate_admin_token(token, auth_state.auth_version)
+        .await
+        .is_ok()
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -114,7 +138,8 @@ pub struct AuthStatusResponse {
     pub setup_required: bool,
     pub enabled: bool,
     pub authenticated: bool,
-    pub csrf_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,28 +167,18 @@ async fn status(
 ) -> Result<Response, ApiError> {
     let auth_state = load_auth_state(&state).await?;
     if auth_state.setup_required {
-        return auth_status_response(&auth_state, None, None, state.runtime.web_cookie_secure);
+        return auth_status_response(&auth_state, false, None);
     }
-
-    let existing = validated_session(&state, &headers, &auth_state)?;
-    if auth_state.enabled {
-        return auth_status_response(&auth_state, existing, None, state.runtime.web_cookie_secure);
-    }
-    if existing.is_some() {
-        return auth_status_response(&auth_state, existing, None, state.runtime.web_cookie_secure);
-    }
-
-    let session = state
-        .auth
-        .sessions
-        .create(SessionKind::AnonymousManagement, auth_state.auth_version)
-        .map_err(session_error)?;
-    auth_status_response(
-        &auth_state,
-        None,
-        Some(session),
-        state.runtime.web_cookie_secure,
-    )
+    let authenticated = match bearer_token(&headers) {
+        Ok(Some(token)) => state
+            .auth
+            .service
+            .validate_admin_token(token, auth_state.auth_version)
+            .await
+            .is_ok(),
+        Ok(None) | Err(_) => false,
+    };
+    auth_status_response(&auth_state, authenticated, None)
 }
 
 async fn setup(
@@ -184,22 +199,17 @@ async fn setup(
         .login_limiter
         .record_success(&source)
         .map_err(|_| auth_internal())?;
-    state.auth.sessions.revoke_all().map_err(session_error)?;
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, auth_state.auth_version)
-        .map_err(session_error)?;
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .map_err(classify_auth_error)?;
     state
         .core
         .debug_logs
         .info("auth.setup", "Web 管理密码初始化成功");
-    auth_status_response(
-        &auth_state,
-        None,
-        Some(session),
-        state.runtime.web_cookie_secure,
-    )
+    auth_status_response(&auth_state, true, Some(token))
 }
 
 async fn login(
@@ -239,101 +249,113 @@ async fn login(
         .login_limiter
         .record_success(&source)
         .map_err(|_| auth_internal())?;
-    let session = state
+    let token = state
         .auth
-        .sessions
-        .create(SessionKind::Admin, auth_state.auth_version)
-        .map_err(session_error)?;
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .map_err(classify_auth_error)?;
     state.core.debug_logs.info("auth.login", "Web 管理登录成功");
-    auth_status_response(
-        &auth_state,
-        None,
-        Some(session),
-        state.runtime.web_cookie_secure,
-    )
+    auth_status_response(&auth_state, true, Some(token))
 }
 
-async fn logout(
-    State(state): State<Arc<HttpAppState>>,
-    headers: HeaderMap,
-) -> Result<Response, ApiError> {
-    let auth_state = load_auth_state(&state).await?;
-    let session = require_session_with_csrf(&state, &headers, &auth_state, false)?;
-    state
-        .auth
-        .sessions
-        .revoke(&session.id)
-        .map_err(session_error)?;
+async fn login_diagnostic(State(state): State<Arc<HttpAppState>>) -> Result<Response, ApiError> {
+    let permit = Arc::clone(&*LOGIN_DIAGNOSTIC_SLOTS)
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError::too_many_requests(
+                "login_diagnostic_busy",
+                "已有登录诊断正在生成，请稍后重试",
+                1,
+            )
+        })?;
+    let bundle_state = Arc::clone(&state);
+    let bundle = tokio::task::spawn_blocking(move || {
+        let _permit: OwnedSemaphorePermit = permit;
+        crate::diagnostics::build_login_diagnostic_bundle(&bundle_state)
+    })
+    .await
+    .map_err(|error| {
+        state.core.debug_logs.error(
+            "diagnostics.login_bundle",
+            format!("生成登录诊断包任务异常：{error}"),
+        );
+        ApiError::internal("login_diagnostic_failed", "生成登录诊断失败，请稍后重试")
+    })?
+    .map_err(|error| {
+        state.core.debug_logs.error(
+            "diagnostics.login_bundle",
+            format!("生成登录诊断包失败：{error}"),
+        );
+        ApiError::internal("login_diagnostic_failed", "生成登录诊断失败，请稍后重试")
+    })?;
+    let mut response = Body::from(bundle).into_response();
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_static("attachment; filename=\"motrix-fnos-login-diagnostic.zip\""),
+    );
+    Ok(response)
+}
+
+async fn logout(State(state): State<Arc<HttpAppState>>) -> Result<Response, ApiError> {
     state
         .core
         .debug_logs
-        .info("auth.logout", "Web 管理会话已退出");
-    response_with_cookie(
-        StatusCode::NO_CONTENT.into_response(),
-        clear_session_cookie(state.runtime.web_cookie_secure),
-    )
+        .info("auth.logout", "Web 管理令牌已退出");
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 async fn change_password(
     State(state): State<Arc<HttpAppState>>,
-    headers: HeaderMap,
     ApiJson(payload): ApiJson<ChangePasswordRequest>,
 ) -> Result<Response, ApiError> {
-    let current = load_auth_state(&state).await?;
-    require_session_with_csrf(&state, &headers, &current, true)?;
     let auth_state = state
         .auth
         .service
         .change_password(&payload.current_password, &payload.new_password)
         .await
         .map_err(classify_auth_error)?;
-    replace_admin_session(&state, &auth_state, "auth.password", "Web 管理密码修改成功")
+    let token = state
+        .auth
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .map_err(classify_auth_error)?;
+    state
+        .core
+        .debug_logs
+        .info("auth.password", "Web 管理密码修改成功");
+    auth_status_response(&auth_state, true, Some(token))
 }
 
 async fn change_protection(
     State(state): State<Arc<HttpAppState>>,
-    headers: HeaderMap,
     ApiJson(payload): ApiJson<ChangeProtectionRequest>,
 ) -> Result<Response, ApiError> {
-    let current = load_auth_state(&state).await?;
-    require_session_with_csrf(&state, &headers, &current, true)?;
     let auth_state = state
         .auth
         .service
         .set_protection(payload.enabled, &payload.current_password)
         .await
         .map_err(classify_auth_error)?;
-    replace_admin_session(
-        &state,
-        &auth_state,
+    let token = state
+        .auth
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .map_err(classify_auth_error)?;
+    state.core.debug_logs.info(
         "auth.protection",
         if payload.enabled {
             "Web 管理访问保护已启用"
         } else {
             "Web 管理访问保护已关闭"
         },
-    )
-}
-
-fn replace_admin_session(
-    state: &HttpAppState,
-    auth_state: &AuthState,
-    log_module: &str,
-    log_message: &str,
-) -> Result<Response, ApiError> {
-    state.auth.sessions.revoke_all().map_err(session_error)?;
-    let session = state
-        .auth
-        .sessions
-        .create(SessionKind::Admin, auth_state.auth_version)
-        .map_err(session_error)?;
-    state.core.debug_logs.info(log_module, log_message);
-    auth_status_response(
-        auth_state,
-        None,
-        Some(session),
-        state.runtime.web_cookie_secure,
-    )
+    );
+    auth_status_response(&auth_state, true, Some(token))
 }
 
 async fn load_auth_state(state: &HttpAppState) -> Result<AuthState, ApiError> {
@@ -348,154 +370,83 @@ async fn load_auth_state(state: &HttpAppState) -> Result<AuthState, ApiError> {
 async fn authorize_management_request(
     state: &HttpAppState,
     headers: &HeaderMap,
-    method: &Method,
+    context: Option<&RequestContext>,
 ) -> Result<(), ApiError> {
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
     }
-    if auth_state.enabled {
-        let session = validated_session(state, headers, &auth_state)?
-            .filter(|session| session.kind == SessionKind::Admin)
-            .ok_or_else(authentication_required)?;
-        if is_write_method(method) {
-            validate_csrf(state, headers, &auth_state, &session)?;
-        }
+    if !auth_state.enabled {
         return Ok(());
     }
-    if !is_write_method(method) {
-        return Ok(());
-    }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
-    validate_csrf(state, headers, &auth_state, &session)
-}
-
-async fn authorize_context_request(
-    state: &HttpAppState,
-    headers: &HeaderMap,
-    admin_only: bool,
-    require_csrf: bool,
-) -> Result<(), ApiError> {
-    let auth_state = load_auth_state(state).await?;
-    if auth_state.setup_required {
-        return Err(authentication_required());
-    }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
-    if admin_only && session.kind != SessionKind::Admin {
-        return Err(ApiError::unauthorized(
-            "admin_authentication_required",
-            "需要管理员登录会话",
-        ));
-    }
-    if auth_state.enabled && session.kind != SessionKind::Admin {
-        return Err(authentication_required());
-    }
-    if require_csrf {
-        validate_csrf(state, headers, &auth_state, &session)?;
-    }
+    let token = bearer_token(headers)
+        .map_err(|reason| authentication_required_with_context(state, context, reason))?
+        .ok_or_else(|| {
+            authentication_required_with_context(state, context, JwtFailureReason::Missing)
+        })?;
+    state
+        .auth
+        .service
+        .validate_admin_token(token, auth_state.auth_version)
+        .await
+        .map_err(|failure| authentication_required_with_context(state, context, failure.into()))?;
     Ok(())
 }
 
 async fn authorize_event_request(
     state: &HttpAppState,
     headers: &HeaderMap,
+    context: Option<&RequestContext>,
 ) -> Result<EventAuthContext, ApiError> {
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
     }
-    let session =
-        validated_session(state, headers, &auth_state)?.ok_or_else(authentication_required)?;
-    if auth_state.enabled && session.kind != SessionKind::Admin {
-        return Err(authentication_required());
+    if !auth_state.enabled {
+        return Ok(EventAuthContext { token: None });
     }
+    let token = bearer_token(headers)
+        .map_err(|reason| authentication_required_with_context(state, context, reason))?
+        .ok_or_else(|| {
+            authentication_required_with_context(state, context, JwtFailureReason::Missing)
+        })?;
+    state
+        .auth
+        .service
+        .validate_admin_token(token, auth_state.auth_version)
+        .await
+        .map_err(|failure| authentication_required_with_context(state, context, failure.into()))?;
     Ok(EventAuthContext {
-        session_id: session.id,
+        token: Some(token.to_string()),
     })
 }
 
-fn validate_csrf(
-    state: &HttpAppState,
-    headers: &HeaderMap,
-    auth_state: &AuthState,
-    session: &ValidatedSession,
-) -> Result<(), ApiError> {
-    let csrf = headers
-        .get(CSRF_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if !state
-        .auth
-        .sessions
-        .validate_csrf(&session.id, auth_state.auth_version, csrf)
-        .map_err(session_error)?
-    {
-        return Err(ApiError::forbidden("csrf_invalid", "CSRF Token 缺失或无效"));
-    }
-    Ok(())
-}
-
-fn is_write_method(method: &Method) -> bool {
-    matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    )
-}
-
-fn require_session_with_csrf(
-    state: &HttpAppState,
-    headers: &HeaderMap,
-    auth_state: &AuthState,
-    admin_only: bool,
-) -> Result<ValidatedSession, ApiError> {
-    let session = validated_session(state, headers, auth_state)?
-        .ok_or_else(|| ApiError::unauthorized("authentication_required", "需要有效的管理会话"))?;
-    if admin_only && session.kind != SessionKind::Admin {
-        return Err(ApiError::unauthorized(
-            "admin_authentication_required",
-            "需要管理员登录会话",
-        ));
-    }
-    let csrf = headers
-        .get(CSRF_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    if !state
-        .auth
-        .sessions
-        .validate_csrf(&session.id, auth_state.auth_version, csrf)
-        .map_err(session_error)?
-    {
-        return Err(ApiError::forbidden("csrf_invalid", "CSRF Token 缺失或无效"));
-    }
-    Ok(session)
-}
-
-fn validated_session(
-    state: &HttpAppState,
-    headers: &HeaderMap,
-    auth_state: &AuthState,
-) -> Result<Option<ValidatedSession>, ApiError> {
-    let Some(session_id) = session_id(headers) else {
+fn bearer_token(headers: &HeaderMap) -> Result<Option<&str>, JwtFailureReason> {
+    let Some(value) = headers.get(AUTHORIZATION) else {
         return Ok(None);
     };
-    state
-        .auth
-        .sessions
-        .validate(session_id, auth_state.auth_version)
-        .map_err(session_error)
+    let value = value.to_str().map_err(|_| JwtFailureReason::Malformed)?;
+    let Some(token) = value.strip_prefix("Bearer ") else {
+        return Err(JwtFailureReason::Malformed);
+    };
+    if token.trim().is_empty() || token.contains(char::is_whitespace) {
+        return Err(JwtFailureReason::Malformed);
+    }
+    Ok(Some(token))
 }
 
-fn session_id(headers: &HeaderMap) -> Option<&str> {
-    headers
-        .get(COOKIE)?
-        .to_str()
-        .ok()?
-        .split(';')
-        .filter_map(|cookie| cookie.trim().split_once('='))
-        .find_map(|(name, value)| (name == SESSION_COOKIE_NAME).then_some(value))
+fn auth_status_response(
+    auth_state: &AuthState,
+    authenticated: bool,
+    access_token: Option<String>,
+) -> Result<Response, ApiError> {
+    Ok(Json(AuthStatusResponse {
+        setup_required: auth_state.setup_required,
+        enabled: auth_state.enabled,
+        authenticated,
+        access_token,
+    })
+    .into_response())
 }
 
 fn login_source(
@@ -528,44 +479,6 @@ fn first_forwarded_ip(value: &str) -> Option<IpAddr> {
         .find_map(|item| item.parse::<IpAddr>().ok())
 }
 
-fn auth_status_response(
-    auth_state: &AuthState,
-    existing: Option<ValidatedSession>,
-    created: Option<CreatedSession>,
-    secure_cookie: bool,
-) -> Result<Response, ApiError> {
-    let authenticated = created
-        .as_ref()
-        .map(|session| session.kind == SessionKind::Admin)
-        .or_else(|| {
-            existing
-                .as_ref()
-                .map(|session| session.kind == SessionKind::Admin)
-        })
-        .unwrap_or(false);
-    let csrf_token = created
-        .as_ref()
-        .map(|session| session.csrf_token.clone())
-        .or_else(|| existing.as_ref().map(|session| session.csrf_token.clone()));
-    let response = Json(AuthStatusResponse {
-        setup_required: auth_state.setup_required,
-        enabled: auth_state.enabled,
-        authenticated,
-        csrf_token,
-    })
-    .into_response();
-    match created {
-        Some(session) => response_with_cookie(response, session_cookie(&session.id, secure_cookie)),
-        None => Ok(response),
-    }
-}
-
-fn response_with_cookie(mut response: Response, cookie: String) -> Result<Response, ApiError> {
-    let value = HeaderValue::from_str(&cookie).map_err(|_| auth_internal())?;
-    response.headers_mut().insert(SET_COOKIE, value);
-    Ok(response)
-}
-
 fn classify_auth_error(error: AuthError) -> ApiError {
     match error {
         AuthError::AlreadyInitialized => {
@@ -582,7 +495,28 @@ fn invalid_credentials() -> ApiError {
 }
 
 fn authentication_required() -> ApiError {
-    ApiError::unauthorized("authentication_required", "需要有效的管理会话")
+    ApiError::unauthorized("authentication_required", "需要有效的管理访问令牌")
+}
+
+fn authentication_required_with_context(
+    state: &HttpAppState,
+    context: Option<&RequestContext>,
+    reason: JwtFailureReason,
+) -> ApiError {
+    let request_id = context
+        .map(|value| value.request_id.as_str())
+        .unwrap_or("unknown");
+    let path = context
+        .map(|value| value.path.as_str())
+        .unwrap_or("unknown");
+    state.core.debug_logs.warn(
+        "auth.failure",
+        format!(
+            "request_id={request_id} path={path} auth_failure={}",
+            reason.code()
+        ),
+    );
+    ApiError::unauthorized_with_reason(reason.code(), reason.message(), reason.code())
 }
 
 fn rate_limited(seconds: u64) -> ApiError {
@@ -591,10 +525,6 @@ fn rate_limited(seconds: u64) -> ApiError {
         "登录失败次数过多，请稍后重试",
         seconds,
     )
-}
-
-fn session_error(_: crate::auth::SessionError) -> ApiError {
-    auth_internal()
 }
 
 fn auth_internal() -> ApiError {

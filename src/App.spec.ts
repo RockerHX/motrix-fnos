@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "./test/mount";
 import { getAuthStatus } from "./features/auth/services/authService";
+import type { AuthStatus } from "./features/auth/types";
 import App from "./App.vue";
 
 const runtime = vi.hoisted(() => ({ initialize: vi.fn(), dispose: vi.fn() }));
@@ -43,12 +44,7 @@ describe("App auth bootstrap", () => {
   });
 
   it("does not mount or initialize business features before auth is ready", async () => {
-    const deferred = createDeferred<{
-      setupRequired: boolean;
-      enabled: boolean;
-      authenticated: boolean;
-      csrfToken: string | null;
-    }>();
+    const deferred = createDeferred<AuthStatus>();
     vi.mocked(getAuthStatus).mockReturnValueOnce(deferred.promise);
     const wrapper = mount(App, { global: { plugins: [createPinia()] } });
     expect(wrapper.find('[data-test="auth-gate"]').exists()).toBe(true);
@@ -57,7 +53,7 @@ describe("App auth bootstrap", () => {
     expect(runtime.initialize).not.toHaveBeenCalled();
     expect(platform.initialize).toHaveBeenCalledOnce();
 
-    deferred.resolve({ setupRequired: false, enabled: true, authenticated: true, csrfToken: "csrf" });
+    deferred.resolve({ setupRequired: false, enabled: true, authenticated: true });
     await flushPromises();
     expect(wrapper.find('[data-test="main-window"]').exists()).toBe(true);
     expect(settings.load).toHaveBeenCalledOnce();

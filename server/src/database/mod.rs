@@ -200,6 +200,10 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 4,
         name: "task_proxy_state",
     },
+    SchemaMigration {
+        version: 5,
+        name: "web_auth_jwt_secret",
+    },
 ];
 
 async fn apply_schema_migration(
@@ -211,8 +215,43 @@ async fn apply_schema_migration(
         2 => create_task_operations_schema(transaction).await,
         3 => create_task_query_indexes(transaction).await,
         4 => create_task_proxy_schema(transaction).await,
+        5 => create_web_auth_jwt_schema(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn create_web_auth_jwt_schema(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    let column_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('web_auth_config') WHERE name = 'jwt_secret'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|error| format!("检查 Web 鉴权 JWT 密钥字段失败：{}", error))?;
+    if column_count == 0 {
+        sqlx::query("ALTER TABLE web_auth_config ADD COLUMN jwt_secret TEXT")
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("迁移 Web 鉴权 JWT 密钥字段失败：{}", error))?;
+    }
+
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM web_auth_config WHERE jwt_secret IS NULL OR TRIM(jwt_secret) = ''",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| format!("读取待生成 JWT 密钥的鉴权记录失败：{}", error))?;
+    for id in ids {
+        let secret = crate::auth::generate_jwt_secret();
+        sqlx::query("UPDATE web_auth_config SET jwt_secret = ? WHERE id = ?")
+            .bind(secret)
+            .bind(id)
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("写入 Web 鉴权 JWT 密钥失败：{}", error))?;
+    }
+    Ok(())
 }
 
 async fn create_task_proxy_schema(transaction: &mut Transaction<'_, Sqlite>) -> Result<(), String> {
@@ -422,7 +461,8 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
         password_hash TEXT,
         password_updated_at INTEGER,
-        auth_version INTEGER NOT NULL CHECK (auth_version > 0)
+        auth_version INTEGER NOT NULL CHECK (auth_version > 0),
+        jwt_secret TEXT
     )
     "#,
     r#"

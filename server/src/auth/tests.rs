@@ -52,6 +52,10 @@ fn auth_service_supports_setup_change_protection_and_reset() {
         assert!(!state.setup_required);
         assert!(state.enabled);
         assert_eq!(state.auth_version, 1);
+        let original_token = service
+            .issue_admin_token(&state)
+            .await
+            .expect("token should issue");
         assert!(service.verify_password(VALID_PASSWORD).await.is_ok());
         assert_eq!(
             service.verify_password("incorrect password").await,
@@ -80,7 +84,40 @@ fn auth_service_supports_setup_change_protection_and_reset() {
         assert!(reset.setup_required);
         assert!(reset.enabled);
         assert_eq!(reset.auth_version, 4);
+        assert_eq!(
+            service
+                .validate_admin_token(&original_token, reset.auth_version)
+                .await,
+            Err(JwtValidationFailure::AuthVersionMismatch)
+        );
         cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn issued_tokens_remain_verifiable_after_database_reopen() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("jwt-reopen").await;
+        let state = service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let token = service
+            .issue_admin_token(&state)
+            .await
+            .expect("token should issue");
+        service.pool.close().await;
+
+        let database = connect_database(path.clone())
+            .await
+            .expect("database should reopen");
+        let reopened = AuthService::new(database.pool);
+        let reopened_state = reopened.state().await.expect("state should load");
+        assert!(reopened
+            .validate_admin_token(&token, reopened_state.auth_version)
+            .await
+            .is_ok());
+        cleanup(reopened, path).await;
     });
 }
 

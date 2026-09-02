@@ -74,8 +74,8 @@
 当前不接入的原因：
 
 - 该模型要求应用可靠识别当前 fnOS 用户，并将其 `uid` 传给后端 API。
-- 当前 Motrix 使用自己的 Web Session，端口入口不提供可信的 `X-Trim-*` 用户身份 Header。
-- 项目已明确暂缓统一网关迁移，不能把浏览器 Header 或 Motrix Session 推断成 fnOS 用户身份。
+- 当前 Motrix 使用自己的 Web 管理 JWT，端口入口不提供可信的 `X-Trim-*` 用户身份 Header。
+- 项目已明确暂缓统一网关迁移，不能把浏览器 Header 或 Motrix JWT 推断成 fnOS 用户身份。
 - 如果未来接入，下载任务、默认目录、SSE 和文件操作都必须定义用户隔离边界，不能只新增一个目录选择器。
 
 ### 2.3 文件权限检查（P2）
@@ -413,7 +413,7 @@ P0 至少提供：
 
 ### 7.2 后端 API 错误
 
-后端内部保留官方 HTTP 状态和业务码用于脱敏诊断，但 fnOS 上游鉴权失败不得映射为 Motrix HTTP `401`，避免前端误清除 Web Session。外部 API 的 Token、Authorization Header、原始响应和完整路径列表不得进入日志。
+后端内部保留官方 HTTP 状态和业务码用于脱敏诊断，但 fnOS 上游鉴权失败不得映射为 Motrix HTTP `401`，避免前端误清除 Web 管理 JWT。外部 API 的 Token、Authorization Header、原始响应和完整路径列表不得进入日志。
 
 ### 7.3 Motrix HTTP 错误
 
@@ -423,7 +423,7 @@ P0 至少提供：
 - HTTP `502`：`fnos_api_rejected`、`fnos_api_invalid_response`。
 - HTTP `500`：`accessible_paths_persist_failed`。
 
-写接口继续要求 Motrix Web Session 和 CSRF。普通 GET 不应因为读取授权目录而启动 Aria2。
+写接口继续遵循 Motrix 管理 API 鉴权：保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。普通 GET 不应因为读取授权目录而启动 Aria2。
 
 ## 8. 数据与安全要求
 
@@ -446,7 +446,7 @@ P0 至少提供：
 - 官方响应解析：路径数组、空数组、重复路径、空路径、非法路径和未知字段。
 - 快照更新：成功替换、空结果替换、失败保留旧快照、并发刷新和原子写入。
 - 环境兼容：Socket/token 不存在时保留最后一次官方 API 快照；正式包不读取 `TRIM_DATA_ACCESSIBLE_PATHS`。
-- HTTP API：Session、CSRF、错误码、刷新后目录读取和 Aria2 不被唤醒。
+- HTTP API：JWT、错误码、刷新后目录读取和 Aria2 不被唤醒。
 - 现有任务/设置/JSON-RPC 测试：确认新快照仍经过既有授权目录校验。
 
 ### 9.2 前端
@@ -501,7 +501,7 @@ P0 至少提供：
 3. 明确当前端口入口是否支持微应用 SDK；如不支持，确认是否启动独立统一网关实验。
 4. 完成 `docs/architecture.md`、`docs/api-contract.md`、`docs/fpk-packaging.md` 和 UI 产品需求的事实更新。
 5. 冻结快照优先级、空结果语义、失败回退和刷新接口契约。
-6. 冻结 token、路径、管理员身份、CSRF、回调 state 和日志脱敏方案。
+6. 冻结 token、路径、管理员身份、JWT、回调 state 和日志脱敏方案。
 7. 建立与 P0 风险相称的 Rust、前端、脚本和 FPK 测试清单。
 
 ## 13. 官方资料与仓库依据

@@ -1,5 +1,6 @@
 use super::{
-    build_diagnostic_bundle_from_parts, DiagnosticSummary, ARIA2_LOG_BUNDLE_MAX_BYTES,
+    build_diagnostic_bundle_from_parts, build_login_diagnostic_bundle_from_parts,
+    DiagnosticSummary, LoginDiagnosticSummary, ARIA2_LOG_BUNDLE_MAX_BYTES,
     DIAGNOSTIC_BUNDLE_MAX_INPUT_BYTES, LIFECYCLE_LOG_BUNDLE_MAX_BYTES, SERVER_LOG_BUNDLE_MAX_BYTES,
 };
 use crate::aria2::{Aria2LogLevel, Aria2LogModeStatus};
@@ -140,6 +141,65 @@ fn diagnostic_bundle_tolerates_missing_log_files() {
     remove_temp_dir(root);
 }
 
+#[test]
+fn login_diagnostic_bundle_contains_only_auth_and_lifecycle_logs() {
+    let root = temp_dir("login");
+    write_file(
+        &root.join("logs/lifecycle.log"),
+        "started with password=lifecycle-secret\n",
+    );
+    write_file(&root.join("logs/server.log"), "server-secret\n");
+    write_file(&root.join("aria2/aria2.log"), "aria2-secret\n");
+    let logs = vec![
+        debug_log_with_module("auth.failure", "session=auth-secret"),
+        debug_log_with_module("tasks.create", "task-secret"),
+    ];
+
+    let entries = unzip(
+        &build_login_diagnostic_bundle_from_parts(&root, &logs, login_summary())
+            .expect("login diagnostic bundle should build"),
+    );
+    let names = entries
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>();
+    let contents = entries
+        .iter()
+        .map(|(_, contents)| contents.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(names.contains(&"summary.json"));
+    assert!(names.contains(&"logs/auth-debug.jsonl"));
+    assert!(names.contains(&"logs/lifecycle.log"));
+    assert!(!names.iter().any(|name| name.contains("server")));
+    assert!(!names.iter().any(|name| name.contains("aria2")));
+    assert!(!contents.contains("auth-secret"));
+    assert!(!contents.contains("task-secret"));
+    assert!(!contents.contains("lifecycle-secret"));
+    assert!(contents.contains("[REDACTED]"));
+    assert!(contents.contains("\"webAuthMode\": \"jwt_bearer\""));
+    assert!(contents.contains("\"jwtTransport\": \"authorization_header\""));
+    assert!(!contents.contains("cookieAuthSupported"));
+    remove_temp_dir(root);
+}
+
+#[test]
+fn login_diagnostic_bundle_tolerates_missing_logs() {
+    let root = temp_dir("login-missing");
+    let entries = unzip(
+        &build_login_diagnostic_bundle_from_parts(&root, &[], login_summary())
+            .expect("login diagnostic bundle should build"),
+    );
+
+    assert!(entries.iter().any(|(name, _)| name == "summary.json"));
+    assert!(entries
+        .iter()
+        .any(|(name, _)| name == "logs/auth-debug.jsonl"));
+    assert!(!entries.iter().any(|(name, _)| name.contains("lifecycle")));
+    remove_temp_dir(root);
+}
+
 #[cfg(unix)]
 #[test]
 fn diagnostic_bundle_skips_symbolic_linked_logs() {
@@ -202,15 +262,30 @@ fn summary() -> DiagnosticSummary {
 }
 
 fn debug_log(message: &str) -> DebugLogEntry {
+    debug_log_with_module("api.test", message)
+}
+
+fn debug_log_with_module(module: &str, message: &str) -> DebugLogEntry {
     DebugLogEntry {
         id: 1,
         timestamp_ms: 1,
         last_timestamp_ms: 1,
         level: DebugLogLevel::Error,
         category: DebugLogCategory::Api,
-        module: "api.test".to_string(),
+        module: module.to_string(),
         message: message.to_string(),
         repeat_count: 1,
+    }
+}
+
+fn login_summary() -> LoginDiagnosticSummary {
+    LoginDiagnosticSummary {
+        generated_at_ms: 1,
+        app_version: "test",
+        management_listener: "0.0.0.0:17080".to_string(),
+        web_auth_mode: "jwt_bearer",
+        jwt_transport: "authorization_header",
+        included_logs: "脱敏鉴权记录与生命周期日志",
     }
 }
 

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 pub struct ErrorResponse {
     pub code: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug)]
@@ -16,6 +18,7 @@ pub struct ApiError {
     code: String,
     message: String,
     retry_after_seconds: Option<u64>,
+    reason: Option<String>,
 }
 
 impl ApiError {
@@ -29,6 +32,16 @@ impl ApiError {
 
     pub fn unauthorized(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::new(StatusCode::UNAUTHORIZED, code, message)
+    }
+
+    pub fn unauthorized_with_reason(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
+        let mut error = Self::unauthorized(code, message);
+        error.reason = Some(reason.into());
+        error
     }
 
     pub fn forbidden(code: impl Into<String>, message: impl Into<String>) -> Self {
@@ -67,6 +80,7 @@ impl ApiError {
             code: code.into(),
             message: message.into(),
             retry_after_seconds: None,
+            reason: None,
         }
     }
 
@@ -80,6 +94,7 @@ impl IntoResponse for ApiError {
         let body = ErrorResponse {
             code: self.code,
             message: self.message,
+            reason: self.reason,
         };
         let mut response = (self.status, Json(body)).into_response();
         if let Some(seconds) = self.retry_after_seconds {

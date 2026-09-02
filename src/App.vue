@@ -79,6 +79,7 @@ function startBusiness() {
   initializeRuntimeEvents({
     checkAuth: getAuthStatus,
     onUnauthorized: authStore.handleUnauthorizedStatus,
+    getAccessToken: authStore.getAccessToken,
   });
   void settingsStore.loadConfig();
   void refreshBackendStatus();

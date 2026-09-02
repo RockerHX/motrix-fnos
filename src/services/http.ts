@@ -1,22 +1,26 @@
 export interface ApiErrorResponse {
   code: string;
   message: string;
+  reason?: string;
 }
 
 export class ApiError extends Error {
   code: string;
   status: number;
+  reason?: string;
 
   constructor(status: number, payload: ApiErrorResponse) {
     super(payload.message || `请求失败（${status}）`);
     this.name = "ApiError";
     this.code = payload.code;
     this.status = status;
+    this.reason = payload.reason;
   }
 }
 
 export interface HttpRequestOptions {
   handleUnauthorized?: boolean;
+  includeAuth?: boolean;
   signal?: AbortSignal;
 }
 
@@ -27,12 +31,12 @@ interface RequestOptions extends HttpRequestOptions {
   responseType?: "blob";
 }
 
-let csrfTokenProvider: (() => string | null) | null = null;
+let accessTokenProvider: (() => string | null) | null = null;
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 let isHandlingUnauthorized = false;
 
-export function setCsrfTokenProvider(provider: (() => string | null) | null) {
-  csrfTokenProvider = provider;
+export function setAccessTokenProvider(provider: (() => string | null) | null) {
+  accessTokenProvider = provider;
 }
 
 export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
@@ -41,13 +45,13 @@ export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | n
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const hasJsonBody = options.body !== undefined;
-  const csrfToken = isWriteMethod(method) ? csrfTokenProvider?.() : null;
+  const accessToken = options.includeAuth === false ? null : accessTokenProvider?.();
   const response = await fetch(path, {
     method,
-    credentials: "same-origin",
+    credentials: "omit",
     headers: {
       ...(hasJsonBody ? { "content-type": "application/json" } : {}),
-      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...options.headers,
     },
     body: options.rawBody ?? (hasJsonBody ? JSON.stringify(options.body) : undefined),
@@ -87,10 +91,6 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json") ? ((await response.json()) as unknown) : await response.text();
   return payload as T;
-}
-
-function isWriteMethod(method: string) {
-  return method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
 }
 
 function isApiErrorResponse(payload: unknown): payload is ApiErrorResponse {

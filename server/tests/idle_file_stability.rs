@@ -42,7 +42,6 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
             .expect("LAN JSON-RPC addr should parse"),
         aria2_path: None,
         trusted_proxy_ips: Vec::new(),
-        web_cookie_secure: false,
     };
     let initial_database = connect_database(runtime.database_path.clone())
         .await
