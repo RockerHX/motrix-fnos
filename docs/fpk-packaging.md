@@ -398,6 +398,8 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`lifecycle.log`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
 | 配置变更 | 在“应用设置”修改其他应用配置并保存 | 不触碰官方 API 授权快照 | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
+| 开放 API（x86） | 在正式 `motrix` 身份的 fnOS `1.2.0401+` 管理员宿主中授权目录、刷新、创建任务、验证语义路径和完成任务文件操作 | 授权结果以官方查询为准；语义路径和宿主文件操作不改变后端授权边界 | fnOS 版本、FPK SHA-256、普通用户拒绝、授权撤销、空目录、Token/Socket 不可用、独立浏览器降级和升级后数据保留 |
+| 开放 API（ARM / 飞牛 App） | 在 ARM 设备与飞牛 App WebView 可用后，安装正式 `motrix` 包并重复授权与文件操作验证 | SDK 授权流程可用；主题/语言与文件操作符合宿主降级规则 | 设备和飞牛 App 版本、FPK SHA-256、脱敏诊断记录 |
 | 同身份升级 | 从旧版 `motrix` 升级到新版 `motrix` | 数据与配置保留，服务可重新启动 | 升级界面日志、任务数据、`server.log` |
 | 旧身份切换 | 从 `motrix.fnos` 改装为 `motrix` | 作为新应用安装，不自动迁移旧数据；旧应用不再占用端口 | 两个 appname 的数据目录、JSON-RPC Token、`17080`/`17081`/`17082` 监听进程 |
 | 卸载（默认） | 卸载应用且不勾选删除数据 | `TRIM_PKGVAR` 应用数据保留，不删除用户下载文件 | 卸载向导选项、`cmd/uninstall_callback` 日志、`TRIM_PKGVAR` 内容 |
