@@ -92,11 +92,74 @@ fn validate_task_save_dir_requires_authorized_paths() {
 }
 
 #[test]
-fn validate_task_save_dir_accepts_only_exact_authorized_path() {
+fn validate_task_save_dir_accepts_authorized_root_and_descendants_only() {
     let paths = vec!["/downloads".to_string()];
     assert!(validate_task_save_dir(Some("/downloads"), &paths).is_ok());
+    assert!(validate_task_save_dir(Some("/downloads/movies"), &paths).is_ok());
     assert_eq!(
-        validate_task_save_dir(Some("/downloads/movies"), &paths),
+        validate_task_save_dir(Some("/downloads-other/movies"), &paths),
         Err(TaskSaveDirError::Unauthorized)
     );
+}
+
+#[test]
+fn prepare_task_save_dir_creates_missing_descendants_and_rejects_unsafe_paths() {
+    let root = std::env::temp_dir().join(format!(
+        "motrix-fnos-save-dir-test-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be valid")
+            .as_nanos()
+    ));
+    std::fs::create_dir(&root).expect("authorized root should create");
+    let save_dir = root.join("火影").join("xxxx");
+    let paths = vec![root.display().to_string()];
+
+    prepare_task_save_dir(
+        Some(save_dir.to_str().expect("path should be UTF-8")),
+        &paths,
+    )
+    .expect("authorized descendants should be created");
+    assert!(save_dir.is_dir());
+
+    let escape = format!("{}/../outside", root.display());
+    assert_eq!(
+        prepare_task_save_dir(Some(&escape), &paths),
+        Err(TaskSaveDirError::Unauthorized)
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn prepare_task_save_dir_rejects_symlink_descendants() {
+    use std::os::unix::fs::symlink;
+
+    let base = std::env::temp_dir().join(format!(
+        "motrix-fnos-save-dir-symlink-test-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time should be valid")
+            .as_nanos()
+    ));
+    let root = base.join("root");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).expect("authorized root should create");
+    std::fs::create_dir(&outside).expect("outside directory should create");
+    symlink(&outside, root.join("linked")).expect("symlink should create");
+    let paths = vec![root.display().to_string()];
+
+    let error = prepare_task_save_dir(
+        Some(
+            root.join("linked")
+                .join("child")
+                .to_str()
+                .expect("path should be UTF-8"),
+        ),
+        &paths,
+    )
+    .expect_err("symlink descendant must be rejected");
+    assert!(matches!(error, TaskSaveDirError::PrepareFailed(_)));
+    assert!(!outside.join("child").exists());
+    let _ = std::fs::remove_dir_all(base);
 }

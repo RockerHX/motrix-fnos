@@ -74,6 +74,7 @@ async fn create_and_refresh_then_list_routes_work_with_ready_aria2() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let created = response_json::<DownloadTask>(
@@ -141,6 +142,7 @@ async fn create_route_starts_paused_magnet_metadata_resolution() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-magnet-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let created = response_json::<DownloadTask>(
@@ -184,6 +186,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-confirm-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let created = response_json::<DownloadTask>(
@@ -272,6 +275,7 @@ async fn create_route_accepts_category_and_advanced_options() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-advanced-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let created = response_json::<DownloadTask>(
@@ -640,6 +644,7 @@ async fn create_batch_route_returns_created_and_failed_items() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-batch-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
@@ -686,6 +691,7 @@ async fn create_batch_route_returns_bad_request_when_all_items_fail() {
     let save_dir = temp_dir("task-batch-failed-downloads")
         .display()
         .to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let result = response_json::<CreateBatchDownloadTasksResponse>(
@@ -754,6 +760,7 @@ async fn create_torrent_route_accepts_multipart_upload() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-torrent-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let created = response_json::<DownloadTask>(
@@ -790,6 +797,7 @@ async fn pause_resume_and_delete_routes_update_task_state() {
     let state = ready_state(&mock).await;
     let app = test_router(state.clone());
     let save_dir = temp_dir("task-downloads").display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
 
     let _ = app
