@@ -1,4 +1,7 @@
-use super::{classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir};
+use super::{
+    classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir,
+    validate_authorized_save_dir,
+};
 use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
@@ -31,11 +34,14 @@ impl<'a> TaskMutationContext<'a> {
         let service = build_task_service(state);
         service.ensure_not_exiting().map_err(classify_task_error)?;
         if let Some(save_dir) = save_dir {
-            ensure_authorized_save_dir(state, save_dir)?;
+            validate_authorized_save_dir(state, save_dir)?;
         }
         let config = ensure_aria2_ready(state)
             .await
             .map_err(classify_aria2_ready_error)?;
+        if let Some(save_dir) = save_dir {
+            ensure_authorized_save_dir(state, save_dir)?;
+        }
         Ok(Self {
             state,
             service,

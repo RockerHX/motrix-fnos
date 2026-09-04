@@ -46,12 +46,12 @@ pub(super) async fn add_uri(
         Some(save_dir) => save_dir,
         None => default_save_dir(state)?,
     };
-    let save_dir = authorized_save_dir(state, &save_dir)?;
 
     let service = build_task_service(state);
     service
         .ensure_not_exiting()
         .map_err(RpcFault::server_error)?;
+    let save_dir = authorized_save_dir(state, &save_dir)?;
 
     let config = ensure_aria2_ready(state).await.map_err(|error| {
         if error.contains("生命周期转换超时") || error.contains("生命周期请求被拒绝")
@@ -61,6 +61,7 @@ pub(super) async fn add_uri(
             RpcFault::server_error(error)
         }
     })?;
+    prepare_authorized_save_dir(state, &save_dir)?;
     let task = service
         .create_download_task(
             &config,
@@ -194,22 +195,35 @@ pub(super) fn authorized_save_dir(
         }
         Err(error) => Err(error),
     };
-    resolved
-        .inspect(|resolved| {
-            state.remember_json_rpc_default_download_dir(resolved);
-        })
-        .map_err(|error| {
-            let message = match error {
-                crate::storage::TaskSaveDirError::Required => "请选择已授权的保存目录",
-                crate::storage::TaskSaveDirError::NoAccessiblePaths => {
-                    "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权"
-                }
-                crate::storage::TaskSaveDirError::Unauthorized => {
-                    "保存目录不在飞牛已授权目录列表中"
-                }
-            };
-            RpcFault::invalid_params(message)
-        })
+    let resolved = resolved.map_err(task_save_dir_fault)?;
+    state.remember_json_rpc_default_download_dir(&resolved);
+    Ok(resolved)
+}
+
+fn prepare_authorized_save_dir(state: &HttpAppState, save_dir: &str) -> Result<(), RpcFault> {
+    let accessible_paths =
+        crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+            .map_err(RpcFault::server_error)?;
+    crate::storage::prepare_task_save_dir(Some(save_dir), &accessible_paths)
+        .map_err(task_save_dir_fault)?;
+    Ok(())
+}
+
+fn task_save_dir_fault(error: crate::storage::TaskSaveDirError) -> RpcFault {
+    match error {
+        crate::storage::TaskSaveDirError::Required => {
+            RpcFault::invalid_params("请选择已授权的保存目录")
+        }
+        crate::storage::TaskSaveDirError::NoAccessiblePaths => {
+            RpcFault::invalid_params("未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权")
+        }
+        crate::storage::TaskSaveDirError::Unauthorized => {
+            RpcFault::invalid_params("保存目录不在飞牛已授权目录列表中")
+        }
+        crate::storage::TaskSaveDirError::PrepareFailed(error) => {
+            RpcFault::server_error(format!("准备保存目录失败：{error}"))
+        }
+    }
 }
 
 pub(super) fn resolve_authorized_save_dir(
@@ -218,13 +232,7 @@ pub(super) fn resolve_authorized_save_dir(
 ) -> Result<String, crate::storage::TaskSaveDirError> {
     let save_dir = save_dir.trim();
     match crate::storage::validate_task_save_dir(Some(save_dir), accessible_paths) {
-        Ok(()) => {
-            return accessible_paths
-                .iter()
-                .find(|path| path.as_str() == save_dir)
-                .cloned()
-                .ok_or(crate::storage::TaskSaveDirError::Unauthorized);
-        }
+        Ok(()) => return Ok(save_dir.to_string()),
         Err(crate::storage::TaskSaveDirError::Unauthorized) => {}
         Err(error) => return Err(error),
     }
@@ -239,15 +247,6 @@ pub(super) fn resolve_authorized_save_dir(
     }
 
     let candidate = format!("/{save_dir}");
-    let mut matches = accessible_paths
-        .iter()
-        .filter(|path| path.as_str() == candidate);
-    let matched = matches
-        .next()
-        .cloned()
-        .ok_or(crate::storage::TaskSaveDirError::Unauthorized)?;
-    if matches.next().is_some() {
-        return Err(crate::storage::TaskSaveDirError::Unauthorized);
-    }
-    Ok(matched)
+    crate::storage::validate_task_save_dir(Some(&candidate), accessible_paths)?;
+    Ok(candidate)
 }

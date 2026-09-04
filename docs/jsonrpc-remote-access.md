@@ -163,7 +163,7 @@ npx wscat -c wss://motrix.example.com:8443/jsonrpc
 
 ### 6.5 添加测试任务
 
-只有在保存目录已由 fnOS 授权后，才使用测试文件验证 `aria2.addUri`：
+只有在保存目录已由 fnOS 授权，或是该授权目录的子目录后，才使用测试文件验证 `aria2.addUri`；缺失子目录会由 Motrix 在创建 Aria2 任务前安全创建：
 
 ```bash
 curl -i https://motrix.example.com:8443/jsonrpc \

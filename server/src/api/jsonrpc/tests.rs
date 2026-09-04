@@ -554,8 +554,11 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
 
     let state = test_state().await;
     let save_dir = state.runtime.app_data_dir.join("protocol-downloads");
+    let nested_save_dir = save_dir.join("alist").join("火影");
     let absolute_save_dir = save_dir.display().to_string();
-    let relative_save_dir = absolute_save_dir
+    let relative_save_dir = nested_save_dir
+        .display()
+        .to_string()
         .strip_prefix('/')
         .expect("test save directory should be absolute")
         .to_string();
@@ -632,7 +635,8 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
     assert_eq!(http_payload["result"], "gid-protocol");
     let tasks = state.core.download_tasks.list().expect("tasks should list");
     assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].save_dir, save_dir.display().to_string());
+    assert_eq!(tasks[0].save_dir, nested_save_dir.display().to_string());
+    assert!(nested_save_dir.is_dir());
     assert!(tasks[0].use_proxy);
     assert_eq!(
         tasks[0].proxy_binding.source(),
@@ -1150,7 +1154,7 @@ fn parse_add_uri_rejects_invalid_proxy_before_runtime_work() {
 }
 
 #[test]
-fn resolve_authorized_save_dir_accepts_exact_and_missing_leading_slash() {
+fn resolve_authorized_save_dir_accepts_authorized_descendants_and_missing_leading_slash() {
     let accessible_paths = vec!["/vol1/1000/tmp".to_string()];
 
     assert_eq!(
@@ -1159,9 +1163,14 @@ fn resolve_authorized_save_dir_accepts_exact_and_missing_leading_slash() {
         "/vol1/1000/tmp"
     );
     assert_eq!(
-        resolve_authorized_save_dir("vol1/1000/tmp", &accessible_paths)
+        resolve_authorized_save_dir("/vol1/1000/tmp/subdir", &accessible_paths)
+            .expect("authorized descendant should pass"),
+        "/vol1/1000/tmp/subdir"
+    );
+    assert_eq!(
+        resolve_authorized_save_dir("vol1/1000/tmp/subdir", &accessible_paths)
             .expect("one missing leading slash should be restored"),
-        "/vol1/1000/tmp"
+        "/vol1/1000/tmp/subdir"
     );
 }
 
@@ -1171,7 +1180,6 @@ fn resolve_authorized_save_dir_rejects_unsafe_or_inexact_relative_paths() {
 
     for save_dir in [
         "vol1/1000",
-        "vol1/1000/tmp/subdir",
         "vol1//1000/tmp",
         "vol1/./1000/tmp",
         "vol1/../1000/tmp",
@@ -1205,7 +1213,9 @@ fn resolve_authorized_save_dir_requires_one_unique_authorized_match() {
 async fn authorized_save_dir_replaces_stale_cached_default_after_authorization_change() {
     let state = test_state().await;
     let stale_default = state.runtime.app_data_dir.display().to_string();
-    let current_default = "/vol1/1000/tmp";
+    let current_default = state.runtime.app_data_dir.join("current-default");
+    std::fs::create_dir(&current_default).expect("current default should create");
+    let current_default = current_default.display().to_string();
     state.remember_json_rpc_default_download_dir(&stale_default);
     std::fs::write(
         &state.runtime.accessible_paths_path,

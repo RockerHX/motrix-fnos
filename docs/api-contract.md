@@ -350,7 +350,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速。
 - `advancedOptions.useProxy` 是可选布尔值，缺失时服务端按 `false` 处理。值为 `true` 时任务绑定当前应用代理配置；配置不存在时返回 `400 proxy_not_configured`，并且不创建任务、目录或 Aria2 GID。
 - 旧 `advancedOptions.proxy` 继续兼容：未同时提供 `useProxy` 时，非空原始值作为该任务的私密兼容覆盖并映射 `all-proxy`。同时提供 `useProxy` 与非空 `advancedOptions.proxy` 时返回 `400 proxy_conflict`。
-- `saveDir` 必须来自 `/api/storage/accessible-paths` 返回的 `paths`；为空或未授权路径会返回 `400 Bad Request`。
+- `saveDir` 必须是 `/api/storage/accessible-paths` 返回的授权目录本身或其子目录；为空或未授权路径会返回 `400 Bad Request`。缺失子目录会在 Aria2 创建任务前由服务端创建。
 - 当 `sourceType=magnet` 时，请求中的 `saveDir` 表示授权父目录；成功创建后返回的 `DownloadTask.saveDir` 是后端创建的任务专属子目录。
 - BT 任务返回的 `ownedTaskDir` 是后端创建并持久化的外层任务目录；它独立于会随种子 metadata 更新的 `fileName`，仅用于任务恢复和安全删除。普通 URL 任务为 `null`。
 - `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
@@ -915,8 +915,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 约定：
 
-- `dir` 必须来自 `/api/storage/accessible-paths` 返回的授权目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
-- 为兼容会删除 Unix 路径首个 `/` 的第三方发送页，JSON-RPC 仅在请求值不含空组件、`.`、`..` 或反斜杠，且补回一个 `/` 后能唯一、精确匹配授权目录时接受该值；任务最终仍使用授权列表中的原始绝对路径，不允许借此访问授权目录的任意子目录。
+- `dir` 必须是 `/api/storage/accessible-paths` 返回的授权目录本身或其子目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
+- 为兼容会删除 Unix 路径首个 `/` 的第三方发送页，JSON-RPC 仅在请求值不含空组件、`.`、`..` 或反斜杠，且补回一个 `/` 后仍位于授权目录本身或其子目录时接受该值。server 逐级拒绝符号链接或同名文件，并在 Aria2 创建任务前创建缺失子目录。
 - `out` 会映射为 Motrix 任务文件名。
 - 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。

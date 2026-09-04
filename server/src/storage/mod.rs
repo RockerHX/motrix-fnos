@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 mod display_paths;
@@ -26,11 +27,12 @@ pub struct DisplayAccessiblePathsResponse {
     pub paths: Vec<DisplayPath>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskSaveDirError {
     Required,
     NoAccessiblePaths,
     Unauthorized,
+    PrepareFailed(String),
 }
 
 pub fn load_accessible_paths(accessible_paths_path: &Path) -> Result<Vec<String>, String> {
@@ -114,10 +116,127 @@ pub fn validate_task_save_dir(
     if accessible_paths.is_empty() {
         return Err(TaskSaveDirError::NoAccessiblePaths);
     }
-    if accessible_paths.iter().any(|path| path == save_dir) {
-        return Ok(());
+
+    authorized_root_for_save_dir(save_dir, accessible_paths).map(|_| ())
+}
+
+pub fn prepare_task_save_dir(
+    save_dir: Option<&str>,
+    accessible_paths: &[String],
+) -> Result<(), TaskSaveDirError> {
+    let save_dir = save_dir
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(TaskSaveDirError::Required)?;
+    if accessible_paths.is_empty() {
+        return Err(TaskSaveDirError::NoAccessiblePaths);
     }
-    Err(TaskSaveDirError::Unauthorized)
+
+    let authorized_root = authorized_root_for_save_dir(save_dir, accessible_paths)?;
+    ensure_safe_save_dir(save_dir, authorized_root)
+}
+
+fn authorized_root_for_save_dir<'a>(
+    save_dir: &str,
+    accessible_paths: &'a [String],
+) -> Result<&'a str, TaskSaveDirError> {
+    if !is_safe_absolute_path(save_dir) {
+        return Err(TaskSaveDirError::Unauthorized);
+    }
+
+    let mut matched_root: Option<&str> = None;
+    for path in accessible_paths {
+        let path = path.trim();
+        if !is_safe_absolute_path(path) || !is_same_or_descendant_path(save_dir, path) {
+            continue;
+        }
+        if matched_root == Some(path) {
+            return Err(TaskSaveDirError::Unauthorized);
+        }
+        if matched_root.map_or(true, |root| path.len() > root.len()) {
+            matched_root = Some(path);
+        }
+    }
+
+    matched_root.ok_or(TaskSaveDirError::Unauthorized)
+}
+
+fn is_safe_absolute_path(path: &str) -> bool {
+    path.starts_with('/')
+        && path != "/"
+        && !path.contains(['\0', '\\'])
+        && path
+            .split('/')
+            .skip(1)
+            .all(|component| !component.is_empty() && component != "." && component != "..")
+}
+
+fn is_same_or_descendant_path(path: &str, root: &str) -> bool {
+    path == root
+        || path
+            .strip_prefix(root)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn ensure_safe_save_dir(save_dir: &str, authorized_root: &str) -> Result<(), TaskSaveDirError> {
+    let root = Path::new(authorized_root);
+    let root_metadata = fs::symlink_metadata(root)
+        .map_err(|error| TaskSaveDirError::PrepareFailed(format!("无法读取授权目录：{error}")))?;
+    if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
+        return Err(TaskSaveDirError::PrepareFailed(
+            "授权目录不存在或不是普通目录".to_string(),
+        ));
+    }
+
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| TaskSaveDirError::PrepareFailed(format!("无法解析授权目录：{error}")))?;
+    let relative_path = save_dir
+        .strip_prefix(authorized_root)
+        .and_then(|path| path.strip_prefix('/'));
+    let mut current = canonical_root.clone();
+    if let Some(relative_path) = relative_path {
+        for component in relative_path.split('/') {
+            current.push(component);
+            ensure_physical_directory(&current)?;
+        }
+    }
+
+    let canonical_save_dir = current
+        .canonicalize()
+        .map_err(|error| TaskSaveDirError::PrepareFailed(format!("无法解析保存目录：{error}")))?;
+    if !canonical_save_dir.starts_with(&canonical_root) {
+        return Err(TaskSaveDirError::PrepareFailed(
+            "保存目录解析后越出授权目录".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_physical_directory(path: &Path) -> Result<(), TaskSaveDirError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fs::create_dir(path).map_err(|error| {
+                TaskSaveDirError::PrepareFailed(format!("无法创建保存目录：{error}"))
+            })?;
+            fs::symlink_metadata(path).map_err(|error| {
+                TaskSaveDirError::PrepareFailed(format!("无法读取新建保存目录：{error}"))
+            })?
+        }
+        Err(error) => {
+            return Err(TaskSaveDirError::PrepareFailed(format!(
+                "无法读取保存目录：{error}"
+            )));
+        }
+    };
+
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(TaskSaveDirError::PrepareFailed(
+            "保存目录包含符号链接或同名文件".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 pub fn normalize_paths(paths: Vec<String>) -> Vec<String> {

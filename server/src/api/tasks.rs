@@ -386,36 +386,58 @@ fn validate_create_preconditions(
     build_task_service(state)
         .ensure_not_exiting()
         .map_err(classify_task_error)?;
-    ensure_authorized_save_dir(state, save_dir)
+    validate_authorized_save_dir(state, save_dir)
 }
 
-fn ensure_authorized_save_dir(
+pub(super) fn validate_authorized_save_dir(
     state: &HttpAppState,
     save_dir: Option<&str>,
 ) -> Result<(), ApiError> {
     let accessible_paths = super::storage::load_accessible_paths(state)?;
-    crate::storage::validate_task_save_dir(save_dir, &accessible_paths).map_err(|error| {
-        let (code, message) = match error {
-            TaskSaveDirError::Required => ("save_dir_required", "请选择已授权的保存目录"),
-            TaskSaveDirError::NoAccessiblePaths => (
-                "no_accessible_paths",
-                "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
-            ),
-            TaskSaveDirError::Unauthorized => (
-                "save_dir_not_authorized",
-                "保存目录不在飞牛已授权目录列表中",
-            ),
-        };
-        let log_message = match error {
-            TaskSaveDirError::Unauthorized => format!(
-                "保存目录校验失败：未授权目录 {}",
-                save_dir.unwrap_or_default()
-            ),
-            _ => format!("保存目录校验失败：{}", message),
-        };
-        state.core.debug_logs.warn("storage.auth", log_message);
+    crate::storage::validate_task_save_dir(save_dir, &accessible_paths)
+        .map_err(|error| task_save_dir_api_error(state, save_dir, error))
+}
+
+pub(super) fn ensure_authorized_save_dir(
+    state: &HttpAppState,
+    save_dir: Option<&str>,
+) -> Result<(), ApiError> {
+    let accessible_paths = super::storage::load_accessible_paths(state)?;
+    crate::storage::prepare_task_save_dir(save_dir, &accessible_paths)
+        .map_err(|error| task_save_dir_api_error(state, save_dir, error))
+}
+
+fn task_save_dir_api_error(
+    state: &HttpAppState,
+    save_dir: Option<&str>,
+    error: TaskSaveDirError,
+) -> ApiError {
+    let (code, message) = match &error {
+        TaskSaveDirError::Required => ("save_dir_required", "请选择已授权的保存目录"),
+        TaskSaveDirError::NoAccessiblePaths => (
+            "no_accessible_paths",
+            "未检测到已授权目录，请先在飞牛应用设置中添加读写文件夹授权",
+        ),
+        TaskSaveDirError::Unauthorized => (
+            "save_dir_not_authorized",
+            "保存目录不在飞牛已授权目录列表中",
+        ),
+        TaskSaveDirError::PrepareFailed(_) => ("save_dir_prepare_failed", "准备保存目录失败"),
+    };
+    let log_message = match error {
+        TaskSaveDirError::Unauthorized => format!(
+            "保存目录校验失败：未授权目录 {}",
+            save_dir.unwrap_or_default()
+        ),
+        TaskSaveDirError::PrepareFailed(error) => format!("准备保存目录失败：{error}"),
+        _ => format!("保存目录校验失败：{message}"),
+    };
+    state.core.debug_logs.warn("storage.auth", log_message);
+    if code == "save_dir_prepare_failed" {
+        ApiError::internal(code, message)
+    } else {
         ApiError::bad_request(code, message)
-    })
+    }
 }
 
 fn bad_request_with_log(
