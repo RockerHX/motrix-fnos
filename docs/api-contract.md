@@ -7,7 +7,7 @@
 | 环境变量 | 作用 | 默认值 |
 | --- | --- | --- |
 | `MOTRIX_FNOS_APP_DATA_DIR` | server 数据目录 | 用户本地数据目录下的 `motrix-fnos` |
-| `MOTRIX_FNOS_HTTP_ADDR` | 管理监听地址 | `0.0.0.0:17080` |
+| `MOTRIX_FNOS_HTTP_ADDR` | 管理 IPv4 监听地址；IPv4 通配地址会额外监听同端口 IPv6 | `0.0.0.0:17080` |
 | `MOTRIX_FNOS_JSONRPC_ADDR` | JSON-RPC 专用监听地址 | `127.0.0.1:17081` |
 | `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | 局域网 JSON-RPC 监听地址 | `0.0.0.0:17082` |
 | `MOTRIX_FNOS_ARIA2_PATH` | Aria2 可执行文件路径 | 打包路径优先，仓库调试路径兜底 |
@@ -21,12 +21,12 @@
 
 监听器约定：
 
-- 管理监听器只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
+- 管理入口（IPv4/IPv6）只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
 - 回环 JSON-RPC 监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
 - 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`，开启后只接受 RFC1918 IPv4 真实对端，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
-- 三个监听器共享业务状态和退出信号；任一地址绑定失败时 server 整体启动失败。
+- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6，任一实际地址绑定失败时 server 整体启动失败。
 
 ## 2. 前端消费约定
 

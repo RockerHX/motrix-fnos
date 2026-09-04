@@ -21,11 +21,11 @@ use crate::tasks::{
     is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus, PublicDownloadTask,
 };
 use serde::Serialize;
+use socket2::{Domain, Protocol, Socket, Type};
 use std::env;
 use std::fs;
 use std::future::{Future, IntoFuture};
-use std::net::IpAddr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -646,8 +646,11 @@ pub async fn run_server() -> Result<(), String> {
     state.core.debug_logs.info(
         "app",
         format!(
-            "管理服务入口已初始化，监听地址 {}，数据目录 {}",
+            "管理服务入口已初始化，监听地址 {}{}，数据目录 {}",
             state.runtime.http_addr,
+            management_ipv6_port(state.runtime.http_addr)
+                .map(|port| format!(" 和 [::]:{}", port))
+                .unwrap_or_default(),
             state.runtime.app_data_dir.display()
         ),
     );
@@ -749,6 +752,7 @@ async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<()
 #[derive(Debug)]
 struct HttpListeners {
     management: TcpListener,
+    management_ipv6: Option<TcpListener>,
     jsonrpc: TcpListener,
     lan_jsonrpc: TcpListener,
 }
@@ -757,6 +761,16 @@ async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListen
     let management = TcpListener::bind(runtime.http_addr)
         .await
         .map_err(|error| format!("绑定管理监听地址失败：{}（{}）", runtime.http_addr, error))?;
+    let management_ipv6 = management_ipv6_port(runtime.http_addr)
+        .map(|_| {
+            management
+                .local_addr()
+                .map_err(|error| {
+                    format!("读取管理监听端口失败：{}（{}）", runtime.http_addr, error)
+                })
+                .and_then(|addr| bind_ipv6_management_listener(addr.port()))
+        })
+        .transpose()?;
     let jsonrpc = TcpListener::bind(runtime.jsonrpc_addr)
         .await
         .map_err(|error| {
@@ -776,14 +790,44 @@ async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListen
 
     Ok(HttpListeners {
         management,
+        management_ipv6,
         jsonrpc,
         lan_jsonrpc,
     })
 }
 
+fn management_ipv6_port(addr: SocketAddr) -> Option<u16> {
+    match addr {
+        SocketAddr::V4(addr) if addr.ip().is_unspecified() => Some(addr.port()),
+        _ => None,
+    }
+}
+
+fn bind_ipv6_management_listener(port: u16) -> Result<TcpListener, String> {
+    let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
+    let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
+        .map_err(|error| format!("创建 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
+    socket
+        .set_only_v6(true)
+        .map_err(|error| format!("设置 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
+    socket
+        .set_nonblocking(true)
+        .map_err(|error| format!("设置 IPv6 管理监听非阻塞失败：{}（{}）", addr, error))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|error| format!("绑定 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
+    socket
+        .listen(1024)
+        .map_err(|error| format!("监听 IPv6 管理地址失败：{}（{}）", addr, error))?;
+    let listener: std::net::TcpListener = socket.into();
+    TcpListener::from_std(listener)
+        .map_err(|error| format!("接管 IPv6 管理监听地址失败：{}（{}）", addr, error))
+}
+
 enum HttpStopTrigger {
     Signal(Result<String, String>),
     Management(std::io::Result<()>),
+    ManagementIpv6(std::io::Result<()>),
     JsonRpc(std::io::Result<()>),
     LanJsonRpc(std::io::Result<()>),
 }
@@ -814,26 +858,55 @@ async fn serve_http_listeners_with_shutdown_timeout<F>(
 where
     F: Future<Output = Result<String, String>>,
 {
+    let HttpListeners {
+        management,
+        management_ipv6,
+        jsonrpc,
+        lan_jsonrpc,
+    } = listeners;
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+    let management_shutdown = shutdown_receiver.clone();
+    let management_ipv6_shutdown = shutdown_receiver.clone();
+    let jsonrpc_shutdown = shutdown_receiver.clone();
+    let lan_jsonrpc_shutdown = shutdown_receiver.clone();
     let management_server = axum::serve(
-        listeners.management,
+        management,
         crate::api::management_router(state.clone())
             .into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
+    .with_graceful_shutdown(wait_for_http_shutdown(management_shutdown))
     .into_future();
-    let jsonrpc_server = axum::serve(listeners.jsonrpc, crate::api::jsonrpc_router(state.clone()))
-        .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
+    let management_ipv6_state = state.clone();
+    let management_ipv6_server = async move {
+        match management_ipv6 {
+            Some(listener) => {
+                axum::serve(
+                    listener,
+                    crate::api::management_router(management_ipv6_state)
+                        .into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .with_graceful_shutdown(wait_for_http_shutdown(management_ipv6_shutdown))
+                .await
+            }
+            None => {
+                wait_for_http_shutdown(management_ipv6_shutdown).await;
+                Ok(())
+            }
+        }
+    };
+    let jsonrpc_server = axum::serve(jsonrpc, crate::api::jsonrpc_router(state.clone()))
+        .with_graceful_shutdown(wait_for_http_shutdown(jsonrpc_shutdown))
         .into_future();
     let lan_jsonrpc_server = axum::serve(
-        listeners.lan_jsonrpc,
+        lan_jsonrpc,
         crate::api::lan_jsonrpc_router(state.clone())
             .into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(wait_for_http_shutdown(shutdown_receiver.clone()))
+    .with_graceful_shutdown(wait_for_http_shutdown(lan_jsonrpc_shutdown))
     .into_future();
 
     tokio::pin!(management_server);
+    tokio::pin!(management_ipv6_server);
     tokio::pin!(jsonrpc_server);
     tokio::pin!(lan_jsonrpc_server);
     tokio::pin!(shutdown_signal);
@@ -841,6 +914,7 @@ where
     let trigger = tokio::select! {
         signal = &mut shutdown_signal => HttpStopTrigger::Signal(signal),
         result = &mut management_server => HttpStopTrigger::Management(result),
+        result = &mut management_ipv6_server => HttpStopTrigger::ManagementIpv6(result),
         result = &mut jsonrpc_server => HttpStopTrigger::JsonRpc(result),
         result = &mut lan_jsonrpc_server => HttpStopTrigger::LanJsonRpc(result),
     };
@@ -858,6 +932,14 @@ where
         HttpStopTrigger::Management(Err(error)) => (
             "管理 HTTP 服务运行失败，准备关闭 JSON-RPC 服务".to_string(),
             Some(format!("管理 HTTP 服务运行失败：{}", error)),
+        ),
+        HttpStopTrigger::ManagementIpv6(Ok(())) => (
+            "IPv6 管理 HTTP 服务意外停止".to_string(),
+            Some("IPv6 管理 HTTP 服务意外停止".to_string()),
+        ),
+        HttpStopTrigger::ManagementIpv6(Err(error)) => (
+            "IPv6 管理 HTTP 服务运行失败，准备关闭其他服务".to_string(),
+            Some(format!("IPv6 管理 HTTP 服务运行失败：{}", error)),
         ),
         HttpStopTrigger::JsonRpc(Ok(())) => (
             "JSON-RPC HTTP 服务意外停止".to_string(),
@@ -885,6 +967,32 @@ where
     let remaining_error = match timeout_at(shutdown_deadline, async {
         match trigger {
             HttpStopTrigger::Signal(_) => {
+                let (management_result, management_ipv6_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
+                    &mut management_server,
+                    &mut management_ipv6_server,
+                    &mut jsonrpc_server,
+                    &mut lan_jsonrpc_server
+                );
+                combine_server_errors([
+                    ("管理 HTTP 服务", management_result),
+                    ("IPv6 管理 HTTP 服务", management_ipv6_result),
+                    ("JSON-RPC HTTP 服务", jsonrpc_result),
+                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+                ])
+            }
+            HttpStopTrigger::Management(_) => {
+                let (management_ipv6_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
+                    &mut management_ipv6_server,
+                    &mut jsonrpc_server,
+                    &mut lan_jsonrpc_server
+                );
+                combine_server_errors([
+                    ("IPv6 管理 HTTP 服务", management_ipv6_result),
+                    ("JSON-RPC HTTP 服务", jsonrpc_result),
+                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
+                ])
+            }
+            HttpStopTrigger::ManagementIpv6(_) => {
                 let (management_result, jsonrpc_result, lan_jsonrpc_result) = tokio::join!(
                     &mut management_server,
                     &mut jsonrpc_server,
@@ -896,27 +1004,27 @@ where
                     ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
                 ])
             }
-            HttpStopTrigger::Management(_) => {
-                let (jsonrpc_result, lan_jsonrpc_result) =
-                    tokio::join!(&mut jsonrpc_server, &mut lan_jsonrpc_server);
-                combine_server_errors([
-                    ("JSON-RPC HTTP 服务", jsonrpc_result),
-                    ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
-                ])
-            }
             HttpStopTrigger::JsonRpc(_) => {
-                let (management_result, lan_jsonrpc_result) =
-                    tokio::join!(&mut management_server, &mut lan_jsonrpc_server);
+                let (management_result, management_ipv6_result, lan_jsonrpc_result) = tokio::join!(
+                    &mut management_server,
+                    &mut management_ipv6_server,
+                    &mut lan_jsonrpc_server
+                );
                 combine_server_errors([
                     ("管理 HTTP 服务", management_result),
+                    ("IPv6 管理 HTTP 服务", management_ipv6_result),
                     ("局域网 JSON-RPC HTTP 服务", lan_jsonrpc_result),
                 ])
             }
             HttpStopTrigger::LanJsonRpc(_) => {
-                let (management_result, jsonrpc_result) =
-                    tokio::join!(&mut management_server, &mut jsonrpc_server);
+                let (management_result, management_ipv6_result, jsonrpc_result) = tokio::join!(
+                    &mut management_server,
+                    &mut management_ipv6_server,
+                    &mut jsonrpc_server
+                );
                 combine_server_errors([
                     ("管理 HTTP 服务", management_result),
+                    ("IPv6 管理 HTTP 服务", management_ipv6_result),
                     ("JSON-RPC HTTP 服务", jsonrpc_result),
                 ])
             }
