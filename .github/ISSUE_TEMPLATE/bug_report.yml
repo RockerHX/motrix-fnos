@@ -1,0 +1,76 @@
+name: Bug 报告
+description: 报告一个可以稳定复现的问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢提交 Bug。请先确认问题在最新版本中仍然存在，并尽量附上诊断包或相关日志。
+
+        请勿粘贴密码、JWT、JSON-RPC Token、代理凭据、完整下载链接或其他敏感信息。
+
+  - type: input
+    id: version
+    attributes:
+      label: Motrix FNOS 版本
+      placeholder: 例如：1.9.4
+    validations:
+      required: true
+
+  - type: input
+    id: fnos_version
+    attributes:
+      label: fnOS 版本
+      placeholder: 例如：0.9.x
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: 设备架构
+      options:
+        - x86_64
+        - aarch64 / arm64
+        - 不确定
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      description: 请按顺序描述操作步骤，并提供必要的任务类型、目录和请求信息。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 日志或诊断信息
+      description: 请脱敏后粘贴日志，或附上应用导出的诊断包。
+      render: text
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: 其他信息
+      description: 可补充截图、相关客户端、是否为升级后出现等信息。

@@ -28,6 +28,35 @@ Motrix FNOS 的远程能力主要用于把下载任务直接推送到家中的 N
 
 现有 `aria2.getGlobalOption` 仅返回受控的授权下载目录子集，不代表支持 Aria2 Explorer 的完整配置管理。需要远程推送任务时，应使用项目文档中声明的 JSON-RPC 地址和对应 Token；需要查看或控制任务时，应使用 Motrix Web UI。
 
+## Issue 与支持范围
+
+本项目由个人维护，无法提供保姆式的一对一技术支持，也不承诺固定响应时效。
+
+公开 Issue 仅用于：
+
+- 报告可复现的 Bug；
+- 提交明确的功能建议；
+
+安全问题请按照 [SECURITY.md](SECURITY.md) 的说明，通过私密渠道报告，不要在公开 Issue 中披露漏洞细节。
+
+请优先使用对应的 Issue 模板：
+
+- [提交 Bug 报告](https://github.com/RockerHX/motrix-fnos/issues/new?template=bug_report.yml)；
+- [提交功能建议](https://github.com/RockerHX/motrix-fnos/issues/new?template=feature_request.yml)。
+
+提交 Issue 前，请先确认：
+
+- 使用的是最新版本；
+- 已阅读相关文档；
+- 已填写版本、fnOS 环境、复现步骤和必要日志；
+- 已确认不是重复问题。
+
+缺少关键信息、无法复现、与项目无关或重复的问题，可能会被直接关闭。使用咨询请尽量提供完整上下文，维护者会根据时间和问题价值处理。
+
+请尊重开源项目维护者和其他参与者。辱骂、嘲讽、人身攻击、重复纠缠或恶意灌水将直接关闭，必要时锁定 Issue 或限制后续互动。
+
+如果项目对你有帮助，欢迎点 Star、提交修复或反馈清晰的 Bug；Star 是对项目的自愿支持，不是获取技术支持的前置条件。
+
 ## 支持平台
 
 FPK 按设备 CPU 架构分别发布：
