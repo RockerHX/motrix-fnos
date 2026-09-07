@@ -466,6 +466,88 @@ async fn listener_binding_releases_other_ports_when_lan_jsonrpc_port_is_occupied
 }
 
 #[tokio::test]
+async fn wildcard_management_listener_serves_ipv4_and_ipv6() {
+    let runtime = listener_runtime(
+        "0.0.0.0:0".parse().expect("address should parse"),
+        "127.0.0.1:0".parse().expect("address should parse"),
+    );
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    let listeners = bind_http_listeners(&runtime)
+        .await
+        .expect("listeners should bind");
+    state.mark_listeners_ready();
+    let management_port = listeners
+        .management
+        .local_addr()
+        .expect("management address should read")
+        .port();
+    let management_ipv6_addr = listeners
+        .management_ipv6
+        .as_ref()
+        .expect("wildcard management listener should bind IPv6")
+        .local_addr()
+        .expect("IPv6 management address should read");
+    assert_eq!(management_ipv6_addr.port(), management_port);
+    let lan_jsonrpc_port = listeners
+        .lan_jsonrpc
+        .local_addr()
+        .expect("LAN JSON-RPC address should read")
+        .port();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<String>();
+    let serving_state = state.clone();
+    let server = tokio::spawn(async move {
+        serve_http_listeners(serving_state, listeners, async move {
+            shutdown_receiver
+                .await
+                .map_err(|error| format!("测试停止信号丢失：{}", error))
+        })
+        .await
+    });
+    let client = reqwest::Client::new();
+
+    for address in [
+        format!("http://127.0.0.1:{management_port}"),
+        format!("http://[::1]:{management_port}"),
+    ] {
+        let response = client
+            .get(format!("{address}/api/auth/status"))
+            .send()
+            .await
+            .expect("management API should respond");
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+    }
+    assert!(
+        tokio::net::TcpStream::connect(format!("[::1]:{lan_jsonrpc_port}"))
+            .await
+            .is_err()
+    );
+
+    shutdown_sender
+        .send("测试双栈管理监听器停止".to_string())
+        .expect("shutdown signal should send");
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("server should stop before timeout")
+        .expect("server task should join");
+    assert_eq!(result, Ok(()));
+    drop(client);
+    assert_listener_closed(
+        format!("127.0.0.1:{management_port}")
+            .parse()
+            .expect("IPv4 management address should parse"),
+    )
+    .await;
+    assert_listener_closed(
+        format!("[::1]:{management_port}")
+            .parse()
+            .expect("IPv6 management address should parse"),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
     let runtime = listener_runtime(
         "127.0.0.1:0".parse().expect("address should parse"),

@@ -33,7 +33,7 @@ desktop_applaunchname =
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
-正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。前者用于确认应用共享授权，后者用于把已确认路径转换为面向用户的语义化路径。`os_min_version` 固定为 `1.2.0401`：安装器会拒绝更低版本的 fnOS，正式包只使用官方 Unix Socket 和 SDK 授权链路，不再维护旧系统的人工授权快照流程。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。ARM 包的 `os_min_version` 下调为 `1.2.0302`，以兼容尚未升级到 `1.2.0401` 的 ARM 设备；x86 包仍要求 `1.2.0401`。安装器会拒绝低于对应最低版本的 fnOS。`1.2.0302` 对开放 API、飞牛 App WebView 和 IPv6 管理入口的实际支持仍需在目标设备上验收，正式包只在实机确认后承诺对应能力。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
 
 构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
 
@@ -86,11 +86,11 @@ desktop_applaunchname =
 
 ## 三监听器与端口边界
 
-FPK 启动脚本必须向同一个 Rust server 注入三个地址：
+FPK 启动脚本必须向同一个 Rust server 注入三个入口地址；管理入口使用 IPv4 通配地址时，server 会额外绑定同端口 IPv6：
 
 | 环境变量 | FPK 默认值 | 平台可见性 |
 | --- | --- | --- |
-| `MOTRIX_FNOS_HTTP_ADDR` | `0.0.0.0:17080` | manifest、桌面入口和 `MotrixFNOS.sc` 只映射该管理端口 |
+| `MOTRIX_FNOS_HTTP_ADDR` | `0.0.0.0:17080` | manifest、桌面入口和 `MotrixFNOS.sc` 只映射该管理端口；IPv4 通配地址会额外监听同端口 IPv6 |
 | `MOTRIX_FNOS_JSONRPC_ADDR` | `127.0.0.1:17081` | 仅 NAS 本机反向代理可访问，不进入任何 fnOS 端口声明 |
 | `MOTRIX_FNOS_LAN_JSONRPC_ADDR` | `0.0.0.0:17082` | 由 `MotrixFNOS.sc` 与管理端口共同声明，manifest 与桌面入口仍不引用 |
 | `MOTRIX_TRUSTED_PROXY_IPS` | 空 | 仅填写直接连接到管理 listener 的可信代理 IP；未配置时忽略 `X-Forwarded-For` |

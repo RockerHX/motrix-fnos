@@ -10,7 +10,7 @@
 
 - 交付形态：`.fpk`。
 - 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：同一 Rust server 共享业务状态并启动三个 TCP 监听器；管理监听器承载 Web UI、HTTP API 与 SSE，回环 RPC 监听器和局域网 RPC 监听器分别承载使用独立 token 的 JSON-RPC 兼容入口。
+- 前后端通信：同一 Rust server 共享业务状态并启动三个服务入口；管理入口承载 Web UI、HTTP API 与 SSE，并同时监听 IPv4/IPv6，回环 RPC 入口和局域网 RPC 入口分别承载使用独立 token 的 JSON-RPC 兼容入口。
 - 长期状态：SQLite 与 Aria2 session 持久化到 FPK 应用数据目录。
 - 维护主线：`server/`、`src/`、`packaging/fnos/`。
 
@@ -45,7 +45,7 @@ fnOS FPK
 
 正式包使用 fnOS 开放 API 查询共享目录授权，并以服务端确认的目录快照作为授权事实；SDK 返回值、浏览器提交路径和语义化展示路径都不能绕过 Rust server 的授权与归属校验。SDK 只在 fnOS 桌面或飞牛 App WebView 中由用户操作触发，独立浏览器只显示降级提示。
 
-独立 Probe 仅用于验证平台机制，现已归档，不属于正式 Motrix 拓扑。正式包继续使用 `17080`、`17081`、`17082` 三监听器，正式身份的 fnOS 实机验收要求见 `docs/fpk-packaging.md`。
+独立 Probe 仅用于验证平台机制，现已归档，不属于正式 Motrix 拓扑。正式包继续使用 `17080`、`17081`、`17082` 三类入口，管理端口同时覆盖 IPv4/IPv6；正式身份的 fnOS 实机验收要求见 `docs/fpk-packaging.md`。
 
 ### 3.2 交付与运行约束
 
@@ -57,10 +57,10 @@ fnOS FPK
 - 卸载流程不得吞掉停止失败。只有确认本应用 server 与所属 Aria2 sidecar 均已退出后，才允许删除包文件或应用数据；无法确认时失败关闭并保留运行态和用户文件。
 - 启动时只允许根据持久化 PID、启动时间、UID 和可执行文件归属清理本应用孤儿进程。端口被无法证明归属的进程占用时必须拒绝启动并报告诊断信息，不得按端口或进程名误杀。
 - SQLite、Aria2 session、日志和运行态记录统一保存在应用数据目录，打包产物不得携带本地运行残留。
-- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，未知路径统一返回 404。
+- Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，并以 IPv6-only socket 同时绑定 `[::]:17080`；未知路径统一返回 404。
 - 回环 RPC 监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
 - 局域网 RPC 监听器默认绑定 `0.0.0.0:17082`，同样只注册精确的 `/jsonrpc`。监听器始终绑定；局域网入口关闭时所有请求返回 404，开启后只接受真实 TCP 对端位于 IPv4 RFC1918 网段的请求，不读取代理来源 Header。
-- 三个监听器共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
+- 三类入口共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一实际地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
 - 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
 - 桌面入口默认仅管理员，管理员可在应用设置中切换为设备内所有用户。端口服务不提供 fnOS 登录态 Header，管理面必须使用自身的 Web 管理密码和 JWT，不得伪装成已接入统一网关鉴权。
@@ -211,7 +211,7 @@ Rust Runtime Event
 ## 8. 生命周期与安全边界
 
 - 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
-- 管理监听器、回环 RPC 监听器与局域网 RPC 监听器必须在业务服务就绪后共同启动；任一监听器启动失败都不得留下半可用进程。
+- 管理入口的 IPv4/IPv6 socket、回环 RPC 入口与局域网 RPC 入口必须在业务服务就绪后共同启动；任一实际地址启动失败都不得留下半可用进程。
 - PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
 - 后端启动时准备数据目录、初始化 SQLite；Aria2 仅在恢复工作或其他引擎活动需要时按需启动或连接。
 - 后端停止时保存任务状态、保存 Aria2 session、停止当前服务管理的 Aria2 实例。
