@@ -70,7 +70,7 @@ describe("runtimeEvents", () => {
     const stream = controllableStream();
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(stream.response);
-    const status = { setupRequired: false, enabled: true, authenticated: false };
+    const status = { setupRequired: false, authenticated: false };
     const checkAuth = vi.fn().mockResolvedValue(status);
     const onUnauthorized = vi.fn();
     initializeRuntimeEvents({ checkAuth, onUnauthorized, getAccessToken: () => "jwt" });
@@ -87,7 +87,7 @@ describe("runtimeEvents", () => {
     const second = controllableStream();
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response);
-    const checkAuth = vi.fn().mockResolvedValue({ setupRequired: false, enabled: true, authenticated: true });
+    const checkAuth = vi.fn().mockResolvedValue({ setupRequired: false, authenticated: true });
     initializeRuntimeEvents({ checkAuth, onUnauthorized: vi.fn(), getAccessToken: () => "jwt" });
     await vi.runAllTicks();
     first.close();

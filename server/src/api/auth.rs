@@ -77,7 +77,6 @@ pub(crate) fn public_routes() -> Router<Arc<HttpAppState>> {
         .route("/auth/login", post(login))
         .route("/auth/logout", post(logout))
         .route("/auth/password", put(change_password))
-        .route("/auth/protection", put(change_protection))
         .route("/auth/login-diagnostic", get(login_diagnostic))
 }
 
@@ -118,9 +117,6 @@ pub(crate) async fn event_context_is_authorized(
     if auth_state.setup_required {
         return false;
     }
-    if !auth_state.enabled {
-        return true;
-    }
     let Some(token) = context.token.as_deref() else {
         return false;
     };
@@ -136,7 +132,6 @@ pub(crate) async fn event_context_is_authorized(
 #[serde(rename_all = "camelCase")]
 pub struct AuthStatusResponse {
     pub setup_required: bool,
-    pub enabled: bool,
     pub authenticated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
@@ -152,13 +147,6 @@ struct PasswordRequest {
 struct ChangePasswordRequest {
     current_password: String,
     new_password: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ChangeProtectionRequest {
-    enabled: bool,
-    current_password: String,
 }
 
 async fn status(
@@ -331,33 +319,6 @@ async fn change_password(
     auth_status_response(&auth_state, true, Some(token))
 }
 
-async fn change_protection(
-    State(state): State<Arc<HttpAppState>>,
-    ApiJson(payload): ApiJson<ChangeProtectionRequest>,
-) -> Result<Response, ApiError> {
-    let auth_state = state
-        .auth
-        .service
-        .set_protection(payload.enabled, &payload.current_password)
-        .await
-        .map_err(classify_auth_error)?;
-    let token = state
-        .auth
-        .service
-        .issue_admin_token(&auth_state)
-        .await
-        .map_err(classify_auth_error)?;
-    state.core.debug_logs.info(
-        "auth.protection",
-        if payload.enabled {
-            "Web 管理访问保护已启用"
-        } else {
-            "Web 管理访问保护已关闭"
-        },
-    );
-    auth_status_response(&auth_state, true, Some(token))
-}
-
 async fn load_auth_state(state: &HttpAppState) -> Result<AuthState, ApiError> {
     state
         .auth
@@ -375,9 +336,6 @@ async fn authorize_management_request(
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
-    }
-    if !auth_state.enabled {
-        return Ok(());
     }
     let token = bearer_token(headers)
         .map_err(|reason| authentication_required_with_context(state, context, reason))?
@@ -401,9 +359,6 @@ async fn authorize_event_request(
     let auth_state = load_auth_state(state).await?;
     if auth_state.setup_required {
         return Err(authentication_required());
-    }
-    if !auth_state.enabled {
-        return Ok(EventAuthContext { token: None });
     }
     let token = bearer_token(headers)
         .map_err(|reason| authentication_required_with_context(state, context, reason))?
@@ -442,7 +397,6 @@ fn auth_status_response(
 ) -> Result<Response, ApiError> {
     Ok(Json(AuthStatusResponse {
         setup_required: auth_state.setup_required,
-        enabled: auth_state.enabled,
         authenticated,
         access_token,
     })

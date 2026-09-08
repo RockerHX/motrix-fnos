@@ -12,7 +12,6 @@ vi.mock("../services/authService", () => ({
   downloadLoginDiagnostic: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),
-  changeAuthProtection: vi.fn(),
 }));
 
 describe("AuthGate", () => {
@@ -43,13 +42,11 @@ describe("AuthGate", () => {
     store.phase = "setup";
     vi.mocked(setupAuth).mockResolvedValueOnce({
       setupRequired: false,
-      enabled: true,
       authenticated: true,
       accessToken: "setup-jwt",
     });
     vi.mocked(getAuthStatus).mockResolvedValueOnce({
       setupRequired: false,
-      enabled: true,
       authenticated: true,
       accessToken: "setup-jwt",
     });

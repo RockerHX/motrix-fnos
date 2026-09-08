@@ -144,56 +144,7 @@ async fn protected_management_requests_report_bearer_failure_codes() {
 }
 
 #[tokio::test]
-async fn protection_disabled_allows_anonymous_management_and_sse_context() {
-    let state = test_state("anonymous").await;
-    let public = public_routes().with_state(state.clone());
-    let setup = send(
-        &public,
-        "POST",
-        "/auth/setup",
-        Some(json!({"password": "correct horse battery"})),
-        None,
-    )
-    .await;
-    let token = json_body(setup).await["accessToken"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let changed = send(
-        &public,
-        "PUT",
-        "/auth/protection",
-        Some(json!({"enabled": false, "currentPassword": "correct horse battery"})),
-        Some(&token),
-    )
-    .await;
-    assert_eq!(changed.status(), StatusCode::OK);
-
-    let protected = Router::new()
-        .route("/protected", get(get_probe))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            management_auth,
-        ))
-        .with_state(state.clone());
-    let anonymous = protected
-        .oneshot(Request::get("/protected").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    assert_eq!(anonymous.status(), StatusCode::OK);
-
-    let events = Router::new()
-        .route("/events", get(get_probe))
-        .route_layer(middleware::from_fn_with_state(state, event_auth));
-    let anonymous_event = events
-        .oneshot(Request::get("/events").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    assert_eq!(anonymous_event.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn password_and_protection_changes_accept_current_password_without_a_bearer_token() {
+async fn password_changes_accept_current_password_without_a_bearer_token() {
     let state = test_state("invalidate").await;
     let public = public_routes().with_state(state.clone());
     let setup = send(
@@ -228,12 +179,11 @@ async fn password_and_protection_changes_accept_current_password_without_a_beare
         None,
     )
     .await;
-    assert_eq!(protection.status(), StatusCode::OK);
-    assert!(json_body(protection).await["accessToken"].is_string());
+    assert_eq!(protection.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn auth_configuration_changes_reject_an_incorrect_current_password() {
+async fn password_change_rejects_an_incorrect_current_password() {
     let state = test_state("configuration-password").await;
     let public = public_routes().with_state(state);
     let setup = send(
@@ -246,20 +196,16 @@ async fn auth_configuration_changes_reject_an_incorrect_current_password() {
     .await;
     assert_eq!(setup.status(), StatusCode::OK);
 
-    for (uri, body) in [
-        (
-            "/auth/password",
-            json!({"currentPassword": "wrong password", "newPassword": "replacement password"}),
-        ),
-        (
-            "/auth/protection",
-            json!({"enabled": false, "currentPassword": "wrong password"}),
-        ),
-    ] {
-        let response = send(&public, "PUT", uri, Some(body), None).await;
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert_eq!(json_body(response).await["code"], "invalid_credentials");
-    }
+    let response = send(
+        &public,
+        "PUT",
+        "/auth/password",
+        Some(json!({"currentPassword": "wrong password", "newPassword": "replacement password"})),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(response).await["code"], "invalid_credentials");
 }
 
 #[test]

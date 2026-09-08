@@ -227,10 +227,10 @@ Rust Runtime Event
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
 - Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
-- 管理 API 与 SSE 在保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、保护状态变更和重置递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，关闭或重新启用管理保护都必须验证当前密码。
+- 除明确匿名的认证与就绪探测接口外，管理 API 与 SSE 始终要求有效管理员 JWT。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、本地重置和升级时恢复旧版关闭状态均递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，且不提供关闭管理密码保护的配置或 API。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
 - Web 管理不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。
-- 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，关闭 Web 管理保护不得影响 RPC 鉴权。
+- 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，Web 管理认证变更不得影响 RPC 鉴权。
 - 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
 - 局域网 JSON-RPC 入口只按 TCP 真实对端判断 RFC1918 IPv4 来源；回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
 - 日志必须隐藏私密 URL query 和敏感配置；下载代理的完整 URL、userinfo、私密覆盖值及其错误上下文不得进入文件日志、内存调试日志或诊断导出。

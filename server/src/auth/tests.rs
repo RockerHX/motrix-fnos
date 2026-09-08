@@ -34,7 +34,7 @@ fn password_hash_uses_argon2id_and_random_salts() {
 }
 
 #[test]
-fn auth_service_supports_setup_change_protection_and_reset() {
+fn auth_service_supports_setup_password_change_and_reset() {
     test_runtime().block_on(async {
         let (service, path) = test_service("lifecycle").await;
         assert!(
@@ -50,7 +50,6 @@ fn auth_service_supports_setup_change_protection_and_reset() {
             .await
             .expect("setup should pass");
         assert!(!state.setup_required);
-        assert!(state.enabled);
         assert_eq!(state.auth_version, 1);
         let original_token = service
             .issue_admin_token(&state)
@@ -72,18 +71,10 @@ fn auth_service_supports_setup_change_protection_and_reset() {
             .await
             .is_ok());
 
-        let disabled = service
-            .set_protection(false, "replacement password")
-            .await
-            .expect("protection should change");
-        assert!(!disabled.enabled);
-        assert_eq!(disabled.auth_version, 3);
-
         service.reset().await.expect("reset should pass");
         let reset = service.state().await.expect("reset state should load");
         assert!(reset.setup_required);
-        assert!(reset.enabled);
-        assert_eq!(reset.auth_version, 4);
+        assert_eq!(reset.auth_version, 3);
         assert_eq!(
             service
                 .validate_admin_token(&original_token, reset.auth_version)
@@ -91,6 +82,62 @@ fn auth_service_supports_setup_change_protection_and_reset() {
             Err(JwtValidationFailure::AuthVersionMismatch)
         );
         cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn upgrade_reenables_protection_without_changing_the_password() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("force-protection").await;
+        let configured = service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let token = service
+            .issue_admin_token(&configured)
+            .await
+            .expect("token should issue");
+        let password_hash: String =
+            sqlx::query_scalar("SELECT password_hash FROM web_auth_config WHERE id = 1")
+                .fetch_one(&service.pool)
+                .await
+                .expect("password hash should load");
+        sqlx::query("UPDATE web_auth_config SET enabled = 0 WHERE id = 1")
+            .execute(&service.pool)
+            .await
+            .expect("legacy protection state should persist");
+        sqlx::query("DELETE FROM schema_migrations WHERE version = 6")
+            .execute(&service.pool)
+            .await
+            .expect("migration record should clear");
+        service.pool.close().await;
+
+        let database = connect_database(path.clone())
+            .await
+            .expect("database should upgrade");
+        let reopened = AuthService::new(database.pool);
+        let enabled: i64 = sqlx::query_scalar("SELECT enabled FROM web_auth_config WHERE id = 1")
+            .fetch_one(&reopened.pool)
+            .await
+            .expect("protection state should load");
+        let restored_hash: String =
+            sqlx::query_scalar("SELECT password_hash FROM web_auth_config WHERE id = 1")
+                .fetch_one(&reopened.pool)
+                .await
+                .expect("password hash should load");
+        let upgraded = reopened.state().await.expect("state should load");
+
+        assert_eq!(enabled, 1);
+        assert_eq!(restored_hash, password_hash);
+        assert_eq!(upgraded.auth_version, configured.auth_version + 1);
+        assert!(reopened.verify_password(VALID_PASSWORD).await.is_ok());
+        assert_eq!(
+            reopened
+                .validate_admin_token(&token, upgraded.auth_version)
+                .await,
+            Err(JwtValidationFailure::AuthVersionMismatch)
+        );
+        cleanup(reopened, path).await;
     });
 }
 

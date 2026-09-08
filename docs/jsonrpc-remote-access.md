@@ -7,7 +7,7 @@
 
 | 端口 | 用途 | 访问范围 |
 | --- | --- | --- |
-| `17080` | Web 管理面、HTTP API、SSE | fnOS 管理入口；保护开启时业务 API 需要 Web 管理 JWT |
+| `17080` | Web 管理面、HTTP API、SSE | fnOS 管理入口；除明确匿名的认证与就绪探测接口外，业务 API 与 SSE 需要 Web 管理 JWT |
 | `17081` | 回环 JSON-RPC | 仅 NAS 本机和本机反向代理；Lucky 应代理到这里 |
 | `17082` | 局域网 JSON-RPC | 仅 RFC1918 IPv4 客户端；使用独立 Token |
 | `6800` | Aria2 内部 RPC | 仅 Rust server 使用，不对外开放 |

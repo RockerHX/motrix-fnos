@@ -17,7 +17,6 @@ vi.mock("../features/auth/services/authService", () => ({
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(async () => undefined),
   changeAuthPassword: vi.fn(),
-  changeAuthProtection: vi.fn(),
 }));
 
 vi.mock("../features/about/composables/useUpdateCheck", () => ({
@@ -218,7 +217,7 @@ describe("MainWindow floating create button", () => {
   it("logs out through the shell and clears sensitive task state", async () => {
     const { wrapper } = mountMainWindow();
     const authStore = useAuthStore();
-    authStore.handleUnauthorizedStatus({ setupRequired: false, enabled: true, authenticated: true, accessToken: "jwt" });
+    authStore.handleUnauthorizedStatus({ setupRequired: false, authenticated: true, accessToken: "jwt" });
     const taskStore = useTaskStore();
     taskStore.tasks = [{ id: 1 } as never];
 

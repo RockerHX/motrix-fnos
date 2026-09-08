@@ -8,7 +8,6 @@ import { setAccessTokenProvider, setUnauthorizedHandler } from "../../../service
 import { createAuthChannel, type AuthChannel } from "../services/authChannel";
 import {
   changeAuthPassword,
-  changeAuthProtection,
   getAuthStatus,
   loginAuth,
   logoutAuth,
@@ -21,7 +20,6 @@ const ACCESS_TOKEN_STORAGE_KEY = "motrix-fnos:web-access-token";
 
 export const useAuthStore = defineStore("auth", () => {
   const phase = ref<AuthPhase>("loading");
-  const enabled = ref(true);
   const authenticated = ref(false);
   const accessToken = ref<string | null>(null);
   const localStorageAvailable = ref(true);
@@ -77,10 +75,6 @@ export const useAuthStore = defineStore("auth", () => {
 
   async function changePassword(payload: ChangePasswordRequest) {
     return submit(() => changeAuthPassword(payload), true);
-  }
-
-  async function setProtection(nextEnabled: boolean, currentPassword: string) {
-    return submit(() => changeAuthProtection({ enabled: nextEnabled, currentPassword }), true);
   }
 
   async function handleUnauthorized() {
@@ -161,13 +155,12 @@ export const useAuthStore = defineStore("auth", () => {
 
   function applyStatus(status: AuthStatus) {
     const wasReady = isReady.value;
-    enabled.value = status.enabled;
     authenticated.value = status.authenticated;
     errorMessage.value = "";
     if (status.setupRequired) {
       phase.value = "setup";
       clearAccessToken();
-    } else if (status.enabled && !status.authenticated) {
+    } else if (!status.authenticated) {
       phase.value = "login";
       clearAccessToken();
     } else {
@@ -227,7 +220,6 @@ export const useAuthStore = defineStore("auth", () => {
 
   return {
     phase,
-    enabled,
     authenticated,
     accessToken,
     hasAccessToken,
@@ -242,7 +234,6 @@ export const useAuthStore = defineStore("auth", () => {
     login,
     logout,
     changePassword,
-    setProtection,
     handleUnauthorized,
     handleUnauthorizedStatus,
     startCoordination,

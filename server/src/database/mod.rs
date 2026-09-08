@@ -204,6 +204,10 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 5,
         name: "web_auth_jwt_secret",
     },
+    SchemaMigration {
+        version: 6,
+        name: "force_web_auth_protection",
+    },
 ];
 
 async fn apply_schema_migration(
@@ -216,8 +220,21 @@ async fn apply_schema_migration(
         3 => create_task_query_indexes(transaction).await,
         4 => create_task_proxy_schema(transaction).await,
         5 => create_web_auth_jwt_schema(transaction).await,
+        6 => force_web_auth_protection(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn force_web_auth_protection(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE web_auth_config SET enabled = 1, auth_version = auth_version + 1 WHERE id = 1 AND enabled = 0",
+    )
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| format!("强制启用 Web 管理保护失败：{error}"))?;
+    Ok(())
 }
 
 async fn create_web_auth_jwt_schema(

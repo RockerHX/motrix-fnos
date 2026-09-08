@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { httpGet, httpGetBlob, httpPost, httpPut } from "../../../services/http";
 import {
   changeAuthPassword,
-  changeAuthProtection,
   getAuthStatus,
   loginAuth,
   downloadLoginDiagnostic,
@@ -37,18 +36,13 @@ describe("authService", () => {
     );
   });
 
-  it("maps privileged auth operations to their contracts", () => {
+  it("maps privileged password changes to their contract", () => {
     logoutAuth();
     changeAuthPassword({ currentPassword: "old", newPassword: "new password value" });
-    changeAuthProtection({ enabled: false, currentPassword: "old" });
     expect(httpPost).toHaveBeenCalledWith("/api/auth/logout");
     expect(httpPut).toHaveBeenCalledWith("/api/auth/password", {
       currentPassword: "old",
       newPassword: "new password value",
-    }, { handleUnauthorized: false, includeAuth: false });
-    expect(httpPut).toHaveBeenCalledWith("/api/auth/protection", {
-      enabled: false,
-      currentPassword: "old",
     }, { handleUnauthorized: false, includeAuth: false });
   });
 
