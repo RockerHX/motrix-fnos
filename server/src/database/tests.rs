@@ -471,6 +471,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                     (3, "task_query_indexes".to_string()),
                     (4, "task_proxy_state".to_string()),
                     (5, "web_auth_jwt_secret".to_string()),
+                    (6, "force_web_auth_protection".to_string()),
                 ]
             );
 
@@ -483,7 +484,7 @@ fn connect_database_migrates_existing_download_tasks_category() {
                 .fetch_one(&reopened.pool)
                 .await
                 .expect("migration record count should be readable");
-            assert_eq!(migration_count, 5);
+            assert_eq!(migration_count, 6);
             assert_task_query_indexes(&reopened.pool).await;
             reopened.pool.close().await;
             let _ = std::fs::remove_file(path);

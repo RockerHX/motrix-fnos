@@ -17,9 +17,11 @@ use crate::settings::service::AppConfig;
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use crate::test_support::TestTracingCapture;
 use axum::body::to_bytes;
-use axum::extract::ConnectInfo;
-use axum::http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
-use axum::http::StatusCode;
+use axum::extract::{ConnectInfo, State};
+use axum::http::header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
+use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::get;
 use serde::de::DeserializeOwned;
 use serde_json::json;
@@ -39,7 +41,7 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
         .expect("index should write");
     std::fs::write(static_dir.join("assets/app.js"), b"console.log('motrix')")
         .expect("asset should write");
-    let app = management_router_with_static_dir(state, static_dir);
+    let app = test_management_router_with_static_dir(state, static_dir);
 
     for (uri, expected_body) in [
         ("/", "<html>motrix-ui</html>"),
@@ -77,7 +79,7 @@ async fn tcp_router_serves_web_ui_assets_and_api_on_the_desktop_entry_port() {
 #[tokio::test]
 async fn management_requests_receive_unique_server_request_ids() {
     let state = test_state(None).await;
-    let app = management_router(state);
+    let app = test_management_router(state);
 
     let request = || {
         Request::builder()
@@ -132,7 +134,7 @@ async fn sse_requests_receive_server_request_ids() {
         .issue_admin_token(&auth_state)
         .await
         .expect("token should issue");
-    let app = management_router(state);
+    let app = super::management_router(state);
     let response = app
         .oneshot(
             Request::builder()
@@ -160,7 +162,7 @@ async fn management_router_returns_404_for_unknown_paths_without_cors() {
     std::fs::create_dir_all(&static_dir).expect("static dir should create");
     std::fs::write(static_dir.join("index.html"), b"<html>motrix-ui</html>")
         .expect("index should write");
-    let app = management_router_with_static_dir(state, static_dir);
+    let app = test_management_router_with_static_dir(state, static_dir);
 
     for uri in ["/missing", "/nested/route", "/api/missing"] {
         let response = app
@@ -195,7 +197,7 @@ async fn management_router_returns_404_for_unknown_paths_without_cors() {
 #[tokio::test]
 async fn readiness_route_uses_listener_and_shutdown_state_without_database_probe() {
     let state = test_state(None).await;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let unavailable = response_json::<ErrorResponse>(
         app.clone()
@@ -270,7 +272,7 @@ async fn management_api_enforces_one_mebibyte_body_limit() {
             .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     for (size, expected_status) in [
         (API_BODY_LIMIT, StatusCode::OK),
@@ -311,7 +313,7 @@ async fn management_api_enforces_one_mebibyte_body_limit() {
 #[tokio::test]
 async fn torrent_upload_keeps_file_and_total_body_limits_separate() {
     let state = test_state(None).await;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
     let oversized_file = vec![b'x'; 10 * 1024 * 1024 + 1];
     let (content_type, body) = torrent_multipart_body(&oversized_file);
     let response = app
@@ -564,7 +566,7 @@ async fn lan_jsonrpc_router_checks_switch_and_true_tcp_peer_before_protocol_hand
 #[tokio::test]
 async fn app_routes_return_expected_payloads() {
     let state = test_state(None).await;
-    let app = management_router(state);
+    let app = test_management_router(state);
 
     let info = response_json::<AppInfo>(
         app.clone()
@@ -619,7 +621,7 @@ async fn aria2_routes_return_status_payloads() {
     std::fs::write(&explicit_path, b"").expect("binary should exist");
 
     let state = test_state(Some(explicit_path.display().to_string())).await;
-    let app = management_router(state);
+    let app = test_management_router(state);
 
     let config = response_json::<Aria2ConfigStatus>(
         app.clone()
@@ -676,7 +678,7 @@ async fn aria2_routes_return_status_payloads() {
 #[tokio::test]
 async fn diagnostics_log_mode_does_not_start_stopped_aria2() {
     let state = test_state(None).await;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let initial = response_json::<Aria2LogModeStatus>(
         app.clone()
@@ -769,7 +771,7 @@ async fn diagnostic_bundle_requires_web_session_and_exports_redacted_fixed_logs(
         .core
         .debug_logs
         .error("api.bundle_test", "token=debug-secret");
-    let app = management_router(state.clone());
+    let app = super::management_router(state.clone());
 
     let unauthenticated = app
         .clone()
@@ -881,7 +883,7 @@ async fn login_diagnostic_bundle_is_public_and_excludes_business_logs() {
         .debug_logs
         .warn("auth.failure", "session=auth-secret");
     state.core.debug_logs.error("tasks.create", "task-secret");
-    let app = management_router(state);
+    let app = super::management_router(state);
 
     let response = app
         .oneshot(
@@ -954,7 +956,7 @@ async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy(
         std::fs::write(state.runtime.app_data_dir.join(relative_path), contents)
             .expect("log should write");
     }
-    let app = management_router(state.clone());
+    let app = super::management_router(state.clone());
 
     let unauthenticated = app
         .clone()
@@ -1019,7 +1021,7 @@ async fn diagnostics_aria2_log_cleanup_returns_latest_usage() {
         std::fs::write(log_dir.join(name), contents).expect("log should write");
     }
     std::fs::write(log_dir.join("unrelated.log"), b"keep").expect("unrelated file should write");
-    let app = management_router(state.clone());
+    let app = super::management_router(state.clone());
 
     let unauthenticated = app
         .clone()
@@ -1090,7 +1092,7 @@ async fn diagnostics_aria2_log_cleanup_rejects_running_transitioning_and_unverif
         child,
         crate::config::aria2::Aria2BinarySource::Sidecar,
     ));
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let running = response_json::<ErrorResponse>(
         app.clone()
@@ -1178,7 +1180,7 @@ async fn diagnostics_log_usage_and_cleanup_refuse_symbolic_linked_aria2_logs() {
     std::fs::write(&outside_log, b"outside").expect("outside log should write");
     symlink(&outside, state.runtime.app_data_dir.join("aria2"))
         .expect("aria2 directory symlink should create");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let usage = response_json::<DiagnosticsLogUsageResponse>(
         app.clone()
@@ -1224,7 +1226,7 @@ async fn diagnostics_log_mode_rejects_lifecycle_transitions_without_changing_mod
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Starting)
         .expect("lifecycle should enter starting");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(
@@ -1305,7 +1307,7 @@ async fn diagnostics_log_mode_updates_confirmed_running_sidecar_through_private_
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
         .expect("lifecycle should enter ready");
 
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
     let response = response_json::<Aria2LogModeStatus>(
         app.oneshot(
             authorized_json_request(
@@ -1397,7 +1399,7 @@ async fn diagnostics_log_mode_schedules_warn_restore_when_enable_outcome_is_unkn
         .expect("lifecycle should enter ready");
 
     let error = response_json::<ErrorResponse>(
-        management_router(state.clone())
+        test_management_router(state.clone())
             .oneshot(
                 authorized_json_request(
                     &state,
@@ -1434,7 +1436,7 @@ async fn diagnostics_log_mode_schedules_warn_restore_when_enable_outcome_is_unkn
 #[tokio::test(flavor = "current_thread")]
 async fn readonly_routes_do_not_write_file_logs_but_mutations_and_errors_still_do() {
     let state = test_state(None).await;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
     let capture = TestTracingCapture::default();
     let tracing_guard = tracing::subscriber::set_default(capture.subscriber());
 
@@ -1543,7 +1545,7 @@ async fn aria2_rpc_status_does_not_probe_stopped_or_unconfirmed_runtime() {
         .expect("state should be uniquely owned")
         .base_aria2_config
         .rpc_port = port;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let stopped = response_json::<Aria2RpcStatus>(
         app.clone()
@@ -1600,7 +1602,7 @@ async fn aria2_stop_returns_busy_conflict_for_active_task() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(active_task_for_stop()))
         .expect("tasks should be writable");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(authorized_request(&state, "POST", "/api/aria2/stop", Body::empty()).await)
@@ -1632,7 +1634,7 @@ async fn aria2_stop_allows_missing_metadata_record_without_engine_activity() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(task))
         .expect("tasks should be writable");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let status = response_json::<Aria2ProcessStatus>(
         app.oneshot(authorized_request(&state, "POST", "/api/aria2/stop", Body::empty()).await)
@@ -1654,7 +1656,7 @@ async fn aria2_stop_allows_missing_metadata_record_without_engine_activity() {
 async fn aria2_mutation_routes_reject_when_runtime_is_exiting() {
     let state = test_state(None).await;
     state.core.shutdown.mark_exiting();
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     for uri in ["/api/aria2/start", "/api/aria2/stop"] {
         let error = response_json::<ErrorResponse>(
@@ -1684,7 +1686,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let default_settings = response_json::<AppConfig>(
         app.clone()
@@ -1863,7 +1865,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
         .expect("accessible paths should serialize"),
     )
     .expect("accessible paths should write");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(
@@ -1894,7 +1896,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
 #[tokio::test]
 async fn ui_preferences_routes_are_not_exposed() {
     let state = test_state(None).await;
-    let app = management_router(state);
+    let app = test_management_router(state);
 
     for request in [
         Request::builder()
@@ -1925,7 +1927,7 @@ async fn storage_route_returns_accessible_paths_from_runtime_file() {
         r#"{"paths":["/vol1/downloads"," /vol1/media ","","/vol1/downloads"]}"#,
     )
     .expect("accessible paths file should write");
-    let app = management_router(state);
+    let app = test_management_router(state);
 
     let response = response_json::<AccessiblePathsResponse>(
         app.oneshot(
@@ -1954,7 +1956,7 @@ async fn task_route_logs_unauthorized_save_dir_failure() {
         r#"{"paths":["/vol1/downloads"]}"#,
     )
     .expect("accessible paths file should write");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(
@@ -1986,7 +1988,7 @@ async fn debug_log_routes_list_and_clear_entries() {
     let state = test_state(None).await;
     state.core.debug_logs.info("test", "first");
     state.core.debug_logs.warn("test", "second");
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let logs = response_json::<Vec<DebugLogEntry>>(
         app.clone()
@@ -2015,7 +2017,7 @@ async fn debug_log_routes_list_and_clear_entries() {
 #[tokio::test]
 async fn invalid_json_payload_uses_unified_error_response() {
     let state = test_state(None).await;
-    let app = management_router(state.clone());
+    let app = test_management_router(state.clone());
 
     let error = response_json::<ErrorResponse>(
         app.oneshot(authorized_request(&state, "PUT", "/api/settings", Body::from("{")).await)
@@ -2029,9 +2031,9 @@ async fn invalid_json_payload_uses_unified_error_response() {
 }
 
 #[tokio::test]
-async fn management_router_requires_bearer_and_allows_anonymous_when_disabled() {
+async fn management_router_requires_bearer() {
     let state = raw_test_state(None).await;
-    let app = management_router(state.clone());
+    let app = super::management_router(state.clone());
     for uri in [
         "/api/app/ping",
         "/api/settings",
@@ -2063,6 +2065,28 @@ async fn management_router_requires_bearer_and_allows_anonymous_when_disabled() 
         .issue_admin_token(&configured)
         .await
         .expect("admin token should issue");
+    sqlx::query("UPDATE web_auth_config SET enabled = 0 WHERE id = 1")
+        .execute(&state.core.database.pool)
+        .await
+        .expect("legacy disabled state should persist");
+    for uri in [
+        "/api/app/ping",
+        "/api/settings",
+        "/api/tasks",
+        "/api/events",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request should build"),
+            )
+            .await
+            .expect("response should succeed");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "uri: {uri}");
+    }
     let authenticated = app
         .clone()
         .oneshot(
@@ -2088,47 +2112,6 @@ async fn management_router_requires_bearer_and_allows_anonymous_when_disabled() 
         .await
         .expect("response should succeed");
     assert_eq!(missing_token.status(), StatusCode::UNAUTHORIZED);
-
-    state
-        .auth
-        .service
-        .set_protection(false, "test management password")
-        .await
-        .expect("protection should disable");
-    let anonymous_read = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/app/ping")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(anonymous_read.status(), StatusCode::OK);
-    let anonymous_write = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("DELETE")
-                .uri("/api/debug-logs")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(anonymous_write.status(), StatusCode::NO_CONTENT);
-    let anonymous_event = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/api/events")
-                .body(Body::empty())
-                .expect("request should build"),
-        )
-        .await
-        .expect("response should succeed");
-    assert_eq!(anonymous_event.status(), StatusCode::OK);
 }
 
 async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
@@ -2140,12 +2123,57 @@ async fn test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         .await
         .expect("test auth should initialize");
     state
-        .auth
-        .service
-        .set_protection(false, "test management password")
-        .await
-        .expect("test auth protection should disable");
-    state
+}
+
+fn test_management_router(state: Arc<HttpAppState>) -> axum::Router {
+    test_management_router_with_auth(super::management_router(state.clone()), state)
+}
+
+fn test_management_router_with_static_dir(
+    state: Arc<HttpAppState>,
+    static_dir: PathBuf,
+) -> axum::Router {
+    test_management_router_with_auth(
+        super::management_router_with_static_dir(state.clone(), static_dir),
+        state,
+    )
+}
+
+fn test_management_router_with_auth(
+    router: axum::Router,
+    state: Arc<HttpAppState>,
+) -> axum::Router {
+    router.layer(middleware::from_fn_with_state(
+        state,
+        inject_test_admin_token,
+    ))
+}
+
+async fn inject_test_admin_token(
+    State(state): State<Arc<HttpAppState>>,
+    mut request: Request<Body>,
+    next: Next,
+) -> Response {
+    if request.uri().path() != "/api/app/ready" && !request.headers().contains_key(AUTHORIZATION) {
+        let auth_state = state
+            .auth
+            .service
+            .state()
+            .await
+            .expect("test auth state should load");
+        if !auth_state.setup_required {
+            let token = state
+                .auth
+                .service
+                .issue_admin_token(&auth_state)
+                .await
+                .expect("test admin token should issue");
+            let value = HeaderValue::from_str(&format!("Bearer {token}"))
+                .expect("test admin token should form a header");
+            request.headers_mut().insert(AUTHORIZATION, value);
+        }
+    }
+    next.run(request).await
 }
 
 async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {

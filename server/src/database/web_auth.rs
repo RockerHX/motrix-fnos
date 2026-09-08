@@ -78,27 +78,13 @@ pub(crate) async fn update_password(
     updated_at: i64,
 ) -> Result<(), String> {
     sqlx::query(
-        "UPDATE web_auth_config SET password_hash = ?, password_updated_at = ?, auth_version = auth_version + 1 WHERE id = 1",
+        "UPDATE web_auth_config SET enabled = 1, password_hash = ?, password_updated_at = ?, auth_version = auth_version + 1 WHERE id = 1",
     )
     .bind(password_hash)
     .bind(updated_at)
     .execute(&mut **transaction)
     .await
     .map_err(|error| format!("修改 Web 管理密码失败：{error}"))?;
-    Ok(())
-}
-
-pub(crate) async fn update_protection(
-    transaction: &mut Transaction<'_, Sqlite>,
-    enabled: bool,
-) -> Result<(), String> {
-    sqlx::query(
-        "UPDATE web_auth_config SET enabled = ?, auth_version = auth_version + 1 WHERE id = 1",
-    )
-    .bind(i64::from(enabled))
-    .execute(&mut **transaction)
-    .await
-    .map_err(|error| format!("修改 Web 管理保护状态失败：{error}"))?;
     Ok(())
 }
 

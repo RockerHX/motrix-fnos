@@ -77,24 +77,22 @@
 
 ### 4.1 Web 管理鉴权
 
-静态资源允许匿名加载，但不得包含任务、路径、设置、日志或 Token 等业务数据。除本节明确标记为匿名的接口外，保护开启时所有 `/api/*` 与 `/api/events` 都要求有效管理员 JWT；保护关闭时，普通管理 API 和 SSE 匿名可用。密码与保护状态变更始终通过请求体中的当前密码确认，不依赖 JWT。
+静态资源允许匿名加载，但不得包含任务、路径、设置、日志或 Token 等业务数据。除本节明确标记为匿名的接口外，所有 `/api/*` 与 `/api/events` 都要求有效管理员 JWT。密码修改通过请求体中的当前密码确认，不依赖 JWT。
 
 | 方法 | 路径 | 访问要求 | 作用 |
 | --- | --- | --- | --- |
-| `GET` | `/api/auth/status` | 匿名 | 返回初始化、保护和当前 JWT 状态 |
+| `GET` | `/api/auth/status` | 匿名 | 返回初始化和当前 JWT 状态 |
 | `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并签发 JWT |
 | `POST` | `/api/auth/login` | 匿名 | 验证密码并签发 JWT |
 | `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
 | `POST` | `/api/auth/logout` | 匿名 | 返回 `204`；前端清除 JWT |
 | `PUT` | `/api/auth/password` | 当前密码 | 修改密码并签发新 JWT |
-| `PUT` | `/api/auth/protection` | 当前密码 | 启用或关闭 Web 管理保护并签发新 JWT |
 
 `GET /api/auth/status` 响应：
 
 ```json
 {
   "setupRequired": false,
-  "enabled": true,
   "authenticated": true
 }
 ```
@@ -103,9 +101,9 @@
 
 - `setupRequired=true` 时，除 `GET /api/auth/status`、`POST /api/auth/setup`、`GET /api/app/ready` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
 - `status` 只验证当前请求的 `Authorization`，不会签发或返回新的 JWT。JWT 缺失、格式错误或无效时返回 `authenticated=false`。
-- `setup`、`login`、密码修改和保护状态变更成功时，在上述状态字段外返回 `accessToken`；前端先保存它，再调用 `status` 确认后启动业务请求。
+- `setup`、`login` 和密码修改成功时，在上述状态字段外返回 `accessToken`；前端先保存它，再调用 `status` 确认后启动业务请求。
 - 前端以内存保存 JWT，并尽力写入 `localStorage` 以支持刷新恢复；浏览器禁止存储时退化为当前页面会话。JWT 原文不得写入诊断、日志、URL 或跨标签页消息。
-- 鉴权配置读取失败时 `status` 安全失败，不得把 `enabled` 自动降级为 `false`。
+- 鉴权配置读取失败时 `status` 安全失败。
 
 登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
@@ -130,18 +128,8 @@
 }
 ```
 
-`PUT /api/auth/protection` 请求：
-
-```json
-{
-  "enabled": false,
-  "currentPassword": "current-password"
-}
-```
-
 - JWT 使用 HS256，Claims 固定包含 `sub="admin"`、`role="admin"`、`iat`、`exp` 和 `auth_version`；有效期为 12 小时。签名密钥为 32 字节随机值，持久化在 SQLite，重启后仍可验证既有 JWT。
-- 密码修改、保护状态变更与本地重置必须递增 `authVersion`，使旧 JWT 失效；成功响应返回新 JWT。
-- 关闭保护不会删除密码哈希，也不会更改 JSON-RPC Token；重新启用保护仍需当前密码。
+- 密码修改与本地重置必须递增 `authVersion`，使旧 JWT 失效；密码修改成功响应返回新 JWT。升级时会把旧版关闭的保护状态恢复为启用并递增 `authVersion`。
 - `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
 - 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
 - `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
@@ -165,7 +153,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `jwt_malformed`：Authorization 或 JWT 格式无效
 - `jwt_invalid`：JWT 签名、算法或内容无效
 - `jwt_expired`：JWT 已过期
-- `jwt_auth_version_mismatch`：密码、保护状态或重置后旧 JWT 失效
+- `jwt_auth_version_mismatch`：密码修改、本地重置或升级恢复保护后旧 JWT 失效
 - `jwt_insufficient_privileges`：JWT 不具有管理员权限
 
 服务端会在脱敏调试日志中记录 `request_id`、请求路径和上述原因，不记录 JWT 原文或密码。
@@ -677,7 +665,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 }
 ```
 
-- 详细模式只允许通过管理 API 启用；保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。模式固定为 `debug`，30 分钟后自动恢复 `warn`；状态只保存在内存，服务重启后必定恢复普通日志。
+- 详细模式只允许通过管理 API 且要求有效管理员 JWT 启用。模式固定为 `debug`，30 分钟后自动恢复 `warn`；状态只保存在内存，服务重启后必定恢复普通日志。
 - 已确认运行且处于 `Ready` 的 sidecar 由服务端私有回环 RPC 调用 `aria2.changeGlobalOption` 即时切换；停止时不启动引擎，`appliesOnNextStart=true` 表示将在下一次受控启动时生效。启动或停止转换中返回 `409 aria2_log_mode_conflict`。
 - 外部 JSON-RPC 白名单不包含 `aria2.changeGlobalOption`，也不提供日志模式、日志清理或诊断导出方法。任何模式下单文件大小与保留数量均不放宽。
 
@@ -776,7 +764,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 约定：
 
-- 三个接口都遵循管理 API 鉴权：保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理。它们不注册到任何 JSON-RPC listener。
+- 三个接口都要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
 - 占用统计只读取应用数据目录内固定的普通文件：Aria2 当前日志及兼容的新旧轮转命名、`logs/server.log(.1-.3)` 和 `logs/lifecycle.log(.1-.3)`。符号链接、未知文件和下载目录均不计入，也不返回应用数据目录的绝对路径。
 - 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
 - Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
@@ -821,7 +809,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `GET` 只读取当前已确认快照，响应结构保持兼容，不调用 fnOS 外部服务。
 - `GET /display` 只转换当前授权快照中的路径，不接受客户端路径。`language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
 - server 通过 `trim.file.convertPath` 请求语义化路径。上游失败或 Token/Socket 不可用时整批回退原始路径；上游缺项、重复项或空语义路径时只对相应原始路径回退。结果按原始路径精确匹配，不持久化、不缓存。
-- `POST` 无请求体，遵循管理 API 鉴权：保护开启时要求有效管理员 JWT，保护关闭时允许匿名管理；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
+- `POST` 无请求体，要求有效管理员 JWT；server 使用 `TRIM_API_TOKEN` 通过官方 Unix Socket 查询 `trim.file.getSharedAccessibleFolders`。
 - 官方查询成功后校验全部路径并原子覆盖快照；空数组是有效结果。查询、响应校验或持久化失败时不修改旧快照。
 - 官方路径必须是非根绝对 Unix 路径，不允许首尾空白、反斜杠、NUL、`.` 或 `..` 组件；任一非法项拒绝整次刷新。合法路径去重并保留官方顺序。
 - 上游失败映射为 `502` 或 `503`，不得映射为浏览器 `401`。成功刷新后同步更新 JSON-RPC 默认下载目录缓存。
@@ -840,7 +828,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 可见任务列表发生变化时推送 `tasks.snapshot`。
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
-- JWT 失效时连接终止；重新订阅在保护开启时返回 `401 Unauthorized`，不会发送任务快照。保护关闭时允许匿名订阅。
+- JWT 失效时连接终止；重新订阅未携带有效 JWT 时返回 `401 Unauthorized`，不会发送任务快照。
 
 `tasks.snapshot`：
 

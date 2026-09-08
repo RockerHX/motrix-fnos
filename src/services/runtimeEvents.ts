@@ -192,7 +192,7 @@ async function handleConnectionFailure(controller: AbortController, currentGener
 }
 
 function hasAccess(status: AuthStatus) {
-  return !status.setupRequired && (!status.enabled || status.authenticated);
+  return !status.setupRequired && status.authenticated;
 }
 
 export function disposeRuntimeEvents() {
@@ -237,7 +237,7 @@ function clearAuthTimer() {
 
 function defaultOptions(): RuntimeEventOptions {
   return {
-    checkAuth: async () => ({ setupRequired: false, enabled: false, authenticated: false }),
+    checkAuth: async () => ({ setupRequired: false, authenticated: false }),
     onUnauthorized: () => undefined,
     getAccessToken: () => null,
   };

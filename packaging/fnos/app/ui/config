@@ -10,7 +10,7 @@
       "allUsers": false,
       "control": {
         "accessPerm": "editable",
-        "fullUrlPerm": "readonly",
+        "fullUrlPerm": "editable",
         "portPerm": "readonly",
         "pathPerm": "readonly"
       }

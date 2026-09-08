@@ -26,21 +26,6 @@
   background: var(--app-color-surface);
 }
 
-.main-area.has-protection-warning {
-  grid-template-rows: 52px auto minmax(0, 1fr);
-}
-
-.protection-warning {
-  border-radius: 0;
-}
-
-.protection-warning-content {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
 .content-stage {
   width: 100%;
   max-width: 100%;
@@ -57,10 +42,6 @@
 
   .main-area {
     grid-template-rows: var(--app-desktop-topbar-height) minmax(0, 1fr);
-  }
-
-  .main-area.has-protection-warning {
-    grid-template-rows: var(--app-desktop-topbar-height) auto minmax(0, 1fr);
   }
 }
 
@@ -84,10 +65,5 @@
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-  }
-
-  .protection-warning-content {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }

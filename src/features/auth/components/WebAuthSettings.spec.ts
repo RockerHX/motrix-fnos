@@ -1,5 +1,4 @@
 import { createPinia, setActivePinia } from "pinia";
-import { NSwitch } from "naive-ui";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nextTick } from "vue";
 
@@ -38,16 +37,14 @@ vi.mock("../services/authService", () => ({
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),
-  changeAuthProtection: vi.fn(),
 }));
 
-import { changeAuthPassword, changeAuthProtection, getAuthStatus } from "../services/authService";
+import { changeAuthPassword, getAuthStatus } from "../services/authService";
 import { useAuthStore } from "../stores/authStore";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import WebAuthSettings from "./WebAuthSettings.vue";
 
 const mockedPassword = vi.mocked(changeAuthPassword);
-const mockedProtection = vi.mocked(changeAuthProtection);
 
 describe("WebAuthSettings", () => {
   beforeEach(() => {
@@ -82,43 +79,12 @@ describe("WebAuthSettings", () => {
     expect(useAuthStore().accessToken).toBe("next-jwt");
   });
 
-  it("keeps the protection switch controlled until confirmation succeeds", async () => {
+  it("does not expose a protection switch", () => {
     const { wrapper } = mountReadySettings();
-    const authStore = useAuthStore();
-    const protectionSwitch = wrapper.findComponent(NSwitch);
-
-    protectionSwitch.vm.$emit("update:value", false);
-    await wrapper.vm.$nextTick();
-    expect(authStore.enabled).toBe(true);
-    const passwordInput = wrapper.get('input[type="password"]');
-    await passwordInput.setValue("current password");
-    mockedProtection.mockResolvedValueOnce(status({ enabled: false, accessToken: "anonymous-jwt" }));
-    vi.mocked(getAuthStatus).mockResolvedValueOnce(status({ enabled: false, authenticated: true, accessToken: null }));
-    await wrapper.get("form").trigger("submit");
-    await flushPromises();
-
-    expect(mockedProtection).toHaveBeenCalledWith({ enabled: false, currentPassword: "current password" });
-    expect(authStore.enabled).toBe(false);
-    expect(authStore.accessToken).toBe("anonymous-jwt");
+    expect(wrapper.find('[data-test="auth-protection-switch"]').exists()).toBe(false);
   });
 
-  it("keeps the original protection state when confirmation fails", async () => {
-    const { wrapper } = mountReadySettings();
-    const authStore = useAuthStore();
-    wrapper.findComponent(NSwitch).vm.$emit("update:value", false);
-    await wrapper.vm.$nextTick();
-    await wrapper.get('input[type="password"]').setValue("wrong password");
-    mockedProtection.mockRejectedValueOnce(new Error("invalid credentials"));
-
-    await wrapper.get("form").trigger("submit");
-    await flushPromises();
-
-    expect(authStore.enabled).toBe(true);
-    expect(wrapper.get('[data-test="protection-error"]').text()).toContain("invalid credentials");
-    expect(wrapper.find("form").exists()).toBe(true);
-  });
-
-  it("locks both security modals while submitting", async () => {
+  it("locks the password modal while submitting", async () => {
     const { wrapper } = mountReadySettings();
     await wrapper.findAll("button").find((button) => button.text() === "修改密码")!.trigger("click");
     await nextTick();
@@ -131,32 +97,14 @@ describe("WebAuthSettings", () => {
     expect(modal.attributes("data-mask-closable")).toBe("false");
     expect(modal.attributes("data-closable")).toBe("false");
     expect(wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
-
-    const protection = mountReadySettings();
-    protection.wrapper.findComponent(NSwitch).vm.$emit("update:value", false);
-    await protection.wrapper.vm.$nextTick();
-    useAuthStore().isSubmitting = true;
-    await protection.wrapper.vm.$nextTick();
-
-    const protectionModal = protection.wrapper.get('[data-test="n-modal"]');
-    expect(protectionModal.attributes("data-mask-closable")).toBe("false");
-    expect(protectionModal.attributes("data-closable")).toBe("false");
-    expect(protection.wrapper.findAll("button").find((button) => button.text() === "取消")?.attributes("disabled")).toBeDefined();
-  });
-
-  it("allows management configuration while protection is disabled", async () => {
-    const { wrapper } = mountReadySettings(false);
-    const buttons = wrapper.findAll("button");
-    expect(buttons.find((button) => button.text() === "修改密码")!.attributes("disabled")).toBeUndefined();
-    expect(wrapper.findComponent(NSwitch).props("disabled")).toBe(false);
   });
 });
 
-function mountReadySettings(authenticated = true) {
+function mountReadySettings() {
   const pinia = createPinia();
   setActivePinia(pinia);
   const authStore = useAuthStore();
-  authStore.handleUnauthorizedStatus(status({ enabled: authenticated, authenticated, accessToken: "jwt" }));
+  authStore.handleUnauthorizedStatus(status({ authenticated: true, accessToken: "jwt" }));
   return mountWithPinia(WebAuthSettings, {
     pinia,
     global: { stubs: { teleport: true } },
@@ -168,5 +116,5 @@ function status(overrides: Partial<ReturnType<typeof baseStatus>> = {}) {
 }
 
 function baseStatus() {
-  return { setupRequired: false, enabled: true, authenticated: true, accessToken: "jwt" as string | null };
+  return { setupRequired: false, authenticated: true, accessToken: "jwt" as string | null };
 }

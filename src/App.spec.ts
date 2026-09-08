@@ -17,7 +17,6 @@ vi.mock("./features/auth/services/authService", () => ({
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),
-  changeAuthProtection: vi.fn(),
 }));
 vi.mock("./services/runtimeEvents", () => ({
   initializeRuntimeEvents: runtime.initialize,
@@ -53,7 +52,7 @@ describe("App auth bootstrap", () => {
     expect(runtime.initialize).not.toHaveBeenCalled();
     expect(platform.initialize).toHaveBeenCalledOnce();
 
-    deferred.resolve({ setupRequired: false, enabled: true, authenticated: true });
+    deferred.resolve({ setupRequired: false, authenticated: true });
     await flushPromises();
     expect(wrapper.find('[data-test="main-window"]').exists()).toBe(true);
     expect(settings.load).toHaveBeenCalledOnce();

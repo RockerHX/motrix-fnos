@@ -60,12 +60,18 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
         .setup("idle stability test password")
         .await
         .expect("test auth should initialize");
-    state
+    let auth_state = state
         .auth
         .service
-        .set_protection(false, "idle stability test password")
+        .state()
         .await
-        .expect("test auth protection should disable");
+        .expect("test auth state should load");
+    let management_token = state
+        .auth
+        .service
+        .issue_admin_token(&auth_state)
+        .await
+        .expect("test admin token should issue");
     state.mark_listeners_ready();
 
     let (rpc_port, rpc_server) = spawn_mock_aria2().await;
@@ -96,7 +102,7 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     let management = management_router(state.clone());
     let jsonrpc = jsonrpc_router(state.clone());
     for _ in 0..2 {
-        exercise_idle_window(&state, &management, &jsonrpc).await;
+        exercise_idle_window(&state, &management, &jsonrpc, &management_token).await;
     }
 
     let server_log_path = app_data_dir.join("logs/server.log");
@@ -120,7 +126,7 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     let baseline = snapshot_tree(&app_data_dir);
     assert_required_idle_files(&app_data_dir, &baseline);
     for _ in 0..3 {
-        exercise_idle_window(&state, &management, &jsonrpc).await;
+        exercise_idle_window(&state, &management, &jsonrpc, &management_token).await;
     }
     tokio::time::sleep(Duration::from_millis(25)).await;
     let observed = snapshot_tree(&app_data_dir);
@@ -146,6 +152,7 @@ async fn exercise_idle_window(
     state: &Arc<HttpAppState>,
     management: &axum::Router,
     jsonrpc: &axum::Router,
+    management_token: &str,
 ) {
     monitor_tasks_once(state)
         .await
@@ -166,6 +173,7 @@ async fn exercise_idle_window(
             .oneshot(
                 Request::builder()
                     .uri(uri)
+                    .header("authorization", format!("Bearer {management_token}"))
                     .body(Body::empty())
                     .expect("management request should build"),
             )

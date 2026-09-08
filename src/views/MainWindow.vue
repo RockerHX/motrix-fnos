@@ -139,7 +139,6 @@ async function logout() {
     :app-info="appInfo"
     :active-category="activeCategory"
     :topbar-actions="topbar.topbarActions.value"
-    :protection-enabled="authStore.enabled"
     :logout-loading="authStore.isSubmitting"
     @create="dialogs.handleToolbarCreate"
     @refresh="topbar.refresh"
@@ -151,7 +150,6 @@ async function logout() {
     @open-settings="dialogs.openSettings"
     @open-diagnostics="dialogs.openDiagnostics"
     @open-help="dialogs.openHelp"
-    @enable-protection="dialogs.openSettings"
     @logout="logout"
     @select-category="selectCategory"
   >

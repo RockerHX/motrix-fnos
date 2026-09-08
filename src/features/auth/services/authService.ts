@@ -1,5 +1,5 @@
 import { httpGet, httpGetBlob, httpPost, httpPut } from "../../../services/http";
-import type { AuthStatus, ChangePasswordRequest, ChangeProtectionRequest } from "../types";
+import type { AuthStatus, ChangePasswordRequest } from "../types";
 
 const publicRequest = { handleUnauthorized: false, includeAuth: false } as const;
 
@@ -25,8 +25,4 @@ export function logoutAuth() {
 
 export function changeAuthPassword(payload: ChangePasswordRequest) {
   return httpPut<AuthStatus>("/api/auth/password", payload, publicRequest);
-}
-
-export function changeAuthProtection(payload: ChangeProtectionRequest) {
-  return httpPut<AuthStatus>("/api/auth/protection", payload, publicRequest);
 }

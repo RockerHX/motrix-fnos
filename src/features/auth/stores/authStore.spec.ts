@@ -13,7 +13,6 @@ vi.mock("../services/authService", () => ({
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),
-  changeAuthProtection: vi.fn(),
 }));
 
 const mockedStatus = vi.mocked(getAuthStatus);
@@ -157,7 +156,6 @@ function status(overrides: Partial<ReturnType<typeof baseStatus>> = {}) {
 function baseStatus() {
   return {
     setupRequired: false,
-    enabled: true,
     authenticated: false,
     accessToken: null as string | null,
   };
