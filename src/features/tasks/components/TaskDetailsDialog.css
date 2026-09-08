@@ -1,6 +1,168 @@
 .task-detail-card {
   --app-dialog-width: 720px;
   --app-dialog-mobile-margin: 24px;
+  display: flex;
+  flex-direction: column;
+  height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-desktop-margin)));
+  min-height: 0;
+  overflow: hidden;
+}
+
+:deep(.task-detail-card-content) {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--app-scrollbar-thumb) var(--app-scrollbar-track);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+:deep(.task-detail-card-content)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:deep(.task-detail-card-content)::-webkit-scrollbar-track {
+  background: var(--app-scrollbar-track);
+  border-radius: var(--app-radius-pill);
+}
+
+:deep(.task-detail-card-content)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--app-radius-pill);
+  background: var(--app-scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+:deep(.n-card-header),
+:deep(.n-card__footer) {
+  flex: 0 0 auto;
+}
+
+.task-detail-header {
+  min-width: 0;
+}
+
+.task-detail-eyebrow {
+  margin: 0 0 4px;
+  color: var(--app-text-dim);
+  font-size: 12px;
+}
+
+.task-detail-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--app-text-strong);
+  font-size: 18px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-summary {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-card-overlay-subtle);
+}
+
+.task-detail-header-kicker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 7px;
+  min-width: 0;
+}
+
+.task-detail-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-pill);
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+
+.task-detail-status--active {
+  color: var(--app-text-accent-soft);
+}
+
+.task-detail-status--complete {
+  color: var(--app-color-success);
+}
+
+.task-detail-status--error {
+  color: var(--app-text-danger);
+}
+
+.task-detail-status--paused,
+.task-detail-status--confirming,
+.task-detail-status--resolving,
+.task-detail-status--pending {
+  color: var(--app-color-warning, var(--app-text-secondary));
+}
+
+.task-detail-source {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--app-text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-summary-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 0.6fr));
+  gap: 8px;
+}
+
+.task-detail-summary-metric {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: var(--app-radius-sm);
+}
+
+.task-detail-summary-metric span,
+.task-detail-summary-metric strong {
+  display: block;
+}
+
+.task-detail-summary-metric span {
+  margin-bottom: 3px;
+  color: var(--app-text-dim);
+  font-size: 12px;
+}
+
+.task-detail-summary-metric strong {
+  overflow: hidden;
+  color: var(--app-text-strong);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-detail-section {
+  min-width: 0;
+  margin-top: 20px;
+}
+
+.task-detail-section h3 {
+  margin: 0 0 9px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
 }
 
 :deep(.n-descriptions-table-content__content) {
@@ -16,17 +178,17 @@
 }
 
 .task-file-actions {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .task-file-host-hint {
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   color: var(--app-text-dim);
   font-size: 13px;
 }
 
 .task-technical-info {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 .task-technical-path {
@@ -37,5 +199,18 @@
 @media (max-width: 767px) {
   .task-detail-card {
     min-width: 0;
+    height: min(var(--app-dialog-fixed-height, 720px), calc(var(--app-viewport-height) - var(--app-dialog-mobile-margin)));
+  }
+
+  .task-detail-title {
+    font-size: 16px;
+  }
+
+  .task-detail-summary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-detail-summary-metric:first-child {
+    grid-column: 1 / -1;
   }
 }

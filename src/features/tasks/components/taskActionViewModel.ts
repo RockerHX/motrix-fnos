@@ -40,6 +40,7 @@ export interface TaskActionLabels {
 export interface TaskActionDetailItem {
   label: string;
   value: string;
+  section?: "download" | "file";
 }
 
 export interface TaskActionDetails {
