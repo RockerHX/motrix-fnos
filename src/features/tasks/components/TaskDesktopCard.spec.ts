@@ -82,6 +82,20 @@ describe("TaskDesktopCard", () => {
     expect(wrapper.find('[data-test="task-card-error-slot"]').exists()).toBe(true);
     expect(wrapper.find(".task-card-error").exists()).toBe(false);
   });
+
+  it("keeps the action column available beside long task text", () => {
+    const fileName = "release_candidate_with_localization_assets_and_debug_symbols.tar.zst";
+    const category = "共享文件夹 / projects / releases / 2026 / candidate";
+    const { wrapper } = mountWithPinia(TaskDesktopCard, {
+      props: {
+        task: createTask({ fileName, category }),
+      },
+    });
+
+    expect(wrapper.get(".task-card-title").attributes("title")).toBe(fileName);
+    expect(wrapper.get(".task-card-meta").text()).toContain(category);
+    expect(wrapper.find(".task-card-actions").exists()).toBe(true);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

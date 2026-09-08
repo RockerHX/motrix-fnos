@@ -260,6 +260,78 @@ describe("TaskDetailsDialog", () => {
     await wrapper.findAll("button").find((button) => button.text() === "复制")!.trigger("click");
     expect(copyTextToClipboard).toHaveBeenCalledWith("/vol1/downloads/file.iso");
   });
+
+  it.each([
+    ["pending", "排队", "pending", { status: "pending" }],
+    ["active", "下载中", "active", { status: "active" }],
+    ["paused", "暂停", "paused", { status: "paused" }],
+    ["complete", "已完成", "complete", { status: "complete" }],
+    ["error", "错误", "error", { status: "error" }],
+    ["removed", "已删除", "removed", { status: "removed" }],
+    ["resolving", "解析中", "resolving", { status: "pending", url: "magnet:?xt=urn:btih:test", gid: "gid-1", files: [] }],
+    ["confirming", "待确认", "confirming", { status: "pending", confirmationRequired: true, files: [{ index: 0, path: "/downloads/file.iso", name: "file.iso", length: 1, completedLength: 0, selected: true }] }],
+  ] as const)("renders the %s status in the summary", (_name, label, className, overrides) => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask(overrides as Partial<DownloadTask>),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    const status = wrapper.get(".task-detail-status");
+    expect(status.text()).toBe(label);
+    expect(status.classes()).toContain(`task-detail-status--${className}`);
+  });
+
+  it("updates dynamic summary values without changing metric slots", async () => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask({ completedLength: 20, downloadSpeed: 10 }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+
+    await wrapper.setProps({ task: createTask({ completedLength: 90, downloadSpeed: 5 }) });
+
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("2s");
+  });
+
+  it("wraps long names, URLs and technical paths without hiding their sections", () => {
+    const fileName = "release_candidate_with_localization_assets_and_debug_symbols.tar.zst";
+    const url = "https://example.com/" + "very-long-path-segment/".repeat(8) + fileName;
+    const technicalPath = "/vol1/1000/downloads/" + "nested-directory/".repeat(8) + fileName;
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: {
+          title: "任务详情",
+          items: [{ label: "下载链接", value: url }],
+          technicalItems: [{ label: "真实路径", value: technicalPath }],
+        },
+        task: createTask({ fileName, url }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.get(".task-detail-title").text()).toBe(fileName);
+    expect(wrapper.get('[data-test="task-detail-download-section"]').text()).toContain(url);
+    expect(wrapper.get(".task-technical-path").text()).toBe(technicalPath);
+    expect(wrapper.find('[data-test="task-detail-technical-section"]').exists()).toBe(true);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

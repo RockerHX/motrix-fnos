@@ -98,6 +98,36 @@ describe("TaskMobileList", () => {
     expect(handleTaskDoubleClick.mock.calls[0][0]).toEqual(task);
     expect(handleTaskDoubleClick.mock.calls[0][1]).toBeInstanceOf(MouseEvent);
   });
+
+  it("keeps long URLs and categories inside a single task card", () => {
+    const url = "https://example.com/releases/2026/09/08/" + "candidate-assets-".repeat(8) + ".tar.zst";
+    const category = "共享文件夹 / projects / releases / 2026 / candidate";
+    const { wrapper } = mountWithPinia(TaskMobileList, {
+      props: {
+        tasks: [createTask({ url, category })],
+      },
+    });
+
+    expect(wrapper.get(".task-card-url").attributes("title")).toBe(url);
+    expect(wrapper.get(".task-card-url").text()).toBe(url);
+    expect(wrapper.get(".task-card-meta").text()).toContain(category);
+    expect(wrapper.find(".task-card-actions").exists()).toBe(true);
+  });
+
+  it("keeps multiple task cards present when dynamic metrics differ", () => {
+    const { wrapper } = mountWithPinia(TaskMobileList, {
+      props: {
+        tasks: [
+          createTask({ id: 1, downloadSpeed: 1024, completedLength: 1000 }),
+          createTask({ id: 2, downloadSpeed: 0, completedLength: 0, status: "pending" }),
+        ],
+      },
+    });
+
+    expect(wrapper.findAll(".task-card")).toHaveLength(2);
+    expect(wrapper.findAll('[data-test="task-dynamic-metrics"]')).toHaveLength(0);
+    expect(wrapper.findAll(".task-card-meta")).toHaveLength(2);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

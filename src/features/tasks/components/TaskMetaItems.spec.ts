@@ -33,6 +33,20 @@ describe("TaskMetaItems", () => {
     expect(wrapper.findAll("dt").map((item) => item.text())).toEqual(["已下载 / 总大小", "速度", "剩余时间", "分类"]);
     expect(wrapper.findAll("dd").map((item) => item.text())).toEqual(["1000 B / 2.0 KB", "1.0 KB/s", "1s", "默认"]);
   });
+
+  it("keeps the same metric slots while speed and ETA change", async () => {
+    const wrapper = mount(TaskMetaItems, {
+      props: {
+        task: createTask(),
+        variant: "grid",
+      },
+    });
+
+    await wrapper.setProps({ task: createTask({ completedLength: 1900, downloadSpeed: 100 }) });
+
+    expect(wrapper.findAll("dt").map((item) => item.text())).toEqual(["已下载 / 总大小", "速度", "剩余时间", "分类"]);
+    expect(wrapper.findAll("dd").map((item) => item.text())).toEqual(["1.9 KB / 2.0 KB", "100 B/s", "1s", "默认"]);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
