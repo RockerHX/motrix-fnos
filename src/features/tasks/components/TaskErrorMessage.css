@@ -5,7 +5,11 @@
 
 .task-card-error {
   overflow: hidden;
+  display: block;
   margin: 0;
+  padding: 8px 10px;
+  border-inline-start: 3px solid var(--app-text-danger);
+  background: color-mix(in srgb, var(--app-text-danger) 8%, transparent);
   color: var(--app-text-danger);
   line-height: 1.35;
 }

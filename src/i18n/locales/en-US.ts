@@ -176,6 +176,7 @@ export const enUS: Record<TranslationKey, string> = {
   "task.table.size": "Downloaded / Total",
   "task.table.speed": "Speed",
   "task.table.eta": "Time Left",
+  "task.table.category": "Category",
   "task.table.actions": "Actions",
   "task.pagination.label": "Task list pagination",
   "task.errorCode": "Error code {code}: ",

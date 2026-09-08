@@ -23,7 +23,7 @@ const props = defineProps<{
       </TaskCardHeader>
 
       <section class="task-card-body">
-        <TaskProgressCell class="task-card-progress" :task="props.task" :show-label="false" variant="card" />
+        <TaskProgressCell class="task-card-progress" :task="props.task" :show-label="true" variant="card" />
         <TaskMetaItems :task="props.task" variant="inline" />
       </section>
 

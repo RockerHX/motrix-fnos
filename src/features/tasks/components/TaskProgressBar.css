@@ -6,11 +6,11 @@
 }
 
 .task-progress-bar--compact {
-  height: 5px;
+  height: 6px;
 }
 
 .task-progress-bar--card {
-  height: 4px;
+  height: 6px;
 }
 
 .task-progress-bar--empty {

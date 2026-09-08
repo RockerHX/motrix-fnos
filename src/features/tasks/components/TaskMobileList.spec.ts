@@ -69,6 +69,7 @@ describe("TaskMobileList", () => {
     expect(wrapper.get('[data-test="task-progress"]').text()).toBe("progress-1-true-compact");
     expect(wrapper.get(".task-card-meta").text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.get(".task-card-meta").text()).toContain("1.0 KB/s");
+    expect(wrapper.get(".task-card-meta").text()).toContain("默认");
     expect(wrapper.get('[data-test="task-actions"]').text()).toContain("actions-1");
   });
 

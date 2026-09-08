@@ -174,6 +174,7 @@ export const zhCN = {
   "task.table.size": "已下载 / 总大小",
   "task.table.speed": "速度",
   "task.table.eta": "剩余时间",
+  "task.table.category": "分类",
   "task.table.actions": "操作",
   "task.pagination.label": "任务列表分页",
   "task.errorCode": "错误码 {code}：",
