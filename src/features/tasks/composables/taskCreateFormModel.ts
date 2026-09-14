@@ -11,7 +11,7 @@ export interface TaskCreateFormState {
   saveDir: string;
   startMode: DownloadTaskStartMode;
   category: string;
-  connections: number;
+  connections: number | null;
   downloadLimitKb: number;
   useProxy: boolean;
 }
@@ -24,7 +24,7 @@ export function createTaskCreateFormState(): TaskCreateFormState {
     saveDir: "",
     startMode: "now",
     category: DEFAULT_TASK_CATEGORY,
-    connections: 16,
+    connections: null,
     downloadLimitKb: 0,
     useProxy: false,
   };

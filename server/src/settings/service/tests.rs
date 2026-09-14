@@ -26,6 +26,11 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 AppConfig {
                     default_download_dir: "/tmp/downloads".to_string(),
                     max_concurrent_downloads: 0,
+                    max_connection_per_server: 6,
+                    split: 7,
+                    min_split_size: "5M".to_string(),
+                    connect_timeout: 90,
+                    max_tries: 8,
                     download_limit: 1024,
                     upload_limit: 2048,
                     language: "en-US".to_string(),
@@ -50,6 +55,11 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 AppConfig {
                     default_download_dir: "/tmp/downloads".to_string(),
                     max_concurrent_downloads: 1,
+                    max_connection_per_server: 6,
+                    split: 7,
+                    min_split_size: "5M".to_string(),
+                    connect_timeout: 90,
+                    max_tries: 8,
                     download_limit: 1024,
                     upload_limit: 2048,
                     language: "en-US".to_string(),
@@ -66,6 +76,11 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 .expect("config should load");
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
             assert_eq!(loaded.max_concurrent_downloads, 1);
+            assert_eq!(loaded.max_connection_per_server, 6);
+            assert_eq!(loaded.split, 7);
+            assert_eq!(loaded.min_split_size, "5M");
+            assert_eq!(loaded.connect_timeout, 90);
+            assert_eq!(loaded.max_tries, 8);
             assert_eq!(loaded.download_limit, 1024);
             assert_eq!(loaded.upload_limit, 2048);
             assert_eq!(loaded.language, "en-US");
@@ -133,6 +148,7 @@ fn app_config_rejects_unauthorized_default_download_dir() {
                     download_limit: 0,
                     upload_limit: 0,
                     language: "zh-CN".to_string(),
+                    ..AppConfig::default()
                 },
                 "/app/data",
                 &["/app/data".to_string()],
@@ -180,6 +196,14 @@ fn app_config_accepts_legacy_saved_values() {
 
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
             assert_eq!(loaded.max_concurrent_downloads, 128);
+            assert_eq!(
+                loaded.max_connection_per_server,
+                DEFAULT_MAX_CONNECTION_PER_SERVER
+            );
+            assert_eq!(loaded.split, DEFAULT_SPLIT);
+            assert_eq!(loaded.min_split_size, "20M");
+            assert_eq!(loaded.connect_timeout, DEFAULT_CONNECT_TIMEOUT);
+            assert_eq!(loaded.max_tries, DEFAULT_MAX_TRIES);
             assert_eq!(loaded.language, "zh-CN");
             assert_eq!(
                 load_json_rpc_token(&database.pool)
@@ -205,6 +229,7 @@ fn app_config_falls_back_to_default_language_for_invalid_values() {
             download_limit: 0,
             upload_limit: 0,
             language: "fr-FR".to_string(),
+            ..AppConfig::default()
         },
         "/app/data",
     )
@@ -214,11 +239,16 @@ fn app_config_falls_back_to_default_language_for_invalid_values() {
 }
 
 #[test]
-fn app_config_clamps_concurrency_to_shared_bounds() {
+fn app_config_normalizes_download_tuning_bounds() {
     let lower = normalize_app_config(
         AppConfig {
             default_download_dir: "/tmp/downloads".to_string(),
             max_concurrent_downloads: 0,
+            max_connection_per_server: 0,
+            split: 0,
+            min_split_size: "invalid".to_string(),
+            connect_timeout: 0,
+            max_tries: 0,
             download_limit: 0,
             upload_limit: 0,
             language: "zh-CN".to_string(),
@@ -227,11 +257,21 @@ fn app_config_clamps_concurrency_to_shared_bounds() {
     )
     .expect("config should normalize");
     assert_eq!(lower.max_concurrent_downloads, 1);
+    assert_eq!(lower.max_connection_per_server, 1);
+    assert_eq!(lower.split, 1);
+    assert_eq!(lower.min_split_size, "20M");
+    assert_eq!(lower.connect_timeout, 1);
+    assert_eq!(lower.max_tries, 1);
 
     let upper = normalize_app_config(
         AppConfig {
             default_download_dir: "/tmp/downloads".to_string(),
             max_concurrent_downloads: MAX_CONCURRENT_DOWNLOADS_LIMIT + 1,
+            max_connection_per_server: MAX_CONNECTION_PER_SERVER_LIMIT + 1,
+            split: MAX_SPLIT_LIMIT + 1,
+            min_split_size: "1M".to_string(),
+            connect_timeout: MAX_CONNECT_TIMEOUT_LIMIT + 1,
+            max_tries: MAX_TRIES_LIMIT + 1,
             download_limit: 0,
             upload_limit: 0,
             language: "zh-CN".to_string(),
@@ -243,4 +283,12 @@ fn app_config_clamps_concurrency_to_shared_bounds() {
         upper.max_concurrent_downloads,
         MAX_CONCURRENT_DOWNLOADS_LIMIT
     );
+    assert_eq!(
+        upper.max_connection_per_server,
+        MAX_CONNECTION_PER_SERVER_LIMIT
+    );
+    assert_eq!(upper.split, MAX_SPLIT_LIMIT);
+    assert_eq!(upper.min_split_size, "1M");
+    assert_eq!(upper.connect_timeout, MAX_CONNECT_TIMEOUT_LIMIT);
+    assert_eq!(upper.max_tries, MAX_TRIES_LIMIT);
 }

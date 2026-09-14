@@ -388,6 +388,42 @@ describe("SettingsDialog", () => {
     expect(wrapper.find('[data-test="n-input-number"]').attributes("data-max")).toBe("128");
   });
 
+  it("uses stable tuning defaults for legacy settings and exposes their bounds", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await selectPreferenceSection(wrapper, "下载配置");
+
+    expect(wrapper.text()).toContain("每服务器最大连接数");
+    expect(wrapper.text()).toContain("默认分片数");
+    expect(wrapper.text()).toContain("最小分片大小");
+    expect(wrapper.text()).toContain("连接超时");
+    expect(wrapper.text()).toContain("最大重试次数");
+    const inputs = wrapper.findAll('[data-pane="download"] [data-test="n-input-number"]');
+    expect(inputs.map((input) => input.attributes("data-max"))).toEqual([
+      "128",
+      "64",
+      "64",
+      "300",
+      "10",
+      undefined,
+      undefined,
+    ]);
+
+    await wrapper.get('[data-pane="download"] select').setValue("5M");
+    await wrapper.findAll("button").find((button) => button.text() === "保存")!.trigger("click");
+    await flushPromises();
+
+    expect(saveAppConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxConnectionPerServer: 1,
+        split: 5,
+        minSplitSize: "5M",
+        connectTimeout: 60,
+        maxTries: 5,
+      }),
+    );
+  });
+
   it("switches all settings sections and lazily mounts each child", async () => {
     const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
     await flushPromises();

@@ -443,7 +443,7 @@ function createComposableState(overrides: {
       saveDir: "",
       startMode: "now",
       category: "默认",
-      connections: 16,
+      connections: null,
       downloadLimitKb: 0,
       useProxy: false,
     }),

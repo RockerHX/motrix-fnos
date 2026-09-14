@@ -7,6 +7,7 @@ use crate::app::{
 use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::debug_logs::DebugLogStore;
+use crate::settings::service::{save_app_config, AppConfig};
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::{json, Value};
@@ -170,7 +171,7 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn concurrent_start_requests_share_one_process_config_and_rpc_ready() {
+async fn concurrent_start_requests_apply_saved_download_config_once() {
     let temp_dir = temp_dir("concurrent-start");
     std::fs::create_dir_all(&temp_dir).expect("test directory should create");
     let aria2_path = temp_dir.join("fake-aria2");
@@ -185,6 +186,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 root = pathlib.Path(__file__).parent
 process_count = root / "process-count.txt"
 rpc_count = root / "rpc-count.txt"
+global_options = root / "global-options.json"
 process_count.open("a", encoding="utf-8").write("started\n")
 
 port = next(
@@ -199,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length))
         with rpc_count.open("a", encoding="utf-8") as output:
             output.write(payload.get("method", "") + "\n")
+        if payload.get("method") == "aria2.changeGlobalOption":
+            global_options.write_text(json.dumps(payload), encoding="utf-8")
         body = json.dumps({
             "jsonrpc": "2.0",
             "id": payload.get("id"),
@@ -235,16 +239,42 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         aria2_path: Some(aria2_path),
         trusted_proxy_ips: Vec::new(),
     };
-    let mut state = crate::app::bootstrap_http_app_state(&runtime)
+    let initial_state = crate::app::bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
+    let default_download_dir = temp_dir.display().to_string();
+    save_app_config(
+        &initial_state.core.database.pool,
+        AppConfig {
+            default_download_dir: default_download_dir.clone(),
+            max_concurrent_downloads: 9,
+            max_connection_per_server: 6,
+            split: 7,
+            min_split_size: "5M".to_string(),
+            connect_timeout: 90,
+            max_tries: 8,
+            download_limit: 1024,
+            upload_limit: 2048,
+            language: "zh-CN".to_string(),
+        },
+        &default_download_dir,
+        std::slice::from_ref(&default_download_dir),
+        &temp_dir,
+    )
+    .await
+    .expect("download config should save");
+    initial_state.core.database.pool.close().await;
+    drop(initial_state);
+
+    let mut state = crate::app::bootstrap_http_app_state(&runtime)
+        .await
+        .expect("saved state should bootstrap");
     let state_mut = Arc::get_mut(&mut state).expect("state should be uniquely owned");
     state_mut.base_aria2_config.rpc_host = "127.0.0.1".to_string();
     state_mut.base_aria2_config.rpc_port = 6800;
     state_mut.base_aria2_config.rpc_secret.clear();
     state_mut.base_aria2_config.session_path = None;
     state_mut.base_aria2_config.log_path = None;
-
     let requests = (0..8)
         .map(|_| {
             let state = Arc::clone(&state);
@@ -263,6 +293,11 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         .expect("process count should be recorded");
     let rpc_methods = std::fs::read_to_string(temp_dir.join("rpc-count.txt"))
         .expect("RPC count should be recorded");
+    let global_options: Value = serde_json::from_slice(
+        &std::fs::read(temp_dir.join("global-options.json"))
+            .expect("global options should be recorded"),
+    )
+    .expect("global options should be valid JSON");
     std::fs::remove_dir_all(&temp_dir).expect("test directory should remove");
 
     stop_result.expect("Aria2 process should stop");
@@ -283,8 +318,17 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
     assert_eq!(process_count.lines().count(), 1);
     assert_eq!(
         rpc_methods.lines().collect::<Vec<_>>(),
-        ["aria2.getVersion"]
+        ["aria2.getVersion", "aria2.changeGlobalOption"]
     );
+    assert_eq!(global_options["params"][1]["max-concurrent-downloads"], "9");
+    assert_eq!(
+        global_options["params"][1]["max-connection-per-server"],
+        "6"
+    );
+    assert_eq!(global_options["params"][1]["split"], "7");
+    assert_eq!(global_options["params"][1]["min-split-size"], "5M");
+    assert_eq!(global_options["params"][1]["connect-timeout"], "90");
+    assert_eq!(global_options["params"][1]["max-tries"], "8");
 }
 
 #[tokio::test]

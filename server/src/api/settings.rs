@@ -8,8 +8,7 @@ use crate::settings::proxy::{
     DownloadProxyStatus,
 };
 use crate::settings::service::{
-    load_app_config_from_pool, save_app_config, save_json_rpc_token, save_lan_json_rpc_config,
-    AppConfig, LanJsonRpcConfig,
+    save_app_config, save_json_rpc_token, save_lan_json_rpc_config, AppConfig, LanJsonRpcConfig,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -101,11 +100,7 @@ pub(crate) struct UpdateSettingsResponse {
 }
 
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
-    let default_download_dir = default_download_dir(&state)?;
-    let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
-        .await
-        .map_err(|error| ApiError::internal("settings_load_failed", error))?;
-    Ok(Json(config))
+    Ok(Json(state.current_app_config().await))
 }
 
 async fn get_download_proxy(
@@ -171,6 +166,7 @@ async fn update_settings(
     )
     .await
     .map_err(classify_settings_save_error)?;
+    state.set_app_config(config.clone()).await;
     state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
     state.core.debug_logs.info("settings", "应用配置已保存");
     let runtime_apply = apply_runtime_download_config(&state, &config).await;
@@ -301,14 +297,6 @@ fn generate_lan_json_rpc_token() -> Result<String, ApiError> {
 #[cfg(test)]
 mod tests;
 
-fn default_download_dir(state: &HttpAppState) -> Result<String, ApiError> {
-    crate::storage::load_default_download_dir(
-        &state.runtime.accessible_paths_path,
-        &state.runtime.app_data_dir,
-    )
-    .map_err(|error| ApiError::internal("default_download_dir_failed", error))
-}
-
 fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
     crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
         .map_err(|error| ApiError::internal("accessible_paths_load_failed", error))
@@ -375,6 +363,11 @@ async fn apply_runtime_download_config(
         config.max_concurrent_downloads,
         config.download_limit,
         config.upload_limit,
+        config.max_connection_per_server,
+        config.split,
+        &config.min_split_size,
+        config.connect_timeout,
+        config.max_tries,
     );
     if let Err(error) = apply_global_options(
         &state.aria2_rpc,

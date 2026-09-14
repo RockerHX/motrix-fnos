@@ -12,7 +12,12 @@ describe("taskCreateFormModel", () => {
     expect(form).toMatchObject({
       startMode: "now",
       category: "默认",
-      connections: 16,
+      connections: null,
+      downloadLimitKb: 0,
+      useProxy: false,
+    });
+    expect(buildTaskAdvancedOptions(form)).toEqual({
+      connections: null,
       downloadLimitKb: 0,
       useProxy: false,
     });
@@ -24,7 +29,7 @@ describe("taskCreateFormModel", () => {
     expect(form).toEqual(createTaskCreateFormState());
   });
 
-  it("normalizes blank category and builds the proxy selection", () => {
+  it("normalizes blank category and preserves explicit per-task overrides", () => {
     const form = createTaskCreateFormState();
     form.connections = 8;
     form.downloadLimitKb = 512;

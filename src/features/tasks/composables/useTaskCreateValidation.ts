@@ -28,7 +28,9 @@ export function useTaskCreateValidation(form: TaskCreateFormState, activeInputTy
   );
   const magnetValidationStatus = computed(() => (form.magnet && !isMagnetValid.value ? "error" : undefined));
   const hasValidAdvancedOptions = computed(
-    () => form.connections >= 1 && form.connections <= 64 && form.downloadLimitKb >= 0,
+    () =>
+      (form.connections === null || (form.connections >= 1 && form.connections <= 64)) &&
+      form.downloadLimitKb >= 0,
   );
   const hasValidSourceInput = computed(() => {
     if (activeInputType.value === "url") {

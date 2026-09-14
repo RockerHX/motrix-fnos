@@ -215,7 +215,14 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
                 </NGi>
                 <NGi>
                   <NFormItem :label="t('create.advanced.connections.label')" path="connections">
-                    <NInputNumber v-model:value="form.connections" class="full-width" :min="1" :max="64" :precision="0" />
+                    <NInputNumber
+                      v-model:value="form.connections"
+                      class="full-width"
+                      :min="1"
+                      :max="64"
+                      :precision="0"
+                      :placeholder="t('create.advanced.connections.placeholder')"
+                    />
                   </NFormItem>
                 </NGi>
                 <NGi>

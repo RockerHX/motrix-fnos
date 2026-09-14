@@ -1886,6 +1886,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
                     download_limit: 0,
                     upload_limit: 0,
                     language: "zh-CN".to_string(),
+                    ..AppConfig::default()
                 },
             )
             .await,

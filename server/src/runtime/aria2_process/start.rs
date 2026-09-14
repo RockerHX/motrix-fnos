@@ -4,9 +4,9 @@ use super::stop::stop_process;
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
-    generate_rpc_secret, ping_rpc, process_args_with_log_level, rpc_ports_exhausted_message,
-    runtime_config, select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel,
-    SavedAria2Runtime,
+    apply_global_options, generate_rpc_secret, global_options_from_values, ping_rpc,
+    process_args_with_log_level, rpc_ports_exhausted_message, runtime_config,
+    select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
 use crate::database::tasks::persist_download_task_states;
@@ -255,6 +255,33 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             ));
         }
         return Err(lifecycle_error(state, error));
+    }
+    let app_config = state.current_app_config().await;
+    let options = global_options_from_values(
+        app_config.max_concurrent_downloads,
+        app_config.download_limit,
+        app_config.upload_limit,
+        app_config.max_connection_per_server,
+        app_config.split,
+        &app_config.min_split_size,
+        app_config.connect_timeout,
+        app_config.max_tries,
+    );
+    if let Err(error) = apply_global_options(
+        &state.aria2_rpc,
+        &config,
+        &options,
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        state.core.debug_logs.warn(
+            "aria2.options",
+            format!(
+                "启动后应用保存的下载配置失败，保留配置并继续恢复：{}",
+                error
+            ),
+        );
     }
     if started_process && has_session_restore_candidates(state)? {
         let _proxy_update_guard = state.download_proxy_update_lock.lock().await;

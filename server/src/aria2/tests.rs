@@ -143,7 +143,7 @@ fn rpc_port_candidates_use_primary_then_fallback_range() {
 
 #[test]
 fn global_options_clamp_concurrency_to_shared_limit() {
-    let options = global_options_from_values(999, 0, 0);
+    let options = global_options_from_values(999, 0, 0, 1, 5, "20M", 60, 5);
 
     assert_eq!(
         options.max_concurrent_downloads,

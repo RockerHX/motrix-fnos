@@ -498,6 +498,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
 - `maxConcurrentDownloads` 默认值为 `5`，服务端规范化范围为 `1..=128`；`0` 会规范化为 `1`，超过 `128` 会规范化为 `128`。该限制由服务端执行，前端范围只是输入提示。
+- 下载调优字段 `maxConnectionPerServer`、`split`、`minSplitSize`、`connectTimeout` 和 `maxTries` 分别默认 `1`、`5`、`20M`、`60` 秒和 `5` 次；数值范围依次为 `1..=64`、`1..=64`、`1..=300` 和 `1..=10`，`minSplitSize` 只接受 `1M`、`5M`、`10M`、`20M`，非法值回退为稳定默认值。
+- 调优字段保存后会与限速和并发一起通过 `aria2.changeGlobalOption` 应用；Aria2 未运行时不会因设置操作启动，并会在下一次受控启动、session 恢复前应用已保存的规范化配置。旧客户端省略这些新增字段时按上述默认值保存。
+- `split` 和 `minSplitSize` 只作为新建任务的全局默认值，不回写已有任务；已有任务的高级 Aria2 选项仍优先。
 - `PUT /api/settings` 保存成功后不会因为 Aria2 未运行或即时应用失败而回滚配置；响应中的可选 `runtimeApply` 为 `applied`（已即时应用）、`deferred`（Aria2 未就绪或生命周期正在切换，将在下次受控启动时生效）或 `failed`（已尝试即时应用但 Aria2 拒绝/调用失败）。旧客户端可以忽略该字段。
 - `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
 - `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
@@ -519,6 +522,11 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "defaultDownloadDir": "/vol1/downloads",
   "maxConcurrentDownloads": 5,
+  "maxConnectionPerServer": 1,
+  "split": 5,
+  "minSplitSize": "20M",
+  "connectTimeout": 60,
+  "maxTries": 5,
   "downloadLimit": 0,
   "uploadLimit": 0,
   "language": "zh-CN"
@@ -531,6 +539,11 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "defaultDownloadDir": "/vol1/downloads",
   "maxConcurrentDownloads": 128,
+  "maxConnectionPerServer": 6,
+  "split": 7,
+  "minSplitSize": "5M",
+  "connectTimeout": 90,
+  "maxTries": 8,
   "downloadLimit": 0,
   "uploadLimit": 0,
   "language": "zh-CN",
