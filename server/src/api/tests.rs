@@ -2,7 +2,10 @@ use super::*;
 use crate::api::app::{AppInfo, AppReadiness, BackendPing};
 use crate::api::diagnostics::{Aria2LogCleanupResponse, DiagnosticsLogUsageResponse};
 use crate::api::error::ErrorResponse;
-use crate::api::settings::{JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus};
+use crate::api::settings::{
+    JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus, RuntimeApplyStatus,
+    UpdateSettingsResponse,
+};
 use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -1791,7 +1794,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         Some(first_lan_token.as_str())
     );
 
-    let updated_settings = response_json::<AppConfig>(
+    let updated_settings = response_json::<UpdateSettingsResponse>(
         app.clone()
             .oneshot(
                 authorized_json_request(
@@ -1814,11 +1817,15 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(updated_settings.default_download_dir, "/tmp/custom");
-    assert_eq!(updated_settings.max_concurrent_downloads, 1);
-    assert_eq!(updated_settings.download_limit, 1024);
-    assert_eq!(updated_settings.upload_limit, 2048);
-    assert_eq!(updated_settings.language, "en-US");
+    assert_eq!(updated_settings.config.default_download_dir, "/tmp/custom");
+    assert_eq!(updated_settings.config.max_concurrent_downloads, 1);
+    assert_eq!(updated_settings.config.download_limit, 1024);
+    assert_eq!(updated_settings.config.upload_limit, 2048);
+    assert_eq!(updated_settings.config.language, "en-US");
+    assert_eq!(
+        updated_settings.runtime_apply,
+        Some(RuntimeApplyStatus::Deferred)
+    );
     assert_eq!(state.json_rpc_default_download_dir(), "/tmp/custom");
 
     let stored_settings = response_json::<AppConfig>(
@@ -1834,7 +1841,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(stored_settings, updated_settings);
+    assert_eq!(stored_settings, updated_settings.config);
     let stored_token = response_json::<JsonRpcTokenStatus>(
         app.clone()
             .oneshot(

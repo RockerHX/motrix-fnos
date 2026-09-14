@@ -1,6 +1,7 @@
 use super::rpc::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::settings::service::MAX_CONCURRENT_DOWNLOADS_LIMIT;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Aria2GlobalOptions {
@@ -41,7 +42,7 @@ pub fn global_options_from_values(
     upload_limit: u64,
 ) -> Aria2GlobalOptions {
     Aria2GlobalOptions {
-        max_concurrent_downloads: max_concurrent_downloads.clamp(1, 64),
+        max_concurrent_downloads: max_concurrent_downloads.clamp(1, MAX_CONCURRENT_DOWNLOADS_LIMIT),
         download_limit,
         upload_limit,
     }

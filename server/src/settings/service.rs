@@ -8,6 +8,8 @@ const APP_CONFIG_KEY: &str = "download";
 const LAN_JSONRPC_CONFIG_KEY: &str = "jsonrpc_lan";
 const DEFAULT_LANGUAGE: &str = "zh-CN";
 const ENGLISH_LANGUAGE: &str = "en-US";
+pub const DEFAULT_MAX_CONCURRENT_DOWNLOADS: u32 = 5;
+pub const MAX_CONCURRENT_DOWNLOADS_LIMIT: u32 = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -118,7 +120,9 @@ pub fn normalize_app_config(
 
     Ok(AppConfig {
         default_download_dir,
-        max_concurrent_downloads: config.max_concurrent_downloads.clamp(1, 64),
+        max_concurrent_downloads: config
+            .max_concurrent_downloads
+            .clamp(1, MAX_CONCURRENT_DOWNLOADS_LIMIT),
         download_limit: config.download_limit,
         upload_limit: config.upload_limit,
         language: normalize_language(&config.language),
@@ -128,7 +132,7 @@ pub fn normalize_app_config(
 fn default_app_config(default_download_dir: &str) -> Result<AppConfig, String> {
     Ok(AppConfig {
         default_download_dir: default_download_dir.trim().to_string(),
-        max_concurrent_downloads: 5,
+        max_concurrent_downloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
         download_limit: 0,
         upload_limit: 0,
         language: default_language(),

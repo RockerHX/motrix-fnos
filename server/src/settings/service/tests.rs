@@ -179,7 +179,7 @@ fn app_config_accepts_legacy_saved_values() {
                 .expect("legacy config should load");
 
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
-            assert_eq!(loaded.max_concurrent_downloads, 64);
+            assert_eq!(loaded.max_concurrent_downloads, 128);
             assert_eq!(loaded.language, "zh-CN");
             assert_eq!(
                 load_json_rpc_token(&database.pool)
@@ -211,4 +211,36 @@ fn app_config_falls_back_to_default_language_for_invalid_values() {
     .expect("config should normalize");
 
     assert_eq!(config.language, "zh-CN");
+}
+
+#[test]
+fn app_config_clamps_concurrency_to_shared_bounds() {
+    let lower = normalize_app_config(
+        AppConfig {
+            default_download_dir: "/tmp/downloads".to_string(),
+            max_concurrent_downloads: 0,
+            download_limit: 0,
+            upload_limit: 0,
+            language: "zh-CN".to_string(),
+        },
+        "/app/data",
+    )
+    .expect("config should normalize");
+    assert_eq!(lower.max_concurrent_downloads, 1);
+
+    let upper = normalize_app_config(
+        AppConfig {
+            default_download_dir: "/tmp/downloads".to_string(),
+            max_concurrent_downloads: MAX_CONCURRENT_DOWNLOADS_LIMIT + 1,
+            download_limit: 0,
+            upload_limit: 0,
+            language: "zh-CN".to_string(),
+        },
+        "/app/data",
+    )
+    .expect("config should normalize");
+    assert_eq!(
+        upper.max_concurrent_downloads,
+        MAX_CONCURRENT_DOWNLOADS_LIMIT
+    );
 }

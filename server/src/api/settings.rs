@@ -83,6 +83,23 @@ pub struct LanJsonRpcMutationResponse {
     pub issued_token: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RuntimeApplyStatus {
+    Applied,
+    Deferred,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateSettingsResponse {
+    #[serde(flatten)]
+    pub config: AppConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_apply: Option<RuntimeApplyStatus>,
+}
+
 async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<AppConfig>, ApiError> {
     let default_download_dir = default_download_dir(&state)?;
     let config = load_app_config_from_pool(&state.core.database.pool, &default_download_dir)
@@ -139,7 +156,7 @@ async fn clear_download_proxy(
 async fn update_settings(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<AppConfig>,
-) -> Result<Json<AppConfig>, ApiError> {
+) -> Result<Json<UpdateSettingsResponse>, ApiError> {
     let accessible_paths = accessible_paths(&state)?;
     let default_download_dir =
         crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
@@ -156,8 +173,11 @@ async fn update_settings(
     .map_err(classify_settings_save_error)?;
     state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
     state.core.debug_logs.info("settings", "应用配置已保存");
-    apply_runtime_download_config(&state, &config).await;
-    Ok(Json(config))
+    let runtime_apply = apply_runtime_download_config(&state, &config).await;
+    Ok(Json(UpdateSettingsResponse {
+        config,
+        runtime_apply: Some(runtime_apply),
+    }))
 }
 
 async fn get_json_rpc_token(
@@ -321,7 +341,10 @@ fn classify_download_proxy_error(error: DownloadProxyServiceError) -> ApiError {
     }
 }
 
-async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig) {
+async fn apply_runtime_download_config(
+    state: &HttpAppState,
+    config: &AppConfig,
+) -> RuntimeApplyStatus {
     let _activity = match state.aria2_lifecycle.acquire_activity() {
         Ok(activity) => activity,
         Err(error) => {
@@ -332,7 +355,7 @@ async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig)
                     error
                 ),
             );
-            return;
+            return RuntimeApplyStatus::Deferred;
         }
     };
     let aria2_config = state.aria2_config();
@@ -345,7 +368,7 @@ async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig)
                 status.message
             ),
         );
-        return;
+        return RuntimeApplyStatus::Deferred;
     }
 
     let options = global_options_from_values(
@@ -365,5 +388,8 @@ async fn apply_runtime_download_config(state: &HttpAppState, config: &AppConfig)
             .core
             .debug_logs
             .warn("settings", format!("即时应用下载配置失败：{}", error));
+        RuntimeApplyStatus::Failed
+    } else {
+        RuntimeApplyStatus::Applied
     }
 }

@@ -483,7 +483,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/settings` | - | `AppConfig` |
-| `PUT` | `/api/settings` | `AppConfig` | `AppConfig` |
+| `PUT` | `/api/settings` | `AppConfig` | `UpdateSettingsResponse`（兼容扁平 `AppConfig` 字段，附带可选 `runtimeApply`） |
 | `GET` | `/api/settings/jsonrpc-token` | - | `JsonRpcTokenStatus` |
 | `PUT` | `/api/settings/jsonrpc-token` | `UpdateJsonRpcTokenRequest` | `JsonRpcTokenStatus` |
 | `GET` | `/api/settings/lan-jsonrpc` | - | `LanJsonRpcStatus` |
@@ -497,6 +497,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
+- `maxConcurrentDownloads` 默认值为 `5`，服务端规范化范围为 `1..=128`；`0` 会规范化为 `1`，超过 `128` 会规范化为 `128`。该限制由服务端执行，前端范围只是输入提示。
+- `PUT /api/settings` 保存成功后不会因为 Aria2 未运行或即时应用失败而回滚配置；响应中的可选 `runtimeApply` 为 `applied`（已即时应用）、`deferred`（Aria2 未就绪或生命周期正在切换，将在下次受控启动时生效）或 `failed`（已尝试即时应用但 Aria2 拒绝/调用失败）。旧客户端可以忽略该字段。
 - `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
 - `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
 - JSON-RPC Token 通过专用受保护接口更新；保存后立即生效且无需重启 Aria2。
@@ -522,6 +524,21 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "language": "zh-CN"
 }
 ```
+
+`UpdateSettingsResponse` 在保持上述顶层 `AppConfig` 字段的同时，可附带：
+
+```json
+{
+  "defaultDownloadDir": "/vol1/downloads",
+  "maxConcurrentDownloads": 128,
+  "downloadLimit": 0,
+  "uploadLimit": 0,
+  "language": "zh-CN",
+  "runtimeApply": "applied"
+}
+```
+
+`runtimeApply` 不会写入 SQLite；`GET /api/settings` 始终只返回 `AppConfig`。
 
 `JsonRpcTokenStatus`：
 
