@@ -1,11 +1,16 @@
 import type { AppLanguage } from "../i18n";
 
+export const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 5;
+export const MAX_CONCURRENT_DOWNLOADS_LIMIT = 128;
+export type RuntimeApplyStatus = "applied" | "deferred" | "failed";
+
 export interface AppConfig {
   defaultDownloadDir: string;
   maxConcurrentDownloads: number;
   downloadLimit: number;
   uploadLimit: number;
   language: AppLanguage;
+  runtimeApply?: RuntimeApplyStatus;
 }
 
 export interface JsonRpcTokenStatus {

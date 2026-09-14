@@ -28,4 +28,26 @@ describe("settings service", () => {
     });
     expect(JSON.stringify(vi.mocked(httpPut).mock.calls)).not.toContain("legacy-secret");
   });
+
+  it("preserves the optional runtime apply status from the save response", async () => {
+    const response = {
+      defaultDownloadDir: "/downloads",
+      maxConcurrentDownloads: 5,
+      downloadLimit: 0,
+      uploadLimit: 0,
+      language: "zh-CN" as const,
+      runtimeApply: "deferred" as const,
+    };
+    vi.mocked(httpPut).mockResolvedValueOnce(response);
+
+    await expect(
+      saveAppConfig({
+        defaultDownloadDir: "/downloads",
+        maxConcurrentDownloads: 5,
+        downloadLimit: 0,
+        uploadLimit: 0,
+        language: "zh-CN",
+      }),
+    ).resolves.toEqual(response);
+  });
 });

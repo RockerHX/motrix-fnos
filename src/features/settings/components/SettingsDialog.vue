@@ -18,12 +18,17 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
-import type { AppConfig } from "../../../types/settings";
+import {
+  DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+  MAX_CONCURRENT_DOWNLOADS_LIMIT,
+  type AppConfig,
+} from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
 import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
 import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
 import ProxySettings from "./ProxySettings.vue";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
+import { useTaskStore } from "../../tasks/stores/taskStore";
 import AppIcon from "../../../components/AppIcon.vue";
 import { fnosHost, type FnosHostKind, type SharedFolderAuthorizationResult } from "../../../services/fnos";
 
@@ -39,6 +44,7 @@ const emit = defineEmits<{
 const message = useMessage();
 const settingsStore = useSettingsStore();
 const downloadProxyStore = useDownloadProxyStore();
+const taskStore = useTaskStore();
 const { language: currentLanguage, setLanguage, t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 type SettingsSection = "preferences" | "proxy" | "security" | "rpc";
@@ -51,7 +57,7 @@ const activeRpcSection = ref<RpcSection>("public");
 const savedLanguage = ref<AppConfig["language"] | null>(null);
 const form = reactive({
   defaultDownloadDir: "",
-  maxConcurrentDownloads: 5,
+  maxConcurrentDownloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
   language: "zh-CN" as AppConfig["language"],
@@ -59,6 +65,21 @@ const form = reactive({
 const hostKind = ref<FnosHostKind | null>(null);
 const isDetectingHost = ref(false);
 const isAuthorizing = ref(false);
+const activeDownloadCount = computed(() => taskStore.tasks.filter((task) => task.status === "active").length);
+const pendingDownloadCount = computed(() => taskStore.tasks.filter((task) => task.status === "pending").length);
+const downloadSummary = computed(() =>
+  t("settings.downloadSummary", {
+    active: activeDownloadCount.value,
+    pending: pendingDownloadCount.value,
+    max: form.maxConcurrentDownloads,
+  }),
+);
+const speedSummary = computed(() =>
+  t("settings.speedSummary", {
+    download: formatSpeed(form.downloadLimitKb),
+    upload: formatSpeed(form.uploadLimitKb),
+  }),
+);
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
     label: settingsStore.displayAccessiblePaths.find((item) => item.path === path)?.displayPath || path,
@@ -212,10 +233,22 @@ async function saveSettings() {
   try {
     const config = await settingsStore.saveConfig(buildPayload());
     applyConfig(config);
-    message.success(t("settings.saved"));
+    showSaveResult(config.runtimeApply);
     closeDialog();
   } catch (error) {
     message.error(getErrorMessage(error, t("settings.failed")));
+  }
+}
+
+function showSaveResult(status: AppConfig["runtimeApply"]) {
+  if (status === "applied") {
+    message.success(t("settings.runtimeApply.applied"));
+  } else if (status === "deferred") {
+    message.info(t("settings.runtimeApply.deferred"));
+  } else if (status === "failed") {
+    message.warning(t("settings.runtimeApply.failed"));
+  } else {
+    message.success(t("settings.saved"));
   }
 }
 
@@ -260,6 +293,10 @@ function bytesToKb(value: number) {
 
 function kbToBytes(value: number) {
   return Math.floor(Math.max(0, value || 0) * 1024);
+}
+
+function formatSpeed(value: number) {
+  return value > 0 ? `${value} KB/s` : t("settings.unlimited");
 }
 
 </script>
@@ -391,9 +428,19 @@ function kbToBytes(value: number) {
               </NTabPane>
 
               <NTabPane name="download" :tab="t('settings.preferenceTabs.download')" display-directive="show:lazy">
-                <div class="settings-preferences-fields">
+                <div class="settings-preferences-fields settings-download-fields">
+                  <NAlert type="warning" :bordered="false">{{ t("settings.maxConcurrentDownloadsHelp") }}</NAlert>
+                  <div class="settings-download-summary" data-test="download-settings-summary">
+                    <p>{{ downloadSummary }}</p>
+                    <p>{{ speedSummary }}</p>
+                  </div>
                   <NFormItem :label="t('settings.maxConcurrentDownloads')">
-                    <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
+                    <NInputNumber
+                      v-model:value="form.maxConcurrentDownloads"
+                      :min="1"
+                      :max="MAX_CONCURRENT_DOWNLOADS_LIMIT"
+                      :step="1"
+                    />
                   </NFormItem>
 
                   <NFormItem :label="t('settings.downloadLimit')">
