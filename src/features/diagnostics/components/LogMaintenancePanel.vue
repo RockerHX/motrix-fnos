@@ -7,7 +7,8 @@ import type { AppMetricItem } from "../../../components/ui/appMetric";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
 import { clearAria2Logs, getLogUsage } from "../services/logMaintenanceService";
-import type { DiagnosticsLogUsage, LogFileUsage } from "../types";
+import { getStorageUsage } from "../services/storageDiagnosticsService";
+import type { DiagnosticsLogUsage, DiagnosticsStorageUsage, LogFileUsage } from "../types";
 
 const LOG_USAGE_WARNING_BYTES = 80 * 1024 * 1024;
 
@@ -23,9 +24,11 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const message = useMessage();
 const usage = ref<DiagnosticsLogUsage | null>(null);
+const storageUsage = ref<DiagnosticsStorageUsage | null>(null);
 const isLoading = ref(false);
 const isClearing = ref(false);
 const errorMessage = ref("");
+const storageErrorMessage = ref("");
 
 const canClear = computed(
   () => props.aria2Running === false && !isLoading.value && !isClearing.value,
@@ -51,6 +54,32 @@ const usageItems = computed<AppMetricItem[]>(() => {
     usageMetric("diagnostics.logUsage.lifecycle", snapshot.lifecycle),
   ];
 });
+const storageItems = computed<AppMetricItem[]>(() => {
+  const snapshot = storageUsage.value;
+  if (!snapshot) {
+    return [];
+  }
+
+  return [
+    {
+      label: t("diagnostics.storage.diskTotal"),
+      value: formatBytes(snapshot.disk.totalBytes),
+    },
+    {
+      label: t("diagnostics.storage.available"),
+      value: formatBytes(snapshot.disk.availableBytes),
+    },
+    {
+      label: t("diagnostics.storage.session"),
+      value: formatBytes(snapshot.aria2SessionBytes),
+    },
+    {
+      label: t("diagnostics.storage.metadata"),
+      value: formatBytes(snapshot.magnetMetadata.totalBytes),
+      detail: t("diagnostics.storage.files", { count: snapshot.magnetMetadata.fileCount }),
+    },
+  ];
+});
 
 watch(
   () => props.active,
@@ -65,13 +94,19 @@ watch(
 async function refresh() {
   isLoading.value = true;
   errorMessage.value = "";
-  try {
-    usage.value = await getLogUsage();
-  } catch (error) {
-    errorMessage.value = getErrorMessage(error, t("diagnostics.logUsage.loadFailed"));
-  } finally {
-    isLoading.value = false;
+  storageErrorMessage.value = "";
+  const [logResult, storageResult] = await Promise.allSettled([getLogUsage(), getStorageUsage()]);
+  if (logResult.status === "fulfilled") {
+    usage.value = logResult.value;
+  } else {
+    errorMessage.value = getErrorMessage(logResult.reason, t("diagnostics.logUsage.loadFailed"));
   }
+  if (storageResult.status === "fulfilled") {
+    storageUsage.value = storageResult.value;
+  } else {
+    storageErrorMessage.value = getErrorMessage(storageResult.reason, t("diagnostics.storage.loadFailed"));
+  }
+  isLoading.value = false;
 }
 
 async function clearLogs() {
@@ -85,6 +120,7 @@ async function clearLogs() {
     const response = await clearAria2Logs();
     usage.value = response.usage;
     emit("updated", response.usage);
+    await refreshStorageUsage();
     message.success(t("diagnostics.logUsage.clearSuccess", { size: formatBytes(response.reclaimedBytes) }));
     return true;
   } catch (error) {
@@ -92,6 +128,15 @@ async function clearLogs() {
     return false;
   } finally {
     isClearing.value = false;
+  }
+}
+
+async function refreshStorageUsage() {
+  try {
+    storageErrorMessage.value = "";
+    storageUsage.value = await getStorageUsage();
+  } catch (error) {
+    storageErrorMessage.value = getErrorMessage(error, t("diagnostics.storage.loadFailed"));
   }
 }
 
@@ -161,6 +206,17 @@ defineExpose({ refresh });
     <AppMetricGrid v-if="usage" :items="usageItems" :desktop-columns="4" :mobile-columns="1" />
     <p v-else-if="isLoading" class="log-maintenance-loading">{{ t("common.loading") }}</p>
     <p v-if="errorMessage" class="log-maintenance-error">{{ errorMessage }}</p>
+
+    <div class="log-storage-section">
+      <div>
+        <p class="log-maintenance-eyebrow">{{ t("diagnostics.storage.eyebrow") }}</p>
+        <h4>{{ t("diagnostics.storage.title") }}</h4>
+      </div>
+      <p class="log-maintenance-description">{{ t("diagnostics.storage.description") }}</p>
+      <AppMetricGrid v-if="storageUsage" :items="storageItems" :desktop-columns="4" :mobile-columns="1" />
+      <p v-else-if="isLoading" class="log-maintenance-loading">{{ t("common.loading") }}</p>
+      <p v-if="storageErrorMessage" class="log-maintenance-error">{{ storageErrorMessage }}</p>
+    </div>
 
     <NSpace class="log-maintenance-actions" :wrap="true">
       <NPopconfirm

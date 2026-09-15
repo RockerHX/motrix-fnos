@@ -47,6 +47,18 @@ h3 {
   margin-top: 2px;
 }
 
+.log-storage-section {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--app-color-border-subtle);
+}
+
+h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
 @media (max-width: 767px) {
   .log-maintenance-panel {
     padding: 16px 0;

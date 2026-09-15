@@ -704,6 +704,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/diagnostics/logs` | - | `DiagnosticsLogUsage` |
+| `GET` | `/api/diagnostics/storage` | - | `DiagnosticsStorageUsage` |
 | `DELETE` | `/api/diagnostics/aria2-logs` | - | `Aria2LogCleanupResponse` |
 | `GET` | `/api/diagnostics/diagnostic-bundle` | - | `application/zip` attachment |
 
@@ -804,6 +805,29 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、JWT 或其他 Token；只读取固定目录内普通文件并拒绝符号链接。
 - 登录诊断包文件名固定为 `motrix-fnos-login-diagnostic.zip`，只包含 `summary.json`、`logs/auth-debug.jsonl` 和存在时的 `logs/lifecycle.log(.1-.3)`；它用于登录页排障，不需要先登录，也不包含完整诊断包中的 server/Aria2 日志。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
+
+`GET /api/diagnostics/storage` 返回应用数据所在文件系统的空间和应用私有临时文件占用，不返回任何绝对路径：
+
+```json
+{
+  "disk": {
+    "totalBytes": 107374182400,
+    "availableBytes": 53687091200
+  },
+  "aria2SessionBytes": 4096,
+  "magnetMetadata": {
+    "totalBytes": 8192,
+    "fileCount": 2
+  }
+}
+```
+
+约定：
+
+- 接口要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
+- `disk` 使用应用数据目录所在文件系统的总空间和可用空间；`aria2SessionBytes` 只统计固定的 `aria2/aria2.session`；`magnetMetadata` 递归统计应用私有 `magnet-metadata` 目录中的普通文件。
+- 缺失的 session 或 metadata 目录返回零值。符号链接、非普通文件和非普通目录不会被跟随或计入；不会扫描用户下载目录。
+- 读取应用数据目录或文件系统空间失败时返回 `500 diagnostics_storage_usage_failed`，响应不包含服务端绝对路径。
 
 ### 4.9 存储目录
 

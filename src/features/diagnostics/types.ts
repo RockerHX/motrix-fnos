@@ -41,6 +41,18 @@ export interface DiagnosticsLogUsage {
   aria2LogMode: Aria2LogModeStatus;
 }
 
+export interface DiagnosticsStorageUsage {
+  disk: {
+    totalBytes: number;
+    availableBytes: number;
+  };
+  aria2SessionBytes: number;
+  magnetMetadata: {
+    totalBytes: number;
+    fileCount: number;
+  };
+}
+
 export interface Aria2LogCleanupResponse {
   reclaimedBytes: number;
   usage: DiagnosticsLogUsage;

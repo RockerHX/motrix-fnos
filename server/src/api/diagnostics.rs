@@ -1,6 +1,7 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
+use crate::diagnostics::{collect_storage_usage, StorageUsageSnapshot};
 use crate::runtime::{
     clear_aria2_logs, collect_log_usage, process_status, update_aria2_log_mode,
     Aria2LogMaintenanceOutcome, Aria2LogModeUpdateError, LogFileUsage,
@@ -26,6 +27,7 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
             "/diagnostics/aria2-log-mode",
             get(get_aria2_log_mode).put(put_aria2_log_mode),
         )
+        .route("/diagnostics/storage", get(get_storage_usage))
         .route("/diagnostics/logs", get(get_log_usage))
         .route("/diagnostics/aria2-logs", delete(delete_aria2_logs))
         .route("/diagnostics/diagnostic-bundle", get(get_diagnostic_bundle))
@@ -54,6 +56,8 @@ pub(crate) struct Aria2LogCleanupResponse {
     pub usage: DiagnosticsLogUsageResponse,
 }
 
+pub(crate) type DiagnosticsStorageResponse = StorageUsageSnapshot;
+
 async fn get_aria2_log_mode(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<crate::aria2::Aria2LogModeStatus>, ApiError> {
@@ -64,6 +68,14 @@ async fn get_log_usage(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<DiagnosticsLogUsageResponse>, ApiError> {
     log_usage_response(&state).map(Json)
+}
+
+async fn get_storage_usage(
+    State(state): State<Arc<HttpAppState>>,
+) -> Result<Json<DiagnosticsStorageResponse>, ApiError> {
+    collect_storage_usage(&state.runtime.app_data_dir)
+        .map(Json)
+        .map_err(|_| ApiError::internal("diagnostics_storage_usage_failed", "读取存储占用失败"))
 }
 
 async fn delete_aria2_logs(

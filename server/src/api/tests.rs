@@ -1,6 +1,8 @@
 use super::*;
 use crate::api::app::{AppInfo, AppReadiness, BackendPing};
-use crate::api::diagnostics::{Aria2LogCleanupResponse, DiagnosticsLogUsageResponse};
+use crate::api::diagnostics::{
+    Aria2LogCleanupResponse, DiagnosticsLogUsageResponse, DiagnosticsStorageResponse,
+};
 use crate::api::error::ErrorResponse;
 use crate::api::settings::{
     JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus, RuntimeApplyStatus,
@@ -1006,6 +1008,80 @@ async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy(
 }
 
 #[tokio::test]
+async fn diagnostics_storage_reports_private_usage_without_exposing_paths() {
+    let state = raw_test_state(None).await;
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("aria2"))
+        .expect("aria2 directory should create");
+    std::fs::create_dir_all(
+        state
+            .runtime
+            .app_data_dir
+            .join("magnet-metadata/task-7/nested"),
+    )
+    .expect("metadata directory should create");
+    std::fs::write(
+        state.runtime.app_data_dir.join("aria2/aria2.session"),
+        b"session-data",
+    )
+    .expect("session should write");
+    std::fs::write(
+        state
+            .runtime
+            .app_data_dir
+            .join("magnet-metadata/task-7/nested/metadata.torrent"),
+        b"torrent-data",
+    )
+    .expect("metadata should write");
+    let app = super::management_router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/storage")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let token = state
+        .auth
+        .service
+        .issue_admin_token(&configured)
+        .await
+        .expect("admin token should issue");
+    let usage = response_json::<DiagnosticsStorageResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/storage")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert!(usage.disk.total_bytes >= usage.disk.available_bytes);
+    assert_eq!(usage.aria2_session_bytes, 12);
+    assert_eq!(usage.magnet_metadata.total_bytes, 12);
+    assert_eq!(usage.magnet_metadata.file_count, 1);
+    assert!(!serde_json::to_string(&usage)
+        .expect("usage should serialize")
+        .contains(state.runtime.app_data_dir.to_string_lossy().as_ref()));
+}
+
+#[tokio::test]
 async fn diagnostics_aria2_log_cleanup_returns_latest_usage() {
     let state = raw_test_state(None).await;
     let configured = state
@@ -1452,6 +1528,7 @@ async fn readonly_routes_do_not_write_file_logs_but_mutations_and_errors_still_d
             "/api/aria2/config",
             "/api/aria2/process",
             "/api/aria2/rpc",
+            "/api/diagnostics/storage",
         ] {
             let response = app
                 .clone()
