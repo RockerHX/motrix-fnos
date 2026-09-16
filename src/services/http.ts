@@ -48,7 +48,8 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   const accessToken = options.includeAuth === false ? null : accessTokenProvider?.();
   const response = await fetch(path, {
     method,
-    credentials: "omit",
+    // Preserve same-origin gateway cookies; Motrix itself authenticates with Bearer JWT.
+    credentials: "same-origin",
     headers: {
       ...(hasJsonBody ? { "content-type": "application/json" } : {}),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),

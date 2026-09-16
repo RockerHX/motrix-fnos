@@ -30,7 +30,7 @@ describe("runtimeEvents", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens one bearer fetch stream and parses runtime events", async () => {
+  it("preserves gateway credentials alongside the bearer token and parses runtime events", async () => {
     const stream = controllableStream();
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(stream.response);
@@ -43,7 +43,7 @@ describe("runtimeEvents", () => {
     await flush();
     expect(fetchMock).toHaveBeenCalledWith("/api/events", expect.objectContaining({
       method: "GET",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: { Authorization: "Bearer jwt-value" },
     }));
 

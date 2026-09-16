@@ -1,8 +1,13 @@
 use super::*;
 use crate::api::app::{AppInfo, AppReadiness, BackendPing};
-use crate::api::diagnostics::{Aria2LogCleanupResponse, DiagnosticsLogUsageResponse};
+use crate::api::diagnostics::{
+    Aria2LogCleanupResponse, DiagnosticsLogUsageResponse, DiagnosticsStorageResponse,
+};
 use crate::api::error::ErrorResponse;
-use crate::api::settings::{JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus};
+use crate::api::settings::{
+    JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus, RuntimeApplyStatus,
+    UpdateSettingsResponse,
+};
 use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -1003,6 +1008,80 @@ async fn diagnostics_log_usage_requires_session_and_reports_fixed_log_occupancy(
 }
 
 #[tokio::test]
+async fn diagnostics_storage_reports_private_usage_without_exposing_paths() {
+    let state = raw_test_state(None).await;
+    let configured = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    std::fs::create_dir_all(state.runtime.app_data_dir.join("aria2"))
+        .expect("aria2 directory should create");
+    std::fs::create_dir_all(
+        state
+            .runtime
+            .app_data_dir
+            .join("magnet-metadata/task-7/nested"),
+    )
+    .expect("metadata directory should create");
+    std::fs::write(
+        state.runtime.app_data_dir.join("aria2/aria2.session"),
+        b"session-data",
+    )
+    .expect("session should write");
+    std::fs::write(
+        state
+            .runtime
+            .app_data_dir
+            .join("magnet-metadata/task-7/nested/metadata.torrent"),
+        b"torrent-data",
+    )
+    .expect("metadata should write");
+    let app = super::management_router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/storage")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed");
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let token = state
+        .auth
+        .service
+        .issue_admin_token(&configured)
+        .await
+        .expect("admin token should issue");
+    let usage = response_json::<DiagnosticsStorageResponse>(
+        app.oneshot(
+            Request::builder()
+                .uri("/api/diagnostics/storage")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should succeed"),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert!(usage.disk.total_bytes >= usage.disk.available_bytes);
+    assert_eq!(usage.aria2_session_bytes, 12);
+    assert_eq!(usage.magnet_metadata.total_bytes, 12);
+    assert_eq!(usage.magnet_metadata.file_count, 1);
+    assert!(!serde_json::to_string(&usage)
+        .expect("usage should serialize")
+        .contains(state.runtime.app_data_dir.to_string_lossy().as_ref()));
+}
+
+#[tokio::test]
 async fn diagnostics_aria2_log_cleanup_returns_latest_usage() {
     let state = raw_test_state(None).await;
     let configured = state
@@ -1449,6 +1528,7 @@ async fn readonly_routes_do_not_write_file_logs_but_mutations_and_errors_still_d
             "/api/aria2/config",
             "/api/aria2/process",
             "/api/aria2/rpc",
+            "/api/diagnostics/storage",
         ] {
             let response = app
                 .clone()
@@ -1791,7 +1871,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         Some(first_lan_token.as_str())
     );
 
-    let updated_settings = response_json::<AppConfig>(
+    let updated_settings = response_json::<UpdateSettingsResponse>(
         app.clone()
             .oneshot(
                 authorized_json_request(
@@ -1814,11 +1894,15 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(updated_settings.default_download_dir, "/tmp/custom");
-    assert_eq!(updated_settings.max_concurrent_downloads, 1);
-    assert_eq!(updated_settings.download_limit, 1024);
-    assert_eq!(updated_settings.upload_limit, 2048);
-    assert_eq!(updated_settings.language, "en-US");
+    assert_eq!(updated_settings.config.default_download_dir, "/tmp/custom");
+    assert_eq!(updated_settings.config.max_concurrent_downloads, 1);
+    assert_eq!(updated_settings.config.download_limit, 1024);
+    assert_eq!(updated_settings.config.upload_limit, 2048);
+    assert_eq!(updated_settings.config.language, "en-US");
+    assert_eq!(
+        updated_settings.runtime_apply,
+        Some(RuntimeApplyStatus::Deferred)
+    );
     assert_eq!(state.json_rpc_default_download_dir(), "/tmp/custom");
 
     let stored_settings = response_json::<AppConfig>(
@@ -1834,7 +1918,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         StatusCode::OK,
     )
     .await;
-    assert_eq!(stored_settings, updated_settings);
+    assert_eq!(stored_settings, updated_settings.config);
     let stored_token = response_json::<JsonRpcTokenStatus>(
         app.clone()
             .oneshot(
@@ -1879,6 +1963,7 @@ async fn settings_route_rejects_unauthorized_default_download_dir() {
                     download_limit: 0,
                     upload_limit: 0,
                     language: "zh-CN".to_string(),
+                    ..AppConfig::default()
                 },
             )
             .await,

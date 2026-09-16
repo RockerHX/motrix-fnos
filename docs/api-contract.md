@@ -32,7 +32,7 @@
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 使用 `credentials: "omit"`，不依赖 Cookie。
+- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。`1.9.4` 的提交 `476a3bf` 将请求改为 `omit`；Issue #21 实机反馈从该版本起收到 FN Connect 的 HTML 403，而 `1.9.3` 正常。恢复同源凭据用于修复这一兼容风险，具体 fnOS 版本及安全补丁的影响仍待实机对照确认。
 - `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
@@ -483,7 +483,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/settings` | - | `AppConfig` |
-| `PUT` | `/api/settings` | `AppConfig` | `AppConfig` |
+| `PUT` | `/api/settings` | `AppConfig` | `UpdateSettingsResponse`（兼容扁平 `AppConfig` 字段，附带可选 `runtimeApply`） |
 | `GET` | `/api/settings/jsonrpc-token` | - | `JsonRpcTokenStatus` |
 | `PUT` | `/api/settings/jsonrpc-token` | `UpdateJsonRpcTokenRequest` | `JsonRpcTokenStatus` |
 | `GET` | `/api/settings/lan-jsonrpc` | - | `LanJsonRpcStatus` |
@@ -497,6 +497,11 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
+- `maxConcurrentDownloads` 默认值为 `5`，服务端规范化范围为 `1..=128`；`0` 会规范化为 `1`，超过 `128` 会规范化为 `128`。该限制由服务端执行，前端范围只是输入提示。
+- 下载调优字段 `maxConnectionPerServer`、`split`、`minSplitSize`、`connectTimeout` 和 `maxTries` 分别默认 `1`、`5`、`20M`、`60` 秒和 `5` 次；数值范围依次为 `1..=64`、`1..=64`、`1..=300` 和 `1..=10`，`minSplitSize` 只接受 `1M`、`5M`、`10M`、`20M`，非法值回退为稳定默认值。
+- 调优字段保存后会与限速和并发一起通过 `aria2.changeGlobalOption` 应用；Aria2 未运行时不会因设置操作启动，并会在下一次受控启动、session 恢复前应用已保存的规范化配置。旧客户端省略这些新增字段时按上述默认值保存。
+- `split` 和 `minSplitSize` 只作为新建任务的全局默认值，不回写已有任务；已有任务的高级 Aria2 选项仍优先。
+- `PUT /api/settings` 保存成功后不会因为 Aria2 未运行或即时应用失败而回滚配置；响应中的可选 `runtimeApply` 为 `applied`（已即时应用）、`deferred`（Aria2 未就绪或生命周期正在切换，将在下次受控启动时生效）或 `failed`（已尝试即时应用但 Aria2 拒绝/调用失败）。旧客户端可以忽略该字段。
 - `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
 - `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
 - JSON-RPC Token 通过专用受保护接口更新；保存后立即生效且无需重启 Aria2。
@@ -517,11 +522,36 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "defaultDownloadDir": "/vol1/downloads",
   "maxConcurrentDownloads": 5,
+  "maxConnectionPerServer": 1,
+  "split": 5,
+  "minSplitSize": "20M",
+  "connectTimeout": 60,
+  "maxTries": 5,
   "downloadLimit": 0,
   "uploadLimit": 0,
   "language": "zh-CN"
 }
 ```
+
+`UpdateSettingsResponse` 在保持上述顶层 `AppConfig` 字段的同时，可附带：
+
+```json
+{
+  "defaultDownloadDir": "/vol1/downloads",
+  "maxConcurrentDownloads": 128,
+  "maxConnectionPerServer": 6,
+  "split": 7,
+  "minSplitSize": "5M",
+  "connectTimeout": 90,
+  "maxTries": 8,
+  "downloadLimit": 0,
+  "uploadLimit": 0,
+  "language": "zh-CN",
+  "runtimeApply": "applied"
+}
+```
+
+`runtimeApply` 不会写入 SQLite；`GET /api/settings` 始终只返回 `AppConfig`。
 
 `JsonRpcTokenStatus`：
 
@@ -674,6 +704,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/diagnostics/logs` | - | `DiagnosticsLogUsage` |
+| `GET` | `/api/diagnostics/storage` | - | `DiagnosticsStorageUsage` |
 | `DELETE` | `/api/diagnostics/aria2-logs` | - | `Aria2LogCleanupResponse` |
 | `GET` | `/api/diagnostics/diagnostic-bundle` | - | `application/zip` attachment |
 
@@ -774,6 +805,29 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 诊断包不包含 SQLite、Aria2 session、运行态 JSON、设置原文、密码、JWT 或其他 Token；只读取固定目录内普通文件并拒绝符号链接。
 - 登录诊断包文件名固定为 `motrix-fnos-login-diagnostic.zip`，只包含 `summary.json`、`logs/auth-debug.jsonl` 和存在时的 `logs/lifecycle.log(.1-.3)`；它用于登录页排障，不需要先登录，也不包含完整诊断包中的 server/Aria2 日志。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
+
+`GET /api/diagnostics/storage` 返回应用数据所在文件系统的空间和应用私有临时文件占用，不返回任何绝对路径：
+
+```json
+{
+  "disk": {
+    "totalBytes": 107374182400,
+    "availableBytes": 53687091200
+  },
+  "aria2SessionBytes": 4096,
+  "magnetMetadata": {
+    "totalBytes": 8192,
+    "fileCount": 2
+  }
+}
+```
+
+约定：
+
+- 接口要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
+- `disk` 使用应用数据目录所在文件系统的总空间和可用空间；`aria2SessionBytes` 只统计固定的 `aria2/aria2.session`；`magnetMetadata` 递归统计应用私有 `magnet-metadata` 目录中的普通文件。
+- 缺失的 session 或 metadata 目录返回零值。符号链接、非普通文件和非普通目录不会被跟随或计入；不会扫描用户下载目录。
+- 读取应用数据目录或文件系统空间失败时返回 `500 diagnostics_storage_usage_failed`，响应不包含服务端绝对路径。
 
 ### 4.9 存储目录
 

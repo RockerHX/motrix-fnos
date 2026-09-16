@@ -28,7 +28,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: "https://example.com/a.iso" }),
     });
@@ -44,7 +44,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks/torrent", {
       method: "POST",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {},
       body: formData,
     });
@@ -59,7 +59,7 @@ describe("http client", () => {
 
     expect(fetchMock).toHaveBeenCalledWith("/api/tasks", {
       method: "GET",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {},
       body: undefined,
       signal: controller.signal,
@@ -98,7 +98,7 @@ describe("http client", () => {
     await expect(blob.arrayBuffer()).resolves.toEqual(new Uint8Array([80, 75, 3, 4]).buffer);
     expect(fetchMock).toHaveBeenCalledWith("/api/diagnostics/diagnostic-bundle", {
       method: "GET",
-      credentials: "omit",
+      credentials: "same-origin",
       headers: {},
       body: undefined,
     });
@@ -140,6 +140,25 @@ describe("http client", () => {
       status: 500,
       message: "请求失败（500）",
     });
+  });
+
+  it("preserves gateway credentials before login and after receiving a JWT", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ setupRequired: false, authenticated: false })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpGet("/api/auth/status", { handleUnauthorized: false });
+    setAccessTokenProvider(() => "token-value");
+    await httpGet("/api/auth/status", { handleUnauthorized: false });
+    await httpPost("/api/auth/login", { password: "test-password" }, { includeAuth: false });
+    await httpGetBlob("/api/auth/login-diagnostic", { includeAuth: false });
+
+    for (const [, options] of fetchMock.mock.calls) {
+      expect(options.credentials).toBe("same-origin");
+    }
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({});
+    expect(fetchMock.mock.calls[1][1].headers).toEqual({ Authorization: "Bearer token-value" });
+    expect(fetchMock.mock.calls[2][1].headers).not.toHaveProperty("Authorization");
+    expect(fetchMock.mock.calls[3][1].headers).not.toHaveProperty("Authorization");
   });
 
   it("adds an in-memory bearer token to authenticated requests", async () => {

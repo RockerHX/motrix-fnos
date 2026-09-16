@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
-import type { DiagnosticsLogUsage } from "../types";
+import type { DiagnosticsLogUsage, DiagnosticsStorageUsage } from "../types";
 
 const messageApi = vi.hoisted(() => ({ success: vi.fn() }));
 const logMaintenanceService = vi.hoisted(() => ({
   getLogUsage: vi.fn(),
   clearAria2Logs: vi.fn(),
+}));
+const storageDiagnosticsService = vi.hoisted(() => ({
+  getStorageUsage: vi.fn(),
 }));
 
 vi.mock("naive-ui", async () => {
@@ -40,6 +43,7 @@ vi.mock("naive-ui", async () => {
 });
 
 vi.mock("../services/logMaintenanceService", () => logMaintenanceService);
+vi.mock("../services/storageDiagnosticsService", () => storageDiagnosticsService);
 
 import LogMaintenancePanel from "./LogMaintenancePanel.vue";
 
@@ -47,6 +51,7 @@ describe("LogMaintenancePanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     logMaintenanceService.getLogUsage.mockResolvedValue(createUsage());
+    storageDiagnosticsService.getStorageUsage.mockResolvedValue(createStorageUsage());
     logMaintenanceService.clearAria2Logs.mockResolvedValue({
       reclaimedBytes: 30 * 1024 * 1024,
       usage: createUsage({ aria2: emptyUsage() }),
@@ -63,6 +68,9 @@ describe("LogMaintenancePanel", () => {
     expect(wrapper.text()).toContain("Aria2 原生日志");
     expect(wrapper.text()).toContain("当前 10 MiB，历史 20 MiB");
     expect(wrapper.text()).toContain("3 个文件");
+    expect(wrapper.text()).toContain("存储与临时文件");
+    expect(wrapper.text()).toContain("1.5 GiB");
+    expect(wrapper.text()).toContain("2 个文件");
   });
 
   it("warns when total usage reaches the warning threshold", async () => {
@@ -89,6 +97,7 @@ describe("LogMaintenancePanel", () => {
     await flushPromises();
 
     expect(logMaintenanceService.clearAria2Logs).toHaveBeenCalledOnce();
+    expect(storageDiagnosticsService.getStorageUsage).toHaveBeenCalledTimes(2);
     expect(wrapper.emitted("updated")).toEqual([[createUsage({ aria2: emptyUsage() })]]);
     expect(messageApi.success).toHaveBeenCalledWith("已清理 Aria2 日志，释放 30 MiB");
   });
@@ -105,6 +114,15 @@ describe("LogMaintenancePanel", () => {
     await wrapper.get('button[aria-label="刷新日志占用"]').trigger("click");
     await flushPromises();
     expect(logMaintenanceService.getLogUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps storage errors visible while retaining log usage", async () => {
+    storageDiagnosticsService.getStorageUsage.mockRejectedValueOnce(new Error("存储不可用"));
+    const { wrapper } = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("存储不可用");
+    expect(wrapper.text()).toContain("68 MiB");
   });
 
   it("does not load until its parent diagnostics dialog is active", async () => {
@@ -168,6 +186,20 @@ function createUsage(overrides: Partial<DiagnosticsLogUsage> = {}): DiagnosticsL
       appliesOnNextStart: false,
     },
     ...overrides,
+  };
+}
+
+function createStorageUsage(): DiagnosticsStorageUsage {
+  return {
+    disk: {
+      totalBytes: 2 * 1024 * 1024 * 1024,
+      availableBytes: 1536 * 1024 * 1024,
+    },
+    aria2SessionBytes: 12 * 1024,
+    magnetMetadata: {
+      totalBytes: 1536 * 1024,
+      fileCount: 2,
+    },
   };
 }
 

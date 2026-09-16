@@ -129,7 +129,29 @@ vi.mock("naive-ui", async () => {
       },
     }),
     NInput: slotStub("n-input"),
-    NInputNumber: slotStub("n-input-number"),
+    NInputNumber: defineComponent({
+      name: "NInputNumberStub",
+      inheritAttrs: false,
+      props: {
+        min: { type: Number, default: undefined },
+        max: { type: Number, default: undefined },
+        step: { type: Number, default: undefined },
+        value: { type: Number, default: undefined },
+      },
+      setup(props, { slots }) {
+        return () =>
+          h(
+            "div",
+            {
+              "data-test": "n-input-number",
+              "data-min": props.min === undefined ? undefined : String(props.min),
+              "data-max": props.max === undefined ? undefined : String(props.max),
+              "data-step": props.step === undefined ? undefined : String(props.step),
+            },
+            slots.default?.(),
+          );
+      },
+    }),
     NSelect: defineComponent({
       name: "NSelectStub",
       inheritAttrs: false,
@@ -290,6 +312,7 @@ import { fnosHost } from "../../../services/fnos";
 import { refreshAccessiblePaths, getAccessiblePaths } from "../../../services/storage";
 import { saveAppConfig } from "../../../services/settings";
 import { language, setLanguage } from "../../../i18n";
+import { useTaskStore } from "../../tasks/stores/taskStore";
 
 describe("SettingsDialog", () => {
   beforeEach(() => {
@@ -346,6 +369,59 @@ describe("SettingsDialog", () => {
     await flushPromises();
 
     expect(preferenceTab(wrapper, "文件夹授权").attributes("aria-selected")).toBe("true");
+  });
+
+  it("shows download concurrency bounds and a live task and speed summary", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    const taskStore = useTaskStore();
+    taskStore.tasks = [
+      { status: "active" },
+      { status: "pending" },
+      { status: "complete" },
+    ] as never;
+    await flushPromises();
+    await selectPreferenceSection(wrapper, "下载配置");
+
+    expect(wrapper.text()).toContain("提高并发数可能提升多文件下载速度");
+    expect(wrapper.get('[data-test="download-settings-summary"]').text()).toContain("进行中 1 个，排队 1 个，最大并发 5 个");
+    expect(wrapper.get('[data-test="download-settings-summary"]').text()).toContain("下载限速 不限速，上传限速 不限速");
+    expect(wrapper.find('[data-test="n-input-number"]').attributes("data-max")).toBe("128");
+  });
+
+  it("uses stable tuning defaults for legacy settings and exposes their bounds", async () => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await selectPreferenceSection(wrapper, "下载配置");
+
+    expect(wrapper.text()).toContain("每服务器最大连接数");
+    expect(wrapper.text()).toContain("默认分片数");
+    expect(wrapper.text()).toContain("最小分片大小");
+    expect(wrapper.text()).toContain("连接超时");
+    expect(wrapper.text()).toContain("最大重试次数");
+    const inputs = wrapper.findAll('[data-pane="download"] [data-test="n-input-number"]');
+    expect(inputs.map((input) => input.attributes("data-max"))).toEqual([
+      "128",
+      "64",
+      "64",
+      "300",
+      "10",
+      undefined,
+      undefined,
+    ]);
+
+    await wrapper.get('[data-pane="download"] select').setValue("5M");
+    await wrapper.findAll("button").find((button) => button.text() === "保存")!.trigger("click");
+    await flushPromises();
+
+    expect(saveAppConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxConnectionPerServer: 1,
+        split: 5,
+        minSplitSize: "5M",
+        connectTimeout: 60,
+        maxTries: 5,
+      }),
+    );
   });
 
   it("switches all settings sections and lazily mounts each child", async () => {
@@ -460,6 +536,33 @@ describe("SettingsDialog", () => {
 
     expect(saveAppConfig).toHaveBeenCalledOnce();
     expect(wrapper.emitted("update:show")).toContainEqual([false]);
+  });
+
+  it("uses the runtime apply status in save feedback", async () => {
+    const cases = [
+      ["applied", "success", "设置已保存并即时应用"],
+      ["deferred", "info", "设置已保存，将在 Aria2 下次启动时生效"],
+      ["failed", "warning", "设置已保存，但未能即时应用，将在 Aria2 下次启动时重试"],
+    ] as const;
+
+    for (const [status, method, text] of cases) {
+      const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+      await flushPromises();
+      vi.mocked(saveAppConfig).mockResolvedValueOnce({
+        defaultDownloadDir: "/downloads",
+        maxConcurrentDownloads: 5,
+        downloadLimit: 0,
+        uploadLimit: 0,
+        language: "zh-CN",
+        runtimeApply: status,
+      });
+
+      await wrapper.findAll("button").find((button) => button.text() === "保存")!.trigger("click");
+      await flushPromises();
+
+      expect(message[method]).toHaveBeenCalledWith(text);
+      wrapper.unmount();
+    }
   });
 
   it("resets navigation to the regular section when reopened", async () => {

@@ -1,10 +1,19 @@
 use super::rpc::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::settings::service::{
+    normalize_min_split_size, MAX_CONCURRENT_DOWNLOADS_LIMIT, MAX_CONNECTION_PER_SERVER_LIMIT,
+    MAX_CONNECT_TIMEOUT_LIMIT, MAX_SPLIT_LIMIT, MAX_TRIES_LIMIT,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Aria2GlobalOptions {
     pub max_concurrent_downloads: u32,
+    pub max_connection_per_server: u32,
+    pub split: u32,
+    pub min_split_size: String,
+    pub connect_timeout: u32,
+    pub max_tries: u32,
     pub download_limit: u64,
     pub upload_limit: u64,
 }
@@ -26,8 +35,15 @@ pub async fn apply_global_options(
         debug_logs.info(
             "aria2.options",
             format!(
-                "已应用 Aria2 下载配置：最大并发 {}，下载限速 {} B/s，上传限速 {} B/s",
-                options.max_concurrent_downloads, options.download_limit, options.upload_limit
+                "已应用 Aria2 下载配置：最大并发 {}，每服务器连接 {}，分片 {}，最小分片 {}，连接超时 {} 秒，重试 {} 次，下载限速 {} B/s，上传限速 {} B/s",
+                options.max_concurrent_downloads,
+                options.max_connection_per_server,
+                options.split,
+                options.min_split_size,
+                options.connect_timeout,
+                options.max_tries,
+                options.download_limit,
+                options.upload_limit
             ),
         );
     }
@@ -39,9 +55,20 @@ pub fn global_options_from_values(
     max_concurrent_downloads: u32,
     download_limit: u64,
     upload_limit: u64,
+    max_connection_per_server: u32,
+    split: u32,
+    min_split_size: &str,
+    connect_timeout: u32,
+    max_tries: u32,
 ) -> Aria2GlobalOptions {
     Aria2GlobalOptions {
-        max_concurrent_downloads: max_concurrent_downloads.clamp(1, 64),
+        max_concurrent_downloads: max_concurrent_downloads.clamp(1, MAX_CONCURRENT_DOWNLOADS_LIMIT),
+        max_connection_per_server: max_connection_per_server
+            .clamp(1, MAX_CONNECTION_PER_SERVER_LIMIT),
+        split: split.clamp(1, MAX_SPLIT_LIMIT),
+        min_split_size: normalize_min_split_size(min_split_size),
+        connect_timeout: connect_timeout.clamp(1, MAX_CONNECT_TIMEOUT_LIMIT),
+        max_tries: max_tries.clamp(1, MAX_TRIES_LIMIT),
         download_limit,
         upload_limit,
     }
@@ -58,6 +85,11 @@ fn build_change_global_option_request(
 
     params.push(serde_json::json!({
         "max-concurrent-downloads": options.max_concurrent_downloads.to_string(),
+        "max-connection-per-server": options.max_connection_per_server.to_string(),
+        "split": options.split.to_string(),
+        "min-split-size": options.min_split_size,
+        "connect-timeout": options.connect_timeout.to_string(),
+        "max-tries": options.max_tries.to_string(),
         "max-overall-download-limit": options.download_limit.to_string(),
         "max-overall-upload-limit": options.upload_limit.to_string(),
     }));
@@ -69,3 +101,6 @@ fn build_change_global_option_request(
         "params": params,
     })
 }
+
+#[cfg(test)]
+mod tests;

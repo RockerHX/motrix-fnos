@@ -18,12 +18,27 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
-import type { AppConfig } from "../../../types/settings";
+import {
+  DEFAULT_CONNECT_TIMEOUT,
+  DEFAULT_MAX_CONNECTION_PER_SERVER,
+  DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+  DEFAULT_MAX_TRIES,
+  DEFAULT_MIN_SPLIT_SIZE,
+  DEFAULT_SPLIT,
+  MAX_CONNECT_TIMEOUT_LIMIT,
+  MAX_CONNECTION_PER_SERVER_LIMIT,
+  MAX_CONCURRENT_DOWNLOADS_LIMIT,
+  MAX_SPLIT_LIMIT,
+  MAX_TRIES_LIMIT,
+  MIN_SPLIT_SIZE_OPTIONS,
+  type AppConfig,
+} from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
 import JsonRpcTokenSettings from "./JsonRpcTokenSettings.vue";
 import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
 import ProxySettings from "./ProxySettings.vue";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
+import { useTaskStore } from "../../tasks/stores/taskStore";
 import AppIcon from "../../../components/AppIcon.vue";
 import { fnosHost, type FnosHostKind, type SharedFolderAuthorizationResult } from "../../../services/fnos";
 
@@ -39,6 +54,7 @@ const emit = defineEmits<{
 const message = useMessage();
 const settingsStore = useSettingsStore();
 const downloadProxyStore = useDownloadProxyStore();
+const taskStore = useTaskStore();
 const { language: currentLanguage, setLanguage, t } = useI18n();
 const { isMobileLayout } = useMobileLayout();
 type SettingsSection = "preferences" | "proxy" | "security" | "rpc";
@@ -51,7 +67,12 @@ const activeRpcSection = ref<RpcSection>("public");
 const savedLanguage = ref<AppConfig["language"] | null>(null);
 const form = reactive({
   defaultDownloadDir: "",
-  maxConcurrentDownloads: 5,
+  maxConcurrentDownloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+  maxConnectionPerServer: DEFAULT_MAX_CONNECTION_PER_SERVER,
+  split: DEFAULT_SPLIT,
+  minSplitSize: DEFAULT_MIN_SPLIT_SIZE,
+  connectTimeout: DEFAULT_CONNECT_TIMEOUT,
+  maxTries: DEFAULT_MAX_TRIES,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
   language: "zh-CN" as AppConfig["language"],
@@ -59,6 +80,21 @@ const form = reactive({
 const hostKind = ref<FnosHostKind | null>(null);
 const isDetectingHost = ref(false);
 const isAuthorizing = ref(false);
+const activeDownloadCount = computed(() => taskStore.tasks.filter((task) => task.status === "active").length);
+const pendingDownloadCount = computed(() => taskStore.tasks.filter((task) => task.status === "pending").length);
+const downloadSummary = computed(() =>
+  t("settings.downloadSummary", {
+    active: activeDownloadCount.value,
+    pending: pendingDownloadCount.value,
+    max: form.maxConcurrentDownloads,
+  }),
+);
+const speedSummary = computed(() =>
+  t("settings.speedSummary", {
+    download: formatSpeed(form.downloadLimitKb),
+    upload: formatSpeed(form.uploadLimitKb),
+  }),
+);
 const accessiblePathOptions = computed(() =>
   settingsStore.accessiblePaths.map((path) => ({
     label: settingsStore.displayAccessiblePaths.find((item) => item.path === path)?.displayPath || path,
@@ -71,6 +107,7 @@ const languageOptions = computed(() =>
     value: language,
   })),
 );
+const minSplitSizeOptions = MIN_SPLIT_SIZE_OPTIONS.map((value) => ({ label: value, value }));
 const isDefaultDownloadDirUnauthorized = computed(
   () =>
     settingsStore.accessiblePaths.length > 0 &&
@@ -212,16 +249,33 @@ async function saveSettings() {
   try {
     const config = await settingsStore.saveConfig(buildPayload());
     applyConfig(config);
-    message.success(t("settings.saved"));
+    showSaveResult(config.runtimeApply);
     closeDialog();
   } catch (error) {
     message.error(getErrorMessage(error, t("settings.failed")));
   }
 }
 
+function showSaveResult(status: AppConfig["runtimeApply"]) {
+  if (status === "applied") {
+    message.success(t("settings.runtimeApply.applied"));
+  } else if (status === "deferred") {
+    message.info(t("settings.runtimeApply.deferred"));
+  } else if (status === "failed") {
+    message.warning(t("settings.runtimeApply.failed"));
+  } else {
+    message.success(t("settings.saved"));
+  }
+}
+
 function applyConfig(config: AppConfig) {
   form.defaultDownloadDir = config.defaultDownloadDir;
   form.maxConcurrentDownloads = config.maxConcurrentDownloads;
+  form.maxConnectionPerServer = config.maxConnectionPerServer ?? DEFAULT_MAX_CONNECTION_PER_SERVER;
+  form.split = config.split ?? DEFAULT_SPLIT;
+  form.minSplitSize = config.minSplitSize ?? DEFAULT_MIN_SPLIT_SIZE;
+  form.connectTimeout = config.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT;
+  form.maxTries = config.maxTries ?? DEFAULT_MAX_TRIES;
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
   form.uploadLimitKb = bytesToKb(config.uploadLimit);
   form.language = config.language;
@@ -232,6 +286,11 @@ function buildPayload(): AppConfig {
   return {
     defaultDownloadDir: form.defaultDownloadDir,
     maxConcurrentDownloads: Math.trunc(form.maxConcurrentDownloads || 1),
+    maxConnectionPerServer: Math.trunc(form.maxConnectionPerServer || 1),
+    split: Math.trunc(form.split || 1),
+    minSplitSize: form.minSplitSize,
+    connectTimeout: Math.trunc(form.connectTimeout || 1),
+    maxTries: Math.trunc(form.maxTries || 1),
     downloadLimit: kbToBytes(form.downloadLimitKb),
     uploadLimit: kbToBytes(form.uploadLimitKb),
     language: form.language,
@@ -260,6 +319,10 @@ function bytesToKb(value: number) {
 
 function kbToBytes(value: number) {
   return Math.floor(Math.max(0, value || 0) * 1024);
+}
+
+function formatSpeed(value: number) {
+  return value > 0 ? `${value} KB/s` : t("settings.unlimited");
 }
 
 </script>
@@ -391,9 +454,52 @@ function kbToBytes(value: number) {
               </NTabPane>
 
               <NTabPane name="download" :tab="t('settings.preferenceTabs.download')" display-directive="show:lazy">
-                <div class="settings-preferences-fields">
+                <div class="settings-preferences-fields settings-download-fields">
+                  <NAlert type="warning" :bordered="false">{{ t("settings.maxConcurrentDownloadsHelp") }}</NAlert>
+                  <NAlert type="info" :bordered="false">{{ t("settings.connectionTuningHelp") }}</NAlert>
+                  <div class="settings-download-summary" data-test="download-settings-summary">
+                    <p>{{ downloadSummary }}</p>
+                    <p>{{ speedSummary }}</p>
+                  </div>
                   <NFormItem :label="t('settings.maxConcurrentDownloads')">
-                    <NInputNumber v-model:value="form.maxConcurrentDownloads" :min="1" :max="64" :step="1" />
+                    <NInputNumber
+                      v-model:value="form.maxConcurrentDownloads"
+                      :min="1"
+                      :max="MAX_CONCURRENT_DOWNLOADS_LIMIT"
+                      :step="1"
+                    />
+                  </NFormItem>
+
+                  <NFormItem :label="t('settings.maxConnectionPerServer')">
+                    <NInputNumber
+                      v-model:value="form.maxConnectionPerServer"
+                      :min="1"
+                      :max="MAX_CONNECTION_PER_SERVER_LIMIT"
+                      :step="1"
+                    />
+                  </NFormItem>
+
+                  <NFormItem :label="t('settings.defaultSplit')">
+                    <NInputNumber v-model:value="form.split" :min="1" :max="MAX_SPLIT_LIMIT" :step="1" />
+                  </NFormItem>
+
+                  <NFormItem :label="t('settings.minSplitSize')">
+                    <NSelect v-model:value="form.minSplitSize" :options="minSplitSizeOptions" />
+                  </NFormItem>
+
+                  <NFormItem :label="t('settings.connectTimeout')">
+                    <NInputNumber
+                      v-model:value="form.connectTimeout"
+                      :min="1"
+                      :max="MAX_CONNECT_TIMEOUT_LIMIT"
+                      :step="1"
+                    >
+                      <template #suffix>s</template>
+                    </NInputNumber>
+                  </NFormItem>
+
+                  <NFormItem :label="t('settings.maxTries')">
+                    <NInputNumber v-model:value="form.maxTries" :min="1" :max="MAX_TRIES_LIMIT" :step="1" />
                   </NFormItem>
 
                   <NFormItem :label="t('settings.downloadLimit')">

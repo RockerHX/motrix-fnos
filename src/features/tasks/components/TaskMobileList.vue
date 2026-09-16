@@ -31,13 +31,13 @@ const { handleTaskDoubleClick } = useTaskStatusActions({ taskStore, message, t }
       <TaskCardHeader :task="task" variant="mobile" />
 
       <p class="task-card-url" :title="task.url">{{ task.url }}</p>
-      <TaskErrorMessage :task="task" variant="multi-line" />
 
       <div class="task-card-progress">
         <TaskProgressCell :task="task" />
       </div>
 
       <TaskMetaItems :task="task" variant="grid" />
+      <TaskErrorMessage :task="task" variant="multi-line" />
 
       <footer class="task-card-actions">
         <TaskActionsContainer :task="task" compact />

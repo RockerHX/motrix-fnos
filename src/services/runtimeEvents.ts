@@ -49,7 +49,8 @@ async function connect(controller: AbortController, currentGeneration: number) {
   try {
     response = await fetch("/api/events", {
       method: "GET",
-      credentials: "omit",
+      // SSE passes through the same gateway as ordinary API requests.
+      credentials: "same-origin",
       headers,
       signal: controller.signal,
     });

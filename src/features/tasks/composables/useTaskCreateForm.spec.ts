@@ -278,7 +278,7 @@ describe("useTaskCreateForm", () => {
       startMode: "now",
       category: "默认",
       advancedOptions: {
-        connections: 16,
+        connections: null,
         downloadLimitKb: 0,
         useProxy: false,
       },
@@ -332,7 +332,7 @@ describe("useTaskCreateForm", () => {
         sourceType: "magnet",
         startMode: "paused",
         advancedOptions: {
-          connections: 16,
+          connections: null,
           downloadLimitKb: 0,
           useProxy: true,
         },
@@ -376,7 +376,7 @@ describe("useTaskCreateForm", () => {
       startMode: "now",
       category: "默认",
       advancedOptions: {
-        connections: 16,
+        connections: null,
         downloadLimitKb: 0,
         useProxy: true,
       },

@@ -10,7 +10,8 @@ use crate::database::{
 use crate::fnos::FnosApiClient;
 use crate::runtime::{Aria2LifecycleCoordinator, ManagedAria2Process};
 use crate::settings::service::{
-    load_app_config_from_pool, load_json_rpc_token, load_lan_json_rpc_config, LanJsonRpcConfig,
+    load_app_config_from_pool, load_json_rpc_token, load_lan_json_rpc_config, AppConfig,
+    LanJsonRpcConfig,
 };
 use crate::state::{Aria2RuntimeInfo, ServerState};
 use crate::storage::{
@@ -176,6 +177,7 @@ pub struct HttpAppState {
     last_aria2_version: Mutex<Option<String>>,
     json_rpc_default_download_dir: Mutex<String>,
     json_rpc_token: Mutex<String>,
+    app_config: RwLock<AppConfig>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
@@ -209,6 +211,7 @@ impl HttpAppState {
             last_aria2_version: Mutex::new(None),
             json_rpc_default_download_dir: Mutex::new(String::new()),
             json_rpc_token: Mutex::new(String::new()),
+            app_config: RwLock::new(AppConfig::default()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
@@ -338,6 +341,14 @@ impl HttpAppState {
 
     pub(crate) async fn lan_json_rpc_config(&self) -> LanJsonRpcConfig {
         self.lan_json_rpc_config.read().await.clone()
+    }
+
+    pub(crate) async fn current_app_config(&self) -> AppConfig {
+        self.app_config.read().await.clone()
+    }
+
+    pub(crate) async fn set_app_config(&self, config: AppConfig) {
+        *self.app_config.write().await = config;
     }
 
     pub fn aria2_runtime_snapshot(&self) -> Option<Aria2RuntimeInfo> {
@@ -470,6 +481,7 @@ pub async fn bootstrap_http_app_state(
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
     let state = Arc::new(HttpAppState::new(state, runtime.clone()));
+    state.set_app_config(app_config.clone()).await;
     state
         .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
     state.remember_json_rpc_token(&json_rpc_token);

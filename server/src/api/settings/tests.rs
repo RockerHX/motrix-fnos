@@ -3,8 +3,13 @@ use super::*;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
+use crate::config::aria2::Aria2BinarySource;
+use crate::runtime::Aria2LifecyclePhase;
 use axum::response::IntoResponse;
+use axum::routing::post;
+use axum::{Json, Router};
 use http_body_util::BodyExt;
+use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static LAN_TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -42,9 +47,105 @@ fn public_app_config_never_serializes_legacy_token_field() {
         download_limit: 0,
         upload_limit: 0,
         language: "zh-CN".to_string(),
+        ..AppConfig::default()
     };
     let value = serde_json::to_value(config).expect("config should serialize");
     assert!(value.get("jsonRpcToken").is_none());
+}
+
+#[test]
+fn update_settings_response_flattens_config_and_uses_optional_runtime_status() {
+    let config = AppConfig {
+        default_download_dir: "/downloads".to_string(),
+        max_concurrent_downloads: 128,
+        download_limit: 0,
+        upload_limit: 0,
+        language: "zh-CN".to_string(),
+        ..AppConfig::default()
+    };
+    let response = UpdateSettingsResponse {
+        config: config.clone(),
+        runtime_apply: Some(RuntimeApplyStatus::Applied),
+    };
+    let value = serde_json::to_value(response).expect("response should serialize");
+
+    assert_eq!(value["maxConcurrentDownloads"], 128);
+    assert_eq!(value["runtimeApply"], "applied");
+
+    let response_without_status = UpdateSettingsResponse {
+        config,
+        runtime_apply: None,
+    };
+    let value = serde_json::to_value(response_without_status)
+        .expect("response without status should serialize");
+    assert!(value.get("runtimeApply").is_none());
+}
+
+#[tokio::test]
+async fn runtime_apply_reports_deferred_when_lifecycle_is_transitioning() {
+    let (state, runtime) = lan_test_state("runtime-deferred").await;
+    state
+        .aria2_lifecycle
+        .set_phase(Aria2LifecyclePhase::Stopping)
+        .expect("lifecycle should enter stopping");
+
+    let status = apply_runtime_download_config(&state, &test_app_config()).await;
+
+    assert_eq!(status, RuntimeApplyStatus::Deferred);
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn runtime_apply_reports_applied_when_rpc_accepts_options() {
+    let (port, server) = spawn_settings_rpc(false).await;
+    let (mut state, runtime) = lan_test_state("runtime-applied").await;
+    configure_rpc_runtime(&mut state, port);
+
+    let status = apply_runtime_download_config(&state, &test_app_config()).await;
+
+    assert_eq!(status, RuntimeApplyStatus::Applied);
+    server.abort();
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn runtime_apply_reports_failed_when_rpc_rejects_options() {
+    let (port, server) = spawn_settings_rpc(true).await;
+    let (mut state, runtime) = lan_test_state("runtime-failed").await;
+    configure_rpc_runtime(&mut state, port);
+
+    let status = apply_runtime_download_config(&state, &test_app_config()).await;
+
+    assert_eq!(status, RuntimeApplyStatus::Failed);
+    server.abort();
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn legacy_settings_payload_uses_tuning_defaults_and_updates_runtime_cache() {
+    let (state, runtime) = lan_test_state("legacy-settings-payload").await;
+    let payload = serde_json::from_value::<AppConfig>(json!({
+        "defaultDownloadDir": runtime.app_data_dir.display().to_string(),
+        "maxConcurrentDownloads": 8,
+        "downloadLimit": 1024,
+        "uploadLimit": 2048,
+        "language": "zh-CN",
+    }))
+    .expect("legacy payload should deserialize");
+
+    let response = update_settings(State(state.clone()), ApiJson(payload))
+        .await
+        .expect("legacy payload should save")
+        .0;
+    assert_eq!(response.runtime_apply, Some(RuntimeApplyStatus::Deferred));
+    assert_eq!(response.config.max_connection_per_server, 1);
+    assert_eq!(response.config.split, 5);
+    assert_eq!(response.config.min_split_size, "20M");
+    assert_eq!(response.config.connect_timeout, 60);
+    assert_eq!(response.config.max_tries, 5);
+    assert_eq!(state.current_app_config().await, response.config);
+
+    cleanup_test_state(&state, runtime).await;
 }
 
 #[tokio::test]
@@ -231,4 +332,71 @@ async fn lan_test_state(label: &str) -> (Arc<HttpAppState>, ServerRuntimeConfig)
         .await
         .expect("state should bootstrap");
     (state, runtime)
+}
+
+fn test_app_config() -> AppConfig {
+    AppConfig {
+        default_download_dir: "/downloads".to_string(),
+        max_concurrent_downloads: 128,
+        max_connection_per_server: 6,
+        split: 7,
+        min_split_size: "5M".to_string(),
+        connect_timeout: 90,
+        max_tries: 8,
+        download_limit: 0,
+        upload_limit: 0,
+        language: "zh-CN".to_string(),
+    }
+}
+
+fn configure_rpc_runtime(state: &mut Arc<HttpAppState>, port: u16) {
+    let mutable_state = Arc::get_mut(state).expect("state should be uniquely owned");
+    mutable_state.base_aria2_config.rpc_port = port;
+    let config = crate::aria2::runtime_config(
+        &mutable_state.base_aria2_config,
+        port,
+        "settings-test-secret".to_string(),
+    );
+    state
+        .set_aria2_runtime(state.build_aria2_runtime_info(
+            42,
+            &config,
+            Aria2BinarySource::Sidecar,
+            Vec::new(),
+        ))
+        .expect("runtime should save");
+}
+
+async fn spawn_settings_rpc(reject_options: bool) -> (u16, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("mock listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("mock address should exist")
+        .port();
+    let server = tokio::spawn(async move {
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| async move {
+                let method = payload["method"].as_str().unwrap_or_default();
+                if method == "aria2.getVersion" {
+                    return Json(json!({ "result": { "version": "2.5.5" } }));
+                }
+                if reject_options && method == "aria2.changeGlobalOption" {
+                    return Json(json!({
+                        "error": { "code": 1, "message": "options rejected" }
+                    }));
+                }
+                Json(json!({ "result": "OK" }))
+            }),
+        );
+        let _ = axum::serve(listener, app).await;
+    });
+    (port, server)
+}
+
+async fn cleanup_test_state(state: &Arc<HttpAppState>, runtime: ServerRuntimeConfig) {
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(runtime.app_data_dir);
 }

@@ -17,9 +17,18 @@ const props = withDefaults(
 <template>
   <footer v-if="props.variant === 'inline'" class="task-card-meta task-card-meta--inline">
     <span class="task-card-size task-card-metric" data-test="task-size-metric">
+      <span class="task-card-metric-label">{{ t("task.table.size") }}</span>
       <span class="task-card-metric-value">{{ formatTaskSizePair(props.task) }}</span>
     </span>
     <span class="task-card-metrics-end" data-test="task-dynamic-metrics">
+      <span
+        class="task-card-metric task-card-metric--speed"
+        data-test="task-speed-metric"
+        :aria-label="`${t('task.table.speed')} ${formatTaskSize(props.task.downloadSpeed)}/s`"
+      >
+        <span class="task-card-metric-label">{{ t("task.table.speed") }}</span>
+        <span class="task-card-metric-value">{{ formatTaskSize(props.task.downloadSpeed) }}/s</span>
+      </span>
       <span
         class="task-card-metric task-card-metric--eta"
         data-test="task-eta-metric"
@@ -29,12 +38,12 @@ const props = withDefaults(
         <span class="task-card-metric-value">{{ formatTaskEta(props.task) }}</span>
       </span>
       <span
-        class="task-card-metric task-card-metric--speed"
-        data-test="task-speed-metric"
-        :aria-label="`${t('task.table.speed')} ${formatTaskSize(props.task.downloadSpeed)}/s`"
+        class="task-card-metric task-card-metric--category"
+        data-test="task-category-metric"
+        :aria-label="`${t('task.table.category')} ${props.task.category || t('common.notAvailable')}`"
       >
-        <span class="task-card-metric-label">{{ t("task.table.speed") }}</span>
-        <span class="task-card-metric-value">{{ formatTaskSize(props.task.downloadSpeed) }}/s</span>
+        <span class="task-card-metric-label">{{ t("task.table.category") }}</span>
+        <span class="task-card-metric-value">{{ props.task.category || t("common.notAvailable") }}</span>
       </span>
     </span>
   </footer>
@@ -51,6 +60,10 @@ const props = withDefaults(
     <div>
       <dt>{{ t("task.table.eta") }}</dt>
       <dd>{{ formatTaskEta(props.task) }}</dd>
+    </div>
+    <div>
+      <dt>{{ t("task.table.category") }}</dt>
+      <dd>{{ props.task.category || t("common.notAvailable") }}</dd>
     </div>
   </dl>
 </template>

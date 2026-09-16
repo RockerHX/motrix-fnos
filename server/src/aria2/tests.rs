@@ -1,6 +1,7 @@
 use super::sidecar::classify_saved_sidecar_from_command_line;
 use super::*;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config};
+use crate::settings::service::MAX_CONCURRENT_DOWNLOADS_LIMIT;
 
 fn test_config(path: Option<&str>) -> Aria2Config {
     Aria2Config {
@@ -138,4 +139,14 @@ fn rpc_port_candidates_use_primary_then_fallback_range() {
     assert_eq!(candidates[1], 16800);
     assert_eq!(candidates.last(), Some(&16820));
     assert_eq!(candidates.len(), 22);
+}
+
+#[test]
+fn global_options_clamp_concurrency_to_shared_limit() {
+    let options = global_options_from_values(999, 0, 0, 1, 5, "20M", 60, 5);
+
+    assert_eq!(
+        options.max_concurrent_downloads,
+        MAX_CONCURRENT_DOWNLOADS_LIMIT
+    );
 }

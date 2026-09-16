@@ -6,6 +6,21 @@ import { naiveUiStubs } from "../../../test/mount";
 vi.mock("naive-ui", () => ({
   ...naiveUiStubs,
   useMessage: () => ({ success: vi.fn(), warning: vi.fn(), error: vi.fn() }),
+  NCollapse: defineComponent({
+    name: "NCollapseStub",
+    props: { defaultExpandedNames: { type: Array, default: () => [] } },
+    setup(props, { slots }) {
+      return () =>
+        h(
+          "div",
+          {
+            "data-test": "n-collapse",
+            "data-default-expanded-names": JSON.stringify(props.defaultExpandedNames),
+          },
+          slots.default?.(),
+        );
+    },
+  }),
   NModal: defineComponent({
     name: "NModalStub",
     props: { show: { type: Boolean, default: false } },
@@ -30,7 +45,7 @@ vi.mock("naive-ui", () => ({
   }),
   NCard: defineComponent({
     setup(_, { slots }) {
-      return () => h("div", [slots.default?.(), slots.footer?.()]);
+      return () => h("div", [slots.header?.(), slots["header-extra"]?.(), slots.default?.(), slots.footer?.()]);
     },
   }),
   NDescriptionsItem: defineComponent({
@@ -41,7 +56,12 @@ vi.mock("naive-ui", () => ({
   }),
 }));
 
+vi.mock("../../../app/utils/clipboard", () => ({
+  copyTextToClipboard: vi.fn(async () => ({ copied: true, method: "clipboard" })),
+}));
+
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
+import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import type { DownloadTask } from "../../../types/tasks";
 
 describe("TaskDetailsDialog", () => {
@@ -139,6 +159,178 @@ describe("TaskDetailsDialog", () => {
     await wrapper.findAll("button").find((button) => button.text() === "文件详情")!.trigger("click");
     expect(wrapper.emitted("openFile")).toHaveLength(1);
     expect(wrapper.emitted("showFileDetails")).toHaveLength(1);
+  });
+
+  it("renders the summary and detail groups in prototype order", () => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: {
+          title: "任务详情",
+          items: [
+            { label: "来源", value: "https://example.com/file.iso" },
+            { section: "file", label: "保存路径", value: "存储空间1/下载" },
+            { label: "兼容字段", value: "默认归入下载信息" },
+          ],
+          technicalItems: [{ label: "真实路径", value: "/vol1/downloads/file.iso" }],
+        },
+        task: createTask({ completedLength: 25, downloadSpeed: 10 }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.get(".task-detail-title").text()).toBe("file.iso");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.00%");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+    expect(wrapper.findAll("[data-test$='-section']").map((section) => section.attributes("data-test"))).toEqual([
+      "task-detail-download-section",
+      "task-detail-file-section",
+      "task-detail-settings-section",
+      "task-detail-technical-section",
+    ]);
+    expect(wrapper.get('[data-test="task-detail-download-section"]').text()).toContain("默认归入下载信息");
+    expect(wrapper.get('[data-test="n-collapse"]').attributes("data-default-expanded-names")).toBe("[]");
+  });
+
+  it("shows the host-only hint and disables file actions while loading", async () => {
+    const unsupportedWrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask({ status: "complete" }),
+        isOperating: false,
+        isActionDisabled: false,
+        fileActions: { hostSupported: false, loading: false, context: null },
+      },
+    });
+    expect(unsupportedWrapper.text()).toContain("文件操作仅支持 fnOS 宿主环境。");
+
+    const loadingWrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask({ status: "complete" }),
+        isOperating: false,
+        isActionDisabled: false,
+        fileActions: {
+          hostSupported: true,
+          loading: true,
+          context: {
+            saveDir: { path: "/vol1/downloads", displayPath: "存储空间1/下载" },
+            filePath: { path: "/vol1/downloads/file.iso", displayPath: "存储空间1/下载/file.iso" },
+            actions: {
+              availability: "available",
+              fileManagerPath: "/vol1/downloads/file.iso",
+              openFilePath: "/vol1/downloads/file.iso",
+              detailPaths: ["/vol1/downloads/file.iso"],
+            },
+          },
+        },
+      },
+    });
+
+    const openButton = loadingWrapper.findAll("button").find((button) => button.text() === "打开文件");
+    expect(openButton?.attributes("disabled")).toBeDefined();
+    expect(openButton?.attributes("data-loading")).toBe("true");
+    await openButton?.trigger("click");
+    expect(loadingWrapper.emitted("openFile")).toBeUndefined();
+  });
+
+  it("copies technical paths through the existing clipboard helper", async () => {
+    vi.mocked(copyTextToClipboard).mockClear();
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: {
+          title: "任务详情",
+          items: [],
+          technicalItems: [{ label: "真实路径", value: "/vol1/downloads/file.iso" }],
+        },
+        task: createTask(),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    await wrapper.findAll("button").find((button) => button.text() === "复制")!.trigger("click");
+    expect(copyTextToClipboard).toHaveBeenCalledWith("/vol1/downloads/file.iso");
+  });
+
+  it.each([
+    ["pending", "排队", "pending", { status: "pending" }],
+    ["active", "下载中", "active", { status: "active" }],
+    ["paused", "暂停", "paused", { status: "paused" }],
+    ["complete", "已完成", "complete", { status: "complete" }],
+    ["error", "错误", "error", { status: "error" }],
+    ["removed", "已删除", "removed", { status: "removed" }],
+    ["resolving", "解析中", "resolving", { status: "pending", url: "magnet:?xt=urn:btih:test", gid: "gid-1", files: [] }],
+    ["confirming", "待确认", "confirming", { status: "pending", confirmationRequired: true, files: [{ index: 0, path: "/downloads/file.iso", name: "file.iso", length: 1, completedLength: 0, selected: true }] }],
+  ] as const)("renders the %s status in the summary", (_name, label, className, overrides) => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask(overrides as Partial<DownloadTask>),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    const status = wrapper.get(".task-detail-status");
+    expect(status.text()).toBe(label);
+    expect(status.classes()).toContain(`task-detail-status--${className}`);
+  });
+
+  it("updates dynamic summary values without changing metric slots", async () => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: { title: "任务详情", items: [] },
+        task: createTask({ completedLength: 20, downloadSpeed: 10 }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+
+    await wrapper.setProps({ task: createTask({ completedLength: 90, downloadSpeed: 5 }) });
+
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("2s");
+  });
+
+  it("wraps long names, URLs and technical paths without hiding their sections", () => {
+    const fileName = "release_candidate_with_localization_assets_and_debug_symbols.tar.zst";
+    const url = "https://example.com/" + "very-long-path-segment/".repeat(8) + fileName;
+    const technicalPath = "/vol1/1000/downloads/" + "nested-directory/".repeat(8) + fileName;
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        details: {
+          title: "任务详情",
+          items: [{ label: "下载链接", value: url }],
+          technicalItems: [{ label: "真实路径", value: technicalPath }],
+        },
+        task: createTask({ fileName, url }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.get(".task-detail-title").text()).toBe(fileName);
+    expect(wrapper.get('[data-test="task-detail-download-section"]').text()).toContain(url);
+    expect(wrapper.get(".task-technical-path").text()).toBe(technicalPath);
+    expect(wrapper.find('[data-test="task-detail-technical-section"]').exists()).toBe(true);
   });
 });
 

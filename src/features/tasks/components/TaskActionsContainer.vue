@@ -9,11 +9,12 @@ import { formatDateTime, language, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { fnosHost, type FnosHostKind } from "../../../services/fnos";
 import { getTaskFileContext } from "../services/taskService";
-import { formatTaskError, formatTaskProgress, formatTaskSize, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
+import { formatTaskError, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 import type {
   TaskActionConfirmTexts,
   TaskActionDetails,
+  TaskActionDetailItem,
   TaskActionLabels,
   TaskActionPermissions,
   TaskActionState,
@@ -98,28 +99,26 @@ const labels = computed<TaskActionLabels>(() => ({
 const details = computed<TaskActionDetails>(() => {
   const semanticSaveDir = fileContext.value?.saveDir.displayPath || props.task.saveDir;
   const semanticFilePath = fileContext.value?.filePath?.displayPath || props.task.filePath || t("common.notAvailable");
-  const items = [
-    { label: t("task.detail.fileName"), value: props.task.fileName },
-    { label: t("task.detail.status"), value: formatTaskStatusLabel(props.task.status) },
-    { label: t("task.detail.progress"), value: formatTaskProgress(props.task) },
-    { label: t("task.detail.size"), value: formatTaskSizePair(props.task) },
-    { label: t("task.detail.speed"), value: `${formatTaskSize(props.task.downloadSpeed)}/s` },
-    { label: t("task.detail.saveDir"), value: semanticSaveDir },
-    { label: t("task.detail.filePath"), value: semanticFilePath },
-    { label: t("task.detail.gid"), value: props.task.gid || t("common.notAvailable") },
-    { label: t("task.detail.url"), value: props.task.url },
-    { label: t("task.detail.createdAt"), value: formatTimestamp(props.task.createdAt) },
-    { label: t("task.detail.updatedAt"), value: formatTimestamp(props.task.updatedAt) },
+  const items: TaskActionDetailItem[] = [
+    { section: "download", label: t("task.detail.url"), value: props.task.url },
+    { section: "download", label: t("task.detail.status"), value: formatTaskStatusLabel(props.task) },
+    { section: "download", label: t("task.detail.size"), value: formatTaskSizePair(props.task) },
+    { section: "download", label: t("task.detail.createdAt"), value: formatTimestamp(props.task.createdAt) },
+    { section: "download", label: t("task.detail.updatedAt"), value: formatTimestamp(props.task.updatedAt) },
+    { section: "file", label: t("task.detail.fileName"), value: props.task.fileName },
+    { section: "file", label: t("task.detail.saveDir"), value: semanticSaveDir },
+    { section: "file", label: t("task.detail.filePath"), value: semanticFilePath },
   ];
 
   if (props.task.errorMessage) {
-    items.push({ label: t("task.detail.errorReason"), value: formatTaskError(props.task) });
+    items.push({ section: "download", label: t("task.detail.errorReason"), value: formatTaskError(props.task) });
   }
 
   return {
     title: t("task.detail.title"),
     items,
     technicalItems: [
+      { label: t("task.detail.gid"), value: props.task.gid || t("common.notAvailable") },
       { label: t("task.detail.saveDir"), value: props.task.saveDir },
       { label: t("task.detail.filePath"), value: props.task.filePath || t("common.notAvailable") },
     ],
