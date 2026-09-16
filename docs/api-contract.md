@@ -32,7 +32,7 @@
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 使用 `credentials: "omit"`，不依赖 Cookie。
+- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。`1.9.4` 的提交 `476a3bf` 将请求改为 `omit`；Issue #21 实机反馈从该版本起收到 FN Connect 的 HTML 403，而 `1.9.3` 正常。恢复同源凭据用于修复这一兼容风险，具体 fnOS 版本及安全补丁的影响仍待实机对照确认。
 - `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
