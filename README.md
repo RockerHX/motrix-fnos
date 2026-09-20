@@ -2,6 +2,8 @@
 
 Motrix FNOS 是面向飞牛 fnOS 的下载管理应用，内置 Aria2 Next 下载引擎，以 FPK 形式安装和运行。用户通过同一套 Web UI 在桌面浏览器、手机浏览器或飞牛 App 中管理下载任务。
 
+项目友链：[LINUX DO 社区](https://linux.do/)
+
 ## 产品能力
 
 - 支持 HTTP / HTTPS、批量 URL、种子文件和磁力链接。

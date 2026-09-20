@@ -37,6 +37,7 @@ export interface LanJsonRpcStatus {
   enabled: boolean;
   configured: boolean;
   maskedToken: string | null;
+  allowSharedAddressSpace: boolean;
   port: number;
 }
 

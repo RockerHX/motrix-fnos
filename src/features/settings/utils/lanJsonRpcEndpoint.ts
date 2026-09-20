@@ -18,9 +18,20 @@ export function isRfc1918Hostname(hostname: string) {
   );
 }
 
-export function lanJsonRpcEndpoint(hostname: string): LanJsonRpcEndpoint {
-  if (isRfc1918Hostname(hostname)) {
+export function lanJsonRpcEndpoint(hostname: string, allowSharedAddressSpace = false): LanJsonRpcEndpoint {
+  if (isRfc1918Hostname(hostname) || (allowSharedAddressSpace && isSharedAddressHostname(hostname))) {
     return { value: `http://${hostname}:17082/jsonrpc`, concrete: true };
   }
   return { value: "http://<飞牛局域网IP>:17082/jsonrpc", concrete: false };
+}
+
+function isSharedAddressHostname(hostname: string) {
+  const octets = hostname.split(".").map(Number);
+  return (
+    octets.length === 4 &&
+    octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) &&
+    octets[0] === 100 &&
+    octets[1]! >= 64 &&
+    octets[1]! <= 127
+  );
 }

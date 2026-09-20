@@ -12,6 +12,17 @@ describe("lanJsonRpcEndpoint", () => {
     }
   });
 
+  it("builds a concrete shared-address endpoint only when explicitly allowed", () => {
+    expect(lanJsonRpcEndpoint("100.64.0.1").concrete).toBe(false);
+    expect(lanJsonRpcEndpoint("100.64.0.1", true)).toEqual({
+      value: "http://100.64.0.1:17082/jsonrpc",
+      concrete: true,
+    });
+    expect(lanJsonRpcEndpoint("100.127.255.254", true).concrete).toBe(true);
+    expect(lanJsonRpcEndpoint("100.63.255.255", true).concrete).toBe(false);
+    expect(lanJsonRpcEndpoint("100.128.0.1", true).concrete).toBe(false);
+  });
+
   it("uses a non-copyable placeholder for domains and disallowed addresses", () => {
     for (const hostname of ["motrix.example.com", "127.0.0.1", "169.254.1.1", "172.32.0.1", "::1"]) {
       expect(lanJsonRpcEndpoint(hostname)).toEqual({

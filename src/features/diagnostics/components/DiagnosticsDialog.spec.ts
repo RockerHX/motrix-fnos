@@ -104,9 +104,9 @@ vi.mock("naive-ui", async () => {
 });
 
 vi.mock("../../settings/services/lanJsonRpcService", () => ({
-  getLanJsonRpcStatus: vi.fn(async () => ({ enabled: true, configured: true, maskedToken: "••••••••1234", port: 17082 })),
+  getLanJsonRpcStatus: vi.fn(async () => ({ enabled: true, configured: true, maskedToken: "••••••••1234", allowSharedAddressSpace: false, port: 17082 })),
   rotateLanJsonRpcToken: vi.fn(),
-  updateLanJsonRpcEnabled: vi.fn(),
+  updateLanJsonRpcConfig: vi.fn(),
 }));
 
 vi.mock("../../../components/ui/AppDialog.vue", async () => {

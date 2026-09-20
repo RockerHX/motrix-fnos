@@ -3,7 +3,7 @@ import { httpGet, httpPost, httpPut } from "../../../services/http";
 import {
   getLanJsonRpcStatus,
   rotateLanJsonRpcToken,
-  updateLanJsonRpcEnabled,
+  updateLanJsonRpcConfig,
 } from "./lanJsonRpcService";
 
 vi.mock("../../../services/http", () => ({ httpGet: vi.fn(), httpPost: vi.fn(), httpPut: vi.fn() }));
@@ -13,11 +13,14 @@ describe("lanJsonRpcService", () => {
 
   it("uses the dedicated LAN status, switch, and rotation endpoints", () => {
     getLanJsonRpcStatus();
-    updateLanJsonRpcEnabled(true);
+    updateLanJsonRpcConfig(true, true);
     rotateLanJsonRpcToken();
 
     expect(httpGet).toHaveBeenCalledWith("/api/settings/lan-jsonrpc");
-    expect(httpPut).toHaveBeenCalledWith("/api/settings/lan-jsonrpc", { enabled: true });
+    expect(httpPut).toHaveBeenCalledWith("/api/settings/lan-jsonrpc", {
+      enabled: true,
+      allowSharedAddressSpace: true,
+    });
     expect(httpPost).toHaveBeenCalledWith("/api/settings/lan-jsonrpc/token", {});
   });
 });

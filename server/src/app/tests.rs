@@ -7,7 +7,7 @@ use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
 use crate::tasks::{
     DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationContext, TaskOperationType,
 };
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 pub(crate) fn replace_fnos_api_client(state: &HttpAppState, client: FnosApiClient) {
@@ -637,6 +637,7 @@ async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
         enabled: true,
         token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
     };
     let response = client
         .post(format!("http://{lan_jsonrpc_addr}/jsonrpc"))
@@ -993,7 +994,13 @@ async fn assert_listener_closed(addr: SocketAddr) {
 }
 
 fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRuntimeConfig {
-    let app_data_dir = std::env::temp_dir().join(format!("motrix-fnos-listeners-{}", now_ms()));
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let app_data_dir = std::env::temp_dir().join(format!(
+        "motrix-fnos-listeners-{}-{}-{}",
+        std::process::id(),
+        now_ms(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     ServerRuntimeConfig {
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),

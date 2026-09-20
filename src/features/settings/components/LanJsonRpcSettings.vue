@@ -26,8 +26,11 @@ const store = useLanJsonRpcStore();
 const message = useMessage();
 const { t } = useI18n();
 const showRotateConfirm = ref(false);
+const showSharedAddressConfirm = ref(false);
 const issuedTokenInput = ref<InputInst | null>(null);
-const endpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
+const endpoint = computed(() =>
+  lanJsonRpcEndpoint(window.location.hostname, store.status?.allowSharedAddressSpace),
+);
 
 watch(
   () => props.active,
@@ -62,6 +65,24 @@ async function updateEnabled(enabled: boolean) {
   try {
     await store.setEnabled(enabled);
     message.success(t(enabled ? "settings.lanJsonRpc.enabled" : "settings.lanJsonRpc.disabledSuccess"));
+  } catch (error) {
+    message.error(getErrorMessage(error, t("settings.lanJsonRpc.saveFailed")));
+  }
+}
+
+async function updateSharedAddressSpace(enabled: boolean) {
+  if (enabled) {
+    showSharedAddressConfirm.value = true;
+    return;
+  }
+  await saveSharedAddressSpace(false);
+}
+
+async function saveSharedAddressSpace(enabled: boolean) {
+  try {
+    await store.setAllowSharedAddressSpace(enabled);
+    showSharedAddressConfirm.value = false;
+    message.success(t(enabled ? "settings.lanJsonRpc.sharedAddressEnabled" : "settings.lanJsonRpc.sharedAddressDisabled"));
   } catch (error) {
     message.error(getErrorMessage(error, t("settings.lanJsonRpc.saveFailed")));
   }
@@ -102,6 +123,7 @@ function closeIssuedToken() {
 
 function closeSensitiveDialogs() {
   showRotateConfirm.value = false;
+  showSharedAddressConfirm.value = false;
   store.clearSensitiveState();
 }
 
@@ -131,6 +153,21 @@ onUnmounted(closeSensitiveDialogs);
     <NAlert type="info" :bordered="false">
       {{ t("settings.lanJsonRpc.security") }}
     </NAlert>
+
+    <div v-if="store.status?.enabled" class="lan-json-rpc-shared-address">
+      <div>
+        <span>{{ t("settings.lanJsonRpc.sharedAddressTitle") }}</span>
+        <small>{{ t("settings.lanJsonRpc.sharedAddressHelp") }}</small>
+      </div>
+      <NSwitch
+        :value="store.status.allowSharedAddressSpace"
+        :loading="store.isSaving"
+        :disabled="store.isLoading || store.isSaving"
+        :aria-label="t('settings.lanJsonRpc.sharedAddressTitle')"
+        data-test="lan-json-rpc-shared-address-switch"
+        @update:value="updateSharedAddressSpace"
+      />
+    </div>
 
     <div class="lan-json-rpc-endpoint">
       <div>
@@ -203,6 +240,29 @@ onUnmounted(closeSensitiveDialogs);
             {{ t("common.copy") }}
           </NButton>
           <NButton type="primary" @click="closeIssuedToken">{{ t("common.done") }}</NButton>
+        </AppDialogActions>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :show="showSharedAddressConfirm"
+      :title="t('settings.lanJsonRpc.sharedAddressConfirmTitle')"
+      width="520px"
+      :mask-closable="!store.isSaving"
+      :close-disabled="store.isSaving"
+      @update:show="showSharedAddressConfirm = $event"
+    >
+      <NAlert type="warning" :bordered="false">
+        {{ t("settings.lanJsonRpc.sharedAddressConfirm") }}
+      </NAlert>
+      <template #footer>
+        <AppDialogActions>
+          <NButton :disabled="store.isSaving" @click="showSharedAddressConfirm = false">
+            {{ t("common.cancel") }}
+          </NButton>
+          <NButton type="warning" :loading="store.isSaving" @click="saveSharedAddressSpace(true)">
+            {{ t("settings.lanJsonRpc.sharedAddressEnable") }}
+          </NButton>
         </AppDialogActions>
       </template>
     </AppDialog>

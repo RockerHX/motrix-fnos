@@ -84,6 +84,7 @@ async fn public_and_lan_tokens_are_rejected_across_entry_scopes() {
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
         enabled: true,
         token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
     };
 
     assert!(execute_method_with_access(
@@ -175,6 +176,7 @@ async fn token_validation_uses_memory_after_database_is_closed() {
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
         enabled: true,
         token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
     };
     state.core.database.pool.close().await;
 

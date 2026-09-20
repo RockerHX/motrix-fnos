@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | `17080` | Web 管理面、HTTP API、SSE | fnOS 管理入口；除明确匿名的认证与就绪探测接口外，业务 API 与 SSE 需要 Web 管理 JWT |
 | `17081` | 回环 JSON-RPC | 仅 NAS 本机和本机反向代理；Lucky 应代理到这里 |
-| `17082` | 局域网 JSON-RPC | 仅 RFC1918 IPv4 客户端；使用独立 Token |
+| `17082` | 局域网 JSON-RPC | 默认仅 RFC1918 IPv4 客户端；可显式允许 `100.64.0.0/10`；使用独立 Token |
 | `6800` | Aria2 内部 RPC | 仅 Rust server 使用，不对外开放 |
 
 公网入口只提供 `/jsonrpc`。不要把 `17080`、`17082` 或 `6800` 直接暴露到公网。
@@ -75,7 +75,7 @@ curl -i http://127.0.0.1:17081/jsonrpc \
 
 ### 4.3 局域网 JSON-RPC（可选）
 
-从真实 RFC1918 IPv4 客户端访问 `http://NAS地址:17082/jsonrpc`。局域网入口关闭、来源不是 RFC1918 IPv4 或 Token 不匹配时，请求应被拒绝；不要用 `X-Forwarded-For` 伪造来源。
+从真实 RFC1918 IPv4 客户端访问 `http://NAS地址:17082/jsonrpc`。使用 Tailscale 等 RFC 6598 共享地址网络时，可在设置中显式允许 `100.64.0.0/10`；该选项默认关闭。局域网入口关闭、来源不在允许范围或 Token 不匹配时，请求应被拒绝；不要用 `X-Forwarded-For` 伪造来源。
 
 ## 5. Lucky 与 Cloudflare
 

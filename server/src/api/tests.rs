@@ -458,9 +458,12 @@ async fn jsonrpc_router_only_serves_the_exact_jsonrpc_path() {
 }
 
 #[test]
-fn lan_jsonrpc_peer_filter_only_allows_rfc1918_ipv4() {
+fn lan_jsonrpc_peer_filter_allows_rfc1918_and_opt_in_shared_ipv4() {
     for allowed in ["10.0.0.1", "172.16.0.1", "172.31.255.254", "192.168.1.12"] {
-        assert!(is_rfc1918_peer(allowed.parse().expect("IP should parse")));
+        assert!(is_allowed_lan_peer(
+            allowed.parse().expect("IP should parse"),
+            false
+        ));
     }
     for denied in [
         "127.0.0.1",
@@ -468,11 +471,30 @@ fn lan_jsonrpc_peer_filter_only_allows_rfc1918_ipv4() {
         "172.15.255.255",
         "172.32.0.1",
         "192.0.2.1",
+        "100.63.255.255",
+        "100.64.0.1",
+        "100.127.255.254",
+        "100.128.0.1",
         "8.8.8.8",
         "::1",
         "fd00::1",
     ] {
-        assert!(!is_rfc1918_peer(denied.parse().expect("IP should parse")));
+        assert!(!is_allowed_lan_peer(
+            denied.parse().expect("IP should parse"),
+            false
+        ));
+    }
+    for allowed in ["100.64.0.1", "100.127.255.254"] {
+        assert!(is_allowed_lan_peer(
+            allowed.parse().expect("IP should parse"),
+            true
+        ));
+    }
+    for denied in ["100.63.255.255", "100.128.0.1"] {
+        assert!(!is_allowed_lan_peer(
+            denied.parse().expect("IP should parse"),
+            true
+        ));
     }
 }
 
@@ -499,6 +521,7 @@ async fn lan_jsonrpc_router_checks_switch_and_true_tcp_peer_before_protocol_hand
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
         enabled: true,
         token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
     };
     let mut public_request = json_request(
         "POST",
@@ -1825,6 +1848,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
             enabled: false,
             configured: false,
             masked_token: None,
+            allow_shared_address_space: false,
             port: 17082,
         }
     );

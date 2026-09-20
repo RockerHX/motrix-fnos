@@ -5,8 +5,11 @@ export function getLanJsonRpcStatus() {
   return httpGet<LanJsonRpcStatus>("/api/settings/lan-jsonrpc");
 }
 
-export function updateLanJsonRpcEnabled(enabled: boolean) {
-  return httpPut<LanJsonRpcMutationResponse>("/api/settings/lan-jsonrpc", { enabled });
+export function updateLanJsonRpcConfig(enabled: boolean, allowSharedAddressSpace: boolean) {
+  return httpPut<LanJsonRpcMutationResponse>("/api/settings/lan-jsonrpc", {
+    enabled,
+    allowSharedAddressSpace,
+  });
 }
 
 export function rotateLanJsonRpcToken() {

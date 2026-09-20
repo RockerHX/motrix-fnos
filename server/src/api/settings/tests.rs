@@ -230,7 +230,10 @@ async fn lan_json_rpc_first_enable_preserves_token_and_rotation_invalidates_old_
 
     let enabled = update_lan_json_rpc(
         State(state.clone()),
-        ApiJson(UpdateLanJsonRpcRequest { enabled: true }),
+        ApiJson(UpdateLanJsonRpcRequest {
+            enabled: true,
+            allow_shared_address_space: Some(true),
+        }),
     )
     .await
     .expect("first enable should succeed")
@@ -242,6 +245,7 @@ async fn lan_json_rpc_first_enable_preserves_token_and_rotation_invalidates_old_
     assert_eq!(URL_SAFE_NO_PAD.decode(&first_token).unwrap().len(), 32);
     assert!(enabled.status.enabled);
     assert!(enabled.status.configured);
+    assert!(enabled.status.allow_shared_address_space);
     assert_eq!(enabled.status.port, 17082);
     assert!(!enabled
         .status
@@ -252,22 +256,30 @@ async fn lan_json_rpc_first_enable_preserves_token_and_rotation_invalidates_old_
 
     let disabled = update_lan_json_rpc(
         State(state.clone()),
-        ApiJson(UpdateLanJsonRpcRequest { enabled: false }),
+        ApiJson(UpdateLanJsonRpcRequest {
+            enabled: false,
+            allow_shared_address_space: None,
+        }),
     )
     .await
     .expect("disable should succeed")
     .0;
     assert!(!disabled.status.enabled);
+    assert!(disabled.status.allow_shared_address_space);
     assert!(disabled.issued_token.is_none());
 
     let reenabled = update_lan_json_rpc(
         State(state.clone()),
-        ApiJson(UpdateLanJsonRpcRequest { enabled: true }),
+        ApiJson(UpdateLanJsonRpcRequest {
+            enabled: true,
+            allow_shared_address_space: None,
+        }),
     )
     .await
     .expect("re-enable should succeed")
     .0;
     assert!(reenabled.issued_token.is_none());
+    assert!(reenabled.status.allow_shared_address_space);
     assert_eq!(state.lan_json_rpc_config().await.token, first_token);
 
     let rotated = rotate_lan_json_rpc_token(State(state.clone()))
@@ -284,6 +296,7 @@ async fn lan_json_rpc_first_enable_preserves_token_and_rotation_invalidates_old_
         .expect("LAN config should restore after restart");
     let restored_config = restored.lan_json_rpc_config().await;
     assert!(restored_config.enabled);
+    assert!(restored_config.allow_shared_address_space);
     assert_eq!(restored_config.token, second_token);
     restored.core.database.pool.close().await;
     let _ = std::fs::remove_dir_all(runtime.app_data_dir);
@@ -296,7 +309,10 @@ async fn lan_json_rpc_storage_failure_does_not_change_memory_state() {
 
     let error = update_lan_json_rpc(
         State(state.clone()),
-        ApiJson(UpdateLanJsonRpcRequest { enabled: true }),
+        ApiJson(UpdateLanJsonRpcRequest {
+            enabled: true,
+            allow_shared_address_space: Some(true),
+        }),
     )
     .await
     .expect_err("closed database should reject update");

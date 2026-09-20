@@ -20,7 +20,8 @@
   font-size: 16px;
 }
 
-.lan-json-rpc-endpoint {
+.lan-json-rpc-endpoint,
+.lan-json-rpc-shared-address {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -31,14 +32,17 @@
   border-radius: var(--app-radius-sm);
 }
 
-.lan-json-rpc-endpoint > div {
+.lan-json-rpc-endpoint > div,
+.lan-json-rpc-shared-address > div {
   min-width: 0;
   display: grid;
   gap: 4px;
 }
 
 .lan-json-rpc-endpoint span,
-.lan-json-rpc-endpoint small {
+.lan-json-rpc-endpoint small,
+.lan-json-rpc-shared-address span,
+.lan-json-rpc-shared-address small {
   color: var(--app-text-muted);
   font-size: 12px;
 }

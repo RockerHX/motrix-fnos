@@ -101,6 +101,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 &LanJsonRpcConfig {
                     enabled: true,
                     token: "  lan-token  ".to_string(),
+                    allow_shared_address_space: true,
                 },
             )
             .await
@@ -110,6 +111,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 LanJsonRpcConfig {
                     enabled: true,
                     token: "lan-token".to_string(),
+                    allow_shared_address_space: true,
                 }
             );
             assert_eq!(
