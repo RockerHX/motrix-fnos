@@ -23,7 +23,7 @@
 
 - 管理入口（IPv4/IPv6）只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
 - 回环 JSON-RPC 监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
-- 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`，开启后只接受 RFC1918 IPv4 真实对端，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
+- 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
 - 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6，任一实际地址绑定失败时 server 整体启动失败。
@@ -577,6 +577,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "enabled": true,
   "configured": true,
   "maskedToken": "••••••••a1b2",
+  "allowSharedAddressSpace": false,
   "port": 17082
 }
 ```
@@ -585,7 +586,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 ```json
 {
-  "enabled": true
+  "enabled": true,
+  "allowSharedAddressSpace": false
 }
 ```
 
@@ -595,6 +597,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
     "enabled": true,
     "configured": true,
     "maskedToken": "••••••••a1b2",
+    "allowSharedAddressSpace": false,
     "port": 17082
   },
   "issuedToken": "one-time-raw-token-or-null"
@@ -965,4 +968,4 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
-- 局域网入口关闭时所有请求返回 404；开启时只接受 RFC1918 IPv4 真实对端。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
+- 局域网入口关闭时所有请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。

@@ -4,7 +4,7 @@ import type { LanJsonRpcStatus } from "../../../types/settings";
 import {
   getLanJsonRpcStatus,
   rotateLanJsonRpcToken,
-  updateLanJsonRpcEnabled,
+  updateLanJsonRpcConfig,
 } from "../services/lanJsonRpcService";
 
 export const useLanJsonRpcStore = defineStore("lan-json-rpc", () => {
@@ -24,13 +24,13 @@ export const useLanJsonRpcStore = defineStore("lan-json-rpc", () => {
     }
   }
 
-  async function setEnabled(enabled: boolean) {
+  async function updateConfig(enabled: boolean, allowSharedAddressSpace: boolean) {
     const previousStatus = status.value;
     const requestGeneration = sensitiveGeneration;
     isSaving.value = true;
     issuedToken.value = "";
     try {
-      const response = await updateLanJsonRpcEnabled(enabled);
+      const response = await updateLanJsonRpcConfig(enabled, allowSharedAddressSpace);
       status.value = response.status;
       issuedToken.value = requestGeneration === sensitiveGeneration ? (response.issuedToken ?? "") : "";
       return response;
@@ -40,6 +40,14 @@ export const useLanJsonRpcStore = defineStore("lan-json-rpc", () => {
     } finally {
       isSaving.value = false;
     }
+  }
+
+  function setEnabled(enabled: boolean) {
+    return updateConfig(enabled, status.value?.allowSharedAddressSpace ?? false);
+  }
+
+  function setAllowSharedAddressSpace(allowSharedAddressSpace: boolean) {
+    return updateConfig(status.value?.enabled ?? false, allowSharedAddressSpace);
   }
 
   async function rotateToken() {
@@ -72,6 +80,7 @@ export const useLanJsonRpcStore = defineStore("lan-json-rpc", () => {
     isSaving,
     loadStatus,
     setEnabled,
+    setAllowSharedAddressSpace,
     rotateToken,
     clearIssuedToken,
     clearSensitiveState,

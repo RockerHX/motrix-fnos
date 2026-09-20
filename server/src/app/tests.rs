@@ -637,6 +637,7 @@ async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
         enabled: true,
         token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
     };
     let response = client
         .post(format!("http://{lan_jsonrpc_addr}/jsonrpc"))

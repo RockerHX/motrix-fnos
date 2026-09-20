@@ -34,7 +34,7 @@ vi.mock("naive-ui", async () => {
 import {
   getLanJsonRpcStatus,
   rotateLanJsonRpcToken,
-  updateLanJsonRpcEnabled,
+  updateLanJsonRpcConfig,
 } from "../services/lanJsonRpcService";
 import { useLanJsonRpcStore } from "../stores/lanJsonRpcStore";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
@@ -43,23 +43,35 @@ import LanJsonRpcSettings from "./LanJsonRpcSettings.vue";
 vi.mock("../services/lanJsonRpcService", () => ({
   getLanJsonRpcStatus: vi.fn(),
   rotateLanJsonRpcToken: vi.fn(),
-  updateLanJsonRpcEnabled: vi.fn(),
+  updateLanJsonRpcConfig: vi.fn(),
 }));
 
 const mockedGet = vi.mocked(getLanJsonRpcStatus);
-const mockedUpdate = vi.mocked(updateLanJsonRpcEnabled);
+const mockedUpdate = vi.mocked(updateLanJsonRpcConfig);
 const mockedRotate = vi.mocked(rotateLanJsonRpcToken);
 
 describe("LanJsonRpcSettings", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
-    mockedGet.mockResolvedValue({ enabled: false, configured: false, maskedToken: null, port: 17082 });
+    mockedGet.mockResolvedValue({
+      enabled: false,
+      configured: false,
+      maskedToken: null,
+      allowSharedAddressSpace: false,
+      port: 17082,
+    });
   });
 
   it("shows the first issued Token once and clears it when the modal or settings closes", async () => {
     mockedUpdate.mockResolvedValueOnce({
-      status: { enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 },
+      status: {
+        enabled: true,
+        configured: true,
+        maskedToken: "••••••••oken",
+        allowSharedAddressSpace: false,
+        port: 17082,
+      },
       issuedToken: "one-time-lan-token",
     });
     const { wrapper } = mountSettings();
@@ -67,7 +79,7 @@ describe("LanJsonRpcSettings", () => {
 
     await wrapper.get('[data-test="lan-json-rpc-switch"]').setValue(true);
     await flushPromises();
-    expect(mockedUpdate).toHaveBeenCalledWith(true);
+    expect(mockedUpdate).toHaveBeenCalledWith(true, false);
     expect(
       (wrapper.get('[data-test="lan-json-rpc-issued-token"] input').element as HTMLInputElement).value,
     ).toBe("one-time-lan-token");
@@ -86,11 +98,23 @@ describe("LanJsonRpcSettings", () => {
 
   it("uses the switch as the only enabled state and shows the Token card only while enabled", async () => {
     mockedUpdate.mockResolvedValueOnce({
-      status: { enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 },
+      status: {
+        enabled: true,
+        configured: true,
+        maskedToken: "••••••••oken",
+        allowSharedAddressSpace: false,
+        port: 17082,
+      },
       issuedToken: "one-time-lan-token",
     });
     mockedUpdate.mockResolvedValueOnce({
-      status: { enabled: false, configured: true, maskedToken: "••••••••oken", port: 17082 },
+      status: {
+        enabled: false,
+        configured: true,
+        maskedToken: "••••••••oken",
+        allowSharedAddressSpace: false,
+        port: 17082,
+      },
       issuedToken: null,
     });
     const { wrapper } = mountSettings();
@@ -130,9 +154,21 @@ describe("LanJsonRpcSettings", () => {
   it("requires confirmation before rotation and can copy the issued Token", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    mockedGet.mockResolvedValueOnce({ enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 });
+    mockedGet.mockResolvedValueOnce({
+      enabled: true,
+      configured: true,
+      maskedToken: "••••••••oken",
+      allowSharedAddressSpace: false,
+      port: 17082,
+    });
     mockedRotate.mockResolvedValueOnce({
-      status: { enabled: false, configured: true, maskedToken: "••••••••ated", port: 17082 },
+      status: {
+        enabled: false,
+        configured: true,
+        maskedToken: "••••••••ated",
+        allowSharedAddressSpace: false,
+        port: 17082,
+      },
       issuedToken: "rotated-lan-token",
     });
     const { wrapper } = mountSettings();
@@ -161,9 +197,21 @@ describe("LanJsonRpcSettings", () => {
       value: vi.fn(() => true),
     });
     const select = vi.spyOn(HTMLInputElement.prototype, "select");
-    mockedGet.mockResolvedValueOnce({ enabled: true, configured: true, maskedToken: "••••••••oken", port: 17082 });
+    mockedGet.mockResolvedValueOnce({
+      enabled: true,
+      configured: true,
+      maskedToken: "••••••••oken",
+      allowSharedAddressSpace: false,
+      port: 17082,
+    });
     mockedRotate.mockResolvedValueOnce({
-      status: { enabled: false, configured: true, maskedToken: "••••••••ated", port: 17082 },
+      status: {
+        enabled: false,
+        configured: true,
+        maskedToken: "••••••••ated",
+        allowSharedAddressSpace: false,
+        port: 17082,
+      },
       issuedToken: "manual-copy-lan-token",
     });
     const { wrapper } = mountSettings();
@@ -196,6 +244,36 @@ describe("LanJsonRpcSettings", () => {
       "http://<飞牛局域网IP>:17082/jsonrpc",
     );
     expect(wrapper.find('[data-test="copy-lan-json-rpc-endpoint"]').exists()).toBe(false);
+  });
+
+  it("requires confirmation before allowing 100.64.0.0/10", async () => {
+    mockedGet.mockResolvedValueOnce({
+      enabled: true,
+      configured: true,
+      maskedToken: "••••••••oken",
+      allowSharedAddressSpace: false,
+      port: 17082,
+    });
+    mockedUpdate.mockResolvedValueOnce({
+      status: {
+        enabled: true,
+        configured: true,
+        maskedToken: "••••••••oken",
+        allowSharedAddressSpace: true,
+        port: 17082,
+      },
+      issuedToken: null,
+    });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    await wrapper.get('[data-test="lan-json-rpc-shared-address-switch"]').setValue(true);
+    expect(mockedUpdate).not.toHaveBeenCalled();
+
+    await wrapper.findAll("button").find((button) => button.text() === "确认开启")!.trigger("click");
+    await flushPromises();
+
+    expect(mockedUpdate).toHaveBeenCalledWith(true, true);
   });
 });
 

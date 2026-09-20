@@ -66,6 +66,8 @@ pub struct LanJsonRpcConfig {
     pub enabled: bool,
     #[serde(default)]
     pub token: String,
+    #[serde(default)]
+    pub allow_shared_address_space: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

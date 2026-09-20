@@ -112,16 +112,17 @@ async fn authorize_lan_jsonrpc_peer(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    if !state.lan_json_rpc_config().await.enabled {
+    let config = state.lan_json_rpc_config().await;
+    if !config.enabled {
         return StatusCode::NOT_FOUND.into_response();
     }
-    if !is_rfc1918_peer(peer.ip()) {
+    if !is_allowed_lan_peer(peer.ip(), config.allow_shared_address_space) {
         return StatusCode::FORBIDDEN.into_response();
     }
     next.run(request).await
 }
 
-fn is_rfc1918_peer(ip: std::net::IpAddr) -> bool {
+fn is_allowed_lan_peer(ip: std::net::IpAddr, allow_shared_address_space: bool) -> bool {
     let std::net::IpAddr::V4(ip) = ip else {
         return false;
     };
@@ -129,6 +130,7 @@ fn is_rfc1918_peer(ip: std::net::IpAddr) -> bool {
     octets[0] == 10
         || (octets[0] == 172 && (16..=31).contains(&octets[1]))
         || (octets[0] == 192 && octets[1] == 168)
+        || (allow_shared_address_space && octets[0] == 100 && (64..=127).contains(&octets[1]))
 }
 
 fn management_router_with_static_dir(state: Arc<HttpAppState>, static_dir: PathBuf) -> Router {

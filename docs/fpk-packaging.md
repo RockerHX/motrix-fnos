@@ -100,7 +100,7 @@ FPK 启动脚本必须向同一个 Rust server 注入三个入口地址；管理
 - `manifest.service_port` 与唯一 `app/ui/config` iframe 入口端口必须都是 `17080`；`MotrixFNOS.sc` 的源/目标端口必须精确声明 `17080/tcp,17082/tcp`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
 - `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
-- `17082` 始终监听但由服务端开关和 RFC1918 IPv4 来源检查共同保护；局域网 Token 不得在 `17081` 使用。
+- `17082` 始终监听但由服务端开关和 IPv4 来源检查共同保护；默认只允许 RFC1918，管理员显式启用后额外允许 `100.64.0.0/10`。局域网 Token 不得在 `17081` 使用。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
 - FPK 日志可以记录三个监听地址，但不得记录 Web 密码、JWT、JSON-RPC Token 或 Aria2 secret。
 - 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。

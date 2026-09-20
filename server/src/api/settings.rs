@@ -61,12 +61,15 @@ pub struct LanJsonRpcStatus {
     pub enabled: bool,
     pub configured: bool,
     pub masked_token: Option<String>,
+    pub allow_shared_address_space: bool,
     pub port: u16,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdateLanJsonRpcRequest {
     enabled: bool,
+    allow_shared_address_space: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -201,6 +204,9 @@ async fn update_lan_json_rpc(
         None
     };
     next.enabled = payload.enabled;
+    if let Some(allow_shared_address_space) = payload.allow_shared_address_space {
+        next.allow_shared_address_space = allow_shared_address_space;
+    }
     let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
         .await
         .map_err(|error| ApiError::internal("lan_jsonrpc_save_failed", error))?;
@@ -227,6 +233,7 @@ async fn rotate_lan_json_rpc_token(
     let next = LanJsonRpcConfig {
         enabled: current.enabled,
         token: token.clone(),
+        allow_shared_address_space: current.allow_shared_address_space,
     };
     let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
         .await
@@ -282,6 +289,7 @@ fn lan_json_rpc_status(config: &LanJsonRpcConfig) -> LanJsonRpcStatus {
         enabled: config.enabled,
         configured: token.configured,
         masked_token: token.masked_token,
+        allow_shared_address_space: config.allow_shared_address_space,
         port: 17082,
     }
 }
