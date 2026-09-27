@@ -5,6 +5,62 @@
     transform var(--app-transition-standard);
 }
 
+.main-content {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.main-content-body {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.task-status-filter {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px 0;
+  background: var(--app-color-surface);
+}
+
+.task-status-filter button {
+  min-height: 36px;
+  border: 1px solid var(--app-color-border-subtle);
+  border-radius: 6px;
+  padding: 0 14px;
+  color: var(--app-text-muted);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.task-status-filter button:hover,
+.task-status-filter button:focus-visible,
+.task-status-filter button.active {
+  color: var(--app-text-strong);
+  border-color: var(--app-text-accent-soft);
+  background: var(--app-color-card-overlay);
+}
+
+.task-status-filter button:focus-visible {
+  outline: 2px solid var(--app-text-accent-soft);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .task-status-filter {
+    overflow-x: auto;
+    padding: 10px var(--app-mobile-page-gutter) 0;
+  }
+
+  .task-status-filter button {
+    flex: 0 0 auto;
+    min-height: 40px;
+  }
+}
+
 .app-content-switch-enter-from {
   opacity: 0;
   transform: translateY(4px);

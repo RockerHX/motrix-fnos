@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from "vue";
+import { computed, ref, watch, type Ref } from "vue";
 import type { TranslationKey } from "../../../i18n";
 import type { MainNavCategory } from "../../../types/navigation";
 import type { DownloadTask } from "../../../types/tasks";
@@ -19,6 +19,8 @@ interface UseTaskCategoryViewOptions {
   isMobileLayout: Ref<boolean>;
   initialCategory?: MainNavCategory;
 }
+
+export type TaskStatusFilter = "all" | "paused" | "error";
 
 const emptyStateByCategory: Record<MainNavCategory, TaskCategoryEmptyState> = {
   all: {
@@ -71,13 +73,32 @@ export function useTaskCategoryView({
   initialCategory = "all",
 }: UseTaskCategoryViewOptions) {
   const activeCategory = ref<MainNavCategory>(initialCategory);
-  const visibleTasks = computed(() => filterTasksByCategory(tasks.value, removedTasks.value, activeCategory.value));
+  const taskStatusFilter = ref<TaskStatusFilter>("all");
+  const visibleTasks = computed(() =>
+    filterTasksByCategory(tasks.value, removedTasks.value, activeCategory.value, taskStatusFilter.value),
+  );
   const isExtensionsCategory = computed(() => activeCategory.value === "extensions");
   const hasVisibleTasks = computed(() => visibleTasks.value.length > 0);
   const contentViewKey = computed(() =>
     `${activeCategory.value}-${isExtensionsCategory.value ? "extensions" : hasVisibleTasks.value ? "list" : "empty"}`,
   );
-  const emptyState = computed(() => emptyStateByCategory[activeCategory.value]);
+  const emptyState = computed(() => {
+    if (activeCategory.value === "all" && taskStatusFilter.value === "paused") {
+      return {
+        ...emptyStateByCategory.all,
+        titleKey: "empty.paused.title" as TranslationKey,
+        descriptionKey: "empty.paused.description" as TranslationKey,
+      };
+    }
+    if (activeCategory.value === "all" && taskStatusFilter.value === "error") {
+      return {
+        ...emptyStateByCategory.all,
+        titleKey: "empty.error.title" as TranslationKey,
+        descriptionKey: "empty.error.description" as TranslationKey,
+      };
+    }
+    return emptyStateByCategory[activeCategory.value];
+  });
   const showFloatingAdd = computed(() => {
     if (isRuntimeExiting.value) {
       return false;
@@ -94,8 +115,13 @@ export function useTaskCategoryView({
     return true;
   });
 
+  watch(activeCategory, (category) => {
+    if (category !== "all") taskStatusFilter.value = "all";
+  });
+
   return {
     activeCategory,
+    taskStatusFilter,
     visibleTasks,
     isExtensionsCategory,
     hasVisibleTasks,
@@ -109,10 +135,11 @@ function filterTasksByCategory(
   tasks: DownloadTask[],
   removedTasks: DownloadTask[],
   category: MainNavCategory,
+  statusFilter: TaskStatusFilter,
 ) {
   switch (category) {
     case "all":
-      return tasks;
+      return statusFilter === "all" ? tasks : tasks.filter((task) => task.status === statusFilter);
     case "downloading":
       return tasks.filter(
         (task) => task.confirmationRequired || task.status === "pending" || task.status === "active",

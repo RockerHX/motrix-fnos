@@ -83,6 +83,10 @@ export const enUS: Record<TranslationKey, string> = {
   "topbar.disabled.noDeletable": "No visible tasks can be deleted",
   "topbar.disabled.trashEmpty": "Trash is empty",
   "topbar.disabled.extensions": "Task actions are unavailable on Extensions",
+  "task.statusFilter.label": "Task status filter",
+  "task.statusFilter.all": "All statuses",
+  "task.statusFilter.paused": "Paused",
+  "task.statusFilter.error": "Error",
 
   "about.eyebrow": "About",
   "about.title": "About {name}",
@@ -142,6 +146,10 @@ export const enUS: Record<TranslationKey, string> = {
 
   "empty.all.title": "No tasks",
   "empty.all.description": "Created tasks will appear here across pending, downloading, paused, error, and completed states.",
+  "empty.paused.title": "No paused tasks",
+  "empty.paused.description": "There are no paused tasks right now.",
+  "empty.error.title": "No error tasks",
+  "empty.error.description": "There are no tasks in an error state right now.",
   "empty.downloading.title": "No downloading tasks",
   "empty.downloading.description": "Click Add Task or paste an HTTP / HTTPS link to start downloading.",
   "empty.completed.title": "No completed tasks",

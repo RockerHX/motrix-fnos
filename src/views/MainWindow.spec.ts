@@ -143,6 +143,22 @@ describe("MainWindow floating create button", () => {
     expect(wrapper.find(".floating-add").exists()).toBe(false);
   });
 
+  it("shows status filters only in All and resets them when leaving the category", async () => {
+    const { wrapper } = mountMainWindow();
+
+    const filterButtons = () => wrapper.findAll(".task-status-filter button");
+    expect(filterButtons()).toHaveLength(3);
+
+    await filterButtons()[1].trigger("click");
+    expect(filterButtons()[1].attributes("aria-pressed")).toBe("true");
+
+    await wrapper.get('[data-test="shell-select-completed"]').trigger("click");
+    expect(filterButtons()).toHaveLength(0);
+
+    await wrapper.get('[data-test="shell-select-all"]').trigger("click");
+    expect(filterButtons()[0].attributes("aria-pressed")).toBe("true");
+  });
+
   it("opens the independent RPC guide and closes Settings when requested", async () => {
     const { wrapper } = mountMainWindow();
 
