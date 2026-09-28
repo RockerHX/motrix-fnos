@@ -1,5 +1,5 @@
 use super::*;
-use crate::tasks::files::{stage_task_files, StagedTaskFiles};
+use crate::tasks::files::{prepare_task_file_staging, StagedTaskFiles};
 use crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE;
 
 impl<'a> TaskService<'a> {
@@ -101,8 +101,8 @@ impl<'a> TaskService<'a> {
                 .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                 .await);
         }
-        let staged = if delete_files {
-            match stage_task_files(&task_before_delete) {
+        let mut staged = if delete_files {
+            match prepare_task_file_staging(&task_before_delete) {
                 Ok(staged) => staged,
                 Err(error) => {
                     return Err(self
@@ -113,11 +113,25 @@ impl<'a> TaskService<'a> {
         } else {
             None
         };
-        if let Some(staged_files) = staged.as_ref() {
+        if let Some(staged_files) = staged.as_mut() {
             let mut context = operation.context.clone();
-            context
-                .critical_paths
-                .push(staged_files.backup_dir().display().to_string());
+            let backup_path = staged_files.backup_dir().display().to_string();
+            context.critical_paths.push(backup_path);
+            if let Err(error) = self
+                .update_task_operation(&mut operation, "file_staging_in_progress", context)
+                .await
+            {
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
+                    .await);
+            }
+            if let Err(error) = staged_files.stage() {
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
+                    .await);
+            }
+
+            let mut context = operation.context.clone();
             context
                 .file_cleanup_paths
                 .push(staged_files.backup_dir().display().to_string());
@@ -265,8 +279,8 @@ impl<'a> TaskService<'a> {
     }
 }
 
-fn restore_staged_files(staged: Option<StagedTaskFiles>) -> Option<String> {
-    staged.and_then(|staged| staged.restore().err())
+fn restore_staged_files(mut staged: Option<StagedTaskFiles>) -> Option<String> {
+    staged.as_mut().and_then(|staged| staged.restore().err())
 }
 
 pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {

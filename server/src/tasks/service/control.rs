@@ -1,5 +1,5 @@
 use super::*;
-use crate::tasks::files::{stage_task_files, StagedTaskFiles};
+use crate::tasks::files::{prepare_task_file_staging, StagedTaskFiles};
 use crate::tasks::update_task_proxy_state;
 
 impl<'a> TaskService<'a> {
@@ -402,7 +402,7 @@ impl<'a> TaskService<'a> {
                 .await;
         }
 
-        let staged = match stage_task_files(&snapshot) {
+        let mut staged = match prepare_task_file_staging(&snapshot) {
             Ok(staged) => staged,
             Err(error) => {
                 return self
@@ -410,11 +410,25 @@ impl<'a> TaskService<'a> {
                     .await;
             }
         };
-        if let Some(staged_files) = staged.as_ref() {
+        if let Some(staged_files) = staged.as_mut() {
             let mut context = operation.context.clone();
             context
                 .critical_paths
                 .push(staged_files.backup_dir().display().to_string());
+            if let Err(error) = self
+                .update_task_operation(&mut operation, "file_staging_in_progress", context)
+                .await
+            {
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                    .await;
+            }
+            if let Err(error) = staged_files.stage() {
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                    .await;
+            }
+            let mut context = operation.context.clone();
             context
                 .completed_side_effects
                 .push("old_files_staged".to_string());
@@ -432,16 +446,15 @@ impl<'a> TaskService<'a> {
             snapshot.source_type,
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
         ) {
-            if let Err(error) = fs::create_dir_all(task_download_dir(&snapshot)) {
+            let task_dir = Path::new(task_download_dir(&snapshot));
+            let recreate_result = match staged.as_mut() {
+                Some(staged) => staged.create_replacement_directory(task_dir),
+                None => fs::create_dir_all(task_dir)
+                    .map_err(|error| format!("重建 BT 任务保存目录失败：{}", error)),
+            };
+            if let Err(error) = recreate_result {
                 return self
-                    .rollback_redownload(
-                        config,
-                        snapshot,
-                        gid,
-                        staged,
-                        &mut operation,
-                        format!("重建 BT 任务保存目录失败：{}", error),
-                    )
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                     .await;
             }
         }
@@ -513,33 +526,50 @@ impl<'a> TaskService<'a> {
         config: &Aria2Config,
         snapshot: DownloadTask,
         gid: String,
-        staged: Option<StagedTaskFiles>,
+        mut staged: Option<StagedTaskFiles>,
         operation: &mut TaskOperation,
         reason: String,
     ) -> Result<DownloadTask, String> {
         let remove_error = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs))
             .await
             .err();
-        let restore_error = staged.and_then(|staged| staged.restore().err());
-        replace_task_snapshot(self.download_tasks, snapshot.clone())?;
-        operation.fail("rolled_back", &reason);
-        let persist_error = self
-            .repository
-            .persist_task_state_with_operation(&snapshot, operation)
-            .await
-            .err();
-
+        let restore_error = staged.as_mut().and_then(|staged| staged.restore().err());
         let mut errors = vec![reason];
+        let mut needs_manual_review = false;
         if let Some(error) = remove_error {
             errors.push(format!("移除新 Aria2 任务失败：{}", error));
         }
         if let Some(error) = restore_error {
             errors.push(format!("恢复原文件失败：{}", error));
+            needs_manual_review = true;
         }
-        if let Some(error) = persist_error {
+        if let Err(error) = replace_task_snapshot(self.download_tasks, snapshot.clone()) {
+            errors.push(format!("恢复内存任务状态失败：{}", error));
+        }
+        if needs_manual_review {
+            operation
+                .require_manual_review("redownload_restore_needs_manual_review", errors.join("；"));
+        } else {
+            operation.fail("rolled_back", errors.join("；"));
+        }
+        if let Err(error) = self
+            .repository
+            .persist_task_state_with_operation(&snapshot, operation)
+            .await
+        {
             errors.push(format!("恢复数据库任务状态失败：{}", error));
-            self.fail_task_operation(operation, "rollback_persist_failed", errors.join("；"))
-                .await;
+            self.debug_logs.error(
+                "tasks.operation",
+                format!(
+                    "重新下载回滚后未能记录待对账操作，operationId {}，备份目录 {}：{}",
+                    operation.id,
+                    staged
+                        .as_ref()
+                        .map(|files| files.backup_dir().display().to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    error
+                ),
+            );
         }
         Err(errors.join("；"))
     }

@@ -326,11 +326,12 @@ fn decide_reconcile_action(
 }
 
 fn has_staged_user_files(operation: &TaskOperation) -> bool {
-    operation
-        .context
-        .completed_side_effects
-        .iter()
-        .any(|effect| effect == "old_files_staged" || effect == "task_files_staged")
+    operation.phase == "file_staging_in_progress"
+        || operation
+            .context
+            .completed_side_effects
+            .iter()
+            .any(|effect| matches!(effect.as_str(), "old_files_staged" | "task_files_staged"))
 }
 
 fn task_has_gid(task: Option<&DownloadTask>, gid: &str) -> bool {
