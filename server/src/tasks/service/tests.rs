@@ -838,7 +838,7 @@ async fn resume_download_task_reconciles_proxy_before_unpause() {
         1,
         DownloadTaskStatus::Paused,
         "gid-1",
-        temp_dir("resume-proxy-reconcile").display().to_string(),
+        "/downloads".to_string(),
     );
     task.use_proxy = true;
     task.proxy_binding =
@@ -858,6 +858,8 @@ async fn resume_download_task_reconciles_proxy_before_unpause() {
     assert_eq!(
         mock.methods(),
         vec![
+            "aria2.tellStatus",
+            "aria2.getOption",
             "aria2.getOption",
             "aria2.changeOption",
             "aria2.unpause",
@@ -878,9 +880,7 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
         1,
         DownloadTaskStatus::Paused,
         "gid-1",
-        temp_dir("resume-proxy-reconcile-failure")
-            .display()
-            .to_string(),
+        "/downloads".to_string(),
     );
     task.use_proxy = true;
     task.proxy_binding =
@@ -899,7 +899,12 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
     assert!(error.contains("更新任务选项失败"));
     assert_eq!(
         mock.methods(),
-        vec!["aria2.getOption", "aria2.changeOption"]
+        vec![
+            "aria2.tellStatus",
+            "aria2.getOption",
+            "aria2.getOption",
+            "aria2.changeOption",
+        ]
     );
     assert_eq!(
         fixture.tasks.list().expect("tasks should list")[0].status,
@@ -908,6 +913,97 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
     let operations = fixture.repository.operations();
     assert_eq!(operations[0].status, TaskOperationStatus::Failed);
     assert_eq!(operations[0].phase, "proxy_reconcile_failed");
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_when_aria2_output_cannot_be_confirmed() {
+    let mock = ResumeProxyMockAria2Server::spawn_without_confirmed_output().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        "/downloads".to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let error = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("resume must fail closed when Aria2 output is unknown");
+
+    assert!(error.contains("输出"), "unexpected resume error: {error}");
+    assert_eq!(mock.methods(), vec!["aria2.tellStatus", "aria2.getOption"]);
+    assert!(!mock.methods().contains(&"aria2.changeOption".to_string()));
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_aria2_output_outside_task_directory() {
+    let mock = ResumeProxyMockAria2Server::spawn_with_unsafe_output().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        "/downloads".to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let error = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("resume must reject output outside the task directory");
+
+    assert!(
+        error.contains("输出路径"),
+        "unexpected resume error: {error}"
+    );
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_readds_when_aria2_gid_is_stale() {
+    let mock = ResumeProxyMockAria2Server::spawn_stale_gid().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        "/downloads".to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let resumed = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect("stale GID should be rebuilt");
+
+    assert_eq!(resumed.status, DownloadTaskStatus::Active);
+    assert_eq!(resumed.gid.as_deref(), Some("gid-new"));
+    assert_eq!(
+        mock.methods(),
+        vec![
+            "aria2.tellStatus",
+            "aria2.unpause",
+            "aria2.removeDownloadResult",
+            "aria2.addUri",
+        ]
+    );
+    let add_uri = mock
+        .requests()
+        .into_iter()
+        .find(|request| request["method"] == "aria2.addUri")
+        .expect("rebuild should send addUri");
+    assert_eq!(add_uri["params"][2]["dir"], "/downloads");
+    assert_eq!(add_uri["params"][2]["out"], "archive.zip");
     mock.abort();
 }
 
@@ -940,9 +1036,9 @@ async fn pause_download_task_rejects_when_the_same_task_is_operating() {
 
 #[tokio::test]
 async fn pause_and_resume_record_completed_operation_states() {
-    let mock = MockAria2Server::spawn_with_tell_status().await;
     let save_dir = temp_dir("service-pause-resume-operation");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -978,9 +1074,9 @@ async fn pause_and_resume_record_completed_operation_states() {
 
 #[tokio::test]
 async fn pause_persist_failure_restores_the_original_task_state() {
-    let mock = MockAria2Server::spawn_with_tell_status().await;
     let save_dir = temp_dir("service-pause-persist-failure");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -2622,11 +2718,6 @@ impl MockAria2Server {
         Self::spawn_with_router(app).await
     }
 
-    async fn spawn_with_tell_status() -> Self {
-        let app = Router::new().route("/jsonrpc", post(mock_aria2_rpc_with_tell_status));
-        Self::spawn_with_router(app).await
-    }
-
     async fn spawn_with_tell_status_dir(save_dir: String) -> Self {
         let app = Router::new().route(
             "/jsonrpc",
@@ -2736,12 +2827,33 @@ impl ProxyOptionMockAria2Server {
 
 impl ResumeProxyMockAria2Server {
     async fn spawn(fail_change_option: bool) -> Self {
+        Self::spawn_with_output(fail_change_option, Some("/downloads/archive.zip")).await
+    }
+
+    async fn spawn_without_confirmed_output() -> Self {
+        Self::spawn_with_output(false, None).await
+    }
+
+    async fn spawn_with_unsafe_output() -> Self {
+        Self::spawn_with_output(false, Some("/tmp/escaped.bin")).await
+    }
+
+    async fn spawn_with_output(fail_change_option: bool, output_path: Option<&str>) -> Self {
+        let output_path = output_path.map(str::to_string);
+        let output_file_name = output_path
+            .as_deref()
+            .and_then(|path| path.rsplit('/').next())
+            .unwrap_or("archive.zip")
+            .to_string();
+        let confirmed_output = output_path.is_some();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
         let app = Router::new().route(
             "/jsonrpc",
             post(move |Json(payload): Json<Value>| {
                 let captured = captured.clone();
+                let output_path = output_path.clone();
+                let output_file_name = output_file_name.clone();
                 async move {
                     captured
                         .lock()
@@ -2752,6 +2864,9 @@ impl ResumeProxyMockAria2Server {
                         .and_then(Value::as_str)
                         .unwrap_or_default();
                     Json(match method {
+                        "aria2.getOption" if confirmed_output => json!({
+                            "result": { "dir": "/downloads", "out": output_file_name }
+                        }),
                         "aria2.getOption" => json!({ "result": {} }),
                         "aria2.changeOption" if fail_change_option => json!({
                             "error": { "code": 1, "message": "cannot change option" }
@@ -2767,7 +2882,10 @@ impl ResumeProxyMockAria2Server {
                                 "completedLength": "256",
                                 "downloadSpeed": "128",
                                 "dir": "/downloads",
-                                "files": []
+                                "files": output_path
+                                    .as_deref()
+                                    .map(|path| json!([{ "path": path }]))
+                                    .unwrap_or_else(|| json!([]))
                             }
                         }),
                         other => json!({
@@ -2793,6 +2911,58 @@ impl ResumeProxyMockAria2Server {
         }
     }
 
+    async fn spawn_stale_gid() -> Self {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let captured = captured.clone();
+                async move {
+                    captured
+                        .lock()
+                        .expect("stale resume requests should lock")
+                        .push(payload.clone());
+                    let method = payload
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    Json(match method {
+                        "aria2.tellStatus" | "aria2.unpause" => json!({
+                            "error": { "message": "GID gid-1 is not found" }
+                        }),
+                        "aria2.getOption" => json!({
+                            "result": {
+                                "all-proxy": "",
+                                "dir": "/downloads",
+                                "out": "archive.zip"
+                            }
+                        }),
+                        "aria2.removeDownloadResult" => json!({ "result": "gid-1" }),
+                        "aria2.addUri" => json!({ "result": "gid-new" }),
+                        other => json!({
+                            "error": { "message": format!("unexpected method: {other}") }
+                        }),
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("stale resume mock should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+        }
+    }
+
     fn methods(&self) -> Vec<String> {
         self.requests
             .lock()
@@ -2800,6 +2970,13 @@ impl ResumeProxyMockAria2Server {
             .iter()
             .filter_map(|request| request["method"].as_str().map(str::to_string))
             .collect()
+    }
+
+    fn requests(&self) -> Vec<Value> {
+        self.requests
+            .lock()
+            .expect("resume proxy requests should lock")
+            .clone()
     }
 
     fn change_options(&self) -> Vec<serde_json::Map<String, Value>> {
@@ -2834,10 +3011,6 @@ async fn mock_aria2_rpc_failing_unpause(Json(payload): Json<Value>) -> Json<Valu
     Json(mock_aria2_response(&payload))
 }
 
-async fn mock_aria2_rpc_with_tell_status(Json(payload): Json<Value>) -> Json<Value> {
-    Json(mock_aria2_response_with_tell_status(&payload))
-}
-
 fn mock_aria2_response(payload: &Value) -> Value {
     let method = payload
         .get("method")
@@ -2864,35 +3037,38 @@ fn mock_aria2_response(payload: &Value) -> Value {
     }
 }
 
-fn mock_aria2_response_with_tell_status(payload: &Value) -> Value {
-    mock_aria2_response_with_tell_status_dir(payload, "/downloads")
-}
-
 fn mock_aria2_response_with_tell_status_dir(payload: &Value, save_dir: &str) -> Value {
-    if payload.get("method").and_then(Value::as_str) == Some("aria2.tellStatus") {
-        let gid = payload
-            .get("params")
-            .and_then(Value::as_array)
-            .and_then(|params| {
-                params
-                    .iter()
-                    .find_map(|value| value.as_str().filter(|value| !value.starts_with("token:")))
+    match payload.get("method").and_then(Value::as_str) {
+        Some("aria2.tellStatus") => {
+            let gid = payload
+                .get("params")
+                .and_then(Value::as_array)
+                .and_then(|params| {
+                    params.iter().find_map(|value| {
+                        value.as_str().filter(|value| !value.starts_with("token:"))
+                    })
+                })
+                .unwrap_or("gid-created");
+            json!({
+                "result": {
+                    "gid": gid,
+                    "status": "paused",
+                    "totalLength": "1024",
+                    "completedLength": "256",
+                    "downloadSpeed": "0",
+                    "dir": save_dir,
+                    "files": [{
+                        "index": "1",
+                        "path": format!("{save_dir}/archive.zip")
+                    }]
+                }
             })
-            .unwrap_or("gid-created");
-        return json!({
-            "result": {
-                "gid": gid,
-                "status": "paused",
-                "totalLength": "1024",
-                "completedLength": "256",
-                "downloadSpeed": "0",
-                "dir": save_dir,
-                "files": []
-            }
-        });
+        }
+        Some("aria2.getOption") => json!({
+            "result": { "dir": save_dir, "out": "archive.zip" }
+        }),
+        _ => mock_aria2_response(payload),
     }
-
-    mock_aria2_response(payload)
 }
 
 fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {

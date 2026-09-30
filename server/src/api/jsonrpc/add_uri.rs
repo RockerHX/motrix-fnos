@@ -5,8 +5,9 @@ use crate::api::build_task_service;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::{
-    sanitize_aria2_options, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
-    DownloadTaskSourceType, DownloadTaskStartMode,
+    sanitize_aria2_options, validate_url_output_file_name, CreateDownloadTaskRequest,
+    CreateTaskAdvancedOptions, DownloadTaskSourceType, DownloadTaskStartMode,
+    INVALID_URL_OUTPUT_FILE_NAME,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -86,7 +87,8 @@ pub(super) async fn add_uri(
 }
 
 fn classify_create_error(error: String) -> RpcFault {
-    if error.contains("代理选择冲突")
+    if error == INVALID_URL_OUTPUT_FILE_NAME
+        || error.contains("代理选择冲突")
         || error.contains("代理地址")
         || error.contains("代理协议")
         || error.contains("代理端口")
@@ -124,11 +126,17 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         None => {}
     }
 
+    let source_type = detect_source_type(&url);
+    let file_name = options.and_then(|options| string_option(options.get("out")));
+    if source_type == DownloadTaskSourceType::Url {
+        validate_url_output_file_name(file_name.as_deref()).map_err(RpcFault::invalid_params)?;
+    }
+
     Ok(AddUriCommand {
-        source_type: detect_source_type(&url),
+        source_type,
         url,
         save_dir: options.and_then(|options| string_option(options.get("dir"))),
-        file_name: options.and_then(|options| string_option(options.get("out"))),
+        file_name,
         aria2_options,
     })
 }

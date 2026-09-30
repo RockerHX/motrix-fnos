@@ -19,10 +19,11 @@ use crate::tasks::{
     set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
-    unpause_task_with_request_id, validate_task_files, Aria2TaskCreationError, Aria2TaskRequest,
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
-    PreparedDownloadTask, TaskMemoryState, TaskOperation, TaskOperationContext, TaskOperationType,
+    unpause_task_with_request_id, validate_task_files, validate_url_task_output_before_resume,
+    Aria2TaskCreationError, Aria2TaskRequest, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState, TaskOperation, TaskOperationContext,
+    TaskOperationType,
 };
 use std::collections::BTreeSet;
 use std::fs;

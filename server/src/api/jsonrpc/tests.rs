@@ -1061,6 +1061,26 @@ fn parse_add_uri_accepts_uri_without_token() {
 }
 
 #[test]
+fn parse_add_uri_rejects_url_output_path_components() {
+    for output in [
+        "../escaped.bin",
+        "/tmp/escaped.bin",
+        r"..\escaped.bin",
+        ".",
+        "..",
+        "bad\0name",
+    ] {
+        let error = parse_add_uri_command(&json!([
+            ["https://example.com/file.zip"],
+            { "out": output }
+        ]))
+        .expect_err("URL output path component should be rejected");
+
+        assert_eq!(error.code, -32602, "{output:?}");
+    }
+}
+
+#[test]
 fn parse_add_uri_detects_magnet_source_type() {
     let command = parse_add_uri_command(&json!([
         "token:anything",

@@ -2,6 +2,7 @@ use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
 use crate::tasks::files::{read_saved_torrent_metadata, task_download_dir};
+use crate::tasks::prepare::validate_url_output_file_name;
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, change_task_options_with_request_id, get_task_options,
     should_force_pause_task_on_startup, Aria2TaskOptionError, Aria2TaskRequest,
@@ -15,6 +16,90 @@ use super::{
     log_info, Aria2TaskStatus,
 };
 use std::collections::BTreeSet;
+use std::path::Path;
+
+pub(crate) async fn validate_url_task_output_before_resume(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    task: &DownloadTask,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<(), String> {
+    if task.source_type != DownloadTaskSourceType::Url {
+        return Ok(());
+    }
+
+    let status = super::aria2_rpc::tell_status(client, config, gid, debug_logs).await?;
+    if status.status == "error" {
+        return Err(status
+            .error_message
+            .unwrap_or_else(|| "Aria2 任务状态异常".to_string()));
+    }
+
+    let options = get_task_options(
+        client,
+        config,
+        gid,
+        Some(&format!("motrix-fnos-output-validate-{}", task.id)),
+        debug_logs,
+    )
+    .await
+    .map_err(|error| format!("恢复任务前无法读取 Aria2 输出选项：{error}"))?;
+    let configured_dir = options
+        .get("dir")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "恢复任务前无法确认 Aria2 输出保存目录".to_string())?;
+    let status_dir = status
+        .dir
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "恢复任务前无法确认 Aria2 实际保存目录".to_string())?;
+    let expected_dir = normalize_path_for_match(&task.save_dir);
+    if normalize_path_for_match(configured_dir) != expected_dir
+        || normalize_path_for_match(status_dir) != expected_dir
+    {
+        return Err("恢复任务前无法确认 Aria2 输出目录安全".to_string());
+    }
+
+    let configured_out = match options.get("out") {
+        None => None,
+        Some(serde_json::Value::String(value)) if value.trim().is_empty() => None,
+        Some(serde_json::Value::String(value)) => Some(value.as_str()),
+        Some(_) => return Err("恢复任务前无法确认 Aria2 输出文件名".to_string()),
+    };
+    validate_url_output_file_name(configured_out)
+        .map_err(|_| "恢复任务前无法确认 Aria2 输出文件名".to_string())?;
+
+    let files = status
+        .files
+        .as_deref()
+        .filter(|files| !files.is_empty())
+        .ok_or_else(|| "恢复任务前无法确认 Aria2 实际输出路径".to_string())?;
+    for file in files {
+        let normalized_path = file.path.replace('\\', "/");
+        let path = Path::new(&normalized_path);
+        let parent = path
+            .parent()
+            .and_then(Path::to_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "恢复任务前无法确认 Aria2 实际输出路径".to_string())?;
+        if normalize_path_for_match(parent) != expected_dir {
+            return Err("恢复任务前无法确认 Aria2 实际输出路径".to_string());
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| "恢复任务前无法确认 Aria2 实际输出文件名".to_string())?;
+        validate_url_output_file_name(Some(file_name))
+            .map_err(|_| "恢复任务前无法确认 Aria2 实际输出文件名".to_string())?;
+        if configured_out.is_some_and(|output| output != file_name) {
+            return Err("恢复任务前无法确认 Aria2 输出文件名".to_string());
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn sync_session_tasks_from_aria2(
     tasks: &TaskMemoryState,

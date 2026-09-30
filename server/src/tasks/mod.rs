@@ -45,6 +45,7 @@ pub use prepare::{
     default_download_dir_string, prepare_task, prepare_task_with_logs,
     prepare_torrent_task_with_logs,
 };
+pub(crate) use prepare::{validate_url_output_file_name, INVALID_URL_OUTPUT_FILE_NAME};
 use progress::{
     apply_aria2_status, apply_aria2_status_by_gid, apply_magnet_metadata_confirmation,
     is_aria2_status_error, parse_aria2_u64,
@@ -57,6 +58,7 @@ pub use refresh::{
 };
 pub(crate) use session::find_aria2_task_for_request;
 use session::readd_download_task;
+pub(crate) use session::validate_url_task_output_before_resume;
 pub use session::{
     readd_task_to_aria2, reconcile_session_task_proxies, reconcile_task_proxy_option,
     sync_session_tasks_from_aria2,

@@ -112,6 +112,50 @@ fn prepare_task_accepts_https_url() {
 }
 
 #[test]
+fn prepare_task_accepts_unicode_url_output_file_name() {
+    let task = prepare_task(CreateDownloadTaskRequest {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: Some("资料-说明.zip".to_string()),
+        save_dir: Some(temp_download_dir("prepare-unicode-file-name")),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        category: None,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+    })
+    .expect("Unicode URL output file name should be accepted");
+
+    assert_eq!(task.file_name, "资料-说明.zip");
+    assert_eq!(task.output_file_name.as_deref(), Some("资料-说明.zip"));
+}
+
+#[test]
+fn prepare_task_rejects_url_output_path_components() {
+    for file_name in [
+        "../escaped.bin",
+        "/tmp/escaped.bin",
+        r"..\escaped.bin",
+        ".",
+        "..",
+        "bad\0name",
+    ] {
+        let error = prepare_task(CreateDownloadTaskRequest {
+            url: "https://example.com/file.zip".to_string(),
+            file_name: Some(file_name.to_string()),
+            save_dir: Some(temp_download_dir("prepare-invalid-file-name")),
+            source_type: DownloadTaskSourceType::Url,
+            start_mode: DownloadTaskStartMode::Now,
+            category: None,
+            advanced_options: CreateTaskAdvancedOptions::default(),
+            aria2_options: serde_json::Map::new(),
+        })
+        .expect_err("URL output path component should be rejected");
+
+        assert!(error.contains("单个普通文件名"), "{file_name:?}: {error}");
+    }
+}
+
+#[test]
 fn prepare_task_rejects_non_http_url() {
     let error = prepare_task(CreateDownloadTaskRequest {
         url: "magnet:?xt=urn:btih:test".to_string(),

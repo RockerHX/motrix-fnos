@@ -6,7 +6,7 @@ use crate::runtime::{broadcast_tasks_snapshot, spawn_file_cleanup_worker};
 use crate::storage::TaskSaveDirError;
 use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
-    PublicDownloadTask,
+    PublicDownloadTask, INVALID_URL_OUTPUT_FILE_NAME,
 };
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
@@ -491,6 +491,9 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("代理地址") || error.contains("代理协议") || error.contains("代理端口")
     {
         return ApiError::bad_request("proxy_invalid", error);
+    }
+    if error == INVALID_URL_OUTPUT_FILE_NAME {
+        return ApiError::bad_request("invalid_file_name", error);
     }
     // 当前 service 使用中文错误文本区分可修正请求；新增或调整领域错误时必须同步检查这里的 HTTP 分类。
     if error.contains("下载任务不存在")

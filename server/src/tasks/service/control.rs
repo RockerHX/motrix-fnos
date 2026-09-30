@@ -127,30 +127,49 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
-        match reconcile_task_proxy_option(
+        let output_validation_stale = match validate_url_task_output_before_resume(
             self.aria2_rpc,
             config,
-            &runtime_task,
-            Some(&gid),
+            &task_before_resume,
+            &gid,
             Some(self.debug_logs),
         )
         .await
         {
-            Ok(true) => operation
-                .context
-                .completed_side_effects
-                .push("proxy_option_reconciled".to_string()),
-            Ok(false) => {}
-            Err(error) if is_stale_aria2_gid_error(&error.to_string()) => {}
+            Ok(()) => false,
+            Err(error) if is_stale_aria2_gid_error(&error) => true,
             Err(error) => {
-                let phase = if error.is_outcome_unknown() {
-                    "proxy_reconcile_outcome_unknown"
-                } else {
-                    "proxy_reconcile_failed"
-                };
-                self.fail_task_operation(&mut operation, phase, error.to_string())
+                self.fail_task_operation(&mut operation, "aria2_output_validation_failed", &error)
                     .await;
-                return Err(error.to_string());
+                return Err(error);
+            }
+        };
+        if !output_validation_stale {
+            match reconcile_task_proxy_option(
+                self.aria2_rpc,
+                config,
+                &runtime_task,
+                Some(&gid),
+                Some(self.debug_logs),
+            )
+            .await
+            {
+                Ok(true) => operation
+                    .context
+                    .completed_side_effects
+                    .push("proxy_option_reconciled".to_string()),
+                Ok(false) => {}
+                Err(error) if is_stale_aria2_gid_error(&error.to_string()) => {}
+                Err(error) => {
+                    let phase = if error.is_outcome_unknown() {
+                        "proxy_reconcile_outcome_unknown"
+                    } else {
+                        "proxy_reconcile_failed"
+                    };
+                    self.fail_task_operation(&mut operation, phase, error.to_string())
+                        .await;
+                    return Err(error.to_string());
+                }
             }
         }
         let mut readded = false;
