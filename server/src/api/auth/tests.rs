@@ -208,6 +208,56 @@ async fn password_change_rejects_an_incorrect_current_password() {
     assert_eq!(json_body(response).await["code"], "invalid_credentials");
 }
 
+#[tokio::test]
+async fn password_change_uses_login_failure_limit() {
+    let state = test_state("password-rate-limit").await;
+    let public = public_routes().with_state(state);
+    let setup = send(
+        &public,
+        "POST",
+        "/auth/setup",
+        Some(json!({"password": "correct horse battery"})),
+        None,
+    )
+    .await;
+    assert_eq!(setup.status(), StatusCode::OK);
+
+    for attempt in 1..=5 {
+        let response = send(
+            &public,
+            "PUT",
+            "/auth/password",
+            Some(json!({
+                "currentPassword": "wrong password",
+                "newPassword": "short"
+            })),
+            None,
+        )
+        .await;
+        if attempt < 5 {
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(json_body(response).await["code"], "invalid_credentials");
+        } else {
+            assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert_eq!(response.headers()["retry-after"], "30");
+            assert_eq!(json_body(response).await["code"], "login_rate_limited");
+        }
+    }
+
+    let blocked = send(
+        &public,
+        "PUT",
+        "/auth/password",
+        Some(json!({
+            "currentPassword": "correct horse battery",
+            "newPassword": "replacement password"
+        })),
+        None,
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
 #[test]
 fn jwt_failure_reasons_have_stable_error_codes() {
     for (failure, expected) in [
@@ -225,6 +275,14 @@ fn jwt_failure_reasons_have_stable_error_codes() {
     ] {
         assert_eq!(JwtFailureReason::from(failure).code(), expected);
     }
+}
+
+#[test]
+fn password_hash_busy_maps_to_retryable_http_error() {
+    let error = classify_auth_error(AuthError::PasswordHashBusy);
+    let response = error.into_response();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers()["retry-after"], "1");
 }
 
 async fn get_probe() -> StatusCode {

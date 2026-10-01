@@ -1,4 +1,4 @@
-use sqlx::{Sqlite, SqlitePool, Transaction};
+use sqlx::SqlitePool;
 
 #[derive(Debug, Clone)]
 pub(crate) struct WebAuthRow {
@@ -14,18 +14,6 @@ pub(crate) async fn load(pool: &SqlitePool) -> Result<Option<WebAuthRow>, String
         "SELECT enabled, password_hash, password_updated_at, auth_version, jwt_secret FROM web_auth_config WHERE id = 1",
     )
     .fetch_optional(pool)
-    .await
-    .map(|row| row.map(web_auth_row))
-    .map_err(|error| format!("读取 Web 鉴权配置失败：{error}"))
-}
-
-pub(crate) async fn load_in_transaction(
-    transaction: &mut Transaction<'_, Sqlite>,
-) -> Result<Option<WebAuthRow>, String> {
-    sqlx::query_as::<_, (i64, Option<String>, Option<i64>, i64, Option<String>)>(
-        "SELECT enabled, password_hash, password_updated_at, auth_version, jwt_secret FROM web_auth_config WHERE id = 1",
-    )
-    .fetch_optional(&mut **transaction)
     .await
     .map(|row| row.map(web_auth_row))
     .map_err(|error| format!("读取 Web 鉴权配置失败：{error}"))
@@ -73,19 +61,23 @@ pub(crate) async fn initialize_password(
 }
 
 pub(crate) async fn update_password(
-    transaction: &mut Transaction<'_, Sqlite>,
+    pool: &SqlitePool,
     password_hash: &str,
     updated_at: i64,
-) -> Result<(), String> {
-    sqlx::query(
-        "UPDATE web_auth_config SET enabled = 1, password_hash = ?, password_updated_at = ?, auth_version = auth_version + 1 WHERE id = 1",
+    expected_auth_version: i64,
+    expected_password_hash: &str,
+) -> Result<bool, String> {
+    let result = sqlx::query(
+        "UPDATE web_auth_config SET enabled = 1, password_hash = ?, password_updated_at = ?, auth_version = auth_version + 1 WHERE id = 1 AND auth_version = ? AND password_hash = ?",
     )
     .bind(password_hash)
     .bind(updated_at)
-    .execute(&mut **transaction)
+    .bind(expected_auth_version)
+    .bind(expected_password_hash)
+    .execute(pool)
     .await
     .map_err(|error| format!("修改 Web 管理密码失败：{error}"))?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
 pub(crate) async fn reset(pool: &SqlitePool, jwt_secret: &str) -> Result<(), String> {

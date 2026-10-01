@@ -62,7 +62,7 @@
 | `408 Request Timeout` | 请求在资源限制层超时；可能不带 JSON body |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
 | `413 Payload Too Large` | 请求体超过接口大小限制；可能不带 JSON body |
-| `429 Too Many Requests` | 登录失败限速或递增延迟生效 |
+| `429 Too Many Requests` | 登录/密码验证失败限速或密码哈希并发达到上限 |
 | `502 Bad Gateway` | Aria2 明确拒绝任务代理等运行选项 |
 | `503 Service Unavailable` | Aria2 生命周期转换或运行依赖暂时不可用 |
 | `500 Internal Server Error` | 未预期内部错误 |
@@ -117,7 +117,9 @@
 
 - `setup` 必须在数据库事务中确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict`。
 - `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
-- 登录限速默认使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
+- 登录和密码修改共用失败限速：同一来源 5 分钟内 5 次密码验证失败后锁定 30 秒；全局累计 100 次失败也会锁定 30 秒。达到限速时返回 `429 login_rate_limited` 和 `Retry-After`。
+- 限速来源使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
+- setup、login 和密码修改的 Argon2 操作最多并行 2 个，超额请求快速返回 `429 password_hash_busy` 和 `Retry-After: 1`。哈希任务在受限阻塞线程中执行，请求取消后仍占用并发名额，直到该任务结束。
 
 `PUT /api/auth/password` 请求：
 
@@ -132,6 +134,7 @@
 - 密码修改与本地重置必须递增 `authVersion`，使旧 JWT 失效；密码修改成功响应返回新 JWT。升级时会把旧版关闭的保护状态恢复为启用并递增 `authVersion`。
 - `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
 - 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
+- 密码修改先验证当前密码，再生成新密码哈希；更新同时匹配旧哈希和 `authVersion`，防止并发改密覆盖较新的凭据。
 - `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
 - 升级后旧浏览器 Cookie 不再生效，用户需重新登录；任务、设置和下载数据不受影响。
 

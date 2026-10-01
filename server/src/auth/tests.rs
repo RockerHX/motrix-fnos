@@ -186,6 +186,109 @@ fn concurrent_setup_allows_only_one_password() {
 }
 
 #[test]
+fn initialized_setup_skips_password_hash_work() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("setup-skips-hash").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("initial setup should pass");
+
+        let mut releases = Vec::new();
+        let mut workers = Vec::new();
+        for _ in 0..PASSWORD_HASH_CONCURRENCY {
+            let slots = service.password_hash_slots.clone();
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            workers.push(tokio::spawn(async move {
+                slots
+                    .run(move || {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.recv();
+                        Ok(())
+                    })
+                    .await
+            }));
+            started_rx.await.expect("blocking hash slot should start");
+            releases.push(release_tx);
+        }
+
+        assert_eq!(
+            service.verify_password(VALID_PASSWORD).await,
+            Err(AuthError::PasswordHashBusy)
+        );
+        assert_eq!(
+            service.setup(VALID_PASSWORD).await,
+            Err(AuthError::AlreadyInitialized)
+        );
+        for release in releases {
+            release.send(()).expect("hash slot should be released");
+        }
+        for worker in workers {
+            worker.await.expect("hash slot task should finish").unwrap();
+        }
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn concurrent_password_changes_do_not_overwrite_each_other() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("concurrent-password-change").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let first = service.clone();
+        let second = service.clone();
+        let (first, second) = tokio::join!(
+            first.change_password(VALID_PASSWORD, "first replacement password"),
+            second.change_password(VALID_PASSWORD, "second replacement password")
+        );
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert!(matches!(
+            first,
+            Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
+        ));
+        assert!(matches!(
+            second,
+            Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
+        ));
+        assert_eq!(service.state().await.unwrap().auth_version, 2);
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn concurrent_reset_cannot_be_overwritten_by_password_change() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("concurrent-reset-password-change").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let change_service = service.clone();
+        let reset_service = service.clone();
+        let (changed, reset) = tokio::join!(
+            change_service.change_password(VALID_PASSWORD, "replacement password"),
+            reset_service.reset()
+        );
+
+        assert!(reset.is_ok());
+        let state = service.state().await.expect("auth state should load");
+        assert!(state.setup_required);
+        assert_eq!(state.auth_version, if changed.is_ok() { 3 } else { 2 });
+        if let Err(error) = changed {
+            assert!(matches!(
+                error,
+                AuthError::InvalidCredentials | AuthError::PasswordChanged
+            ));
+        }
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
 fn corrupt_auth_rows_fail_closed() {
     test_runtime().block_on(async {
         let (service, path) = test_service("corrupt").await;

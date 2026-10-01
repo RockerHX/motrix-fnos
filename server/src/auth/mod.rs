@@ -4,9 +4,11 @@ mod process_lock;
 mod rate_limit;
 
 use crate::database::web_auth::{self, WebAuthRow};
-use password::{hash_password, validate_password, verify_password_hash};
+use password::{hash_password, validate_password, verify_password_hash, PasswordHashSlots};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const PASSWORD_HASH_CONCURRENCY: usize = 2;
 
 pub use jwt::{
     generate_secret as generate_jwt_secret, Claims, JwtValidationFailure, JWT_LIFETIME_SECONDS,
@@ -22,8 +24,9 @@ pub struct AuthRuntime {
 
 impl AuthRuntime {
     pub fn new(pool: SqlitePool) -> Self {
+        let password_hash_slots = PasswordHashSlots::new(PASSWORD_HASH_CONCURRENCY);
         Self {
-            service: AuthService::new(pool),
+            service: AuthService::with_password_hash_slots(pool, password_hash_slots.clone()),
             login_limiter: LoginRateLimiter::new(),
         }
     }
@@ -41,6 +44,8 @@ pub enum AuthError {
     AlreadyInitialized,
     InvalidCredentials,
     InvalidPassword(String),
+    PasswordHashBusy,
+    PasswordChanged,
     InvalidState(String),
     Storage(String),
 }
@@ -48,11 +53,19 @@ pub enum AuthError {
 #[derive(Clone)]
 pub struct AuthService {
     pool: SqlitePool,
+    password_hash_slots: PasswordHashSlots,
 }
 
 impl AuthService {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::with_password_hash_slots(pool, PasswordHashSlots::new(PASSWORD_HASH_CONCURRENCY))
+    }
+
+    fn with_password_hash_slots(pool: SqlitePool, password_hash_slots: PasswordHashSlots) -> Self {
+        Self {
+            pool,
+            password_hash_slots,
+        }
     }
 
     pub async fn state(&self) -> Result<AuthState, AuthError> {
@@ -66,7 +79,6 @@ impl AuthService {
 
     pub async fn setup(&self, password: &str) -> Result<AuthState, AuthError> {
         validate_password(password)?;
-        let password_hash = hash_password(password)?;
         let existing = validated_record(
             web_auth::load(&self.pool)
                 .await
@@ -75,11 +87,24 @@ impl AuthService {
         if existing.is_configured() {
             return Err(AuthError::AlreadyInitialized);
         }
+        let auth_version = if existing.exists {
+            next_auth_version(existing.auth_version)?
+        } else {
+            1
+        };
+        let password_hash = self
+            .password_hash_slots
+            .run({
+                let password = password.to_string();
+                move || hash_password(&password)
+            })
+            .await?;
         let jwt_secret = existing.jwt_secret.unwrap_or_else(jwt::generate_secret);
+        let password_updated_at = current_timestamp_ms()?;
         let initialized = web_auth::initialize_password(
             &self.pool,
             &password_hash,
-            current_timestamp_ms()?,
+            password_updated_at,
             existing.exists,
             &jwt_secret,
         )
@@ -88,7 +113,11 @@ impl AuthService {
         if !initialized {
             return Err(AuthError::AlreadyInitialized);
         }
-        self.state().await
+        Ok(AuthState {
+            setup_required: false,
+            auth_version,
+            password_updated_at: Some(password_updated_at),
+        })
     }
 
     pub async fn verify_password(&self, password: &str) -> Result<AuthState, AuthError> {
@@ -100,7 +129,13 @@ impl AuthService {
         let Some(password_hash) = record.password_hash.as_deref() else {
             return Err(AuthError::InvalidCredentials);
         };
-        if !verify_password_hash(password, password_hash) {
+        let password_hash = password_hash.to_string();
+        let password = password.to_string();
+        if !self
+            .password_hash_slots
+            .run(move || Ok(verify_password_hash(&password, &password_hash)))
+            .await?
+        {
             return Err(AuthError::InvalidCredentials);
         }
         Ok(record.state())
@@ -111,25 +146,47 @@ impl AuthService {
         current_password: &str,
         new_password: &str,
     ) -> Result<AuthState, AuthError> {
-        validate_password(new_password)?;
-        let new_hash = hash_password(new_password)?;
-        let mut transaction = self.pool.begin().await.map_err(storage_error)?;
         let record = validated_record(
-            web_auth::load_in_transaction(&mut transaction)
+            web_auth::load(&self.pool)
                 .await
                 .map_err(AuthError::Storage)?,
         )?;
-        let Some(password_hash) = record.password_hash.as_deref() else {
+        let Some(password_hash) = record.password_hash else {
             return Err(AuthError::InvalidCredentials);
         };
-        if !verify_password_hash(current_password, password_hash) {
-            return Err(AuthError::InvalidCredentials);
+        let auth_version = next_auth_version(record.auth_version)?;
+        let current_password = current_password.to_string();
+        let new_password = new_password.to_string();
+        let password_hash_for_verify = password_hash.clone();
+        let new_hash = self
+            .password_hash_slots
+            .run(move || {
+                if !verify_password_hash(&current_password, &password_hash_for_verify) {
+                    return Ok(None);
+                }
+                validate_password(&new_password)?;
+                hash_password(&new_password).map(Some)
+            })
+            .await?
+            .ok_or(AuthError::InvalidCredentials)?;
+        let password_updated_at = current_timestamp_ms()?;
+        let updated = web_auth::update_password(
+            &self.pool,
+            &new_hash,
+            password_updated_at,
+            record.auth_version as i64,
+            &password_hash,
+        )
+        .await
+        .map_err(AuthError::Storage)?;
+        if !updated {
+            return Err(AuthError::PasswordChanged);
         }
-        web_auth::update_password(&mut transaction, &new_hash, current_timestamp_ms()?)
-            .await
-            .map_err(AuthError::Storage)?;
-        transaction.commit().await.map_err(storage_error)?;
-        self.state().await
+        Ok(AuthState {
+            setup_required: false,
+            auth_version,
+            password_updated_at: Some(password_updated_at),
+        })
     }
 
     pub async fn reset(&self) -> Result<(), AuthError> {
@@ -234,12 +291,15 @@ fn current_timestamp_ms() -> Result<i64, AuthError> {
     i64::try_from(millis).map_err(|_| invalid_state("系统时间超出范围"))
 }
 
-fn invalid_state(message: &str) -> AuthError {
-    AuthError::InvalidState(message.to_string())
+fn next_auth_version(current: u64) -> Result<u64, AuthError> {
+    current
+        .checked_add(1)
+        .filter(|version| *version <= i64::MAX as u64)
+        .ok_or_else(|| invalid_state("auth_version 超出范围"))
 }
 
-fn storage_error(error: sqlx::Error) -> AuthError {
-    AuthError::Storage(format!("Web 鉴权数据库事务失败：{error}"))
+fn invalid_state(message: &str) -> AuthError {
+    AuthError::InvalidState(message.to_string())
 }
 
 #[cfg(test)]

@@ -298,14 +298,49 @@ async fn logout(State(state): State<Arc<HttpAppState>>) -> Result<Response, ApiE
 
 async fn change_password(
     State(state): State<Arc<HttpAppState>>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+    headers: HeaderMap,
     ApiJson(payload): ApiJson<ChangePasswordRequest>,
 ) -> Result<Response, ApiError> {
-    let auth_state = state
+    let source = login_source(connect_info, &headers, &state.runtime.trusted_proxy_ips);
+    if let Some(seconds) = state
+        .auth
+        .login_limiter
+        .retry_after_seconds(&source)
+        .map_err(|_| auth_internal())?
+    {
+        return Err(rate_limited(seconds));
+    }
+
+    let auth_state = match state
         .auth
         .service
         .change_password(&payload.current_password, &payload.new_password)
         .await
-        .map_err(classify_auth_error)?;
+    {
+        Ok(auth_state) => auth_state,
+        Err(AuthError::InvalidCredentials) => {
+            state
+                .core
+                .debug_logs
+                .warn("auth.password", "Web 管理密码验证失败");
+            if let Some(seconds) = state
+                .auth
+                .login_limiter
+                .record_failure(&source)
+                .map_err(|_| auth_internal())?
+            {
+                return Err(rate_limited(seconds));
+            }
+            return Err(invalid_credentials());
+        }
+        Err(error) => return Err(classify_auth_error(error)),
+    };
+    state
+        .auth
+        .login_limiter
+        .record_success(&source)
+        .map_err(|_| auth_internal())?;
     let token = state
         .auth
         .service
@@ -438,8 +473,11 @@ fn classify_auth_error(error: AuthError) -> ApiError {
         AuthError::AlreadyInitialized => {
             ApiError::conflict("auth_already_initialized", "Web 管理密码已经初始化")
         }
-        AuthError::InvalidCredentials => invalid_credentials(),
+        AuthError::PasswordChanged | AuthError::InvalidCredentials => invalid_credentials(),
         AuthError::InvalidPassword(message) => ApiError::bad_request("invalid_password", message),
+        AuthError::PasswordHashBusy => {
+            ApiError::too_many_requests("password_hash_busy", "密码验证服务繁忙，请稍后重试", 1)
+        }
         AuthError::InvalidState(_) | AuthError::Storage(_) => auth_internal(),
     }
 }
@@ -476,7 +514,7 @@ fn authentication_required_with_context(
 fn rate_limited(seconds: u64) -> ApiError {
     ApiError::too_many_requests(
         "login_rate_limited",
-        "登录失败次数过多，请稍后重试",
+        "密码验证失败次数过多，请稍后重试",
         seconds,
     )
 }
