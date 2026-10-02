@@ -16,12 +16,16 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::time::{sleep_until, timeout, Instant};
 use types::rpc_error;
 
 const JSONRPC_WEBSOCKET_MESSAGE_LIMIT: usize = 256 * 1024;
 const JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE: usize = 128 * 1024;
 const JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE: usize =
     JSONRPC_WEBSOCKET_MESSAGE_LIMIT + JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE;
+const JSONRPC_WEBSOCKET_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+const JSONRPC_WEBSOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum JsonRpcAccess {
@@ -73,6 +77,14 @@ async fn handle_ws_jsonrpc(
     ws: WebSocketUpgrade,
 ) -> Response {
     let peer = connect_info.map(|ConnectInfo(peer)| peer);
+    let permit = match state
+        .jsonrpc_websocket_connections
+        .clone()
+        .try_acquire_owned()
+    {
+        Ok(permit) => permit,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let config_revision = state.subscribe_lan_json_rpc_config();
     ws.protocols(["jsonrpc"])
         .max_frame_size(JSONRPC_WEBSOCKET_MESSAGE_LIMIT)
@@ -80,7 +92,7 @@ async fn handle_ws_jsonrpc(
         .write_buffer_size(JSONRPC_WEBSOCKET_WRITE_BUFFER_SIZE)
         .max_write_buffer_size(JSONRPC_WEBSOCKET_MAX_WRITE_BUFFER_SIZE)
         .on_upgrade(move |socket| {
-            handle_jsonrpc_socket(socket, state, access, peer, config_revision)
+            handle_jsonrpc_socket(socket, state, access, peer, config_revision, permit)
         })
 }
 
@@ -90,8 +102,10 @@ async fn handle_jsonrpc_socket(
     access: JsonRpcAccess,
     peer: Option<SocketAddr>,
     mut config_revision: tokio::sync::watch::Receiver<u64>,
+    _permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let lan_connection = access == JsonRpcAccess::Lan;
+    let mut idle_deadline = Instant::now() + JSONRPC_WEBSOCKET_IDLE_TIMEOUT;
     loop {
         let message = tokio::select! {
             changed = config_revision.changed(), if lan_connection => {
@@ -102,6 +116,7 @@ async fn handle_jsonrpc_socket(
                 continue;
             }
             message = socket.recv() => message,
+            _ = sleep_until(idle_deadline) => break,
         };
         let Some(message) = message else {
             break;
@@ -136,13 +151,15 @@ async fn handle_jsonrpc_socket(
             Err(_) => rpc_error(Value::Null, -32700, "Parse error"),
         };
 
-        if socket
-            .send(Message::Text(response.to_string()))
-            .await
-            .is_err()
-        {
+        let send_result = timeout(
+            JSONRPC_WEBSOCKET_WRITE_TIMEOUT,
+            socket.send(Message::Text(response.to_string())),
+        )
+        .await;
+        if !matches!(send_result, Ok(Ok(()))) {
             break;
         }
+        idle_deadline = Instant::now() + JSONRPC_WEBSOCKET_IDLE_TIMEOUT;
     }
 }
 

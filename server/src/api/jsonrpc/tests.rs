@@ -269,6 +269,53 @@ async fn jsonrpc_websocket_rejects_oversized_frames_and_messages() {
 }
 
 #[tokio::test]
+async fn jsonrpc_websocket_rejects_connections_over_shared_limit() {
+    let state = test_state().await;
+    let permits = state
+        .jsonrpc_websocket_connections
+        .clone()
+        .acquire_many_owned(crate::app::JSONRPC_WEBSOCKET_CONNECTION_LIMIT as u32)
+        .await
+        .expect("connection permits should be available");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr = listener.local_addr().expect("listener should have address");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, super::super::jsonrpc_router(state))
+            .await
+            .expect("server should stop cleanly");
+    });
+
+    let mut socket = TcpStream::connect(addr)
+        .await
+        .expect("websocket client should connect");
+    socket
+        .write_all(
+            b"GET /jsonrpc HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+        )
+        .await
+        .expect("websocket handshake should write");
+    let mut response = Vec::new();
+    let mut buffer = [0_u8; 512];
+    loop {
+        let read = timeout(Duration::from_secs(1), socket.read(&mut buffer))
+            .await
+            .expect("rejection response should arrive")
+            .expect("rejection response should read");
+        assert!(read > 0, "rejection response should not be empty");
+        response.extend_from_slice(&buffer[..read]);
+        if response.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    assert!(response.starts_with(b"HTTP/1.1 503"));
+    drop(permits);
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn lan_websocket_closes_when_access_is_disabled_after_upgrade() {
     let state = test_state().await;
     *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {

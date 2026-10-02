@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{broadcast, watch, RwLock, Semaphore};
 use tokio::time::{timeout_at, Duration, Instant};
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
@@ -45,6 +45,7 @@ pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
 pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
 pub const DEFAULT_LAN_JSONRPC_ADDR: &str = "0.0.0.0:17082";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
+pub const JSONRPC_WEBSOCKET_CONNECTION_LIMIT: usize = 64;
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +182,7 @@ pub struct HttpAppState {
     app_config: RwLock<AppConfig>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
     lan_json_rpc_config_revision: watch::Sender<u64>,
+    pub(crate) jsonrpc_websocket_connections: Arc<Semaphore>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
@@ -217,6 +219,9 @@ impl HttpAppState {
             app_config: RwLock::new(AppConfig::default()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
             lan_json_rpc_config_revision,
+            jsonrpc_websocket_connections: Arc::new(Semaphore::new(
+                JSONRPC_WEBSOCKET_CONNECTION_LIMIT,
+            )),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),

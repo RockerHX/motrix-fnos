@@ -986,3 +986,4 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
 - 局域网入口关闭时所有新请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。配置关闭或收紧来源范围后，已有 WebSocket 连接也会被策略关闭；它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
+- 回环和局域网 JSON-RPC WebSocket 共享 64 个连接配额；达到上限的新握手返回 `503 Service Unavailable`。连接连续 5 分钟没有文本或二进制业务消息会关闭，Ping/Pong 不延长该期限；发送响应超过 10 秒也关闭连接并释放配额。
