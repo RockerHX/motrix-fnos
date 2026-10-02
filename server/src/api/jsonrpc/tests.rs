@@ -1,6 +1,9 @@
 use super::add_uri::{authorized_save_dir, parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
-use super::methods::{execute_method_with_access, handle_jsonrpc_payload_with_access};
+use super::methods::{
+    execute_method_with_access, handle_jsonrpc_payload_with_access,
+    handle_jsonrpc_payload_with_peer,
+};
 use super::types::RpcFault;
 use super::JsonRpcAccess;
 use crate::app::HttpAppState;
@@ -263,6 +266,90 @@ async fn jsonrpc_websocket_rejects_oversized_frames_and_messages() {
     let fragment = vec![b'x'; super::JSONRPC_WEBSOCKET_MESSAGE_LIMIT / 2 + 1];
     assert_websocket_frames_rejected(vec![(false, 0x1, fragment.clone()), (true, 0x0, fragment)])
         .await;
+}
+
+#[tokio::test]
+async fn lan_websocket_closes_when_access_is_disabled_after_upgrade() {
+    let state = test_state().await;
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr = listener.local_addr().expect("listener should have address");
+    let peer: SocketAddr = "192.168.1.12:45678".parse().expect("peer should parse");
+    let app =
+        super::super::lan_jsonrpc_router(state.clone()).layer(axum::middleware::from_fn(
+            move |mut request: axum::http::Request<axum::body::Body>,
+                  next: axum::middleware::Next| async move {
+                request
+                    .extensions_mut()
+                    .insert(axum::extract::ConnectInfo(peer));
+                next.run(request).await
+            },
+        ));
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .expect("server should stop cleanly");
+    });
+
+    let mut socket = connect_websocket(addr).await;
+    write_masked_websocket_frame(
+        &mut socket,
+        true,
+        0x1,
+        br#"{"jsonrpc":"2.0","id":"version","method":"aria2.getVersion","params":[]}"#,
+    )
+    .await;
+    let response = read_websocket_text_frame(&mut socket).await;
+    assert!(response.contains("\"result\""));
+
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: false,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    state.notify_lan_json_rpc_config_changed();
+    assert_websocket_closed(&mut socket).await;
+
+    shutdown_tx.send(()).expect("server should accept shutdown");
+    server.await.expect("server task should join");
+}
+
+#[tokio::test]
+async fn lan_multicall_rechecks_peer_scope_for_each_call() {
+    let state = test_state().await;
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    let peer: SocketAddr = "100.64.0.1:45678".parse().expect("peer should parse");
+    let response = handle_jsonrpc_payload_with_peer(
+        &state,
+        JsonRpcAccess::Lan,
+        peer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall",
+            "method": "system.multicall",
+            "params": [[
+                {"methodName": "aria2.getVersion", "params": []},
+                {"methodName": "aria2.getVersion", "params": []}
+            ]]
+        }),
+    )
+    .await;
+    assert_eq!(response["result"][0]["faultCode"], -32000);
+    assert_eq!(response["result"][1]["faultCode"], -32000);
 }
 
 #[tokio::test]

@@ -179,6 +179,7 @@ pub struct HttpAppState {
     json_rpc_token: Mutex<String>,
     app_config: RwLock<AppConfig>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
+    lan_json_rpc_config_revision: watch::Sender<u64>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
@@ -189,6 +190,7 @@ pub struct HttpAppState {
 
 impl HttpAppState {
     pub fn new(core: ServerState, runtime: ServerRuntimeConfig) -> Self {
+        let (lan_json_rpc_config_revision, _) = watch::channel(0);
         let mut base_aria2_config = Aria2Config::from_env();
         base_aria2_config.aria2_path = runtime
             .aria2_path
@@ -213,6 +215,7 @@ impl HttpAppState {
             json_rpc_token: Mutex::new(String::new()),
             app_config: RwLock::new(AppConfig::default()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
+            lan_json_rpc_config_revision,
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),
@@ -341,6 +344,15 @@ impl HttpAppState {
 
     pub(crate) async fn lan_json_rpc_config(&self) -> LanJsonRpcConfig {
         self.lan_json_rpc_config.read().await.clone()
+    }
+
+    pub(crate) fn subscribe_lan_json_rpc_config(&self) -> watch::Receiver<u64> {
+        self.lan_json_rpc_config_revision.subscribe()
+    }
+
+    pub(crate) fn notify_lan_json_rpc_config_changed(&self) {
+        self.lan_json_rpc_config_revision
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
     }
 
     pub(crate) async fn current_app_config(&self) -> AppConfig {

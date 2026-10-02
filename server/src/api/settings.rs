@@ -211,6 +211,7 @@ async fn update_lan_json_rpc(
         .await
         .map_err(|error| ApiError::internal("lan_jsonrpc_save_failed", error))?;
     *current = persisted.clone();
+    state.notify_lan_json_rpc_config_changed();
     state.core.debug_logs.info(
         "settings.jsonrpc_lan",
         if persisted.enabled {
@@ -239,6 +240,7 @@ async fn rotate_lan_json_rpc_token(
         .await
         .map_err(|error| ApiError::internal("lan_jsonrpc_token_save_failed", error))?;
     *current = persisted.clone();
+    state.notify_lan_json_rpc_config_changed();
     state
         .core
         .debug_logs
