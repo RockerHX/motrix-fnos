@@ -12,6 +12,10 @@ impl<'a> TaskService<'a> {
         self.ensure_not_exiting()?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if delete_files {
+            self.validate_task_authorization(&snapshot)?;
+            self.prepare_existing_task_destination(&snapshot)?;
+        }
         self.ensure_file_cleanup_not_pending(task_id).await?;
         let mut operation = self
             .begin_task_operation(
@@ -54,6 +58,9 @@ impl<'a> TaskService<'a> {
             .clone()
             .filter(|gid| !gid.trim().is_empty());
         if let Some(gid) = gid.as_deref() {
+            if delete_files {
+                self.validate_task_authorization(&task_before_delete)?;
+            }
             let request_id = operation.id.clone();
             if let Err(error) = remove_task_with_request_id(
                 self.aria2_rpc,
@@ -102,6 +109,11 @@ impl<'a> TaskService<'a> {
                 .await);
         }
         let mut staged = if delete_files {
+            if let Err(error) = self.prepare_existing_task_destination(&task_before_delete) {
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
+                    .await);
+            }
             match prepare_task_file_staging(&task_before_delete) {
                 Ok(staged) => staged,
                 Err(error) => {
@@ -254,8 +266,18 @@ impl<'a> TaskService<'a> {
         reason: impl Into<String>,
     ) -> String {
         let mut errors = vec![reason.into()];
-        if let Some(error) = restore_staged_files(staged) {
-            errors.push(error);
+        let mut staged = staged;
+        if let Some(files) = staged.as_mut() {
+            if self.prepare_task_restore_destination(&snapshot).is_ok() {
+                if let Err(error) = files.restore() {
+                    errors.push(error);
+                }
+            } else {
+                errors.push(format!(
+                    "目录授权已撤销，保留删除暂存文件：{}",
+                    files.backup_dir().display()
+                ));
+            }
         }
         if let Err(error) = replace_task_snapshot(self.download_tasks, snapshot.clone()) {
             errors.push(format!("恢复内存任务状态失败：{}", error));
@@ -277,10 +299,21 @@ impl<'a> TaskService<'a> {
         }
         errors.join("；")
     }
-}
 
-fn restore_staged_files(mut staged: Option<StagedTaskFiles>) -> Option<String> {
-    staged.as_mut().and_then(|staged| staged.restore().err())
+    fn prepare_existing_task_destination(&self, task: &DownloadTask) -> Result<(), String> {
+        if crate::tasks::is_pending_magnet_metadata_task(task) {
+            return Ok(());
+        }
+        match fs::symlink_metadata(task_download_dir(task)) {
+            Ok(_) => self.prepare_task_destination(task),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "检查任务保存目录失败：{}（{}）",
+                task_download_dir(task),
+                error
+            )),
+        }
+    }
 }
 
 pub(super) fn remove_magnet_metadata_dir(app_data_dir: &Path, task: &DownloadTask) {

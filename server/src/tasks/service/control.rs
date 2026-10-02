@@ -97,6 +97,185 @@ impl<'a> TaskService<'a> {
         Ok(task)
     }
 
+    pub(super) async fn pause_task_for_revocation(
+        &self,
+        config: &Aria2Config,
+        task_id: u64,
+    ) -> Result<DownloadTask, String> {
+        self.ensure_not_exiting()?;
+        let _guard = self.download_tasks.begin_operation(task_id)?;
+        let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if !matches!(
+            snapshot.status,
+            DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+        ) || crate::tasks::is_pending_magnet_metadata_task(&snapshot)
+            || snapshot
+                .gid
+                .as_deref()
+                .is_none_or(|gid| gid.trim().is_empty())
+        {
+            return Ok(snapshot);
+        }
+        if self.validate_task_authorization(&snapshot).is_ok() {
+            return Ok(snapshot);
+        }
+
+        let gid = snapshot.gid.clone().unwrap_or_default();
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::Pause,
+                "authorization_revocation_pause_prepared",
+                task_operation_context(Some(snapshot.clone()), Vec::new()),
+            )
+            .await?;
+
+        let outcome_unknown = match pause_task_with_request_id(
+            self.aria2_rpc,
+            config,
+            &gid,
+            Some(&operation.id),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(_) => false,
+            Err(error) if is_aria2_outcome_unknown_error(&error) => {
+                if let Err(record_error) = self
+                    .record_unknown_aria2_outcome(&mut operation, error.clone())
+                    .await
+                {
+                    operation
+                        .require_manual_review("authorization_pause_record_failed", &record_error);
+                    self.debug_logs.error(
+                        "storage.auth",
+                        format!(
+                            "撤权暂停结果未知且操作记录失败，ID {}：{}",
+                            task_id, record_error
+                        ),
+                    );
+                }
+                true
+            }
+            Err(error) => {
+                self.fail_task_operation(&mut operation, "authorization_pause_failed", &error)
+                    .await;
+                return Err(format!("撤权任务暂停失败，ID {}：{}", task_id, error));
+            }
+        };
+
+        if !outcome_unknown {
+            let mut context = operation.context.clone();
+            context
+                .completed_side_effects
+                .push("aria2_task_paused".to_string());
+            if let Err(error) = self
+                .update_task_operation(&mut operation, "authorization_pause_sent", context)
+                .await
+            {
+                operation.require_manual_review("authorization_pause_record_failed", &error);
+                self.debug_logs.error(
+                    "storage.auth",
+                    format!("撤权暂停后操作记录更新失败，ID {}：{}", task_id, error),
+                );
+            }
+        }
+
+        let paused = sync_task_progress_after_pause_by_gid(
+            self.aria2_rpc,
+            self.download_tasks,
+            config,
+            &gid,
+            Some(self.debug_logs),
+        )
+        .await;
+        let paused = match paused {
+            Ok(paused) => paused,
+            Err(error) => {
+                let message = if outcome_unknown {
+                    format!("暂停结果未知且未能确认状态：{}", error)
+                } else {
+                    format!("Aria2 已暂停，但同步最终进度失败：{}", error)
+                };
+                operation.require_manual_review("authorization_pause_sync_failed", &message);
+                if let Err(record_error) = self.repository.update_operation(&operation).await {
+                    self.debug_logs.error(
+                        "storage.auth",
+                        format!("撤权暂停待对账记录失败，ID {}：{}", task_id, record_error),
+                    );
+                }
+                return Err(format!("撤权暂停待对账，ID {}：{}", task_id, message));
+            }
+        };
+
+        if outcome_unknown && paused.status != DownloadTaskStatus::Paused {
+            let message = format!(
+                "暂停结果未知，查询到 Aria2 状态为 {}",
+                paused.status.as_storage_value()
+            );
+            operation.require_manual_review("authorization_pause_unconfirmed", &message);
+            if let Err(error) = self
+                .repository
+                .persist_task_state_with_operation(&paused, &operation)
+                .await
+            {
+                self.debug_logs.error(
+                    "storage.auth",
+                    format!("撤权暂停状态持久化失败，ID {}：{}", task_id, error),
+                );
+                if let Err(record_error) = self.repository.update_operation(&operation).await {
+                    self.debug_logs.error(
+                        "storage.auth",
+                        format!("撤权暂停待对账记录失败，ID {}：{}", task_id, record_error),
+                    );
+                }
+            }
+            return Err(format!("撤权暂停待对账，ID {}：{}", task_id, message));
+        }
+
+        let mut context = operation.context.clone();
+        if paused.status == DownloadTaskStatus::Paused {
+            context
+                .completed_side_effects
+                .push("aria2_task_paused".to_string());
+        }
+        operation.update_phase(
+            if outcome_unknown {
+                "authorization_pause_reconciled"
+            } else if paused.status == DownloadTaskStatus::Paused {
+                "authorization_revoked_paused"
+            } else {
+                "authorization_task_terminal"
+            },
+            context,
+        );
+        if let Err(error) = self
+            .repository
+            .persist_task_state_with_operation(&paused, &operation)
+            .await
+        {
+            operation.require_manual_review("authorization_pause_persist_failed", &error);
+            if let Err(record_error) = self.repository.update_operation(&operation).await {
+                self.debug_logs.error(
+                    "storage.auth",
+                    format!(
+                        "撤权暂停持久化及待对账记录失败，ID {}：{}",
+                        task_id, record_error
+                    ),
+                );
+            }
+            return Err(format!(
+                "撤权暂停已执行但持久化失败，ID {}：{}",
+                task_id, error
+            ));
+        }
+        if operation.status != crate::tasks::TaskOperationStatus::ManualReview {
+            self.complete_task_operation(&mut operation, "completed")
+                .await;
+        }
+        Ok(paused)
+    }
+
     pub async fn resume_download_task(
         &self,
         config: &Aria2Config,
@@ -108,6 +287,7 @@ impl<'a> TaskService<'a> {
         if task_before_resume.confirmation_required {
             return Err("请先确认要下载的文件".to_string());
         }
+        self.validate_task_authorization(&task_before_resume)?;
         let gid = task_gid(self.download_tasks, task_id)?;
         let mut operation = self
             .begin_task_operation(
@@ -174,6 +354,16 @@ impl<'a> TaskService<'a> {
         }
         let mut readded = false;
         let request_id = operation.id.clone();
+        let destination = if crate::tasks::is_pending_magnet_metadata_task(&task_before_resume) {
+            self.validate_task_authorization(&task_before_resume)
+        } else {
+            self.prepare_task_destination(&task_before_resume)
+        };
+        if let Err(error) = destination {
+            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
+                .await;
+            return Err(error);
+        }
         let task = match unpause_task_with_request_id(
             self.aria2_rpc,
             config,
@@ -213,12 +403,18 @@ impl<'a> TaskService<'a> {
                     "tasks.restore",
                     format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
                 );
+                if let Err(error) = self.validate_task_authorization(&task_before_resume) {
+                    self.fail_task_operation(&mut operation, "authorization_revoked", &error)
+                        .await;
+                    return Err(error);
+                }
                 readded = true;
                 match readd_task_to_aria2(
                     self.aria2_rpc,
                     self.download_tasks,
                     config,
                     &runtime_task,
+                    self.accessible_paths_path,
                     Some(self.debug_logs),
                 )
                 .await
@@ -316,6 +512,7 @@ impl<'a> TaskService<'a> {
         if snapshot.status != DownloadTaskStatus::Complete {
             return Err("只有已完成任务可以重新下载".to_string());
         }
+        self.validate_task_authorization(&snapshot)?;
         let resolved_proxy = self
             .resolve_recreated_task_proxy(&snapshot, use_proxy_override)
             .await?;
@@ -356,6 +553,11 @@ impl<'a> TaskService<'a> {
                 ),
             )
             .await?;
+        if let Err(error) = self.prepare_task_destination(&snapshot) {
+            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
+                .await;
+            return Err(error);
+        }
         let gid_result = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => {
                 self.add_torrent_for_task_operation(
@@ -442,6 +644,11 @@ impl<'a> TaskService<'a> {
                     .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
                     .await;
             }
+            if let Err(error) = self.prepare_task_destination(&snapshot) {
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                    .await;
+            }
             if let Err(error) = staged_files.stage() {
                 return self
                     .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
@@ -465,6 +672,11 @@ impl<'a> TaskService<'a> {
             snapshot.source_type,
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
         ) {
+            if let Err(error) = self.validate_task_authorization(&snapshot) {
+                return self
+                    .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                    .await;
+            }
             let task_dir = Path::new(task_download_dir(&snapshot));
             let recreate_result = match staged.as_mut() {
                 Some(staged) => staged.create_replacement_directory(task_dir),
@@ -478,6 +690,11 @@ impl<'a> TaskService<'a> {
             }
         }
 
+        if let Err(error) = self.prepare_task_destination(&snapshot) {
+            return self
+                .rollback_redownload(config, snapshot, gid, staged, &mut operation, error)
+                .await;
+        }
         let request_id = operation.id.clone();
         if let Err(error) = unpause_task_with_request_id(
             self.aria2_rpc,
@@ -552,7 +769,16 @@ impl<'a> TaskService<'a> {
         let remove_error = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs))
             .await
             .err();
-        let restore_error = staged.as_mut().and_then(|staged| staged.restore().err());
+        let restore_error = staged.as_mut().and_then(|staged| {
+            if self.prepare_task_restore_destination(&snapshot).is_ok() {
+                staged.restore().err()
+            } else {
+                Some(format!(
+                    "目录授权已撤销，保留重新下载暂存文件：{}",
+                    staged.backup_dir().display()
+                ))
+            }
+        });
         let mut errors = vec![reason];
         let mut needs_manual_review = false;
         if let Some(error) = remove_error {

@@ -27,6 +27,25 @@ impl<'a> TaskMutationContext<'a> {
         Self::prepare_inner(state, Some(save_dir)).await
     }
 
+    pub(super) async fn prepare_for_task(
+        state: &'a HttpAppState,
+        task_id: u64,
+    ) -> Result<Self, ApiError> {
+        let service = build_task_service(state);
+        service.ensure_not_exiting().map_err(classify_task_error)?;
+        service
+            .ensure_task_authorized(task_id)
+            .map_err(classify_task_error)?;
+        let config = ensure_aria2_ready(state)
+            .await
+            .map_err(classify_aria2_ready_error)?;
+        Ok(Self {
+            state,
+            service,
+            config,
+        })
+    }
+
     async fn prepare_inner(
         state: &'a HttpAppState,
         save_dir: Option<Option<&str>>,

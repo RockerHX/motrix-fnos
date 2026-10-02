@@ -4,6 +4,7 @@ use crate::aria2::Aria2RpcClient;
 pub async fn refresh_tasks_from_aria2(
     tasks: &TaskMemoryState,
     app_data_dir: &Path,
+    accessible_paths_path: &Path,
     client: &Aria2RpcClient,
     config: &Aria2Config,
     debug_logs: Option<&DebugLogStore>,
@@ -42,7 +43,15 @@ pub async fn refresh_tasks_from_aria2(
                     });
                     continue;
                 }
-                match readd_download_task(client, config, &candidate, debug_logs).await {
+                match readd_download_task(
+                    client,
+                    config,
+                    &candidate,
+                    accessible_paths_path,
+                    debug_logs,
+                )
+                .await
+                {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
                         old_gid: gid,
@@ -82,7 +91,15 @@ pub async fn refresh_tasks_from_aria2(
                     });
                     continue;
                 }
-                match readd_download_task(client, config, &candidate, debug_logs).await {
+                match readd_download_task(
+                    client,
+                    config,
+                    &candidate,
+                    accessible_paths_path,
+                    debug_logs,
+                )
+                .await
+                {
                     Ok(new_gid) => updates.push(TaskRefreshUpdate::Readded {
                         task_id: candidate.id,
                         old_gid: gid,

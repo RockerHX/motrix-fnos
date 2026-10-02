@@ -1416,6 +1416,66 @@ async fn file_context_fails_closed_when_authorization_snapshot_is_invalid() {
     assert_eq!(error.code, "task_file_context_failed");
 }
 
+#[tokio::test]
+async fn resume_route_rejects_revoked_task_before_starting_aria2() {
+    let state = test_state().await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(9, DownloadTaskStatus::Paused)))
+        .expect("task should be added");
+    write_accessible_paths(&state, &[]);
+    let app = test_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/tasks/9/resume")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should complete"),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
+#[tokio::test]
+async fn confirm_route_rejects_revoked_magnet_before_starting_aria2() {
+    let state = test_state().await;
+    let mut task = sample_task(9, DownloadTaskStatus::Pending);
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.confirmation_required = true;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task should be added");
+    write_accessible_paths(&state, &[]);
+    let app = test_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/9/confirm",
+            &json!({ "selectedFileIndexes": [1] }),
+        ))
+        .await
+        .expect("response should complete"),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
 fn test_router(state: Arc<HttpAppState>) -> Router {
     Router::new()
         .nest("/api", routes().merge(torrent_routes()))

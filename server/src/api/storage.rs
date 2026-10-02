@@ -1,3 +1,4 @@
+use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::fnos::FnosApiError;
@@ -56,6 +57,42 @@ async fn refresh_accessible_paths(
         .refresh_accessible_paths_from_fnos()
         .await
         .map_err(classify_refresh_error)?;
+    let process = crate::runtime::process_status(&state.aria2_process).map_err(|error| {
+        ApiError::service_unavailable(
+            "aria2_status_unavailable",
+            format!("无法确认 Aria2 进程状态，撤权任务可能仍在运行：{}", error),
+        )
+    })?;
+    if process.running {
+        let runtime = state.aria2_runtime_snapshot().ok_or_else(|| {
+            ApiError::service_unavailable(
+                "aria2_status_unavailable",
+                "Aria2 进程正在运行但缺少运行态记录，无法确认撤权任务已暂停",
+            )
+        })?;
+        if process.pid != Some(runtime.pid) {
+            return Err(ApiError::service_unavailable(
+                "aria2_status_unavailable",
+                format!(
+                    "无法确认 Aria2 进程归属，授权已更新但不能确认撤权任务已暂停（运行 PID {:?}，记录 PID {}）",
+                    process.pid, runtime.pid
+                ),
+            ));
+        }
+
+        let _activity = state
+            .aria2_lifecycle
+            .acquire_activity()
+            .map_err(|error| ApiError::service_unavailable("aria2_busy", error))?;
+        let result = build_task_service(&state)
+            .pause_unauthorized_tasks(&state.aria2_config())
+            .await;
+        if result.as_ref().is_err() || matches!(result.as_ref(), Ok(true)) {
+            crate::runtime::broadcast_tasks_snapshot(&state)
+                .map_err(|error| ApiError::internal("tasks_snapshot_broadcast_failed", error))?;
+        }
+        result.map_err(|error| ApiError::internal("accessible_paths_pause_failed", error))?;
+    }
     Ok(Json(AccessiblePathsResponse { paths }))
 }
 

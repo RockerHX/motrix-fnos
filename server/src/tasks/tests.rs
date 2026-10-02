@@ -4,6 +4,7 @@ use super::refresh::{
 };
 use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
 use super::*;
+use crate::aria2::Aria2RpcClient;
 use crate::tasks::aria2_rpc::{
     build_gid_control_request, build_tell_many_request, build_tell_status_request,
 };
@@ -845,9 +846,16 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     };
 
     let client = crate::aria2::Aria2RpcClient::new();
-    let refreshed = refresh_tasks_from_aria2(&tasks, &app_data_dir, &client, &config, None)
-        .await
-        .expect("refresh should succeed");
+    let refreshed = refresh_tasks_from_aria2(
+        &tasks,
+        &app_data_dir,
+        &app_data_dir.join("accessible-paths.json"),
+        &client,
+        &config,
+        None,
+    )
+    .await
+    .expect("refresh should succeed");
 
     assert_eq!(refreshed[0].status, DownloadTaskStatus::Error);
     assert_eq!(
@@ -855,6 +863,45 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
         Some("磁链 metadata 解析任务已失效，请重新添加磁链")
     );
 
+    mock.abort();
+}
+
+#[tokio::test]
+async fn refresh_tasks_from_aria2_does_not_readd_a_revoked_task() {
+    let mock = MockStaleAria2Server::spawn().await;
+    let app_data_dir = PathBuf::from(temp_download_dir("refresh-revoked-task"));
+    fs::create_dir_all(&app_data_dir).expect("app data dir should create");
+    let accessible_paths_path = app_data_dir.join("accessible-paths.json");
+    fs::write(&accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+    let task = sample_task(
+        Some("/downloads/file.zip".to_string()),
+        "/downloads".to_string(),
+    );
+    let tasks = TaskMemoryState::new(vec![task]);
+    let config = Aria2Config {
+        rpc_port: mock.addr.port(),
+        rpc_secret: "secret".to_string(),
+        ..test_config()
+    };
+
+    let refreshed = refresh_tasks_from_aria2(
+        &tasks,
+        &app_data_dir,
+        &accessible_paths_path,
+        &Aria2RpcClient::new(),
+        &config,
+        None,
+    )
+    .await
+    .expect("refresh should report the rejected stale task");
+
+    assert_eq!(refreshed[0].status, DownloadTaskStatus::Error);
+    assert!(refreshed[0]
+        .error_message
+        .as_deref()
+        .is_some_and(|error| error.contains("未获授权")));
+    let _ = fs::remove_dir_all(app_data_dir);
     mock.abort();
 }
 

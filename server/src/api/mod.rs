@@ -98,6 +98,7 @@ pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
         download_tasks: &state.core.download_tasks,
         next_task_id: &state.core.next_task_id,
         app_data_dir: &state.core.app_data_dir,
+        accessible_paths_path: &state.runtime.accessible_paths_path,
         debug_logs: &state.core.debug_logs,
         aria2_rpc: &state.aria2_rpc,
         aria2_lifecycle: &state.aria2_lifecycle,

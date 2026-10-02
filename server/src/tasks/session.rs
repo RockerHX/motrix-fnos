@@ -441,9 +441,11 @@ pub async fn readd_task_to_aria2(
     tasks: &TaskMemoryState,
     config: &Aria2Config,
     task: &DownloadTask,
+    accessible_paths_path: &Path,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    let new_gid = readd_download_task(client, config, task, debug_logs).await?;
+    let new_gid =
+        readd_download_task(client, config, task, accessible_paths_path, debug_logs).await?;
 
     tasks.with_tasks_mut(|guard| {
         let stored = guard
@@ -459,8 +461,10 @@ pub(crate) async fn readd_download_task(
     client: &Aria2RpcClient,
     config: &Aria2Config,
     task: &DownloadTask,
+    accessible_paths_path: &Path,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    let accessible_paths = validate_readd_task_authorization(task, accessible_paths_path)?;
     log_info(
         debug_logs,
         "tasks.restore",
@@ -481,6 +485,13 @@ pub(crate) async fn readd_download_task(
                 ),
             );
         }
+    }
+    if !crate::tasks::is_pending_magnet_metadata_task(task) {
+        crate::storage::prepare_task_save_dir(
+            Some(crate::tasks::files::task_download_dir(task)),
+            &accessible_paths,
+        )
+        .map_err(|error| format!("准备任务保存目录失败：{error:?}"))?;
     }
     let prepared = PreparedDownloadTask {
         url: task.url.clone(),
@@ -510,6 +521,19 @@ pub(crate) async fn readd_download_task(
                 .map_err(String::from)
         }
     }
+}
+
+fn validate_readd_task_authorization(
+    task: &DownloadTask,
+    accessible_paths_path: &Path,
+) -> Result<Vec<String>, String> {
+    let accessible_paths = crate::storage::load_accessible_paths(accessible_paths_path)?;
+    crate::storage::validate_task_save_dir(
+        Some(crate::tasks::files::task_download_dir(task)),
+        &accessible_paths,
+    )
+    .map_err(|error| format!("任务保存目录当前未获授权：{error:?}"))?;
+    Ok(accessible_paths)
 }
 
 #[cfg(test)]
