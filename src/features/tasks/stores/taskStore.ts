@@ -56,6 +56,9 @@ export const useTaskStore = defineStore("tasks", () => {
   let isTasksRequestInFlight = false;
   let isRemovedTasksRequestInFlight = false;
   let latestTasksSnapshotRevision = -1;
+  let taskMutationGeneration = 0;
+  let activeCreateGeneration = 0;
+  let activeCreateRequests = 0;
 
   async function refreshTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
     if (isRuntimeExiting.value) {
@@ -121,14 +124,16 @@ export const useTaskStore = defineStore("tasks", () => {
 
   async function createTask(payload: CreateDownloadTaskRequest): Promise<DownloadTask> {
     ensureRuntimeActive();
-    isCreating.value = true;
+    const mutationGeneration = beginCreateRequest();
 
     try {
       const task = await createDownloadTask(payload);
-      tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+      if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
+        tasks.value = [task, ...tasks.value.filter((item) => item.id !== task.id)];
+      }
       return task;
     } finally {
-      isCreating.value = false;
+      finishCreateRequest(mutationGeneration);
     }
   }
 
@@ -136,30 +141,32 @@ export const useTaskStore = defineStore("tasks", () => {
     payload: CreateBatchDownloadTasksRequest,
   ): Promise<CreateBatchDownloadTasksResponse> {
     ensureRuntimeActive();
-    isCreating.value = true;
+    const mutationGeneration = beginCreateRequest();
 
     try {
       const result = await createBatchDownloadTasks(payload);
-      // upsertTask 会把新任务插到列表头部，因此反向处理才能保持后端 created 数组的原始顺序。
-      for (const task of [...result.created].reverse()) {
-        upsertTask(task);
+      if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
+        // upsertTask 会把新任务插到列表头部，因此反向处理才能保持后端 created 数组的原始顺序。
+        for (const task of [...result.created].reverse()) {
+          upsertTask(task);
+        }
       }
       return result;
     } finally {
-      isCreating.value = false;
+      finishCreateRequest(mutationGeneration);
     }
   }
 
   async function createTorrentTask(payload: CreateTorrentDownloadTaskRequest): Promise<DownloadTask> {
     ensureRuntimeActive();
-    isCreating.value = true;
+    const mutationGeneration = beginCreateRequest();
 
     try {
       const task = await createTorrentDownloadTask(payload);
-      upsertTask(task);
+      if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) upsertTask(task);
       return task;
     } finally {
-      isCreating.value = false;
+      finishCreateRequest(mutationGeneration);
     }
   }
 
@@ -193,27 +200,31 @@ export const useTaskStore = defineStore("tasks", () => {
 
   async function permanentlyDeleteTask(taskId: number): Promise<void> {
     ensureRuntimeActive();
+    const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
       await permanentlyDeleteDownloadTask(taskId);
-      removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+      if (isCurrentMutation(mutationGeneration)) {
+        removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+      }
     } finally {
-      endTaskOperation(taskId);
+      if (isCurrentMutation(mutationGeneration)) endTaskOperation(taskId);
     }
   }
 
   async function restoreTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
     ensureRuntimeActive();
+    const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
       const task = await restoreDownloadTask(taskId, useProxy);
-      if (!isRuntimeExiting.value) {
+      if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
         removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
         upsertTask(task);
       }
       return task;
     } finally {
-      endTaskOperation(taskId);
+      if (isCurrentMutation(mutationGeneration)) endTaskOperation(taskId);
     }
   }
 
@@ -222,11 +233,12 @@ export const useTaskStore = defineStore("tasks", () => {
     operation: () => Promise<DownloadTask>,
   ): Promise<DownloadTask> {
     ensureRuntimeActive();
+    const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
       const task = await operation();
       // 退出事件可能先于 HTTP 响应到达；此时不能再用迟到结果覆盖已经锁定的退出态界面。
-      if (!isRuntimeExiting.value) {
+      if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
         if (task.status === "removed") {
           removeTask(task.id);
           upsertRemovedTask(task);
@@ -237,7 +249,7 @@ export const useTaskStore = defineStore("tasks", () => {
       }
       return task;
     } finally {
-      endTaskOperation(taskId);
+      if (isCurrentMutation(mutationGeneration)) endTaskOperation(taskId);
     }
   }
 
@@ -326,6 +338,9 @@ export const useTaskStore = defineStore("tasks", () => {
   }
 
   function clearSensitiveState() {
+    taskMutationGeneration += 1;
+    activeCreateGeneration = taskMutationGeneration;
+    activeCreateRequests = 0;
     cancelRefreshRequests();
     tasks.value = [];
     removedTasks.value = [];
@@ -340,6 +355,26 @@ export const useTaskStore = defineStore("tasks", () => {
     runtimeExitReason.value = "";
     latestTasksSnapshotRevision = -1;
     notifiedErrorTaskKeys.clear();
+  }
+
+  function isCurrentMutation(generation: number) {
+    return taskMutationGeneration === generation;
+  }
+
+  function beginCreateRequest() {
+    if (activeCreateGeneration !== taskMutationGeneration) {
+      activeCreateGeneration = taskMutationGeneration;
+      activeCreateRequests = 0;
+    }
+    activeCreateRequests += 1;
+    isCreating.value = true;
+    return taskMutationGeneration;
+  }
+
+  function finishCreateRequest(generation: number) {
+    if (!isCurrentMutation(generation) || activeCreateGeneration !== generation) return;
+    activeCreateRequests = Math.max(0, activeCreateRequests - 1);
+    isCreating.value = activeCreateRequests > 0;
   }
 
   function cancelRefreshRequests() {
