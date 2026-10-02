@@ -82,7 +82,7 @@
 | 方法 | 路径 | 访问要求 | 作用 |
 | --- | --- | --- | --- |
 | `GET` | `/api/auth/status` | 匿名 | 返回初始化和当前 JWT 状态 |
-| `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并签发 JWT |
+| `POST` | `/api/auth/setup` | 匿名，仅从未初始化且持有一次性 bootstrap token 时 | 初始化 Web 管理密码并签发 JWT |
 | `POST` | `/api/auth/login` | 匿名 | 验证密码并签发 JWT |
 | `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
 | `POST` | `/api/auth/logout` | 匿名 | 返回 `204`；前端清除 JWT |
@@ -107,7 +107,18 @@
 
 登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
-`POST /api/auth/setup` 与 `POST /api/auth/login` 请求：
+`POST /api/auth/setup` 请求：
+
+```json
+{
+  "bootstrapToken": "local-command-token",
+  "password": "user-entered-password"
+}
+```
+
+`bootstrapToken` 由停止状态下的本机 `bootstrap-web-auth` 或 `reset-web-auth` 命令输出，有效期为 15 分钟且只能成功使用一次；命令要求交互式本地终端，禁止重定向输出。服务端不返回、记录或通过其他匿名接口提供明文 token。缺少、错误或过期 token 返回 `401 bootstrap_token_invalid`。
+
+`POST /api/auth/login` 请求：
 
 ```json
 {
@@ -115,7 +126,7 @@
 }
 ```
 
-- `setup` 必须在数据库事务中确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict`。
+- `setup` 必须在数据库事务中同时校验并消费 bootstrap token、确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict` 或 `401 bootstrap_token_invalid`。
 - `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
 - 登录和密码修改共用失败限速：同一来源 5 分钟内 5 次密码验证失败后锁定 30 秒；全局累计 100 次失败也会锁定 30 秒。达到限速时返回 `429 login_rate_limited` 和 `Retry-After`。
 - 限速来源使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
@@ -135,7 +146,8 @@
 - `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
 - 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
 - 密码修改先验证当前密码，再生成新密码哈希；更新同时匹配旧哈希和 `authVersion`，防止并发改密覆盖较新的凭据。
-- `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
+- `bootstrap-web-auth` 和 `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；前者只在尚未初始化时生成一次性 bootstrap token，后者重置 Web 鉴权并同时废止旧 token、生成新 token；两者都必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。命令只向本地终端输出 token，不写入日志。
+- SQLite schema v7 为 `web_auth_config` 增加 `bootstrap_token_hash` 和 `bootstrap_token_expires_at`；升级既有已初始化实例时不会生成 token，也不会重新开放匿名 setup。首次安装或 reset 后必须再次执行本机命令生成 token。
 - 升级后旧浏览器 Cookie 不再生效，用户需重新登录；任务、设置和下载数据不受影响。
 
 密码使用 Argon2id 和随机 salt 保存不可逆哈希。Web 管理不使用 Cookie、服务端 Session 或 CSRF Token。

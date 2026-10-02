@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import {
   NAlert,
   NButton,
@@ -31,7 +31,7 @@ const submitError = ref("");
 const diagnosticError = ref("");
 const diagnosticText = ref("");
 const isDownloadingDiagnostic = ref(false);
-const form = reactive({ password: "", confirmPassword: "" });
+const form = reactive({ password: "", confirmPassword: "", bootstrapToken: "" });
 const languageOptions = computed(() =>
   supportedLanguages.map((value) => ({
     value,
@@ -42,6 +42,9 @@ const languageOptions = computed(() =>
 const isSetup = computed(() => authStore.phase === "setup");
 const title = computed(() => t(isSetup.value ? "auth.setup.title" : "auth.login.title"));
 const description = computed(() => t(isSetup.value ? "auth.setup.description" : "auth.login.description"));
+
+watch(isSetup, () => { form.bootstrapToken = ""; });
+onBeforeUnmount(() => { form.bootstrapToken = ""; });
 
 onMounted(() => {
   const saved = getLocalLanguagePreference();
@@ -58,7 +61,7 @@ async function submit() {
   }
   try {
     if (isSetup.value) {
-      await authStore.setup(form.password);
+      await authStore.setup(form.password, form.bootstrapToken.trim());
     } else {
       await authStore.login(form.password);
     }
@@ -67,6 +70,8 @@ async function submit() {
   } catch (error) {
     submitError.value = getErrorMessage(error, t("auth.submitFailed"));
     await focusPassword();
+  } finally {
+    form.bootstrapToken = "";
   }
 }
 
@@ -133,6 +138,7 @@ function validateForm() {
   const byteCount = new TextEncoder().encode(form.password).length;
   if (charCount < 8 || charCount > 128 || byteCount > 512) return t("auth.passwordLength");
   if (isSetup.value && form.password !== form.confirmPassword) return t("auth.passwordMismatch");
+  if (isSetup.value && !form.bootstrapToken.trim()) return t("auth.bootstrapTokenRequired");
   return "";
 }
 
@@ -174,6 +180,16 @@ async function focusPassword() {
           <p>{{ description }}</p>
         </div>
         <NAlert v-if="submitError" type="error" data-test="auth-submit-error">{{ submitError }}</NAlert>
+        <NFormItem v-if="isSetup" :label="t('auth.bootstrapToken')">
+          <NInput
+            v-model:value="form.bootstrapToken"
+            type="password"
+            show-password-on="mousedown"
+            :input-props="{ autocomplete: 'off', spellcheck: false }"
+            :disabled="authStore.isSubmitting"
+            data-test="auth-bootstrap-token"
+          />
+        </NFormItem>
         <NFormItem :label="t('auth.password')">
           <NInput
             ref="passwordInput"

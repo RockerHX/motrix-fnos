@@ -142,6 +142,14 @@ struct PasswordRequest {
     password: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupRequest {
+    password: String,
+    #[serde(default)]
+    bootstrap_token: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChangePasswordRequest {
@@ -173,15 +181,37 @@ async fn setup(
     State(state): State<Arc<HttpAppState>>,
     connect_info: Option<ConnectInfo<SocketAddr>>,
     headers: HeaderMap,
-    ApiJson(payload): ApiJson<PasswordRequest>,
+    ApiJson(payload): ApiJson<SetupRequest>,
 ) -> Result<Response, ApiError> {
     let source = login_source(connect_info, &headers, &state.runtime.trusted_proxy_ips);
-    let auth_state = state
+    if let Some(seconds) = state
+        .auth
+        .login_limiter
+        .retry_after_seconds(&source)
+        .map_err(|_| auth_internal())?
+    {
+        return Err(rate_limited(seconds));
+    }
+    let auth_state = match state
         .auth
         .service
-        .setup(&payload.password)
+        .setup_with_bootstrap_token(&payload.bootstrap_token, &payload.password)
         .await
-        .map_err(classify_auth_error)?;
+    {
+        Ok(auth_state) => auth_state,
+        Err(AuthError::BootstrapTokenInvalid) => {
+            if let Some(seconds) = state
+                .auth
+                .login_limiter
+                .record_failure(&source)
+                .map_err(|_| auth_internal())?
+            {
+                return Err(rate_limited(seconds));
+            }
+            return Err(classify_auth_error(AuthError::BootstrapTokenInvalid));
+        }
+        Err(error) => return Err(classify_auth_error(error)),
+    };
     state
         .auth
         .login_limiter
@@ -472,6 +502,9 @@ fn classify_auth_error(error: AuthError) -> ApiError {
     match error {
         AuthError::AlreadyInitialized => {
             ApiError::conflict("auth_already_initialized", "Web 管理密码已经初始化")
+        }
+        AuthError::BootstrapTokenInvalid => {
+            ApiError::unauthorized("bootstrap_token_invalid", "初始化凭据无效或已过期")
         }
         AuthError::PasswordChanged | AuthError::InvalidCredentials => invalid_credentials(),
         AuthError::InvalidPassword(message) => ApiError::bad_request("invalid_password", message),

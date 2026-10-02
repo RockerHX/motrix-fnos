@@ -54,8 +54,8 @@ export const useAuthStore = defineStore("auth", () => {
     return status;
   }
 
-  async function setup(password: string) {
-    return submit(() => setupAuth(password), true);
+  async function setup(password: string, bootstrapToken: string) {
+    return submit(() => setupAuth(password, bootstrapToken), true);
   }
 
   async function login(password: string) {

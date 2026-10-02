@@ -50,7 +50,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .await
             .expect("setup should pass");
         assert!(!state.setup_required);
-        assert_eq!(state.auth_version, 1);
+        assert_eq!(state.auth_version, 2);
         let original_token = service
             .issue_admin_token(&state)
             .await
@@ -65,7 +65,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .change_password(VALID_PASSWORD, "replacement password")
             .await
             .expect("password should change");
-        assert_eq!(changed.auth_version, 2);
+        assert_eq!(changed.auth_version, 3);
         assert!(service
             .verify_password("replacement password")
             .await
@@ -74,7 +74,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
         service.reset().await.expect("reset should pass");
         let reset = service.state().await.expect("reset state should load");
         assert!(reset.setup_required);
-        assert_eq!(reset.auth_version, 3);
+        assert_eq!(reset.auth_version, 4);
         assert_eq!(
             service
                 .validate_admin_token(&original_token, reset.auth_version)
@@ -172,15 +172,52 @@ fn issued_tokens_remain_verifiable_after_database_reopen() {
 fn concurrent_setup_allows_only_one_password() {
     test_runtime().block_on(async {
         let (service, path) = test_service("concurrent").await;
+        let token = service.issue_bootstrap_token().await.unwrap();
         let first = service.clone();
         let second = service.clone();
         let (first, second) = tokio::join!(
-            first.setup(VALID_PASSWORD),
-            second.setup("another secure password")
+            first.setup_with_bootstrap_token(&token, VALID_PASSWORD),
+            second.setup_with_bootstrap_token(&token, "another secure password")
         );
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
-        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        assert!(matches!(
+            first,
+            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
+        ));
+        assert!(matches!(
+            second,
+            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
+        ));
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn bootstrap_token_is_single_use_and_reset_replaces_it() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("bootstrap-lifecycle").await;
+        let token = service.issue_bootstrap_token().await.unwrap();
+        let initialized = service
+            .setup_with_bootstrap_token(&token, VALID_PASSWORD)
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .setup_with_bootstrap_token(&token, "another secure password")
+                .await,
+            Err(AuthError::AlreadyInitialized)
+        ));
+        let reset_token = service.reset().await.unwrap();
+        assert_ne!(token, reset_token);
+        assert!(service
+            .setup_with_bootstrap_token(&token, "replacement password")
+            .await
+            .is_err());
+        let reset = service
+            .setup_with_bootstrap_token(&reset_token, "replacement password")
+            .await
+            .unwrap();
+        assert_eq!(reset.auth_version, initialized.auth_version + 2);
         cleanup(service, path).await;
     });
 }
@@ -254,7 +291,7 @@ fn concurrent_password_changes_do_not_overwrite_each_other() {
             second,
             Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
         ));
-        assert_eq!(service.state().await.unwrap().auth_version, 2);
+        assert_eq!(service.state().await.unwrap().auth_version, 3);
         cleanup(service, path).await;
     });
 }
@@ -277,7 +314,7 @@ fn concurrent_reset_cannot_be_overwritten_by_password_change() {
         assert!(reset.is_ok());
         let state = service.state().await.expect("auth state should load");
         assert!(state.setup_required);
-        assert_eq!(state.auth_version, if changed.is_ok() { 3 } else { 2 });
+        assert_eq!(state.auth_version, if changed.is_ok() { 4 } else { 3 });
         if let Err(error) = changed {
             assert!(matches!(
                 error,

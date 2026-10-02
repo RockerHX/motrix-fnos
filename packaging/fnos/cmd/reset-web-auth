@@ -18,7 +18,7 @@ fi
 
 if "${SERVER_BIN}" reset-web-auth; then
   log_msg "Web 管理鉴权已在本地重置"
-  echo "Web 管理鉴权已重置，请重新启动应用并设置管理密码"
+  echo "Web 管理鉴权已重置，请重新启动应用并使用上方凭据设置管理密码"
   exit 0
 fi
 

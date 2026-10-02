@@ -51,19 +51,46 @@ describe("AuthGate", () => {
       accessToken: "setup-jwt",
     });
     const { wrapper } = mountWithPinia(AuthGate, { pinia });
-    const inputs = wrapper.findAll('input[type="password"]');
-    await inputs[0].setValue("1234567");
-    await inputs[1].setValue("1234567");
+    const password = wrapper.find('[data-test="auth-password"] input');
+    const confirmation = wrapper.find('[data-test="auth-password-confirm"] input');
+    await password.setValue("1234567");
+    await confirmation.setValue("1234567");
     await wrapper.find("form").trigger("submit");
     expect(wrapper.text()).toContain("8");
     expect(setupAuth).not.toHaveBeenCalled();
 
-    await inputs[0].setValue("12345678");
-    await inputs[1].setValue("12345678");
+    await password.setValue("12345678");
+    await confirmation.setValue("12345678");
+    await wrapper.find("form").trigger("submit");
+    expect(setupAuth).not.toHaveBeenCalled();
+    await wrapper.find('[data-test="auth-bootstrap-token"] input').setValue("local-bootstrap-token");
     await wrapper.find("form").trigger("submit");
     await flushPromises();
-    expect(setupAuth).toHaveBeenCalledWith("12345678");
+    expect(setupAuth).toHaveBeenCalledWith("12345678", "local-bootstrap-token");
     expect(store.phase).toBe("ready");
+    expect(JSON.stringify(localStorage)).not.toContain("local-bootstrap-token");
+  });
+
+  it("clears bootstrap credentials after a rejected setup and when leaving setup", async () => {
+    const store = useAuthStore();
+    store.phase = "setup";
+    vi.mocked(setupAuth).mockRejectedValueOnce(new Error("初始化凭据无效"));
+    const { wrapper } = mountWithPinia(AuthGate, { pinia });
+    await wrapper.find('[data-test="auth-password"] input').setValue("12345678");
+    await wrapper.find('[data-test="auth-password-confirm"] input').setValue("12345678");
+    const token = wrapper.find('[data-test="auth-bootstrap-token"] input');
+    await token.setValue("local-bootstrap-token");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(token.element).toHaveProperty("value", "");
+    expect(JSON.stringify(localStorage)).not.toContain("local-bootstrap-token");
+    await token.setValue("another-bootstrap-token");
+    store.phase = "login";
+    await flushPromises();
+    expect(wrapper.find('[data-test="auth-bootstrap-token"]').exists()).toBe(false);
+    store.phase = "setup";
+    await flushPromises();
+    expect(wrapper.find('[data-test="auth-bootstrap-token"] input').element).toHaveProperty("value", "");
   });
 
   it("submits login errors locally and persists only language preference", async () => {

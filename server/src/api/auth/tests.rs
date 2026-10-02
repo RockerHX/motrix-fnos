@@ -17,11 +17,10 @@ use tower::ServiceExt;
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[tokio::test]
-async fn setup_and_login_return_bearer_tokens_without_cookies() {
-    let state = test_state("login").await;
+async fn anonymous_setup_without_local_credential_cannot_claim_management() {
+    let state = test_state("anonymous-setup").await;
     let router = public_routes().with_state(state.clone());
-
-    let setup = send(
+    let response = send(
         &router,
         "POST",
         "/auth/setup",
@@ -29,6 +28,34 @@ async fn setup_and_login_return_bearer_tokens_without_cookies() {
         None,
     )
     .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(response).await["code"], "bootstrap_token_invalid");
+    assert!(state.auth.service.state().await.unwrap().setup_required);
+
+    let token = state.auth.service.issue_bootstrap_token().await.unwrap();
+    let status = json_body(send(&router, "GET", "/auth/status", None, None).await).await;
+    assert_eq!(status["setupRequired"], true);
+    assert!(!status.to_string().contains(&token));
+    assert!(status.get("bootstrapToken").is_none());
+    let response = send(
+        &router,
+        "POST",
+        "/auth/setup",
+        Some(json!({"bootstrapToken": "A".repeat(43), "password": "correct horse battery"})),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(json_body(response).await["code"], "bootstrap_token_invalid");
+    assert!(state.auth.service.state().await.unwrap().setup_required);
+}
+
+#[tokio::test]
+async fn setup_and_login_return_bearer_tokens_without_cookies() {
+    let state = test_state("login").await;
+    let router = public_routes().with_state(state.clone());
+
+    let setup = setup_with_token(&state, &router, "correct horse battery").await;
     assert_eq!(setup.status(), StatusCode::OK);
     assert!(setup.headers().get("set-cookie").is_none());
     let setup_body = json_body(setup).await;
@@ -58,14 +85,7 @@ async fn setup_and_login_return_bearer_tokens_without_cookies() {
 async fn protected_management_requests_report_bearer_failure_codes() {
     let state = test_state("codes").await;
     let public = public_routes().with_state(state.clone());
-    let setup = send(
-        &public,
-        "POST",
-        "/auth/setup",
-        Some(json!({"password": "correct horse battery"})),
-        None,
-    )
-    .await;
+    let setup = setup_with_token(&state, &public, "correct horse battery").await;
     let token = json_body(setup).await["accessToken"]
         .as_str()
         .unwrap()
@@ -147,14 +167,7 @@ async fn protected_management_requests_report_bearer_failure_codes() {
 async fn password_changes_accept_current_password_without_a_bearer_token() {
     let state = test_state("invalidate").await;
     let public = public_routes().with_state(state.clone());
-    let setup = send(
-        &public,
-        "POST",
-        "/auth/setup",
-        Some(json!({"password": "correct horse battery"})),
-        None,
-    )
-    .await;
+    let setup = setup_with_token(&state, &public, "correct horse battery").await;
     let old_token = json_body(setup).await["accessToken"]
         .as_str()
         .unwrap()
@@ -185,15 +198,8 @@ async fn password_changes_accept_current_password_without_a_bearer_token() {
 #[tokio::test]
 async fn password_change_rejects_an_incorrect_current_password() {
     let state = test_state("configuration-password").await;
-    let public = public_routes().with_state(state);
-    let setup = send(
-        &public,
-        "POST",
-        "/auth/setup",
-        Some(json!({"password": "correct horse battery"})),
-        None,
-    )
-    .await;
+    let public = public_routes().with_state(state.clone());
+    let setup = setup_with_token(&state, &public, "correct horse battery").await;
     assert_eq!(setup.status(), StatusCode::OK);
 
     let response = send(
@@ -211,15 +217,8 @@ async fn password_change_rejects_an_incorrect_current_password() {
 #[tokio::test]
 async fn password_change_uses_login_failure_limit() {
     let state = test_state("password-rate-limit").await;
-    let public = public_routes().with_state(state);
-    let setup = send(
-        &public,
-        "POST",
-        "/auth/setup",
-        Some(json!({"password": "correct horse battery"})),
-        None,
-    )
-    .await;
+    let public = public_routes().with_state(state.clone());
+    let setup = setup_with_token(&state, &public, "correct horse battery").await;
     assert_eq!(setup.status(), StatusCode::OK);
 
     for attempt in 1..=5 {
@@ -326,6 +325,26 @@ async fn send(
         )
         .await
         .unwrap()
+}
+
+async fn setup_with_token(state: &Arc<HttpAppState>, router: &Router, password: &str) -> Response {
+    let bootstrap_token = state
+        .auth
+        .service
+        .issue_bootstrap_token()
+        .await
+        .expect("bootstrap token should issue");
+    send(
+        router,
+        "POST",
+        "/auth/setup",
+        Some(json!({
+            "bootstrapToken": bootstrap_token,
+            "password": password
+        })),
+        None,
+    )
+    .await
 }
 
 async fn json_body(response: Response) -> Value {

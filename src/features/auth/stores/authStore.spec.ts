@@ -50,7 +50,7 @@ describe("authStore", () => {
     const store = useAuthStore();
     mockedSetup.mockResolvedValueOnce(status({ authenticated: true, accessToken: "setup-jwt" }));
     mockedStatus.mockResolvedValueOnce(status({ authenticated: true }));
-    await store.setup("new password value");
+    await store.setup("new password value", "local-bootstrap-token");
     expect(store.phase).toBe("ready");
 
     mockedLogin.mockResolvedValueOnce(status({ authenticated: true, accessToken: "login-jwt" }));

@@ -54,10 +54,16 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
+    let bootstrap_token = state
+        .auth
+        .service
+        .issue_bootstrap_token()
+        .await
+        .expect("test bootstrap token should issue");
     state
         .auth
         .service
-        .setup("idle stability test password")
+        .setup_with_bootstrap_token(&bootstrap_token, "idle stability test password")
         .await
         .expect("test auth should initialize");
     let auth_state = state
