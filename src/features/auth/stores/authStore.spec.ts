@@ -115,6 +115,26 @@ describe("authStore", () => {
     expect(taskStore.tasks).toEqual([]);
   });
 
+  it("keeps a new login when an older 401 recovery finishes late", async () => {
+    const store = useAuthStore();
+    store.phase = "ready";
+    store.accessToken = "old-jwt";
+    let resolveRecovery!: (value: ReturnType<typeof status>) => void;
+    mockedStatus.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveRecovery = resolve; }),
+    );
+    const recovery = store.handleUnauthorized("old-jwt");
+
+    mockedLogin.mockResolvedValueOnce(status({ authenticated: true, accessToken: "new-jwt" }));
+    mockedStatus.mockResolvedValueOnce(status({ authenticated: true }));
+    await store.login("current password");
+    resolveRecovery(status({ authenticated: false, accessToken: null }));
+    await recovery;
+
+    expect(store.phase).toBe("ready");
+    expect(store.accessToken).toBe("new-jwt");
+  });
+
   it("applies an SSE auth probe result and clears all sensitive state", () => {
     const store = useAuthStore();
     store.handleUnauthorizedStatus(status({ authenticated: true, accessToken: "jwt" }));

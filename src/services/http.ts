@@ -32,20 +32,22 @@ interface RequestOptions extends HttpRequestOptions {
 }
 
 let accessTokenProvider: (() => string | null) | null = null;
-let unauthorizedHandler: (() => void | Promise<void>) | null = null;
-let isHandlingUnauthorized = false;
+let unauthorizedHandler: ((requestToken: string | null) => void | Promise<void>) | null = null;
+let handlingUnauthorizedToken: string | null | undefined;
 
 export function setAccessTokenProvider(provider: (() => string | null) | null) {
   accessTokenProvider = provider;
 }
 
-export function setUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
+export function setUnauthorizedHandler(
+  handler: ((requestToken: string | null) => void | Promise<void>) | null,
+) {
   unauthorizedHandler = handler;
 }
 
 async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
   const hasJsonBody = options.body !== undefined;
-  const accessToken = options.includeAuth === false ? null : accessTokenProvider?.();
+  const accessToken = options.includeAuth === false ? null : accessTokenProvider?.() ?? null;
   const response = await fetch(path, {
     method,
     // Preserve same-origin gateway cookies; Motrix itself authenticates with Bearer JWT.
@@ -74,12 +76,19 @@ async function request<T>(method: string, path: string, options: RequestOptions 
           message: typeof payload === "string" && payload ? payload : `请求失败（${response.status}）`,
         };
     const error = new ApiError(response.status, errorPayload);
-    if (response.status === 401 && options.handleUnauthorized !== false && unauthorizedHandler && !isHandlingUnauthorized) {
-      isHandlingUnauthorized = true;
+    if (
+      response.status === 401 &&
+      options.handleUnauthorized !== false &&
+      unauthorizedHandler &&
+      accessToken === (accessTokenProvider?.() ?? null) &&
+      handlingUnauthorizedToken !== accessToken
+    ) {
+      const handler = unauthorizedHandler;
+      handlingUnauthorizedToken = accessToken;
       try {
-        await unauthorizedHandler();
+        await handler(accessToken);
       } finally {
-        isHandlingUnauthorized = false;
+        if (handlingUnauthorizedToken === accessToken) handlingUnauthorizedToken = undefined;
       }
     }
     throw error;

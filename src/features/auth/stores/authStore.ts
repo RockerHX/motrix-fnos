@@ -26,6 +26,7 @@ export const useAuthStore = defineStore("auth", () => {
   const errorMessage = ref("");
   const isSubmitting = ref(false);
   let channel: AuthChannel | null = null;
+  let authGeneration = 0;
 
   const isReady = computed(() => phase.value === "ready");
   const hasAccessToken = computed(() => Boolean(accessToken.value));
@@ -77,14 +78,20 @@ export const useAuthStore = defineStore("auth", () => {
     return submit(() => changeAuthPassword(payload), true);
   }
 
-  async function handleUnauthorized() {
+  async function handleUnauthorized(expectedToken: string | null = accessToken.value) {
+    if (expectedToken !== accessToken.value) return;
     clearSensitiveState();
     clearAccessToken();
+    const recoveryGeneration = authGeneration;
     try {
-      applyStatus(await getAuthStatus());
+      const status = await getAuthStatus();
+      if (authGeneration !== recoveryGeneration) return;
+      applyStatus(status);
     } catch {
+      if (authGeneration !== recoveryGeneration) return;
       phase.value = "login";
     }
+    if (authGeneration !== recoveryGeneration) return;
     channel?.post({ type: "auth-invalidated" });
   }
 
@@ -201,6 +208,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   function saveAccessToken(token: string) {
     accessToken.value = token;
+    authGeneration += 1;
     try {
       window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
       localStorageAvailable.value = true;
@@ -211,6 +219,7 @@ export const useAuthStore = defineStore("auth", () => {
 
   function clearAccessToken() {
     accessToken.value = null;
+    authGeneration += 1;
     try {
       window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     } catch {
