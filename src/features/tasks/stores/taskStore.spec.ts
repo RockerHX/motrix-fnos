@@ -543,6 +543,23 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(store.tasks).toEqual(currentSnapshot);
   });
 
+  it("resets snapshot revisions for a new SSE stream before old HTTP responses finish", async () => {
+    const store = useTaskStore();
+    const pendingTasks = createDeferred<DownloadTask[]>();
+    const refreshedTasks = [createTask({ id: 84, status: "paused" })];
+    const currentSnapshot = [createTask({ id: 85, status: "active" })];
+    mockedListDownloadTasks.mockReturnValueOnce(pendingTasks.promise);
+
+    store.applyTaskSnapshot({ revision: 100, tasks: [createTask({ id: 83, status: "pending" })] });
+    const refresh = store.refreshTasks();
+    store.startTaskSnapshotStream();
+    store.applyTaskSnapshot({ revision: 0, tasks: currentSnapshot });
+    pendingTasks.resolve(refreshedTasks);
+    await refresh;
+
+    expect(store.tasks).toEqual(currentSnapshot);
+  });
+
   it("clearing sensitive state aborts requests and ignores late responses", async () => {
     const store = useTaskStore();
     const pendingTasks = createDeferred<DownloadTask[]>();

@@ -357,6 +357,11 @@ export const useTaskStore = defineStore("tasks", () => {
     notifiedErrorTaskKeys.clear();
   }
 
+  function startTaskSnapshotStream() {
+    latestTasksSnapshotRevision = -1;
+    cancelTasksRequest();
+  }
+
   function isCurrentMutation(generation: number) {
     return taskMutationGeneration === generation;
   }
@@ -503,6 +508,7 @@ export const useTaskStore = defineStore("tasks", () => {
     markRuntimeExiting,
     consumeTaskErrorMessages,
     clearSensitiveState,
+    startTaskSnapshotStream,
     cancelRefreshRequests,
     isTaskOperating,
   };

@@ -17,6 +17,8 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let authTimer: ReturnType<typeof setInterval> | null = null;
 let retryAttempt = 0;
 let generation = 0;
+let connectionGeneration = 0;
+let activeConnectionGeneration = 0;
 let hasOpenedConnection = false;
 let options: RuntimeEventOptions = defaultOptions();
 const RETRY_DELAYS_SECONDS = [1, 2, 4, 8, 16, 30];
@@ -33,6 +35,8 @@ export function initializeRuntimeEvents(nextOptions: RuntimeEventOptions = defau
   if (eventController) return eventController;
   clearRetryTimer();
   generation += 1;
+  connectionGeneration = 0;
+  activeConnectionGeneration = 0;
   hasOpenedConnection = false;
   const controller = new AbortController();
   eventController = controller;
@@ -42,6 +46,7 @@ export function initializeRuntimeEvents(nextOptions: RuntimeEventOptions = defau
 
 async function connect(controller: AbortController, currentGeneration: number) {
   if (currentGeneration !== generation || eventController !== controller) return;
+  const currentConnectionGeneration = ++connectionGeneration;
   const token = options.getAccessToken?.() ?? null;
   const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
@@ -65,13 +70,14 @@ async function connect(controller: AbortController, currentGeneration: number) {
     return;
   }
 
+  activeConnectionGeneration = currentConnectionGeneration;
   markConnectionOpened(currentGeneration);
   authTimer = setInterval(() => {
     void recheckAuth(controller, currentGeneration);
   }, AUTH_RECHECK_INTERVAL_MS);
 
   try {
-    await readSseStream(response.body, controller, currentGeneration);
+    await readSseStream(response.body, controller, currentGeneration, currentConnectionGeneration);
   } catch {
     if (!controller.signal.aborted) {
       await handleConnectionFailure(controller, currentGeneration);
@@ -90,13 +96,19 @@ function markConnectionOpened(currentGeneration: number) {
   retryAttempt = 0;
   const reconnected = hasOpenedConnection;
   hasOpenedConnection = true;
+  taskStore.startTaskSnapshotStream();
   if (reconnected && !taskStore.isRuntimeExiting) {
     void taskStore.refreshTasks();
   }
   if (currentGeneration !== generation) return;
 }
 
-async function readSseStream(body: ReadableStream<Uint8Array>, controller: AbortController, currentGeneration: number) {
+async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  controller: AbortController,
+  currentGeneration: number,
+  currentConnectionGeneration: number,
+) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -113,7 +125,7 @@ async function readSseStream(body: ReadableStream<Uint8Array>, controller: Abort
       return;
     }
     const data = dataLines.join("\n");
-    handleSseEvent(eventName, data, currentGeneration);
+    handleSseEvent(eventName, data, currentGeneration, currentConnectionGeneration);
     eventName = "message";
     dataLines = [];
   };
@@ -149,8 +161,13 @@ async function readSseStream(body: ReadableStream<Uint8Array>, controller: Abort
   }
 }
 
-function handleSseEvent(eventName: string, data: string, currentGeneration: number) {
-  if (currentGeneration !== generation) return;
+function handleSseEvent(
+  eventName: string,
+  data: string,
+  currentGeneration: number,
+  currentConnectionGeneration: number,
+) {
+  if (currentGeneration !== generation || currentConnectionGeneration !== activeConnectionGeneration) return;
   const taskStore = useTaskStore();
   if (eventName === "tasks.snapshot") {
     const payload = parseEventPayload<TasksSnapshotPayload>(data);
@@ -203,6 +220,7 @@ export function disposeRuntimeEvents() {
   eventController?.abort();
   eventController = null;
   retryAttempt = 0;
+  activeConnectionGeneration = 0;
   hasOpenedConnection = false;
   useTaskStore().cancelRefreshRequests();
 }
