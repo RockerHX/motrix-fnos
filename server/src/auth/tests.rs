@@ -1,5 +1,6 @@
 use super::*;
 use crate::database::connect_database;
+use crate::test_support::AuthServiceTestExt;
 
 const VALID_PASSWORD: &str = "correct horse battery";
 
@@ -50,7 +51,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .await
             .expect("setup should pass");
         assert!(!state.setup_required);
-        assert_eq!(state.auth_version, 1);
+        assert_eq!(state.auth_version, 2);
         let original_token = service
             .issue_admin_token(&state)
             .await
@@ -65,7 +66,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .change_password(VALID_PASSWORD, "replacement password")
             .await
             .expect("password should change");
-        assert_eq!(changed.auth_version, 2);
+        assert_eq!(changed.auth_version, 3);
         assert!(service
             .verify_password("replacement password")
             .await
@@ -74,7 +75,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
         service.reset().await.expect("reset should pass");
         let reset = service.state().await.expect("reset state should load");
         assert!(reset.setup_required);
-        assert_eq!(reset.auth_version, 3);
+        assert_eq!(reset.auth_version, 4);
         assert_eq!(
             service
                 .validate_admin_token(&original_token, reset.auth_version)
@@ -172,15 +173,155 @@ fn issued_tokens_remain_verifiable_after_database_reopen() {
 fn concurrent_setup_allows_only_one_password() {
     test_runtime().block_on(async {
         let (service, path) = test_service("concurrent").await;
+        let token = service.issue_bootstrap_token().await.unwrap();
         let first = service.clone();
         let second = service.clone();
         let (first, second) = tokio::join!(
-            first.setup(VALID_PASSWORD),
-            second.setup("another secure password")
+            first.setup_with_bootstrap_token(&token, VALID_PASSWORD),
+            second.setup_with_bootstrap_token(&token, "another secure password")
         );
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
-        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        assert!(matches!(
+            first,
+            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
+        ));
+        assert!(matches!(
+            second,
+            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
+        ));
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn bootstrap_token_is_single_use_and_reset_replaces_it() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("bootstrap-lifecycle").await;
+        let token = service.issue_bootstrap_token().await.unwrap();
+        let initialized = service
+            .setup_with_bootstrap_token(&token, VALID_PASSWORD)
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .setup_with_bootstrap_token(&token, "another secure password")
+                .await,
+            Err(AuthError::AlreadyInitialized)
+        ));
+        let reset_token = service.reset().await.unwrap();
+        assert_ne!(token, reset_token);
+        assert!(service
+            .setup_with_bootstrap_token(&token, "replacement password")
+            .await
+            .is_err());
+        let reset = service
+            .setup_with_bootstrap_token(&reset_token, "replacement password")
+            .await
+            .unwrap();
+        assert_eq!(reset.auth_version, initialized.auth_version + 2);
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn initialized_setup_skips_password_hash_work() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("setup-skips-hash").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("initial setup should pass");
+
+        let mut releases = Vec::new();
+        let mut workers = Vec::new();
+        for _ in 0..PASSWORD_HASH_CONCURRENCY {
+            let slots = service.password_hash_slots.clone();
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            workers.push(tokio::spawn(async move {
+                slots
+                    .run(move || {
+                        let _ = started_tx.send(());
+                        let _ = release_rx.recv();
+                        Ok(())
+                    })
+                    .await
+            }));
+            started_rx.await.expect("blocking hash slot should start");
+            releases.push(release_tx);
+        }
+
+        assert_eq!(
+            service.verify_password(VALID_PASSWORD).await,
+            Err(AuthError::PasswordHashBusy)
+        );
+        assert_eq!(
+            service.setup(VALID_PASSWORD).await,
+            Err(AuthError::AlreadyInitialized)
+        );
+        for release in releases {
+            release.send(()).expect("hash slot should be released");
+        }
+        for worker in workers {
+            worker.await.expect("hash slot task should finish").unwrap();
+        }
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn concurrent_password_changes_do_not_overwrite_each_other() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("concurrent-password-change").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let first = service.clone();
+        let second = service.clone();
+        let (first, second) = tokio::join!(
+            first.change_password(VALID_PASSWORD, "first replacement password"),
+            second.change_password(VALID_PASSWORD, "second replacement password")
+        );
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert!(matches!(
+            first,
+            Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
+        ));
+        assert!(matches!(
+            second,
+            Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
+        ));
+        assert_eq!(service.state().await.unwrap().auth_version, 3);
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn concurrent_reset_cannot_be_overwritten_by_password_change() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("concurrent-reset-password-change").await;
+        service
+            .setup(VALID_PASSWORD)
+            .await
+            .expect("setup should pass");
+        let change_service = service.clone();
+        let reset_service = service.clone();
+        let (changed, reset) = tokio::join!(
+            change_service.change_password(VALID_PASSWORD, "replacement password"),
+            reset_service.reset()
+        );
+
+        assert!(reset.is_ok());
+        let state = service.state().await.expect("auth state should load");
+        assert!(state.setup_required);
+        assert_eq!(state.auth_version, if changed.is_ok() { 4 } else { 3 });
+        if let Err(error) = changed {
+            assert!(matches!(
+                error,
+                AuthError::InvalidCredentials | AuthError::PasswordChanged
+            ));
+        }
         cleanup(service, path).await;
     });
 }

@@ -2,6 +2,7 @@ use super::transport::rpc_params;
 use crate::aria2::{Aria2RpcClient, Aria2RpcError};
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
+use crate::tasks::prepare::validate_url_output_file_name;
 use crate::tasks::{
     log_error, log_info, redact_url_for_log, DownloadTaskSourceType, DownloadTaskStartMode,
     PreparedDownloadTask,
@@ -53,6 +54,10 @@ pub async fn add_uri_to_aria2(
     request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, Aria2TaskCreationError> {
+    if task.source_type == DownloadTaskSourceType::Url {
+        validate_url_output_file_name(task.output_file_name.as_deref())
+            .map_err(Aria2TaskCreationError::Failed)?;
+    }
     validate_prepared_task_proxy(task).map_err(Aria2TaskCreationError::Failed)?;
     log_info(
         debug_logs,
@@ -186,7 +191,12 @@ pub(crate) fn build_add_uri_request_with_id(
         serde_json::json!(task.aria2_save_dir.as_deref().unwrap_or(&task.save_dir)),
     );
     if task.source_type == DownloadTaskSourceType::Url {
-        if let Some(output_file_name) = task.output_file_name.as_deref() {
+        if let Some(output_file_name) = task
+            .output_file_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             options.insert("out".to_string(), serde_json::json!(output_file_name));
         }
     }

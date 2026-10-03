@@ -60,6 +60,7 @@ fnOS FPK
 - Web UI、HTTP API 与 SSE 使用 manifest `service_port` 对应的管理监听器；FPK 桌面入口必须与该监听地址保持一致。管理监听器默认绑定 `0.0.0.0:17080`，并以 IPv6-only socket 同时绑定 `[::]:17080`；未知路径统一返回 404。
 - 回环 RPC 监听器默认绑定 `127.0.0.1:17081`，只注册精确的 `/jsonrpc` HTTP、WebSocket 与 CORS 预检入口；其他路径必须返回 404。该端口不得写入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射，只允许本机反向代理访问。
 - 局域网 RPC 监听器默认绑定 `0.0.0.0:17082`，同样只注册精确的 `/jsonrpc`。监听器始终绑定；局域网入口关闭时所有请求返回 404，开启后默认只接受真实 TCP 对端位于 IPv4 RFC1918 网段的请求。管理员可显式额外允许 RFC 6598 共享地址段 `100.64.0.0/10`，该选项默认关闭；来源判断不读取代理 Header。
+- 两个 JSON-RPC 入口共享最多 64 个 WebSocket 连接；连接在 5 分钟内没有新的文本或二进制业务消息时关闭。Ping/Pong 不刷新业务空闲计时，握手达到上限时返回 503；连接断开后立即归还配额。
 - 三类入口共享同一个 `HttpAppState`、SQLite 连接、Aria2 运行态和退出信号；任一实际地址绑定失败时整体启动失败，退出时只执行一次 Aria2 保存与清理。
 - Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启动/停止决策由 Rust server 内部生命周期协调器统一管理；任务操作、外部 `aria2.addUri`、启动恢复和后台监控不得绕过协调器。
 - 无引擎活动、metadata、在途操作或排队请求时，Aria2 按防抖策略保持停止；普通任务列表、SSE 快照、进程/RPC 状态查询不得因读取而启动 Aria2。
@@ -227,7 +228,7 @@ Rust Runtime Event
 - 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
 - Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
 - Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
-- 除明确匿名的认证与就绪探测接口外，管理 API 与 SSE 始终要求有效管理员 JWT。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、本地重置和升级时恢复旧版关闭状态均递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，且不提供关闭管理密码保护的配置或 API。
+- 除明确匿名的认证与就绪探测接口外，管理 API 与 SSE 始终要求有效管理员 JWT。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、本地重置和升级时恢复旧版关闭状态均递增版本，使旧 JWT 失效。首次启动必须完成密码初始化，且不提供关闭管理密码保护的配置或 API。首次初始化和本地重置后的初始化必须先通过本机受控命令生成的一次性 bootstrap token；服务端只持久化其 Argon2id 摘要和短期过期时间，setup 成功后在同一数据库更新中消费并清除 token，不通过匿名接口、URL 或日志交付明文 token。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
 - Motrix Web 管理鉴权不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。HTTP 与 SSE 请求使用 `credentials: "same-origin"`，允许浏览器按自身策略携带上游网关的同源 Cookie；这些 Cookie 不作为 Motrix 的管理授权依据。
 - 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，Web 管理认证变更不得影响 RPC 鉴权。

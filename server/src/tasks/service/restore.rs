@@ -15,6 +15,7 @@ impl<'a> TaskService<'a> {
             return Err("只有回收站任务可以恢复".to_string());
         }
         self.ensure_file_cleanup_not_pending(task_id).await?;
+        self.validate_task_authorization(&snapshot)?;
         let resolved_proxy = self
             .resolve_recreated_task_proxy(&snapshot, use_proxy_override)
             .await?;
@@ -217,8 +218,7 @@ impl<'a> TaskService<'a> {
         task: &DownloadTask,
         operation: &mut TaskOperation,
     ) -> Result<String, String> {
-        fs::create_dir_all(&task.save_dir)
-            .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task.save_dir, error))?;
+        self.prepare_task_destination(task)?;
         let prepared = restored_task_options(task, task.save_dir.clone());
         self.add_uri_for_task_operation(config, operation, &prepared)
             .await
@@ -249,8 +249,7 @@ impl<'a> TaskService<'a> {
         operation: &mut TaskOperation,
     ) -> Result<String, String> {
         let task_dir = task_download_dir(task).to_string();
-        fs::create_dir_all(&task_dir)
-            .map_err(|error| format!("重建任务保存目录失败：{}（{}）", task_dir, error))?;
+        self.prepare_task_destination(task)?;
         let mut prepared = restored_task_options(task, task_dir);
         if !task.selected_file_indexes.is_empty() {
             prepared.aria2_options.insert(

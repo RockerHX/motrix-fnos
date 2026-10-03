@@ -26,12 +26,13 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::env;
 use std::fs;
 use std::future::{Future, IntoFuture};
+use std::io::IsTerminal;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{broadcast, watch, RwLock, Semaphore};
 use tokio::time::{timeout_at, Duration, Instant};
 
 pub const APP_DATA_DIR_ENV: &str = "MOTRIX_FNOS_APP_DATA_DIR";
@@ -44,6 +45,7 @@ pub const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:17080";
 pub const DEFAULT_JSONRPC_ADDR: &str = "127.0.0.1:17081";
 pub const DEFAULT_LAN_JSONRPC_ADDR: &str = "0.0.0.0:17082";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
+pub const JSONRPC_WEBSOCKET_CONNECTION_LIMIT: usize = 64;
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,6 +181,8 @@ pub struct HttpAppState {
     json_rpc_token: Mutex<String>,
     app_config: RwLock<AppConfig>,
     pub(crate) lan_json_rpc_config: RwLock<LanJsonRpcConfig>,
+    lan_json_rpc_config_revision: watch::Sender<u64>,
+    pub(crate) jsonrpc_websocket_connections: Arc<Semaphore>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
@@ -189,6 +193,7 @@ pub struct HttpAppState {
 
 impl HttpAppState {
     pub fn new(core: ServerState, runtime: ServerRuntimeConfig) -> Self {
+        let (lan_json_rpc_config_revision, _) = watch::channel(0);
         let mut base_aria2_config = Aria2Config::from_env();
         base_aria2_config.aria2_path = runtime
             .aria2_path
@@ -213,6 +218,10 @@ impl HttpAppState {
             json_rpc_token: Mutex::new(String::new()),
             app_config: RwLock::new(AppConfig::default()),
             lan_json_rpc_config: RwLock::new(LanJsonRpcConfig::default()),
+            lan_json_rpc_config_revision,
+            jsonrpc_websocket_connections: Arc::new(Semaphore::new(
+                JSONRPC_WEBSOCKET_CONNECTION_LIMIT,
+            )),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),
@@ -341,6 +350,15 @@ impl HttpAppState {
 
     pub(crate) async fn lan_json_rpc_config(&self) -> LanJsonRpcConfig {
         self.lan_json_rpc_config.read().await.clone()
+    }
+
+    pub(crate) fn subscribe_lan_json_rpc_config(&self) -> watch::Receiver<u64> {
+        self.lan_json_rpc_config_revision.subscribe()
+    }
+
+    pub(crate) fn notify_lan_json_rpc_config_changed(&self) {
+        self.lan_json_rpc_config_revision
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
     }
 
     pub(crate) async fn current_app_config(&self) -> AppConfig {
@@ -687,6 +705,7 @@ pub async fn run_server() -> Result<(), String> {
 pub async fn run_cli(args: &[String]) -> Result<(), String> {
     match args {
         [] => run_server().await,
+        [command] if command == "bootstrap-web-auth" => bootstrap_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
         [command, output] if command == "database-backup" => database_backup(output).await,
@@ -699,7 +718,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }
@@ -746,19 +765,48 @@ async fn database_cleanup_history(before: &str, apply: bool) -> Result<(), Strin
 }
 
 async fn reset_web_auth() -> Result<(), String> {
+    require_bootstrap_terminal()?;
     let runtime = ServerRuntimeConfig::from_env()?;
-    reset_web_auth_with_runtime(&runtime).await
+    let token = reset_web_auth_with_runtime(&runtime).await?;
+    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
+    Ok(())
 }
 
-async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<(), String> {
+async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let database = connect_database(runtime.database_path.clone()).await?;
-    AuthService::new(database.pool.clone())
+    let token = AuthService::new(database.pool.clone())
         .reset()
         .await
-        .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"))?;
+        .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"));
     database.pool.close().await;
+    token
+}
+
+async fn bootstrap_web_auth() -> Result<(), String> {
+    require_bootstrap_terminal()?;
+    let runtime = ServerRuntimeConfig::from_env()?;
+    let token = bootstrap_web_auth_with_runtime(&runtime).await?;
+    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
     Ok(())
+}
+
+fn require_bootstrap_terminal() -> Result<(), String> {
+    if !std::io::stdout().is_terminal() {
+        return Err("请在本机交互终端执行鉴权管理命令，不得重定向初始化凭据".to_string());
+    }
+    Ok(())
+}
+
+async fn bootstrap_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let database = connect_database(runtime.database_path.clone()).await?;
+    let token = AuthService::new(database.pool.clone())
+        .issue_bootstrap_token()
+        .await
+        .map_err(|error| format!("生成 Web 鉴权初始化凭据失败：{error:?}"));
+    database.pool.close().await;
+    token
 }
 
 #[derive(Debug)]

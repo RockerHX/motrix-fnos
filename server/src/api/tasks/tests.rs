@@ -408,6 +408,43 @@ async fn create_route_checks_proxy_before_starting_aria2() {
 }
 
 #[tokio::test]
+async fn create_route_rejects_url_output_path_components() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    let app = test_router(state.clone());
+    let save_dir = temp_dir("task-invalid-file-name");
+    let save_dir_text = save_dir.display().to_string();
+    std::fs::create_dir_all(&save_dir).expect("authorized root should create");
+    write_accessible_paths(&state, std::slice::from_ref(&save_dir_text));
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks",
+            &json!({
+                "url": "https://example.com/archive.zip",
+                "fileName": "../escaped.bin",
+                "saveDir": save_dir_text
+            }),
+        ))
+        .await
+        .expect("invalid file name response should succeed"),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+
+    assert_eq!(error.code, "invalid_file_name");
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+    cleanup_state(&state);
+    mock.abort();
+}
+
+#[tokio::test]
 async fn update_proxy_route_persists_without_starting_aria2() {
     let state = test_state().await;
     let task = sample_task(1, DownloadTaskStatus::Active);
@@ -1379,6 +1416,66 @@ async fn file_context_fails_closed_when_authorization_snapshot_is_invalid() {
     assert_eq!(error.code, "task_file_context_failed");
 }
 
+#[tokio::test]
+async fn resume_route_rejects_revoked_task_before_starting_aria2() {
+    let state = test_state().await;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(sample_task(9, DownloadTaskStatus::Paused)))
+        .expect("task should be added");
+    write_accessible_paths(&state, &[]);
+    let app = test_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/tasks/9/resume")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("response should complete"),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
+#[tokio::test]
+async fn confirm_route_rejects_revoked_magnet_before_starting_aria2() {
+    let state = test_state().await;
+    let mut task = sample_task(9, DownloadTaskStatus::Pending);
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.confirmation_required = true;
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .expect("task should be added");
+    write_accessible_paths(&state, &[]);
+    let app = test_router(state.clone());
+
+    let error = response_json::<ErrorResponse>(
+        app.oneshot(json_request(
+            "POST",
+            "/api/tasks/9/confirm",
+            &json!({ "selectedFileIndexes": [1] }),
+        ))
+        .await
+        .expect("response should complete"),
+        StatusCode::FORBIDDEN,
+    )
+    .await;
+
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert!(state.aria2_runtime_snapshot().is_none());
+}
+
 fn test_router(state: Arc<HttpAppState>) -> Router {
     Router::new()
         .nest("/api", routes().merge(torrent_routes()))
@@ -1722,7 +1819,22 @@ async fn mock_aria2_rpc(
                 json!({ "result": gid })
             }
         }
-        "aria2.getOption" => json!({ "result": {} }),
+        "aria2.getOption" => {
+            let gid = gid_param(&params);
+            let task = state
+                .tasks
+                .lock()
+                .expect("tasks should lock")
+                .get(&gid)
+                .cloned();
+            json!({
+                "result": {
+                    "all-proxy": "",
+                    "dir": task.as_ref().map(|task| task.dir.as_str()).unwrap_or("/downloads"),
+                    "out": task.as_ref().map(|task| task.file_name.as_str()).unwrap_or("archive.zip")
+                }
+            })
+        }
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = gid_param(&params);
             state.tasks.lock().expect("tasks should lock").remove(&gid);

@@ -75,6 +75,23 @@ fn staged_user_files_always_require_manual_review() {
 }
 
 #[test]
+fn interrupted_file_staging_requires_manual_review() {
+    let operation = operation(
+        TaskOperationType::Redownload,
+        "file_staging_in_progress",
+        Some("old-gid"),
+        Some("new-gid"),
+        Vec::new(),
+    );
+    let presence = HashMap::from([("new-gid".to_string(), Aria2TaskPresence::Present)]);
+
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task_with_gid("new-gid")], &presence),
+        ReconcileAction::ManualReview(message) if message.contains("用户文件暂存记录")
+    ));
+}
+
+#[test]
 fn missing_persisted_gid_requires_manual_review() {
     let operation = operation(
         TaskOperationType::Restore,

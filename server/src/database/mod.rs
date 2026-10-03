@@ -208,6 +208,10 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 6,
         name: "force_web_auth_protection",
     },
+    SchemaMigration {
+        version: 7,
+        name: "web_auth_bootstrap_token",
+    },
 ];
 
 async fn apply_schema_migration(
@@ -221,8 +225,35 @@ async fn apply_schema_migration(
         4 => create_task_proxy_schema(transaction).await,
         5 => create_web_auth_jwt_schema(transaction).await,
         6 => force_web_auth_protection(transaction).await,
+        7 => create_web_auth_bootstrap_schema(transaction).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
+}
+
+async fn create_web_auth_bootstrap_schema(
+    transaction: &mut Transaction<'_, Sqlite>,
+) -> Result<(), String> {
+    for (column, definition) in [
+        ("bootstrap_token_hash", "TEXT"),
+        ("bootstrap_token_expires_at", "INTEGER"),
+    ] {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pragma_table_info('web_auth_config') WHERE name = ?",
+        )
+        .bind(column)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|error| format!("检查 Web 鉴权 bootstrap 字段失败：{error}"))?;
+        if count == 0 {
+            sqlx::query(&format!(
+                "ALTER TABLE web_auth_config ADD COLUMN {column} {definition}"
+            ))
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| format!("迁移 Web 鉴权 bootstrap 字段失败：{error}"))?;
+        }
+    }
+    Ok(())
 }
 
 async fn force_web_auth_protection(

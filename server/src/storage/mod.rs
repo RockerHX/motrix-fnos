@@ -153,7 +153,7 @@ fn authorized_root_for_save_dir<'a>(
         if matched_root == Some(path) {
             return Err(TaskSaveDirError::Unauthorized);
         }
-        if matched_root.map_or(true, |root| path.len() > root.len()) {
+        if matched_root.is_none_or(|root| path.len() > root.len()) {
             matched_root = Some(path);
         }
     }

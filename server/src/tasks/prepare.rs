@@ -11,6 +11,8 @@ use super::{
     current_timestamp_ms, log_error, log_info, redact_url_for_log, sanitize_create_task_options,
 };
 
+pub(crate) const INVALID_URL_OUTPUT_FILE_NAME: &str = "URL 任务文件名必须是单个普通文件名";
+
 #[derive(Debug)]
 pub(crate) struct PrepareBtDownloadTaskRequest {
     pub source_url: String,
@@ -118,6 +120,12 @@ fn prepare_task_inner(
     let file_name = output_file_name
         .clone()
         .unwrap_or_else(|| infer_file_name(request.source_type, &url));
+    if request.source_type == DownloadTaskSourceType::Url {
+        if let Err(error) = validate_url_output_file_name(Some(&file_name)) {
+            log_error(debug_logs, "tasks.create", &error);
+            return Err(error);
+        }
+    }
     let base_save_dir =
         resolve_save_dir_with_logs(normalize_optional(request.save_dir), debug_logs)?;
     let save_dir = base_save_dir;
@@ -171,6 +179,24 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+pub(crate) fn validate_url_output_file_name(file_name: Option<&str>) -> Result<(), String> {
+    let Some(file_name) = file_name else {
+        return Ok(());
+    };
+    let file_name = file_name.trim();
+    if file_name.is_empty() {
+        return Ok(());
+    }
+    if file_name == "."
+        || file_name == ".."
+        || file_name.contains(['/', '\\', '\0'])
+        || Path::new(file_name).is_absolute()
+    {
+        return Err(INVALID_URL_OUTPUT_FILE_NAME.to_string());
+    }
+    Ok(())
 }
 
 pub(crate) fn resolve_save_dir_with_logs(

@@ -77,12 +77,31 @@ async fn proxy_reconcile_rejects_enabled_task_without_binding() {
 #[tokio::test]
 async fn stale_gid_readd_includes_persisted_proxy_binding() {
     let mock = MockAria2Server::spawn("").await;
-    let task = proxy_task(Some("socks5://127.0.0.1:1080"));
+    let mut task = proxy_task(Some("socks5://127.0.0.1:1080"));
+    let save_dir = std::env::temp_dir().join(format!(
+        "motrix-session-readd-{}-{}",
+        std::process::id(),
+        current_timestamp_ms()
+    ));
+    std::fs::create_dir_all(&save_dir).expect("save directory should exist");
+    task.save_dir = save_dir.display().to_string();
+    task.file_path = Some(save_dir.join("archive.zip").display().to_string());
+    let accessible_paths_path = std::env::temp_dir().join(format!(
+        "motrix-accessible-paths-{}-{}.json",
+        std::process::id(),
+        current_timestamp_ms()
+    ));
+    std::fs::write(
+        &accessible_paths_path,
+        serde_json::json!({ "paths": [save_dir.display().to_string()] }).to_string(),
+    )
+    .expect("authorization snapshot should write");
 
     let gid = readd_download_task(
         &Aria2RpcClient::new(),
         &test_config(mock.addr.port()),
         &task,
+        &accessible_paths_path,
         None,
     )
     .await
@@ -100,6 +119,8 @@ async fn stale_gid_readd_includes_persisted_proxy_binding() {
         .and_then(Value::as_object)
         .expect("addUri options should exist");
     assert_eq!(options["all-proxy"], "socks5://127.0.0.1:1080");
+    let _ = std::fs::remove_file(accessible_paths_path);
+    let _ = std::fs::remove_dir_all(save_dir);
     mock.abort();
 }
 

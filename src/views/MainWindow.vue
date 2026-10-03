@@ -25,6 +25,7 @@ import { useMainWindowLifecycle } from "./composables/useMainWindowLifecycle";
 import { useI18n } from "../i18n";
 import { useAuthStore } from "../features/auth/stores/authStore";
 import { useJsonRpcTokenStore } from "../features/settings/stores/jsonRpcTokenStore";
+import type { TaskStatusFilter } from "../features/tasks/composables/useTaskCategoryView";
 import { getErrorMessage } from "../app/utils/errors";
 import type { AppInfo, BackendPing } from "../types/app";
 import type { MainNavCategory } from "../types/navigation";
@@ -43,6 +44,11 @@ const jsonRpcTokenStore = useJsonRpcTokenStore();
 const { tasks, removedTasks } = storeToRefs(taskStore);
 const { status: jsonRpcTokenStatus } = storeToRefs(jsonRpcTokenStore);
 const isToolbarBulkOperating = ref(false);
+const taskStatusFilterOptions = [
+  { value: "all" as TaskStatusFilter, labelKey: "task.statusFilter.all" },
+  { value: "paused" as TaskStatusFilter, labelKey: "task.statusFilter.paused" },
+  { value: "error" as TaskStatusFilter, labelKey: "task.statusFilter.error" },
+] as const;
 const { aria2Process, aria2Rpc, refreshAria2Status, updateAria2Status } = useAria2Status();
 const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
   message,
@@ -50,6 +56,7 @@ const { updateCheck, isCheckingUpdate, runUpdateCheck } = useUpdateCheck({
 });
 const {
   activeCategory,
+  taskStatusFilter,
   visibleTasks,
   isExtensionsCategory,
   hasVisibleTasks,
@@ -67,6 +74,7 @@ const { refreshTasks, refreshRemovedTasks } = useTaskToasts({
   message,
 });
 const pagination = useTaskPagination({ tasks: visibleTasks, activeCategory });
+watch(taskStatusFilter, () => pagination.resetPage());
 const toolbar = useTaskToolbar({
   activeCategory,
   visibleTasks: pagination.pagedTasks,
@@ -153,31 +161,53 @@ async function logout() {
     @logout="logout"
     @select-category="selectCategory"
   >
-    <Transition name="app-content-switch">
-      <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
-      <TaskEmptyState
-        v-else-if="!hasVisibleTasks"
-        :key="contentViewKey"
-        :title="t(emptyState.titleKey)"
-        :description="t(emptyState.descriptionKey)"
-        :show-create-action="emptyState.showCreateAction"
-        :disable-create-action="taskStore.isRuntimeExiting"
-        :show-settings-action="emptyState.showSettingsAction"
-        @create="dialogs.openCreateDialog"
-        @open-settings="dialogs.openSettings"
-      />
-      <TaskTable
-        v-else
-        :key="contentViewKey"
-        :tasks="pagination.pagedTasks.value"
-        :page="pagination.page.value"
-        :page-size="pagination.pageSize.value"
-        :item-count="pagination.itemCount.value"
-        :show-pagination="pagination.showPagination.value"
-        @update:page="pagination.page.value = $event"
-        @update:page-size="pagination.pageSize.value = $event"
-      />
-    </Transition>
+    <div class="main-content">
+      <div
+        v-if="activeCategory === 'all'"
+        class="task-status-filter"
+        role="group"
+        :aria-label="t('task.statusFilter.label')"
+      >
+        <button
+          v-for="option in taskStatusFilterOptions"
+          :key="option.value"
+          type="button"
+          :class="{ active: taskStatusFilter === option.value }"
+          :aria-pressed="taskStatusFilter === option.value"
+          @click="taskStatusFilter = option.value"
+        >
+          {{ t(option.labelKey) }}
+        </button>
+      </div>
+
+      <div class="main-content-body">
+        <Transition name="app-content-switch">
+          <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
+          <TaskEmptyState
+            v-else-if="!hasVisibleTasks"
+            :key="contentViewKey"
+            :title="t(emptyState.titleKey)"
+            :description="t(emptyState.descriptionKey)"
+            :show-create-action="emptyState.showCreateAction"
+            :disable-create-action="taskStore.isRuntimeExiting"
+            :show-settings-action="emptyState.showSettingsAction"
+            @create="dialogs.openCreateDialog"
+            @open-settings="dialogs.openSettings"
+          />
+          <TaskTable
+            v-else
+            :key="contentViewKey"
+            :tasks="pagination.pagedTasks.value"
+            :page="pagination.page.value"
+            :page-size="pagination.pageSize.value"
+            :item-count="pagination.itemCount.value"
+            :show-pagination="pagination.showPagination.value"
+            @update:page="pagination.page.value = $event"
+            @update:page-size="pagination.pageSize.value = $event"
+          />
+        </Transition>
+      </div>
+    </div>
 
     <template #overlay>
       <Transition name="app-floating-add">

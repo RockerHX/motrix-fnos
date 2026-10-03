@@ -7,8 +7,8 @@ export function getAuthStatus() {
   return httpGet<AuthStatus>("/api/auth/status", { handleUnauthorized: false });
 }
 
-export function setupAuth(password: string) {
-  return httpPost<AuthStatus>("/api/auth/setup", { password }, publicRequest);
+export function setupAuth(password: string, bootstrapToken: string) {
+  return httpPost<AuthStatus>("/api/auth/setup", { password, bootstrapToken }, publicRequest);
 }
 
 export function loginAuth(password: string) {

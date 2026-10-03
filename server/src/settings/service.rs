@@ -273,7 +273,7 @@ fn default_max_tries() -> u32 {
 
 pub fn normalize_min_split_size(value: &str) -> String {
     let value = value.trim();
-    if MIN_SPLIT_SIZE_OPTIONS.iter().any(|option| *option == value) {
+    if MIN_SPLIT_SIZE_OPTIONS.contains(&value) {
         value.to_string()
     } else {
         default_min_split_size()

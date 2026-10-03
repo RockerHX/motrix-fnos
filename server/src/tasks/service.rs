@@ -19,10 +19,11 @@ use crate::tasks::{
     set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
-    unpause_task_with_request_id, validate_task_files, Aria2TaskCreationError, Aria2TaskRequest,
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus,
-    PreparedDownloadTask, TaskMemoryState, TaskOperation, TaskOperationContext, TaskOperationType,
+    unpause_task_with_request_id, validate_task_files, validate_url_task_output_before_resume,
+    Aria2TaskCreationError, Aria2TaskRequest, CreateDownloadTaskRequest, CreateTaskAdvancedOptions,
+    CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskSourceType, DownloadTaskStartMode,
+    DownloadTaskStatus, PreparedDownloadTask, TaskMemoryState, TaskOperation, TaskOperationContext,
+    TaskOperationType,
 };
 use std::collections::BTreeSet;
 use std::fs;
@@ -67,6 +68,7 @@ pub struct TaskService<'a> {
     download_tasks: &'a TaskMemoryState,
     next_task_id: &'a AtomicU64,
     app_data_dir: &'a Path,
+    accessible_paths_path: &'a Path,
     debug_logs: &'a DebugLogStore,
     aria2_rpc: &'a Aria2RpcClient,
     aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
@@ -79,6 +81,7 @@ pub struct TaskServiceDependencies<'a> {
     pub download_tasks: &'a TaskMemoryState,
     pub next_task_id: &'a AtomicU64,
     pub app_data_dir: &'a Path,
+    pub accessible_paths_path: &'a Path,
     pub debug_logs: &'a DebugLogStore,
     pub aria2_rpc: &'a Aria2RpcClient,
     pub aria2_lifecycle: &'a std::sync::Arc<Aria2LifecycleCoordinator>,
@@ -93,6 +96,7 @@ impl<'a> TaskService<'a> {
             download_tasks: dependencies.download_tasks,
             next_task_id: dependencies.next_task_id,
             app_data_dir: dependencies.app_data_dir,
+            accessible_paths_path: dependencies.accessible_paths_path,
             debug_logs: dependencies.debug_logs,
             aria2_rpc: dependencies.aria2_rpc,
             aria2_lifecycle: dependencies.aria2_lifecycle,
@@ -103,6 +107,96 @@ impl<'a> TaskService<'a> {
 
     pub fn ensure_not_exiting(&self) -> Result<(), String> {
         self.runtime_guard.ensure_running()
+    }
+
+    pub fn ensure_task_authorized(&self, task_id: u64) -> Result<(), String> {
+        let task = task_snapshot(self.download_tasks, task_id)?;
+        self.validate_task_authorization(&task)
+    }
+
+    fn accessible_paths(&self) -> Result<Vec<String>, String> {
+        crate::storage::load_accessible_paths(self.accessible_paths_path)
+            .map_err(|error| format!("读取当前目录授权失败：{error}"))
+    }
+
+    pub(super) fn validate_task_authorization(&self, task: &DownloadTask) -> Result<(), String> {
+        if crate::tasks::is_pending_magnet_metadata_task(task) {
+            return Ok(());
+        }
+        let accessible_paths = self.accessible_paths()?;
+        crate::storage::validate_task_save_dir(
+            Some(crate::tasks::files::task_download_dir(task)),
+            &accessible_paths,
+        )
+        .map_err(|error| format!("任务保存目录当前未获授权：{error:?}"))
+    }
+
+    pub(super) fn prepare_task_destination(&self, task: &DownloadTask) -> Result<(), String> {
+        let accessible_paths = self.accessible_paths()?;
+        crate::storage::validate_task_save_dir(
+            Some(crate::tasks::files::task_download_dir(task)),
+            &accessible_paths,
+        )
+        .map_err(|error| format!("任务保存目录当前未获授权：{error:?}"))?;
+        crate::storage::prepare_task_save_dir(
+            Some(crate::tasks::files::task_download_dir(task)),
+            &accessible_paths,
+        )
+        .map_err(|error| format!("准备任务保存目录失败：{error:?}"))
+    }
+
+    pub(super) fn prepare_task_restore_destination(
+        &self,
+        task: &DownloadTask,
+    ) -> Result<(), String> {
+        let accessible_paths = self.accessible_paths()?;
+        let task_dir = task_download_dir(task);
+        crate::storage::validate_task_save_dir(Some(task_dir), &accessible_paths)
+            .map_err(|error| format!("任务保存目录当前未获授权：{error:?}"))?;
+        let restore_dir = match task.source_type {
+            DownloadTaskSourceType::Url => Path::new(&task.save_dir),
+            DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => Path::new(task_dir)
+                .parent()
+                .unwrap_or_else(|| Path::new(task_dir)),
+        };
+        crate::storage::prepare_task_save_dir(restore_dir.to_str(), &accessible_paths)
+            .map_err(|error| format!("准备任务文件恢复目录失败：{error:?}"))
+    }
+
+    pub async fn pause_unauthorized_tasks(&self, config: &Aria2Config) -> Result<bool, String> {
+        let accessible_paths = self.accessible_paths().unwrap_or_else(|error| {
+            self.debug_logs.error(
+                "storage.auth",
+                format!("授权快照不可读取，将按无授权目录处理：{}", error),
+            );
+            Vec::new()
+        });
+        let mut changed_any = false;
+        let mut errors = Vec::new();
+        for task in self.download_tasks.list()? {
+            if !matches!(
+                task.status,
+                DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+            ) || crate::tasks::is_pending_magnet_metadata_task(&task)
+                || task.gid.as_deref().is_none_or(|gid| gid.trim().is_empty())
+                || crate::storage::validate_task_save_dir(
+                    Some(crate::tasks::files::task_download_dir(&task)),
+                    &accessible_paths,
+                )
+                .is_ok()
+            {
+                continue;
+            }
+            match self.pause_task_for_revocation(config, task.id).await {
+                Ok(updated) => changed_any |= updated != task,
+                Err(error) => errors.push(error),
+            }
+        }
+        if errors.is_empty() {
+            Ok(changed_any)
+        } else {
+            Err(errors.join("；"))
+        }
     }
 
     pub(super) async fn begin_task_operation(
@@ -167,6 +261,7 @@ impl<'a> TaskService<'a> {
         task: &PreparedDownloadTask,
     ) -> Result<String, String> {
         self.prepare_aria2_task_request(operation, task).await?;
+        self.validate_prepared_task_save_dir(task)?;
         let request_id = operation.id.clone();
         match add_uri_to_aria2(
             self.aria2_rpc,
@@ -194,6 +289,7 @@ impl<'a> TaskService<'a> {
         torrent_data: &[u8],
     ) -> Result<String, String> {
         self.prepare_aria2_task_request(operation, task).await?;
+        self.validate_prepared_task_save_dir(task)?;
         let request_id = operation.id.clone();
         match add_torrent_to_aria2(
             self.aria2_rpc,
@@ -212,6 +308,20 @@ impl<'a> TaskService<'a> {
             }
             Err(error) => Err(error.to_string()),
         }
+    }
+
+    fn validate_prepared_task_save_dir(&self, task: &PreparedDownloadTask) -> Result<(), String> {
+        if let Some(aria2_save_dir) = task.aria2_save_dir.as_deref() {
+            if task.source_type == DownloadTaskSourceType::Magnet
+                && Path::new(aria2_save_dir).starts_with(self.app_data_dir)
+            {
+                return Ok(());
+            }
+            return Err("Aria2 私有保存目录不在应用数据目录中".to_string());
+        }
+        let accessible_paths = self.accessible_paths()?;
+        crate::storage::validate_task_save_dir(Some(&task.save_dir), &accessible_paths)
+            .map_err(|error| format!("任务保存目录当前未获授权：{error:?}"))
     }
 
     async fn reconcile_unknown_aria2_task_creation(

@@ -10,6 +10,9 @@ const REDOWNLOAD_BACKUP_PREFIX: &str = ".motrix-redownload-backup";
 pub(crate) struct StagedTaskFiles {
     backup_dir: PathBuf,
     entries: Vec<(PathBuf, PathBuf)>,
+    backup_dir_created: bool,
+    staged_count: usize,
+    recreated_directory: Option<PathBuf>,
 }
 
 impl StagedTaskFiles {
@@ -27,44 +30,72 @@ impl StagedTaskFiles {
         })
     }
 
-    pub(crate) fn restore(self) -> Result<(), String> {
-        for (original, staged) in self.entries.iter().rev() {
+    pub(crate) fn restore(&mut self) -> Result<(), String> {
+        if !self.backup_dir_created {
+            return Ok(());
+        }
+        if self.staged_count == 0 {
+            remove_empty_backup_dir(&self.backup_dir)?;
+            self.backup_dir_created = false;
+            return Ok(());
+        }
+
+        let metadata = fs::symlink_metadata(&self.backup_dir).map_err(|error| {
+            format!(
+                "读取重新下载备份目录失败：{}（{}）；备份路径：{}",
+                self.backup_dir.display(),
+                error,
+                self.backup_dir.display()
+            )
+        })?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(format!(
+                "重新下载备份路径不是普通目录，已保留：{}",
+                self.backup_dir.display()
+            ));
+        }
+
+        while self.staged_count > 0 {
+            let (original, staged) = &self.entries[self.staged_count - 1];
             if original.exists() {
-                let removable_empty_dir = original.is_dir()
+                let removable_empty_dir = self.recreated_directory.as_deref() == Some(original)
+                    && fs::symlink_metadata(original)
+                        .map(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+                        .unwrap_or(false)
                     && fs::read_dir(original)
                         .map(|mut entries| entries.next().is_none())
                         .unwrap_or(false);
-                if removable_empty_dir {
-                    fs::remove_dir(original).map_err(|error| {
-                        format!(
-                            "清理重新下载创建的空目录失败：{}（{}）",
-                            original.display(),
-                            error
-                        )
-                    })?;
-                } else {
+                if !removable_empty_dir {
                     return Err(format!(
-                        "恢复重新下载文件失败，目标路径已存在：{}",
-                        original.display()
+                        "恢复重新下载文件失败，目标路径已存在：{}；备份目录已保留：{}",
+                        original.display(),
+                        self.backup_dir.display()
                     ));
                 }
+                fs::remove_dir(original).map_err(|error| {
+                    format!(
+                        "清理重新下载创建的空目录失败：{}（{}）；备份目录已保留：{}",
+                        original.display(),
+                        error,
+                        self.backup_dir.display()
+                    )
+                })?;
+                self.recreated_directory = None;
             }
-            fs::rename(staged, original).map_err(|error| {
+            rename_no_replace(staged, original).map_err(|error| {
                 format!(
-                    "恢复重新下载文件失败：{} -> {}（{}）",
+                    "恢复重新下载文件失败：{} -> {}（{}）；备份目录已保留：{}",
                     staged.display(),
                     original.display(),
-                    error
+                    error,
+                    self.backup_dir.display()
                 )
             })?;
+            self.staged_count -= 1;
         }
-        fs::remove_dir_all(&self.backup_dir).map_err(|error| {
-            format!(
-                "清理重新下载恢复目录失败：{}（{}）",
-                self.backup_dir.display(),
-                error
-            )
-        })
+        remove_empty_backup_dir(&self.backup_dir)?;
+        self.backup_dir_created = false;
+        Ok(())
     }
 }
 
@@ -128,7 +159,9 @@ pub(crate) fn cleanup_staged_task_file_path(task_id: u64, path: &str) -> Result<
         .map_err(|error| format!("清理任务暂存文件失败：{}（{}）", path.display(), error))
 }
 
-pub(crate) fn stage_task_files(task: &DownloadTask) -> Result<Option<StagedTaskFiles>, String> {
+pub(crate) fn prepare_task_file_staging(
+    task: &DownloadTask,
+) -> Result<Option<StagedTaskFiles>, String> {
     validate_task_files(task)?;
     let lower_url = task.url.to_ascii_lowercase();
     if lower_url.starts_with("torrent:") || lower_url.starts_with("magnet:?") {
@@ -136,7 +169,7 @@ pub(crate) fn stage_task_files(task: &DownloadTask) -> Result<Option<StagedTaskF
             return Ok(None);
         };
         let parent = task_dir.parent().map(Path::to_path_buf);
-        return stage_paths(task.id, parent.as_deref(), vec![task_dir]);
+        return prepare_stage_paths(task.id, parent.as_deref(), vec![task_dir]);
     }
 
     let Some(file_path) = task
@@ -146,14 +179,14 @@ pub(crate) fn stage_task_files(task: &DownloadTask) -> Result<Option<StagedTaskF
     else {
         return Ok(None);
     };
-    stage_paths(
+    prepare_stage_paths(
         task.id,
         Path::new(file_path).parent(),
         delete_file_candidates(Path::new(file_path)),
     )
 }
 
-fn stage_paths(
+fn prepare_stage_paths(
     task_id: u64,
     parent: Option<&Path>,
     paths: Vec<PathBuf>,
@@ -178,40 +211,157 @@ fn stage_paths(
             .map(|duration| duration.as_nanos())
             .unwrap_or_default()
     ));
-    fs::create_dir(&backup_dir).map_err(|error| {
-        format!(
-            "创建重新下载暂存目录失败：{}（{}）",
-            backup_dir.display(),
-            error
-        )
-    })?;
-
     let mut entries = Vec::with_capacity(existing.len());
     for original in existing {
         let Some(name) = original.file_name() else {
-            let _ = fs::remove_dir_all(&backup_dir);
             return Err(format!("重新下载文件路径无效：{}", original.display()));
         };
         let staged = backup_dir.join(name);
-        if let Err(error) = fs::rename(&original, &staged) {
-            for (original, staged) in entries.iter().rev() {
-                let _ = fs::rename(staged, original);
-            }
-            let _ = fs::remove_dir_all(&backup_dir);
-            return Err(format!(
-                "暂存重新下载文件失败：{} -> {}（{}）",
-                original.display(),
-                staged.display(),
-                error
-            ));
-        }
         entries.push((original, staged));
     }
 
     Ok(Some(StagedTaskFiles {
         backup_dir,
         entries,
+        backup_dir_created: false,
+        staged_count: 0,
+        recreated_directory: None,
     }))
+}
+
+impl StagedTaskFiles {
+    pub(crate) fn stage(&mut self) -> Result<(), String> {
+        fs::create_dir(&self.backup_dir).map_err(|error| {
+            format!(
+                "创建重新下载暂存目录失败：{}（{}）",
+                self.backup_dir.display(),
+                error
+            )
+        })?;
+        self.backup_dir_created = true;
+
+        for (original, staged) in &self.entries {
+            rename_no_replace(original, staged).map_err(|error| {
+                format!(
+                    "暂存重新下载文件失败：{} -> {}（{}）",
+                    original.display(),
+                    staged.display(),
+                    error
+                )
+            })?;
+            self.staged_count += 1;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn create_replacement_directory(&mut self, path: &Path) -> Result<(), String> {
+        let Some((original, _)) = self.entries.first() else {
+            return Err(format!(
+                "无法确认重新创建目录属于本次暂存：{}",
+                path.display()
+            ));
+        };
+        if self.staged_count == 0 || !same_path_after_staging(original, path) {
+            return Err(format!(
+                "无法确认重新创建目录属于本次暂存：{}",
+                path.display()
+            ));
+        }
+        fs::create_dir(path).map_err(|error| {
+            format!("重建 BT 任务保存目录失败：{}（{}）", path.display(), error)
+        })?;
+        self.recreated_directory = Some(original.clone());
+        Ok(())
+    }
+}
+
+fn same_path_after_staging(original: &Path, replacement: &Path) -> bool {
+    original == replacement
+        || matches!(
+            (
+                original.parent().and_then(|path| path.canonicalize().ok()),
+                replacement
+                    .parent()
+                    .and_then(|path| path.canonicalize().ok()),
+            ),
+            (Some(original_parent), Some(replacement_parent))
+                if original_parent == replacement_parent
+                    && original.file_name() == replacement.file_name()
+        )
+}
+
+fn remove_empty_backup_dir(path: &Path) -> Result<(), String> {
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "清理重新下载恢复目录失败：{}（{}）",
+            path.display(),
+            error
+        )),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn path_exists(path: &Path) -> std::io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let from = CString::new(from.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let to = CString::new(to.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let from = CString::new(from.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let to = CString::new(to.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let result = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    if path_exists(to)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "目标路径已存在",
+        ));
+    }
+    fs::rename(from, to)
 }
 
 pub fn delete_task_files(task: &DownloadTask) -> Result<(), String> {
@@ -614,3 +764,6 @@ pub(crate) fn delete_file_candidates(path: &Path) -> Vec<PathBuf> {
         PathBuf::from(format!("{}.aria2", path.display())),
     ]
 }
+
+#[cfg(test)]
+mod tests;

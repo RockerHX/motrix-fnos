@@ -215,6 +215,57 @@ describe("taskStore refresh and operation state", () => {
     expect(store.tasks[0]).toEqual(createdTask);
   });
 
+  it("ignores late create responses after sensitive state is cleared", async () => {
+    const store = useTaskStore();
+    const oldTask = createTask({ id: 15, fileName: "old.iso" });
+    const newTask = createTask({ id: 16, fileName: "new.iso" });
+    const oldRequest = createDeferred<DownloadTask>();
+    const newRequest = createDeferred<DownloadTask>();
+    mockedCreateDownloadTask
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise);
+
+    const payload = { url: "https://example.com/file.iso", fileName: "file.iso", saveDir: "/downloads" };
+    const oldPromise = store.createTask(payload);
+    store.clearSensitiveState();
+    const newPromise = store.createTask(payload);
+
+    oldRequest.resolve(oldTask);
+    await oldPromise;
+    expect(store.tasks).toEqual([]);
+    expect(store.isCreating).toBe(true);
+
+    newRequest.resolve(newTask);
+    await newPromise;
+    expect(store.tasks).toEqual([newTask]);
+    expect(store.isCreating).toBe(false);
+  });
+
+  it("ignores late task operation responses after sensitive state is cleared", async () => {
+    const store = useTaskStore();
+    const oldTask = createTask({ id: 17, status: "paused" });
+    const newTask = createTask({ id: 17, status: "active" });
+    const oldRequest = createDeferred<DownloadTask>();
+    const newRequest = createDeferred<DownloadTask>();
+    mockedPauseDownloadTask
+      .mockReturnValueOnce(oldRequest.promise)
+      .mockReturnValueOnce(newRequest.promise);
+
+    const oldPromise = store.pauseTask(oldTask.id);
+    store.clearSensitiveState();
+    const newPromise = store.pauseTask(newTask.id);
+
+    oldRequest.resolve(oldTask);
+    await oldPromise;
+    expect(store.tasks).toEqual([]);
+    expect(store.isTaskOperating(newTask.id)).toBe(true);
+
+    newRequest.resolve(newTask);
+    await newPromise;
+    expect(store.tasks).toEqual([newTask]);
+    expect(store.isTaskOperating(newTask.id)).toBe(false);
+  });
+
   it("task operations toggle operating ids and update task collections", async () => {
     const store = useTaskStore();
     const activeTask = createTask({ id: 21, status: "active" });
@@ -489,6 +540,23 @@ describe("taskStore snapshot and runtime exiting", () => {
     await refresh;
 
     expect(signal?.aborted).toBe(true);
+    expect(store.tasks).toEqual(currentSnapshot);
+  });
+
+  it("resets snapshot revisions for a new SSE stream before old HTTP responses finish", async () => {
+    const store = useTaskStore();
+    const pendingTasks = createDeferred<DownloadTask[]>();
+    const refreshedTasks = [createTask({ id: 84, status: "paused" })];
+    const currentSnapshot = [createTask({ id: 85, status: "active" })];
+    mockedListDownloadTasks.mockReturnValueOnce(pendingTasks.promise);
+
+    store.applyTaskSnapshot({ revision: 100, tasks: [createTask({ id: 83, status: "pending" })] });
+    const refresh = store.refreshTasks();
+    store.startTaskSnapshotStream();
+    store.applyTaskSnapshot({ revision: 0, tasks: currentSnapshot });
+    pendingTasks.resolve(refreshedTasks);
+    await refresh;
+
     expect(store.tasks).toEqual(currentSnapshot);
   });
 

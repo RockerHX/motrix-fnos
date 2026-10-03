@@ -198,6 +198,25 @@ describe("http client", () => {
     expect(unauthorized).toHaveBeenCalledOnce();
   });
 
+  it("does not invalidate a newer token when an older request returns 401", async () => {
+    let resolveResponse!: (response: Response) => void;
+    const fetchMock = vi.fn().mockImplementation(
+      () => new Promise<Response>((resolve) => { resolveResponse = resolve; }),
+    );
+    const unauthorized = vi.fn();
+    let currentToken = "old-token";
+    setAccessTokenProvider(() => currentToken);
+    setUnauthorizedHandler(unauthorized);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = httpGet("/api/tasks");
+    currentToken = "new-token";
+    resolveResponse(jsonResponse({ code: "authentication_required", message: "请先登录" }, 401));
+
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
+
   it("keeps unauthorized handling for binary downloads", async () => {
     const unauthorized = vi.fn();
     setUnauthorizedHandler(unauthorized);

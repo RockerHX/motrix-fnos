@@ -8,11 +8,30 @@ use super::JsonRpcAccess;
 use crate::app::HttpAppState;
 use crate::runtime::process_status;
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub(super) async fn handle_jsonrpc_payload_with_access(
     state: &Arc<HttpAppState>,
     access: JsonRpcAccess,
+    payload: Value,
+) -> Value {
+    handle_jsonrpc_payload_with_peer_inner(state, access, None, payload).await
+}
+
+pub(super) async fn handle_jsonrpc_payload_with_peer(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    peer: SocketAddr,
+    payload: Value,
+) -> Value {
+    handle_jsonrpc_payload_with_peer_inner(state, access, Some(peer), payload).await
+}
+
+async fn handle_jsonrpc_payload_with_peer_inner(
+    state: &Arc<HttpAppState>,
+    access: JsonRpcAccess,
+    peer: Option<SocketAddr>,
     payload: Value,
 ) -> Value {
     match payload {
@@ -22,11 +41,11 @@ pub(super) async fn handle_jsonrpc_payload_with_access(
         Value::Array(items) => {
             let mut responses = Vec::with_capacity(items.len());
             for item in items {
-                responses.push(handle_jsonrpc_request(state, access, item).await);
+                responses.push(handle_jsonrpc_request(state, access, peer, item).await);
             }
             Value::Array(responses)
         }
-        Value::Object(_) => handle_jsonrpc_request(state, access, payload).await,
+        Value::Object(_) => handle_jsonrpc_request(state, access, peer, payload).await,
         _ => rpc_error(Value::Null, -32600, "Invalid Request"),
     }
 }
@@ -34,6 +53,7 @@ pub(super) async fn handle_jsonrpc_payload_with_access(
 async fn handle_jsonrpc_request(
     state: &Arc<HttpAppState>,
     access: JsonRpcAccess,
+    peer: Option<SocketAddr>,
     payload: Value,
 ) -> Value {
     let request = match serde_json::from_value::<JsonRpcRequest>(payload) {
@@ -43,9 +63,14 @@ async fn handle_jsonrpc_request(
     let id = request.id.clone().unwrap_or(Value::Null);
 
     let result = if request.method == "system.multicall" {
-        execute_multicall(state, access, &request.params).await
+        execute_multicall(state, access, peer, &request.params).await
     } else {
-        execute_method_with_access(state, access, &request.method, &request.params).await
+        match ensure_peer_allowed(state, access, peer).await {
+            Ok(()) => {
+                execute_method_with_access(state, access, &request.method, &request.params).await
+            }
+            Err(error) => Err(error),
+        }
     };
 
     match result {
@@ -57,6 +82,7 @@ async fn handle_jsonrpc_request(
 async fn execute_multicall(
     state: &Arc<HttpAppState>,
     access: JsonRpcAccess,
+    peer: Option<SocketAddr>,
     params: &Value,
 ) -> Result<Value, RpcFault> {
     let params = positional_params(params)?;
@@ -71,8 +97,16 @@ async fn execute_multicall(
         let call = serde_json::from_value::<MulticallItem>(call.clone())
             .map_err(|_| RpcFault::invalid_params("Invalid multicall item"))?;
         let params = call.params.unwrap_or(Value::Array(Vec::new()));
-        match execute_method_with_access(state, access, &call.method_name, &params).await {
-            Ok(result) => results.push(json!([result])),
+        match ensure_peer_allowed(state, access, peer).await {
+            Ok(()) => {
+                match execute_method_with_access(state, access, &call.method_name, &params).await {
+                    Ok(result) => results.push(json!([result])),
+                    Err(error) => results.push(json!({
+                        "faultCode": error.code,
+                        "faultString": error.message,
+                    })),
+                }
+            }
             Err(error) => results.push(json!({
                 "faultCode": error.code,
                 "faultString": error.message,
@@ -81,6 +115,27 @@ async fn execute_multicall(
     }
 
     Ok(Value::Array(results))
+}
+
+async fn ensure_peer_allowed(
+    state: &HttpAppState,
+    access: JsonRpcAccess,
+    peer: Option<SocketAddr>,
+) -> Result<(), RpcFault> {
+    if access != JsonRpcAccess::Lan {
+        return Ok(());
+    }
+    let Some(peer) = peer else {
+        return Ok(());
+    };
+    let config = state.lan_json_rpc_config().await;
+    if config.enabled
+        && super::super::is_allowed_lan_peer(peer.ip(), config.allow_shared_address_space)
+    {
+        Ok(())
+    } else {
+        Err(RpcFault::server_error("LAN JSON-RPC access revoked"))
+    }
 }
 
 pub(super) async fn execute_method_with_access(

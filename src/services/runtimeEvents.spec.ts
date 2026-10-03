@@ -5,6 +5,7 @@ const mockTaskStore = {
   applyTaskSnapshot: vi.fn(),
   markRuntimeExiting: vi.fn(),
   refreshTasks: vi.fn(),
+  startTaskSnapshotStream: vi.fn(),
   cancelRefreshRequests: vi.fn(),
 };
 
@@ -22,6 +23,7 @@ describe("runtimeEvents", () => {
     mockTaskStore.applyTaskSnapshot.mockReset();
     mockTaskStore.markRuntimeExiting.mockReset();
     mockTaskStore.refreshTasks.mockReset();
+    mockTaskStore.startTaskSnapshotStream.mockReset();
     mockTaskStore.cancelRefreshRequests.mockReset();
   });
 
@@ -96,6 +98,43 @@ describe("runtimeEvents", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await vi.runAllTicks();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets the task snapshot revision baseline after reconnect", async () => {
+    vi.useFakeTimers();
+    const first = controllableStream();
+    const second = controllableStream();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response);
+    const appliedRevisions: number[] = [];
+    let latestRevision = -1;
+    mockTaskStore.applyTaskSnapshot.mockImplementation(({ revision }: { revision: number }) => {
+      if (revision < latestRevision) return;
+      latestRevision = revision;
+      appliedRevisions.push(revision);
+    });
+    mockTaskStore.startTaskSnapshotStream.mockImplementation(() => {
+      latestRevision = -1;
+    });
+
+    initializeRuntimeEvents({
+      checkAuth: vi.fn().mockResolvedValue({ setupRequired: false, authenticated: true }),
+      onUnauthorized: vi.fn(),
+      getAccessToken: () => "jwt",
+    });
+    await vi.runAllTicks();
+    first.push('event: tasks.snapshot\ndata: {"revision":100,"tasks":[]}\n\n');
+    await vi.runAllTicks();
+    first.close();
+    await vi.runAllTicks();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.runAllTicks();
+
+    second.push('event: tasks.snapshot\ndata: {"revision":0,"tasks":[]}\n\n');
+    await vi.runAllTicks();
+
+    expect(mockTaskStore.startTaskSnapshotStream).toHaveBeenCalledTimes(2);
+    expect(appliedRevisions).toEqual([100, 0]);
   });
 
   it("cancels pending streams and retries on dispose", async () => {

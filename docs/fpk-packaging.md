@@ -371,7 +371,7 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 忘记管理密码时只能在 NAS 本机停止应用后执行 `reset-web-auth`；该命令不得通过公网触发，只清除 Web 鉴权并保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
+- 首次安装后必须在 NAS 本机停止应用并执行 FPK 命令目录中的 `bootstrap-web-auth` 获取一次性初始化 token；忘记管理密码时只能在同样条件下执行 `reset-web-auth` 获取新的 token。两个命令都要求交互式终端，不得重定向输出，也不得通过公网触发；命令只处理 Web 鉴权并保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。token 15 分钟有效且只能使用一次。
 - 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
 
 ### 升级前备份与回滚

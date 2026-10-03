@@ -6,7 +6,7 @@ use crate::runtime::{broadcast_tasks_snapshot, spawn_file_cleanup_worker};
 use crate::storage::TaskSaveDirError;
 use crate::tasks::{
     CreateDownloadTaskRequest, CreateTorrentDownloadTaskRequest, DownloadTaskSourceType,
-    PublicDownloadTask,
+    PublicDownloadTask, INVALID_URL_OUTPUT_FILE_NAME,
 };
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
@@ -293,7 +293,7 @@ async fn confirm_task_files(
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<ConfirmTaskFilesRequest>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let context = TaskMutationContext::prepare(&state).await?;
+    let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
         .confirm_download_task_files(&context.config, task_id, payload.selected_file_indexes)
@@ -306,7 +306,7 @@ async fn resume_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let context = TaskMutationContext::prepare(&state).await?;
+    let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
         .resume_download_task(&context.config, task_id)
@@ -321,7 +321,7 @@ async fn redownload_task(
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
-    let context = TaskMutationContext::prepare(&state).await?;
+    let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
         .redownload_download_task(&context.config, task_id, use_proxy)
@@ -336,7 +336,7 @@ async fn restore_task(
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
-    let context = TaskMutationContext::prepare(&state).await?;
+    let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
         .restore_removed_task(&context.config, task_id, use_proxy)
@@ -350,7 +350,11 @@ async fn delete_task(
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let context = TaskMutationContext::prepare(&state).await?;
+    let context = if query.delete_files.unwrap_or(false) {
+        TaskMutationContext::prepare_for_task(&state, task_id).await?
+    } else {
+        TaskMutationContext::prepare(&state).await?
+    };
     let task = context
         .service
         .delete_download_task(
@@ -482,6 +486,9 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("file_cleanup_pending") {
         return ApiError::conflict("file_cleanup_pending", error);
     }
+    if error.contains("任务保存目录当前未获授权") {
+        return ApiError::forbidden("save_dir_not_authorized", error);
+    }
     if error.contains("代理选择冲突") {
         return ApiError::bad_request("proxy_conflict", error);
     }
@@ -491,6 +498,9 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("代理地址") || error.contains("代理协议") || error.contains("代理端口")
     {
         return ApiError::bad_request("proxy_invalid", error);
+    }
+    if error == INVALID_URL_OUTPUT_FILE_NAME {
+        return ApiError::bad_request("invalid_file_name", error);
     }
     // 当前 service 使用中文错误文本区分可修正请求；新增或调整领域错误时必须同步检查这里的 HTTP 分类。
     if error.contains("下载任务不存在")

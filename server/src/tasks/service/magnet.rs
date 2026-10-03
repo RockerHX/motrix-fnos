@@ -99,6 +99,7 @@ impl<'a> TaskService<'a> {
         if !task.confirmation_required {
             return Err("当前任务不需要确认文件".to_string());
         }
+        self.validate_task_authorization(&task)?;
         let proxy_binding = self.resolve_existing_task_proxy(&task).await?;
         let select_file = selected
             .iter()
@@ -167,8 +168,20 @@ impl<'a> TaskService<'a> {
                 .await;
             return Err(error);
         }
+        if let Err(error) = self.validate_task_authorization(&task) {
+            remove_restore_metadata(self.app_data_dir, task_id);
+            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
+                .await;
+            return Err(error);
+        }
         let mut options = serde_json::Map::new();
         options.insert("select-file".to_string(), serde_json::json!(select_file));
+        if let Err(error) = self.prepare_task_destination(&task) {
+            remove_restore_metadata(self.app_data_dir, task_id);
+            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
+                .await;
+            return Err(error);
+        }
         let mut prepared = match prepare_bt_download_task_with_logs(
             PrepareBtDownloadTaskRequest {
                 source_url: task.url.clone(),

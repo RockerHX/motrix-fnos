@@ -7,6 +7,7 @@ use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
 use crate::tasks::{
     DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationContext, TaskOperationType,
 };
+use crate::test_support::AuthServiceTestExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
@@ -862,7 +863,7 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
         .await
         .expect("auth state should load");
     assert!(reset_state.setup_required);
-    assert_eq!(reset_state.auth_version, 2);
+    assert_eq!(reset_state.auth_version, 3);
     assert_eq!(
         load_json_rpc_token(&database.pool)
             .await
@@ -895,7 +896,7 @@ async fn run_cli_rejects_unknown_commands() {
         .expect_err("unknown command should fail");
     assert_eq!(
         error,
-        "用法：motrix-fnos-server [reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
+        "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
     );
 }
 

@@ -62,7 +62,7 @@
 | `408 Request Timeout` | 请求在资源限制层超时；可能不带 JSON body |
 | `409 Conflict` | 当前运行状态不允许执行该操作 |
 | `413 Payload Too Large` | 请求体超过接口大小限制；可能不带 JSON body |
-| `429 Too Many Requests` | 登录失败限速或递增延迟生效 |
+| `429 Too Many Requests` | 登录/密码验证失败限速或密码哈希并发达到上限 |
 | `502 Bad Gateway` | Aria2 明确拒绝任务代理等运行选项 |
 | `503 Service Unavailable` | Aria2 生命周期转换或运行依赖暂时不可用 |
 | `500 Internal Server Error` | 未预期内部错误 |
@@ -82,7 +82,7 @@
 | 方法 | 路径 | 访问要求 | 作用 |
 | --- | --- | --- | --- |
 | `GET` | `/api/auth/status` | 匿名 | 返回初始化和当前 JWT 状态 |
-| `POST` | `/api/auth/setup` | 匿名，仅从未初始化时 | 初始化 Web 管理密码并签发 JWT |
+| `POST` | `/api/auth/setup` | 匿名，仅从未初始化且持有一次性 bootstrap token 时 | 初始化 Web 管理密码并签发 JWT |
 | `POST` | `/api/auth/login` | 匿名 | 验证密码并签发 JWT |
 | `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
 | `POST` | `/api/auth/logout` | 匿名 | 返回 `204`；前端清除 JWT |
@@ -107,7 +107,18 @@
 
 登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
-`POST /api/auth/setup` 与 `POST /api/auth/login` 请求：
+`POST /api/auth/setup` 请求：
+
+```json
+{
+  "bootstrapToken": "local-command-token",
+  "password": "user-entered-password"
+}
+```
+
+`bootstrapToken` 由停止状态下的本机 `bootstrap-web-auth` 或 `reset-web-auth` 命令输出，有效期为 15 分钟且只能成功使用一次；命令要求交互式本地终端，禁止重定向输出。服务端不返回、记录或通过其他匿名接口提供明文 token。缺少、错误或过期 token 返回 `401 bootstrap_token_invalid`。
+
+`POST /api/auth/login` 请求：
 
 ```json
 {
@@ -115,9 +126,11 @@
 }
 ```
 
-- `setup` 必须在数据库事务中确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict`。
+- `setup` 必须在数据库事务中同时校验并消费 bootstrap token、确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict` 或 `401 bootstrap_token_invalid`。
 - `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
-- 登录限速默认使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
+- 登录和密码修改共用失败限速：同一来源 5 分钟内 5 次密码验证失败后锁定 30 秒；全局累计 100 次失败也会锁定 30 秒。达到限速时返回 `429 login_rate_limited` 和 `Retry-After`。
+- 限速来源使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
+- setup、login 和密码修改的 Argon2 操作最多并行 2 个，超额请求快速返回 `429 password_hash_busy` 和 `Retry-After: 1`。哈希任务在受限阻塞线程中执行，请求取消后仍占用并发名额，直到该任务结束。
 
 `PUT /api/auth/password` 请求：
 
@@ -132,7 +145,9 @@
 - 密码修改与本地重置必须递增 `authVersion`，使旧 JWT 失效；密码修改成功响应返回新 JWT。升级时会把旧版关闭的保护状态恢复为启用并递增 `authVersion`。
 - `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
 - 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
-- `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；它只重置 Web 鉴权，必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。
+- 密码修改先验证当前密码，再生成新密码哈希；更新同时匹配旧哈希和 `authVersion`，防止并发改密覆盖较新的凭据。
+- `bootstrap-web-auth` 和 `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；前者只在尚未初始化时生成一次性 bootstrap token，后者重置 Web 鉴权并同时废止旧 token、生成新 token；两者都必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。命令只向本地终端输出 token，不写入日志。
+- SQLite schema v7 为 `web_auth_config` 增加 `bootstrap_token_hash` 和 `bootstrap_token_expires_at`；升级既有已初始化实例时不会生成 token，也不会重新开放匿名 setup。首次安装或 reset 后必须再次执行本机命令生成 token。
 - 升级后旧浏览器 Cookie 不再生效，用户需重新登录；任务、设置和下载数据不受影响。
 
 密码使用 Argon2id 和随机 salt 保存不可逆哈希。Web 管理不使用 Cookie、服务端 Session 或 CSRF Token。
@@ -269,6 +284,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
+- 任何会写入用户下载目标或暂存/删除用户文件的继续、恢复、重新下载、磁链确认、stale GID 重建及 `deleteFiles=true` 操作，均按任务保存目录、专属目录和文件归属重新检查当前授权；授权已撤销时返回 `403 Forbidden`（`save_dir_not_authorized`），不得唤醒后写入、重建目录或暂存/删除用户文件。待确认磁链的 metadata 只写应用私有目录；确认文件以创建真实下载任务时仍须检查用户目录授权。
+- 成功刷新共享目录授权后，服务端会尝试暂停正在运行且目标已撤权的任务；暂停后的同步或持久化失败时保持 Aria2 暂停并留下待对账操作，不发送补偿性 `unpause`。暂停结果无法确认时也不恢复下载。
 - `POST /api/tasks/:id/redownload` 只允许重新下载 `complete` 任务。服务端先按原来源创建暂停任务并持久化，再暂存旧文件；新任务恢复成功后才清理暂存文件。任一步失败会恢复旧任务和原文件。URL 使用 `addUri`，种子和已确认磁链使用保存的源 metadata 调用 `addTorrent`。
 - 恢复与重新下载可省略请求体；省略或请求体中不提供 `useProxy` 时继承原任务的完整代理绑定。显式改变开关时改用应用代理配置来源；显式值与原值相同则保留旧兼容绑定。
 - 恢复与重新下载必须在创建目录、提交 GID 或暂存旧文件前确认所继承或覆盖的代理可用。校验或应用失败时保持原任务、文件和回收站状态，不得回退为直连。
@@ -968,4 +985,5 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
-- 局域网入口关闭时所有请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
+- 局域网入口关闭时所有新请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。配置关闭或收紧来源范围后，已有 WebSocket 连接也会被策略关闭；它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
+- 回环和局域网 JSON-RPC WebSocket 共享 64 个连接配额；达到上限的新握手返回 `503 Service Unavailable`。连接连续 5 分钟没有文本或二进制业务消息会关闭，Ping/Pong 不延长该期限；发送响应超过 10 秒也关闭连接并释放配额。

@@ -24,8 +24,17 @@ describe("useTaskCategoryView", () => {
     expect(view.activeCategory.value).toBe("all");
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2, 3, 4, 5, 7]);
 
+    view.taskStatusFilter.value = "paused";
+    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([4, 7]);
+
+    view.taskStatusFilter.value = "error";
+    expect(view.visibleTasks.value.map((task) => task.id)).toEqual([5]);
+
+    view.taskStatusFilter.value = "all";
+
     view.activeCategory.value = "downloading";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([1, 2, 7]);
+    expect(view.taskStatusFilter.value).toBe("all");
 
     view.activeCategory.value = "completed";
     expect(view.visibleTasks.value.map((task) => task.id)).toEqual([3]);

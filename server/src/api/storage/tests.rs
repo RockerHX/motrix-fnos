@@ -6,6 +6,7 @@ use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
 use crate::fnos::{FnosApiClient, API_TOKEN_ENV};
+use crate::test_support::AuthServiceTestExt;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;

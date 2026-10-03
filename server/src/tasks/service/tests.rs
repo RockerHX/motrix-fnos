@@ -838,7 +838,7 @@ async fn resume_download_task_reconciles_proxy_before_unpause() {
         1,
         DownloadTaskStatus::Paused,
         "gid-1",
-        temp_dir("resume-proxy-reconcile").display().to_string(),
+        mock.save_dir.clone(),
     );
     task.use_proxy = true;
     task.proxy_binding =
@@ -858,6 +858,8 @@ async fn resume_download_task_reconciles_proxy_before_unpause() {
     assert_eq!(
         mock.methods(),
         vec![
+            "aria2.tellStatus",
+            "aria2.getOption",
             "aria2.getOption",
             "aria2.changeOption",
             "aria2.unpause",
@@ -878,9 +880,7 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
         1,
         DownloadTaskStatus::Paused,
         "gid-1",
-        temp_dir("resume-proxy-reconcile-failure")
-            .display()
-            .to_string(),
+        mock.save_dir.clone(),
     );
     task.use_proxy = true;
     task.proxy_binding =
@@ -899,7 +899,12 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
     assert!(error.contains("更新任务选项失败"));
     assert_eq!(
         mock.methods(),
-        vec!["aria2.getOption", "aria2.changeOption"]
+        vec![
+            "aria2.tellStatus",
+            "aria2.getOption",
+            "aria2.getOption",
+            "aria2.changeOption",
+        ]
     );
     assert_eq!(
         fixture.tasks.list().expect("tasks should list")[0].status,
@@ -908,6 +913,97 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
     let operations = fixture.repository.operations();
     assert_eq!(operations[0].status, TaskOperationStatus::Failed);
     assert_eq!(operations[0].phase, "proxy_reconcile_failed");
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_when_aria2_output_cannot_be_confirmed() {
+    let mock = ResumeProxyMockAria2Server::spawn_without_confirmed_output().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        mock.save_dir.clone(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let error = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("resume must fail closed when Aria2 output is unknown");
+
+    assert!(error.contains("输出"), "unexpected resume error: {error}");
+    assert_eq!(mock.methods(), vec!["aria2.tellStatus", "aria2.getOption"]);
+    assert!(!mock.methods().contains(&"aria2.changeOption".to_string()));
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_aria2_output_outside_task_directory() {
+    let mock = ResumeProxyMockAria2Server::spawn_with_unsafe_output().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        mock.save_dir.clone(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let error = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect_err("resume must reject output outside the task directory");
+
+    assert!(
+        error.contains("输出路径"),
+        "unexpected resume error: {error}"
+    );
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    mock.abort();
+}
+
+#[tokio::test]
+async fn resume_url_task_readds_when_aria2_gid_is_stale() {
+    let mock = ResumeProxyMockAria2Server::spawn_stale_gid().await;
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        mock.save_dir.clone(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let resumed = fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .expect("stale GID should be rebuilt");
+
+    assert_eq!(resumed.status, DownloadTaskStatus::Active);
+    assert_eq!(resumed.gid.as_deref(), Some("gid-new"));
+    assert_eq!(
+        mock.methods(),
+        vec![
+            "aria2.tellStatus",
+            "aria2.unpause",
+            "aria2.removeDownloadResult",
+            "aria2.addUri",
+        ]
+    );
+    let add_uri = mock
+        .requests()
+        .into_iter()
+        .find(|request| request["method"] == "aria2.addUri")
+        .expect("rebuild should send addUri");
+    assert_eq!(add_uri["params"][2]["dir"], mock.save_dir);
+    assert_eq!(add_uri["params"][2]["out"], "archive.zip");
     mock.abort();
 }
 
@@ -940,9 +1036,9 @@ async fn pause_download_task_rejects_when_the_same_task_is_operating() {
 
 #[tokio::test]
 async fn pause_and_resume_record_completed_operation_states() {
-    let mock = MockAria2Server::spawn_with_tell_status().await;
     let save_dir = temp_dir("service-pause-resume-operation");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -978,9 +1074,9 @@ async fn pause_and_resume_record_completed_operation_states() {
 
 #[tokio::test]
 async fn pause_persist_failure_restores_the_original_task_state() {
-    let mock = MockAria2Server::spawn_with_tell_status().await;
     let save_dir = temp_dir("service-pause-persist-failure");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -1169,6 +1265,40 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
 }
 
 #[tokio::test]
+async fn delete_with_files_persist_failure_restores_owned_bt_directory() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("service-delete-bt-persist-failure");
+    let task_dir = save_dir.join("archive");
+    std::fs::create_dir_all(&task_dir).expect("task directory should create");
+    let file_path = task_dir.join("payload.bin");
+    std::fs::write(&file_path, b"payload").expect("task file should write");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    task.url = "torrent:archive.torrent".to_string();
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.owned_task_dir = Some(task_dir.display().to_string());
+    let fixture = ServiceFixture::new(vec![task], false);
+    fixture.repository.fail_persist_on_call(1);
+
+    fixture
+        .service()
+        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .await
+        .expect_err("persistence failure should roll back the BT directory");
+
+    assert_eq!(
+        std::fs::read(&file_path).expect("BT file should be restored"),
+        b"payload"
+    );
+    assert!(task_dir.is_dir());
+    mock.abort();
+}
+
+#[tokio::test]
 async fn restore_rejects_while_file_cleanup_is_pending() {
     let fixture = ServiceFixture::new(
         vec![sample_task(
@@ -1337,6 +1467,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         aria2_lifecycle: Arc::new(crate::runtime::Aria2LifecycleCoordinator::default()),
         shutdown: ShutdownState::new(),
         app_data_dir: fixture.app_data_dir.clone(),
+        accessible_paths_path: fixture.accessible_paths_path.clone(),
         proxy_update_lock: tokio::sync::Mutex::new(()),
     };
     fixture
@@ -2179,6 +2310,358 @@ async fn task_lifecycle_regression_preserves_operation_boundaries() {
     mock.abort();
 }
 
+#[tokio::test]
+async fn restore_rejects_revoked_destination_before_creating_it() {
+    let save_dir = temp_dir("restore-revoked-destination");
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    let error = fixture
+        .service()
+        .restore_removed_task(&test_config(6800, "secret"), 1, None)
+        .await
+        .expect_err("restore should reject a revoked destination");
+
+    assert!(error.contains("任务保存目录当前未获授权"));
+    assert!(
+        !save_dir.exists(),
+        "revoked destination must not be recreated"
+    );
+}
+
+#[tokio::test]
+async fn restore_pending_magnet_uses_private_metadata_when_download_dir_is_revoked() {
+    let mock = MockAria2Server::spawn_with_tell_status_dir("/unused".to_string()).await;
+    let revoked_dir = temp_dir("revoked-magnet-restore");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "old-gid",
+        revoked_dir.display().to_string(),
+    );
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.file_path = None;
+    let fixture = ServiceFixture::new(vec![task], false);
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    fixture
+        .service()
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .await
+        .expect("private metadata restore should not require user directory access");
+
+    let requests = mock.requests.lock().expect("requests should lock");
+    let add_uri = requests
+        .iter()
+        .find(|request| request["method"] == "aria2.addUri")
+        .expect("metadata task should be restored with addUri");
+    let options = add_uri["params"]
+        .as_array()
+        .and_then(|params| params.iter().rev().find_map(Value::as_object))
+        .expect("addUri options should exist");
+    assert_eq!(
+        options["dir"],
+        fixture
+            .app_data_dir
+            .join("magnet-metadata/task-1")
+            .display()
+            .to_string()
+    );
+    assert!(!revoked_dir.exists());
+    drop(requests);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn delete_files_rejects_revoked_destination_before_staging_files() {
+    let mock = MockAria2Server::spawn().await;
+    let save_dir = temp_dir("delete-revoked-destination");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"user data").expect("file should write");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    task.file_path = Some(file_path.display().to_string());
+    let fixture = ServiceFixture::new(vec![task], false);
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    let error = fixture
+        .service()
+        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .await
+        .expect_err("deleteFiles should reject a revoked destination");
+
+    assert!(error.contains("任务保存目录当前未获授权"));
+    assert_eq!(
+        std::fs::read(&file_path).expect("original file should remain"),
+        b"user data"
+    );
+    assert!(mock.methods().is_empty());
+    mock.abort();
+}
+
+#[tokio::test]
+async fn redownload_rejects_revoked_destination_before_adding_task() {
+    let mock = MockAria2Server::spawn_with_tell_status_dir("/unused".to_string()).await;
+    let save_dir = temp_dir("redownload-revoked-destination");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let file_path = save_dir.join("archive.zip");
+    std::fs::write(&file_path, b"existing download").expect("file should write");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    task.file_path = Some(file_path.display().to_string());
+    let fixture = ServiceFixture::new(vec![task], false);
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    let error = fixture
+        .service()
+        .redownload_download_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .await
+        .expect_err("redownload should reject a revoked destination");
+
+    assert!(error.contains("任务保存目录当前未获授权"));
+    assert!(mock.methods().is_empty());
+    assert_eq!(
+        std::fs::read(&file_path).expect("old file should remain"),
+        b"existing download"
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn confirm_magnet_rejects_revoked_destination_before_creating_it() {
+    let mock = MockAria2Server::spawn_with_tell_status_dir("/unused".to_string()).await;
+    let save_dir = temp_dir("confirm-revoked-destination");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Pending,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_path = None;
+    task.confirmation_required = true;
+    let fixture = ServiceFixture::new(vec![task], false);
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    let error = fixture
+        .service()
+        .confirm_download_task_files(&test_config(mock.addr.port(), "secret"), 1, vec![1])
+        .await
+        .expect_err("file confirmation should reject a revoked destination");
+
+    assert!(error.contains("任务保存目录当前未获授权"));
+    assert!(mock.methods().is_empty());
+    assert!(!save_dir.exists());
+    mock.abort();
+}
+
+#[tokio::test]
+async fn authorization_pause_pauses_tasks_when_snapshot_is_unreadable() {
+    let mock = MockAria2Server::spawn_with_tell_status_dir("/downloads".to_string()).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            "/downloads".to_string(),
+        )],
+        false,
+    );
+    std::fs::write(&fixture.accessible_paths_path, "not-json")
+        .expect("corrupt authorization snapshot should write");
+    let config = test_config(mock.addr.port(), "secret");
+
+    let result = fixture.service().pause_unauthorized_tasks(&config).await;
+
+    assert!(result.expect("unreadable authorization should pause tasks"));
+    assert!(mock.methods().contains(&"aria2.pause".to_string()));
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn revoked_pause_does_not_unpause_when_persistence_fails() {
+    let save_dir = temp_dir("revoked-pause-persist-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+    fixture.repository.fail_persist_on_call(1);
+
+    let result = fixture
+        .service()
+        .pause_unauthorized_tasks(&test_config(mock.addr.port(), "secret"))
+        .await;
+
+    assert!(result.is_err());
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert!(mock.methods().contains(&"aria2.pause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::ManualReview
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn revoked_pause_stays_paused_when_operation_update_fails() {
+    let save_dir = temp_dir("revoked-pause-operation-update-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+    fixture.repository.fail_update_on_call(1);
+
+    let result = fixture
+        .service()
+        .pause_unauthorized_tasks(&test_config(mock.addr.port(), "secret"))
+        .await;
+
+    assert!(result.expect("confirmed pause should persist task state"));
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Paused
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::ManualReview
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn revoked_pause_does_not_mark_task_paused_when_status_sync_fails() {
+    let save_dir = temp_dir("revoked-pause-status-sync-failure");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_revocation_pause_mock(
+        save_dir.display().to_string(),
+        Duration::ZERO,
+        true,
+    )
+    .await;
+    let fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+
+    let result = fixture
+        .service()
+        .pause_unauthorized_tasks(&test_config(mock.addr.port(), "secret"))
+        .await;
+
+    assert!(result.is_err());
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Active
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::ManualReview
+    );
+    mock.abort();
+}
+
+#[tokio::test]
+async fn revoked_pause_keeps_task_unconfirmed_when_pause_result_is_unknown() {
+    let save_dir = temp_dir("revoked-pause-unknown");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mock = MockAria2Server::spawn_revocation_pause_mock(
+        save_dir.display().to_string(),
+        Duration::from_millis(200),
+        false,
+    )
+    .await;
+    let mut fixture = ServiceFixture::new(
+        vec![sample_task(
+            1,
+            DownloadTaskStatus::Active,
+            "gid-1",
+            save_dir.display().to_string(),
+        )],
+        false,
+    );
+    std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#)
+        .expect("revoked authorization should write");
+    fixture.aria2_rpc = crate::aria2::Aria2RpcClient::with_timeouts(
+        Duration::from_secs(1),
+        Duration::from_millis(40),
+    );
+
+    let result = fixture
+        .service()
+        .pause_unauthorized_tasks(&test_config(mock.addr.port(), "secret"))
+        .await;
+
+    assert!(result.is_err());
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(
+        fixture.tasks.list().expect("tasks should list")[0].status,
+        DownloadTaskStatus::Complete
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::ManualReview
+    );
+    mock.abort();
+}
+
 struct ServiceFixture {
     repository: Arc<FakeTaskRepository>,
     tasks: TaskMemoryState,
@@ -2188,6 +2671,7 @@ struct ServiceFixture {
     aria2_lifecycle: Arc<crate::runtime::Aria2LifecycleCoordinator>,
     shutdown: ShutdownState,
     app_data_dir: PathBuf,
+    accessible_paths_path: PathBuf,
     proxy_update_lock: tokio::sync::Mutex<()>,
 }
 
@@ -2198,6 +2682,20 @@ impl ServiceFixture {
             shutdown.mark_exiting();
         }
 
+        let app_data_dir = temp_dir("service-app-data");
+        let accessible_paths_path = app_data_dir.join("accessible-paths.json");
+        let accessible_paths = vec![std::env::temp_dir()
+            .display()
+            .to_string()
+            .trim_end_matches('/')
+            .to_string()];
+        std::fs::create_dir_all(&app_data_dir).expect("fixture app data should be created");
+        std::fs::write(
+            &accessible_paths_path,
+            serde_json::json!({ "paths": accessible_paths }).to_string(),
+        )
+        .expect("fixture authorization snapshot should be written");
+
         Self {
             repository: Arc::new(FakeTaskRepository::default()),
             tasks: TaskMemoryState::new(tasks),
@@ -2206,7 +2704,8 @@ impl ServiceFixture {
             aria2_rpc: crate::aria2::Aria2RpcClient::new(),
             aria2_lifecycle: Arc::new(crate::runtime::Aria2LifecycleCoordinator::default()),
             shutdown,
-            app_data_dir: temp_dir("service-app-data"),
+            app_data_dir,
+            accessible_paths_path,
             proxy_update_lock: tokio::sync::Mutex::new(()),
         }
     }
@@ -2217,6 +2716,7 @@ impl ServiceFixture {
             download_tasks: &self.tasks,
             next_task_id: &self.next_task_id,
             app_data_dir: &self.app_data_dir,
+            accessible_paths_path: &self.accessible_paths_path,
             debug_logs: &self.debug_logs,
             aria2_rpc: &self.aria2_rpc,
             aria2_lifecycle: &self.aria2_lifecycle,
@@ -2242,6 +2742,8 @@ struct FakeRepositoryState {
     delete_result: bool,
     persist_calls: usize,
     fail_persist_call: Option<usize>,
+    update_calls: usize,
+    fail_update_call: Option<usize>,
 }
 
 impl FakeTaskRepository {
@@ -2269,6 +2771,13 @@ impl FakeTaskRepository {
             .lock()
             .expect("repository state should lock")
             .fail_persist_call = Some(call);
+    }
+
+    fn fail_update_on_call(&self, call: usize) {
+        self.state
+            .lock()
+            .expect("repository state should lock")
+            .fail_update_call = Some(call);
     }
 
     fn upserted_tasks(&self) -> Vec<DownloadTask> {
@@ -2354,6 +2863,10 @@ impl TaskRepository for Arc<FakeTaskRepository> {
 
     async fn update_operation(&self, operation: &TaskOperation) -> Result<(), String> {
         let mut state = self.state.lock().expect("repository state should lock");
+        state.update_calls += 1;
+        if state.fail_update_call == Some(state.update_calls) {
+            return Err("injected operation update failure".to_string());
+        }
         let stored = state
             .operations
             .iter_mut()
@@ -2404,6 +2917,7 @@ impl TaskRepository for Arc<FakeTaskRepository> {
 struct MockAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
+    requests: Arc<Mutex<Vec<Value>>>,
 }
 
 struct TaskCreationMockAria2Server {
@@ -2431,6 +2945,7 @@ struct ResumeProxyMockAria2Server {
     addr: SocketAddr,
     handle: tokio::task::JoinHandle<()>,
     requests: Arc<Mutex<Vec<Value>>>,
+    save_dir: String,
 }
 
 struct TimeoutAfterAddAria2Server {
@@ -2622,24 +3137,100 @@ impl MockAria2Server {
         Self::spawn_with_router(app).await
     }
 
-    async fn spawn_with_tell_status() -> Self {
-        let app = Router::new().route("/jsonrpc", post(mock_aria2_rpc_with_tell_status));
-        Self::spawn_with_router(app).await
-    }
-
     async fn spawn_with_tell_status_dir(save_dir: String) -> Self {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
         let app = Router::new().route(
             "/jsonrpc",
             post(move |Json(payload): Json<Value>| {
                 let save_dir = save_dir.clone();
+                let captured = captured.clone();
                 async move {
+                    captured
+                        .lock()
+                        .expect("mock requests should lock")
+                        .push(payload.clone());
                     Json(mock_aria2_response_with_tell_status_dir(
                         &payload, &save_dir,
                     ))
                 }
             }),
         );
-        Self::spawn_with_router(app).await
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock server should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+        }
+    }
+
+    async fn spawn_revocation_pause_mock(
+        save_dir: String,
+        pause_delay: Duration,
+        fail_tell_status: bool,
+    ) -> Self {
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let captured = captured.clone();
+                let save_dir = save_dir.clone();
+                let pause_delay = pause_delay;
+                async move {
+                    captured
+                        .lock()
+                        .expect("mock requests should lock")
+                        .push(payload.clone());
+                    if payload["method"] == "aria2.pause" {
+                        tokio::time::sleep(pause_delay).await;
+                        return Json(mock_aria2_response(&payload));
+                    }
+                    if payload["method"] == "aria2.tellStatus" {
+                        if fail_tell_status {
+                            return Json(mock_aria2_response(&payload));
+                        }
+                        return Json(json!({
+                            "result": {
+                                "gid": "gid-1",
+                                "status": "complete",
+                                "totalLength": "1024",
+                                "completedLength": "1024",
+                                "downloadSpeed": "0",
+                                "dir": save_dir,
+                                "files": [{
+                                    "index": "1",
+                                    "path": format!("{save_dir}/archive.zip")
+                                }]
+                            }
+                        }));
+                    }
+                    Json(mock_aria2_response(&payload))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("mock server should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+        }
     }
 
     async fn spawn_with_router(app: Router) -> Self {
@@ -2653,7 +3244,20 @@ impl MockAria2Server {
                 .expect("mock server should serve");
         });
 
-        Self { addr, handle }
+        Self {
+            addr,
+            handle,
+            requests: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn methods(&self) -> Vec<String> {
+        self.requests
+            .lock()
+            .expect("mock requests should lock")
+            .iter()
+            .filter_map(|request| request["method"].as_str().map(str::to_string))
+            .collect()
     }
 
     fn abort(self) {
@@ -2736,12 +3340,54 @@ impl ProxyOptionMockAria2Server {
 
 impl ResumeProxyMockAria2Server {
     async fn spawn(fail_change_option: bool) -> Self {
+        let save_dir = temp_dir("resume-mock");
+        std::fs::create_dir_all(&save_dir).expect("mock save directory should create");
+        Self::spawn_with_output(
+            fail_change_option,
+            Some(save_dir.join("archive.zip").display().to_string()),
+            save_dir.display().to_string(),
+        )
+        .await
+    }
+
+    async fn spawn_without_confirmed_output() -> Self {
+        let save_dir = temp_dir("resume-mock-no-output");
+        std::fs::create_dir_all(&save_dir).expect("mock save directory should create");
+        Self::spawn_with_output(false, None, save_dir.display().to_string()).await
+    }
+
+    async fn spawn_with_unsafe_output() -> Self {
+        let save_dir = temp_dir("resume-mock-unsafe-output");
+        std::fs::create_dir_all(&save_dir).expect("mock save directory should create");
+        Self::spawn_with_output(
+            false,
+            Some("/tmp/escaped.bin".to_string()),
+            save_dir.display().to_string(),
+        )
+        .await
+    }
+
+    async fn spawn_with_output(
+        fail_change_option: bool,
+        output_path: Option<String>,
+        save_dir: String,
+    ) -> Self {
+        let output_file_name = output_path
+            .as_deref()
+            .and_then(|path| path.rsplit('/').next())
+            .unwrap_or("archive.zip")
+            .to_string();
+        let confirmed_output = output_path.is_some();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
+        let handler_save_dir = save_dir.clone();
         let app = Router::new().route(
             "/jsonrpc",
             post(move |Json(payload): Json<Value>| {
                 let captured = captured.clone();
+                let output_path = output_path.clone();
+                let output_file_name = output_file_name.clone();
+                let save_dir = handler_save_dir.clone();
                 async move {
                     captured
                         .lock()
@@ -2752,6 +3398,9 @@ impl ResumeProxyMockAria2Server {
                         .and_then(Value::as_str)
                         .unwrap_or_default();
                     Json(match method {
+                        "aria2.getOption" if confirmed_output => json!({
+                            "result": { "dir": save_dir, "out": output_file_name }
+                        }),
                         "aria2.getOption" => json!({ "result": {} }),
                         "aria2.changeOption" if fail_change_option => json!({
                             "error": { "code": 1, "message": "cannot change option" }
@@ -2766,8 +3415,11 @@ impl ResumeProxyMockAria2Server {
                                 "totalLength": "1024",
                                 "completedLength": "256",
                                 "downloadSpeed": "128",
-                                "dir": "/downloads",
-                                "files": []
+                                "dir": save_dir,
+                                "files": output_path
+                                    .as_deref()
+                                    .map(|path| json!([{ "path": path }]))
+                                    .unwrap_or_else(|| json!([]))
                             }
                         }),
                         other => json!({
@@ -2790,6 +3442,65 @@ impl ResumeProxyMockAria2Server {
             addr,
             handle,
             requests,
+            save_dir,
+        }
+    }
+
+    async fn spawn_stale_gid() -> Self {
+        let save_dir = temp_dir("resume-mock-stale-gid");
+        std::fs::create_dir_all(&save_dir).expect("mock save directory should create");
+        let save_dir_value = save_dir.display().to_string();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let captured = requests.clone();
+        let handler_save_dir = save_dir_value.clone();
+        let app = Router::new().route(
+            "/jsonrpc",
+            post(move |Json(payload): Json<Value>| {
+                let captured = captured.clone();
+                let save_dir = handler_save_dir.clone();
+                async move {
+                    captured
+                        .lock()
+                        .expect("stale resume requests should lock")
+                        .push(payload.clone());
+                    let method = payload
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    Json(match method {
+                        "aria2.tellStatus" | "aria2.unpause" => json!({
+                            "error": { "message": "GID gid-1 is not found" }
+                        }),
+                        "aria2.getOption" => json!({
+                            "result": {
+                                "all-proxy": "",
+                                "dir": save_dir,
+                                "out": "archive.zip"
+                            }
+                        }),
+                        "aria2.removeDownloadResult" => json!({ "result": "gid-1" }),
+                        "aria2.addUri" => json!({ "result": "gid-new" }),
+                        other => json!({
+                            "error": { "message": format!("unexpected method: {other}") }
+                        }),
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener should bind");
+        let addr = listener.local_addr().expect("local addr should exist");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("stale resume mock should serve");
+        });
+        Self {
+            addr,
+            handle,
+            requests,
+            save_dir: save_dir_value,
         }
     }
 
@@ -2800,6 +3511,13 @@ impl ResumeProxyMockAria2Server {
             .iter()
             .filter_map(|request| request["method"].as_str().map(str::to_string))
             .collect()
+    }
+
+    fn requests(&self) -> Vec<Value> {
+        self.requests
+            .lock()
+            .expect("resume proxy requests should lock")
+            .clone()
     }
 
     fn change_options(&self) -> Vec<serde_json::Map<String, Value>> {
@@ -2834,10 +3552,6 @@ async fn mock_aria2_rpc_failing_unpause(Json(payload): Json<Value>) -> Json<Valu
     Json(mock_aria2_response(&payload))
 }
 
-async fn mock_aria2_rpc_with_tell_status(Json(payload): Json<Value>) -> Json<Value> {
-    Json(mock_aria2_response_with_tell_status(&payload))
-}
-
 fn mock_aria2_response(payload: &Value) -> Value {
     let method = payload
         .get("method")
@@ -2864,35 +3578,38 @@ fn mock_aria2_response(payload: &Value) -> Value {
     }
 }
 
-fn mock_aria2_response_with_tell_status(payload: &Value) -> Value {
-    mock_aria2_response_with_tell_status_dir(payload, "/downloads")
-}
-
 fn mock_aria2_response_with_tell_status_dir(payload: &Value, save_dir: &str) -> Value {
-    if payload.get("method").and_then(Value::as_str) == Some("aria2.tellStatus") {
-        let gid = payload
-            .get("params")
-            .and_then(Value::as_array)
-            .and_then(|params| {
-                params
-                    .iter()
-                    .find_map(|value| value.as_str().filter(|value| !value.starts_with("token:")))
+    match payload.get("method").and_then(Value::as_str) {
+        Some("aria2.tellStatus") => {
+            let gid = payload
+                .get("params")
+                .and_then(Value::as_array)
+                .and_then(|params| {
+                    params.iter().find_map(|value| {
+                        value.as_str().filter(|value| !value.starts_with("token:"))
+                    })
+                })
+                .unwrap_or("gid-created");
+            json!({
+                "result": {
+                    "gid": gid,
+                    "status": "paused",
+                    "totalLength": "1024",
+                    "completedLength": "256",
+                    "downloadSpeed": "0",
+                    "dir": save_dir,
+                    "files": [{
+                        "index": "1",
+                        "path": format!("{save_dir}/archive.zip")
+                    }]
+                }
             })
-            .unwrap_or("gid-created");
-        return json!({
-            "result": {
-                "gid": gid,
-                "status": "paused",
-                "totalLength": "1024",
-                "completedLength": "256",
-                "downloadSpeed": "0",
-                "dir": save_dir,
-                "files": []
-            }
-        });
+        }
+        Some("aria2.getOption") => json!({
+            "result": { "dir": save_dir, "out": "archive.zip" }
+        }),
+        _ => mock_aria2_response(payload),
     }
-
-    mock_aria2_response(payload)
 }
 
 fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {

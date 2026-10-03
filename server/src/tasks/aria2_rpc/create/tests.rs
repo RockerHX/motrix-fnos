@@ -62,6 +62,36 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][1]["pause"], "false");
 }
 
+#[tokio::test]
+async fn add_uri_rejects_invalid_url_output_before_rpc() {
+    let task = PreparedDownloadTask {
+        url: "https://example.com/file.zip".to_string(),
+        file_name: "../escaped.bin".to_string(),
+        output_file_name: Some("../escaped.bin".to_string()),
+        save_dir: "/downloads".to_string(),
+        aria2_save_dir: None,
+        category: "默认".to_string(),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+        use_proxy: false,
+        proxy_binding: TaskProxyBinding::default(),
+    };
+
+    let error = add_uri_to_aria2(
+        &crate::aria2::Aria2RpcClient::new(),
+        &test_config(),
+        &task,
+        None,
+        None,
+    )
+    .await
+    .expect_err("invalid URL output path component should fail before RPC");
+
+    assert!(error.to_string().contains("单个普通文件名"));
+}
+
 #[test]
 fn add_uri_request_does_not_force_inferred_display_name_as_output() {
     let save_dir = temporary_download_dir("inferred-output");

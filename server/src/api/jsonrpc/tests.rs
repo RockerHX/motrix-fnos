@@ -1,6 +1,9 @@
 use super::add_uri::{authorized_save_dir, parse_add_uri_command, resolve_authorized_save_dir};
 use super::auth::validate_add_uri_token;
-use super::methods::{execute_method_with_access, handle_jsonrpc_payload_with_access};
+use super::methods::{
+    execute_method_with_access, handle_jsonrpc_payload_with_access,
+    handle_jsonrpc_payload_with_peer,
+};
 use super::types::RpcFault;
 use super::JsonRpcAccess;
 use crate::app::HttpAppState;
@@ -263,6 +266,137 @@ async fn jsonrpc_websocket_rejects_oversized_frames_and_messages() {
     let fragment = vec![b'x'; super::JSONRPC_WEBSOCKET_MESSAGE_LIMIT / 2 + 1];
     assert_websocket_frames_rejected(vec![(false, 0x1, fragment.clone()), (true, 0x0, fragment)])
         .await;
+}
+
+#[tokio::test]
+async fn jsonrpc_websocket_rejects_connections_over_shared_limit() {
+    let state = test_state().await;
+    let permits = state
+        .jsonrpc_websocket_connections
+        .clone()
+        .acquire_many_owned(crate::app::JSONRPC_WEBSOCKET_CONNECTION_LIMIT as u32)
+        .await
+        .expect("connection permits should be available");
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr = listener.local_addr().expect("listener should have address");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, super::super::jsonrpc_router(state))
+            .await
+            .expect("server should stop cleanly");
+    });
+
+    let mut socket = TcpStream::connect(addr)
+        .await
+        .expect("websocket client should connect");
+    socket
+        .write_all(
+            b"GET /jsonrpc HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+        )
+        .await
+        .expect("websocket handshake should write");
+    let mut response = Vec::new();
+    let mut buffer = [0_u8; 512];
+    loop {
+        let read = timeout(Duration::from_secs(1), socket.read(&mut buffer))
+            .await
+            .expect("rejection response should arrive")
+            .expect("rejection response should read");
+        assert!(read > 0, "rejection response should not be empty");
+        response.extend_from_slice(&buffer[..read]);
+        if response.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    assert!(response.starts_with(b"HTTP/1.1 503"));
+    drop(permits);
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn lan_websocket_closes_when_access_is_disabled_after_upgrade() {
+    let state = test_state().await;
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener should bind");
+    let addr = listener.local_addr().expect("listener should have address");
+    let peer: SocketAddr = "192.168.1.12:45678".parse().expect("peer should parse");
+    let app =
+        super::super::lan_jsonrpc_router(state.clone()).layer(axum::middleware::from_fn(
+            move |mut request: axum::http::Request<axum::body::Body>,
+                  next: axum::middleware::Next| async move {
+                request
+                    .extensions_mut()
+                    .insert(axum::extract::ConnectInfo(peer));
+                next.run(request).await
+            },
+        ));
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .expect("server should stop cleanly");
+    });
+
+    let mut socket = connect_websocket(addr).await;
+    write_masked_websocket_frame(
+        &mut socket,
+        true,
+        0x1,
+        br#"{"jsonrpc":"2.0","id":"version","method":"aria2.getVersion","params":[]}"#,
+    )
+    .await;
+    let response = read_websocket_text_frame(&mut socket).await;
+    assert!(response.contains("\"result\""));
+
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: false,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    state.notify_lan_json_rpc_config_changed();
+    assert_websocket_closed(&mut socket).await;
+
+    shutdown_tx.send(()).expect("server should accept shutdown");
+    server.await.expect("server task should join");
+}
+
+#[tokio::test]
+async fn lan_multicall_rechecks_peer_scope_for_each_call() {
+    let state = test_state().await;
+    *state.lan_json_rpc_config.write().await = crate::settings::service::LanJsonRpcConfig {
+        enabled: true,
+        token: "lan-secret".to_string(),
+        allow_shared_address_space: false,
+    };
+    let peer: SocketAddr = "100.64.0.1:45678".parse().expect("peer should parse");
+    let response = handle_jsonrpc_payload_with_peer(
+        &state,
+        JsonRpcAccess::Lan,
+        peer,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall",
+            "method": "system.multicall",
+            "params": [[
+                {"methodName": "aria2.getVersion", "params": []},
+                {"methodName": "aria2.getVersion", "params": []}
+            ]]
+        }),
+    )
+    .await;
+    assert_eq!(response["result"][0]["faultCode"], -32000);
+    assert_eq!(response["result"][1]["faultCode"], -32000);
 }
 
 #[tokio::test]
@@ -1058,6 +1192,26 @@ fn parse_add_uri_accepts_uri_without_token() {
     assert_eq!(command.url, "https://example.com/file.zip");
     assert_eq!(command.save_dir.as_deref(), Some("/vol1/1000/tmp"));
     assert_eq!(command.file_name, None);
+}
+
+#[test]
+fn parse_add_uri_rejects_url_output_path_components() {
+    for output in [
+        "../escaped.bin",
+        "/tmp/escaped.bin",
+        r"..\escaped.bin",
+        ".",
+        "..",
+        "bad\0name",
+    ] {
+        let error = parse_add_uri_command(&json!([
+            ["https://example.com/file.zip"],
+            { "out": output }
+        ]))
+        .expect_err("URL output path component should be rejected");
+
+        assert_eq!(error.code, -32602, "{output:?}");
+    }
 }
 
 #[test]
