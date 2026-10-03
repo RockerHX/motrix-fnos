@@ -1,5 +1,15 @@
 use sqlx::SqlitePool;
 
+type WebAuthColumns = (
+    i64,
+    Option<String>,
+    Option<i64>,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+);
+
 #[derive(Debug, Clone)]
 pub(crate) struct WebAuthRow {
     pub enabled: i64,
@@ -12,7 +22,7 @@ pub(crate) struct WebAuthRow {
 }
 
 pub(crate) async fn load(pool: &SqlitePool) -> Result<Option<WebAuthRow>, String> {
-    sqlx::query_as::<_, (i64, Option<String>, Option<i64>, i64, Option<String>, Option<String>, Option<i64>)>(
+    sqlx::query_as::<_, WebAuthColumns>(
         "SELECT enabled, password_hash, password_updated_at, auth_version, jwt_secret, bootstrap_token_hash, bootstrap_token_expires_at FROM web_auth_config WHERE id = 1",
     )
     .fetch_optional(pool)
@@ -21,17 +31,7 @@ pub(crate) async fn load(pool: &SqlitePool) -> Result<Option<WebAuthRow>, String
     .map_err(|error| format!("读取 Web 鉴权配置失败：{error}"))
 }
 
-fn web_auth_row(
-    row: (
-        i64,
-        Option<String>,
-        Option<i64>,
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-    ),
-) -> WebAuthRow {
+fn web_auth_row(row: WebAuthColumns) -> WebAuthRow {
     WebAuthRow {
         enabled: row.0,
         password_hash: row.1,

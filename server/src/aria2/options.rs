@@ -51,6 +51,8 @@ pub async fn apply_global_options(
     Ok(())
 }
 
+// Keep the explicit mapping from persisted settings to normalized Aria2 options local to this boundary.
+#[allow(clippy::too_many_arguments)]
 pub fn global_options_from_values(
     max_concurrent_downloads: u32,
     download_limit: u64,
