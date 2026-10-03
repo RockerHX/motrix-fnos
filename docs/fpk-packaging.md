@@ -480,9 +480,9 @@ packaging/fnos/app/ui/config
 
 - `pre-commit` 只执行版本、暂存区空白和 Rust 格式检查，不运行前端类型检查、单元测试或生产构建。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 时跳过。正常分支推送必须在本地通过全部脚本、Rust、前端测试和构建。
-- GitHub `Verify` 只支持 `workflow_dispatch` 手动触发，不随 `main` push 或 PR 自动运行，避免和本地 `pre-push` 重复。
+- GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动执行快速 `pnpm run verify`；nightly 或手动 dispatch 额外执行 `pnpm run verify:extended`。
 - Release 只允许修改 `CHANGELOG.md` 和固定版本文件；这些发布元数据变化与已经通过本地验证的业务源码视为等价，出现白名单外改动时立即中止。
-- `Release FPK` 不重复运行源码测试、依赖审计，也不查询 GitHub `Verify`；它只生成版本文件、构建双架构 FPK，并解包验证、签署和发布产物。
+- `Release FPK` 在构建产物前执行一次扩展验证，不重复调用 `verify`；之后构建双架构 FPK，并解包验证、签署和发布产物。
 - 自动生成的版本提交和内部推送都使用 `--no-verify`，避免 GitHub runner 因安装本地 hooks 而隐藏重复完整验证。
 - `Dependency Audit` 与源码验证和 Release 分离，每周一北京时间 03:23 定时执行。
 
