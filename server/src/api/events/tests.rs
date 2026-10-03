@@ -4,6 +4,7 @@ use crate::app::{
 };
 use crate::runtime::broadcast_tasks_snapshot;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::test_support::AuthServiceTestExt;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware;

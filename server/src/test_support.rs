@@ -2,6 +2,19 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::fmt::MakeWriter;
 
+use crate::auth::{AuthError, AuthService, AuthState};
+
+pub(crate) trait AuthServiceTestExt {
+    async fn setup(&self, password: &str) -> Result<AuthState, AuthError>;
+}
+
+impl AuthServiceTestExt for AuthService {
+    async fn setup(&self, password: &str) -> Result<AuthState, AuthError> {
+        let token = self.issue_bootstrap_token().await?;
+        self.setup_with_bootstrap_token(&token, password).await
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct TestTracingCapture {
     output: Arc<Mutex<Vec<u8>>>,

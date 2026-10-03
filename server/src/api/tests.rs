@@ -20,7 +20,7 @@ use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
-use crate::test_support::TestTracingCapture;
+use crate::test_support::{AuthServiceTestExt, TestTracingCapture};
 use axum::body::to_bytes;
 use axum::extract::{ConnectInfo, State};
 use axum::http::header::{AUTHORIZATION, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};

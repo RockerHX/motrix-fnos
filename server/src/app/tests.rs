@@ -7,6 +7,7 @@ use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
 use crate::tasks::{
     DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationContext, TaskOperationType,
 };
+use crate::test_support::AuthServiceTestExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 

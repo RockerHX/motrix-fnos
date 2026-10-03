@@ -113,12 +113,6 @@ impl AuthService {
         })
     }
 
-    #[cfg(test)]
-    pub async fn setup(&self, password: &str) -> Result<AuthState, AuthError> {
-        let token = self.issue_bootstrap_token().await?;
-        self.setup_with_bootstrap_token(&token, password).await
-    }
-
     pub async fn verify_password(&self, password: &str) -> Result<AuthState, AuthError> {
         let record = validated_record(
             web_auth::load(&self.pool)

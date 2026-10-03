@@ -1,5 +1,6 @@
 use super::*;
 use crate::database::connect_database;
+use crate::test_support::AuthServiceTestExt;
 
 const VALID_PASSWORD: &str = "correct horse battery";
 
