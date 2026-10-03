@@ -51,6 +51,7 @@
     "vue": "^3.5.41"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.11",
     "js-tiktoken": "1.0.21",
