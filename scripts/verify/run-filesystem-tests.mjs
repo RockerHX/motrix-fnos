@@ -2,7 +2,13 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-for (const filter of ["tasks::files", "runtime::file_cleanup"]) {
+for (const filter of [
+  "tasks::files",
+  "runtime::file_cleanup",
+  "tasks::service::tests::delete_with_files",
+  "tasks::service::tests::redownload_",
+  "tasks::service::tests::restore_",
+]) {
   const result = spawnSync(
     "cargo",
     ["test", "--manifest-path", "server/Cargo.toml", "--lib", filter, "--", "--nocapture"],

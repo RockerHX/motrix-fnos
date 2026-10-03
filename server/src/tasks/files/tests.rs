@@ -114,6 +114,71 @@ fn restore_keeps_conflicting_backup_and_can_retry_after_partial_restore() {
     fs::remove_dir_all(root).expect("test root should remove");
 }
 
+#[test]
+fn staged_directory_can_be_recreated_and_restored_after_redownload_failure() {
+    let root = temp_dir("directory-recreate");
+    fs::create_dir_all(&root).expect("root should create");
+    let task_dir = root.join("Ubuntu ISO");
+    fs::create_dir_all(&task_dir).expect("task directory should create");
+    fs::write(task_dir.join("payload.bin"), b"payload").expect("payload should write");
+
+    let mut staged = prepare_stage_paths(12, Some(&root), vec![task_dir.clone()])
+        .expect("staging plan should prepare")
+        .expect("existing directory should be staged");
+    staged.stage().expect("directory should stage");
+    staged
+        .create_replacement_directory(&task_dir)
+        .expect("redownload should recreate an empty task directory");
+    assert!(task_dir.is_dir());
+    assert!(fs::read_dir(&task_dir)
+        .expect("replacement directory should read")
+        .next()
+        .is_none());
+
+    staged
+        .restore()
+        .expect("rollback should remove the replacement and restore the directory");
+    assert_eq!(
+        fs::read(task_dir.join("payload.bin")).expect("payload should restore"),
+        b"payload"
+    );
+    fs::remove_dir_all(root).expect("test root should remove");
+}
+
+#[test]
+fn cleanup_rejects_a_backup_directory_belonging_to_another_task() {
+    let root = temp_dir("cleanup-owner");
+    fs::create_dir_all(&root).expect("root should create");
+    let backup = root.join(".motrix-redownload-backup-77-1");
+    fs::create_dir_all(&backup).expect("backup directory should create");
+
+    let error = cleanup_staged_task_file_path(78, &backup.display().to_string())
+        .expect_err("a different task must not clean this backup");
+    assert!(error.contains("不属于任务 78"));
+    assert!(backup.exists());
+    fs::remove_dir_all(root).expect("test root should remove");
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_rejects_symlink_backup_without_touching_target() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_dir("cleanup-symlink");
+    fs::create_dir_all(&root).expect("root should create");
+    let target = root.join("outside");
+    fs::create_dir_all(&target).expect("target directory should create");
+    let backup = root.join(".motrix-redownload-backup-79-1");
+    symlink(&target, &backup).expect("backup symlink should create");
+
+    let error = cleanup_staged_task_file_path(79, &backup.display().to_string())
+        .expect_err("symlink backup must be rejected");
+    assert!(error.contains("符号链接"));
+    assert!(target.exists());
+    assert!(backup.is_symlink());
+    fs::remove_dir_all(root).expect("test root should remove");
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
