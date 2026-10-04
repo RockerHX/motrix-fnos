@@ -2,7 +2,7 @@
 
 ## 作用与维护规则
 
-本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
+本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。完整测试流程可查看[交互式测试 H5](testing-flow.html)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
 
 固定规则：
 
