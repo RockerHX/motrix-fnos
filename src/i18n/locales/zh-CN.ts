@@ -419,6 +419,8 @@ export const zhCN = {
   "settings.lanJsonRpc.configured": "已启用，Token 已配置",
   "settings.lanJsonRpc.notConfigured": "已启用，Token 未配置",
   "settings.lanJsonRpc.disabled": "已关闭",
+  "settings.lanJsonRpc.portInUse": "不可用：端口 17082 被占用",
+  "settings.lanJsonRpc.portInUseRecovery": "请释放端口 17082 后重启 Motrix。管理页面和回环 RPC 入口仍可使用。",
   "settings.lanJsonRpc.enabled": "局域网推送已启用",
   "settings.lanJsonRpc.disabledSuccess": "局域网推送已关闭，Token 已保留",
   "settings.lanJsonRpc.loadFailed": "读取局域网 JSON-RPC 状态失败",

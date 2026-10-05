@@ -151,6 +151,7 @@ vi.mock("../composables/useDiagnosticBundleExport", async () => {
 import DiagnosticsDialog from "./DiagnosticsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import type { AppInfo, BackendPing } from "../../../types/app";
+import { getLanJsonRpcStatus } from "../../settings/services/lanJsonRpcService";
 
 describe("DiagnosticsDialog", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -190,6 +191,23 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.find('[data-test="aria2-log-mode-updated"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="log-maintenance-stub"]').exists()).toBe(true);
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
+  });
+
+  it("reports an occupied LAN port even when its switch and Token are configured", async () => {
+    vi.mocked(getLanJsonRpcStatus).mockResolvedValueOnce({
+      enabled: true,
+      available: false,
+      configured: true,
+      maskedToken: "••••••••1234",
+      allowSharedAddressSpace: false,
+      port: 17082,
+    });
+    const { wrapper } = mountDialog(false);
+    await wrapper.setProps({ show: true });
+    await flushPromises();
+    await selectSection(wrapper, "连接");
+    expect(wrapper.text()).toContain("不可用：端口 17082 被占用");
+    expect(wrapper.text()).toContain("释放端口 17082 后重启 Motrix");
   });
 
   it("refreshes diagnostics status after the log mode changes", async () => {

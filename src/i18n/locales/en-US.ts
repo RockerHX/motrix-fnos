@@ -421,6 +421,8 @@ export const enUS: Record<TranslationKey, string> = {
   "settings.lanJsonRpc.configured": "Enabled, Token configured",
   "settings.lanJsonRpc.notConfigured": "Enabled, Token not configured",
   "settings.lanJsonRpc.disabled": "Disabled",
+  "settings.lanJsonRpc.portInUse": "Unavailable: port 17082 is in use",
+  "settings.lanJsonRpc.portInUseRecovery": "Free port 17082 and restart Motrix. The management page and loopback RPC entry remain available.",
   "settings.lanJsonRpc.enabled": "LAN Push enabled",
   "settings.lanJsonRpc.disabledSuccess": "LAN Push disabled; Token retained",
   "settings.lanJsonRpc.loadFailed": "Failed to load LAN JSON-RPC status",

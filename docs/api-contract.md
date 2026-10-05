@@ -23,10 +23,10 @@
 
 - 管理入口（IPv4/IPv6）只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
 - 回环 JSON-RPC 监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
-- 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
+- 局域网 JSON-RPC 监听器启动时始终尝试绑定 IPv4 `17082`；仅 `AddrInUse` 错误允许该入口降级不可用，保留管理和回环 RPC 服务。释放端口后须重启应用恢复，不自动换端口或重试。成功绑定后，入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
-- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6，任一实际地址绑定失败时 server 整体启动失败。
+- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6。除局域网 RPC 的 `AddrInUse` 降级外，任一实际地址绑定失败时 server 整体启动失败。
 
 ## 2. 前端消费约定
 
@@ -589,9 +589,12 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `LanJsonRpcStatus`：
 
+`available` 表示局域网 RPC 监听器本次启动是否可用；端口被占用而降级时为 `false`。`enabled` 仍是持久化开关，二者独立；降级不清除 Token 或来源配置。GET、更新开关与轮换 Token 的响应均返回 `available`。旧服务端未返回该新增字段时，前端保留原显示逻辑。
+
 ```json
 {
   "enabled": true,
+  "available": true,
   "configured": true,
   "maskedToken": "••••••••a1b2",
   "allowSharedAddressSpace": false,
@@ -612,6 +615,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "status": {
     "enabled": true,
+    "available": true,
     "configured": true,
     "maskedToken": "••••••••a1b2",
     "allowSharedAddressSpace": false,

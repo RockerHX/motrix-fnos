@@ -187,6 +187,7 @@ pub struct HttpAppState {
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
     listeners_ready: AtomicBool,
+    lan_jsonrpc_port_in_use: AtomicBool,
     file_cleanup_worker_running: AtomicBool,
     file_cleanup_worker_notify: tokio::sync::Notify,
 }
@@ -226,6 +227,7 @@ impl HttpAppState {
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),
             listeners_ready: AtomicBool::new(false),
+            lan_jsonrpc_port_in_use: AtomicBool::new(false),
             file_cleanup_worker_running: AtomicBool::new(false),
             file_cleanup_worker_notify: tokio::sync::Notify::new(),
         }
@@ -354,6 +356,10 @@ impl HttpAppState {
 
     pub(crate) fn subscribe_lan_json_rpc_config(&self) -> watch::Receiver<u64> {
         self.lan_json_rpc_config_revision.subscribe()
+    }
+
+    pub(crate) fn lan_jsonrpc_available(&self) -> bool {
+        !self.lan_jsonrpc_port_in_use.load(Ordering::Relaxed)
     }
 
     pub(crate) fn notify_lan_json_rpc_config_changed(&self) {
@@ -670,6 +676,9 @@ pub async fn run_server() -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let state = bootstrap_http_app_state(&runtime).await?;
     let listeners = bind_http_listeners(&runtime).await?;
+    state
+        .lan_jsonrpc_port_in_use
+        .store(listeners.lan_jsonrpc.is_none(), Ordering::Relaxed);
     state.mark_listeners_ready();
     crate::runtime::spawn_task_monitor(state.clone());
 
@@ -682,13 +691,6 @@ pub async fn run_server() -> Result<(), String> {
                 .map(|port| format!(" 和 [::]:{}", port))
                 .unwrap_or_default(),
             state.runtime.app_data_dir.display()
-        ),
-    );
-    state.core.debug_logs.info(
-        "app",
-        format!(
-            "局域网 JSON-RPC 入口已初始化，监听地址 {}",
-            state.runtime.lan_jsonrpc_addr
         ),
     );
     state.core.debug_logs.info(
@@ -814,7 +816,7 @@ struct HttpListeners {
     management: TcpListener,
     management_ipv6: Option<TcpListener>,
     jsonrpc: TcpListener,
-    lan_jsonrpc: TcpListener,
+    lan_jsonrpc: Option<TcpListener>,
 }
 
 async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListeners, String> {
@@ -839,14 +841,16 @@ async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListen
                 runtime.jsonrpc_addr, error
             )
         })?;
-    let lan_jsonrpc = TcpListener::bind(runtime.lan_jsonrpc_addr)
-        .await
-        .map_err(|error| {
-            format!(
+    let lan_jsonrpc = match TcpListener::bind(runtime.lan_jsonrpc_addr).await {
+        Ok(listener) => Some(listener),
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => None,
+        Err(error) => {
+            return Err(format!(
                 "绑定局域网 JSON-RPC 监听地址失败：{}（{}）",
                 runtime.lan_jsonrpc_addr, error
-            )
-        })?;
+            ));
+        }
+    };
 
     Ok(HttpListeners {
         management,
@@ -924,6 +928,26 @@ where
         jsonrpc,
         lan_jsonrpc,
     } = listeners;
+    state
+        .lan_jsonrpc_port_in_use
+        .store(lan_jsonrpc.is_none(), Ordering::Relaxed);
+    if lan_jsonrpc.is_none() {
+        state.core.debug_logs.warn(
+            "app",
+            format!(
+                "局域网 JSON-RPC 不可用：端口被占用（{}）；管理和回环 RPC 服务继续运行，释放端口后请重启应用",
+                state.runtime.lan_jsonrpc_addr
+            ),
+        );
+    } else {
+        state.core.debug_logs.info(
+            "app",
+            format!(
+                "局域网 JSON-RPC 入口已初始化，监听地址 {}",
+                state.runtime.lan_jsonrpc_addr
+            ),
+        );
+    }
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let management_shutdown = shutdown_receiver.clone();
     let management_ipv6_shutdown = shutdown_receiver.clone();
@@ -957,13 +981,24 @@ where
     let jsonrpc_server = axum::serve(jsonrpc, crate::api::jsonrpc_router(state.clone()))
         .with_graceful_shutdown(wait_for_http_shutdown(jsonrpc_shutdown))
         .into_future();
-    let lan_jsonrpc_server = axum::serve(
-        lan_jsonrpc,
-        crate::api::lan_jsonrpc_router(state.clone())
-            .into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(wait_for_http_shutdown(lan_jsonrpc_shutdown))
-    .into_future();
+    let lan_jsonrpc_state = state.clone();
+    let lan_jsonrpc_server = async move {
+        match lan_jsonrpc {
+            Some(listener) => {
+                axum::serve(
+                    listener,
+                    crate::api::lan_jsonrpc_router(lan_jsonrpc_state)
+                        .into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .with_graceful_shutdown(wait_for_http_shutdown(lan_jsonrpc_shutdown))
+                .await
+            }
+            None => {
+                wait_for_http_shutdown(lan_jsonrpc_shutdown).await;
+                Ok(())
+            }
+        }
+    };
 
     tokio::pin!(management_server);
     tokio::pin!(management_ipv6_server);
