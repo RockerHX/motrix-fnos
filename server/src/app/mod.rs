@@ -708,7 +708,6 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
     match args {
         [] => run_server().await,
         [command] if command == "initialize-web-auth" => initialize_web_auth().await,
-        [command] if command == "bootstrap-web-auth" => bootstrap_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
         [command, output] if command == "database-backup" => database_backup(output).await,
@@ -721,7 +720,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [initialize-web-auth|bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }
@@ -832,32 +831,6 @@ async fn reset_web_auth_with_runtime(
         .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"));
     database.pool.close().await;
     result
-}
-
-async fn bootstrap_web_auth() -> Result<(), String> {
-    require_bootstrap_terminal()?;
-    let runtime = ServerRuntimeConfig::from_env()?;
-    let token = bootstrap_web_auth_with_runtime(&runtime).await?;
-    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
-    Ok(())
-}
-
-fn require_bootstrap_terminal() -> Result<(), String> {
-    if !std::io::stdout().is_terminal() {
-        return Err("请在本机交互终端执行鉴权管理命令，不得重定向初始化凭据".to_string());
-    }
-    Ok(())
-}
-
-async fn bootstrap_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
-    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
-    let database = connect_database(runtime.database_path.clone()).await?;
-    let token = AuthService::new(database.pool.clone())
-        .issue_bootstrap_token()
-        .await
-        .map_err(|error| format!("生成 Web 鉴权初始化凭据失败：{error:?}"));
-    database.pool.close().await;
-    token
 }
 
 async fn initialize_web_auth() -> Result<(), String> {

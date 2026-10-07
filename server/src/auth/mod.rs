@@ -4,15 +4,11 @@ mod process_lock;
 mod rate_limit;
 
 use crate::database::web_auth::{self, WebAuthRow};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
 use password::{hash_password, validate_password, verify_password_hash, PasswordHashSlots};
-use rand_core::{OsRng, RngCore};
 use sqlx::SqlitePool;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const PASSWORD_HASH_CONCURRENCY: usize = 2;
-pub const BOOTSTRAP_TOKEN_TTL_SECONDS: i64 = 15 * 60;
 
 pub use jwt::{
     generate_secret as generate_jwt_secret, Claims, JwtValidationFailure, JWT_LIFETIME_SECONDS,
@@ -47,7 +43,6 @@ pub struct AuthState {
 pub enum AuthError {
     AlreadyInitialized,
     InvalidCredentials,
-    BootstrapTokenInvalid,
     InvalidPassword(String),
     PasswordHashBusy,
     PasswordChanged,
@@ -110,37 +105,6 @@ impl AuthService {
         .await
         .map_err(AuthError::Storage)?
         .ok_or(AuthError::AlreadyInitialized)?;
-        Ok(AuthState {
-            setup_required: false,
-            auth_version: auth_version as u64,
-            password_updated_at: Some(password_updated_at),
-        })
-    }
-
-    pub async fn setup_with_bootstrap_token(
-        &self,
-        bootstrap_token: &str,
-        password: &str,
-    ) -> Result<AuthState, AuthError> {
-        let bootstrap_token_hash = self.verify_bootstrap_token(bootstrap_token).await?;
-        validate_password(password)?;
-        let password_hash = self
-            .password_hash_slots
-            .run({
-                let password = password.to_string();
-                move || hash_password(&password)
-            })
-            .await?;
-        let password_updated_at = current_timestamp_ms()?;
-        let auth_version = web_auth::initialize_password_with_bootstrap_token(
-            &self.pool,
-            &password_hash,
-            password_updated_at,
-            &bootstrap_token_hash,
-        )
-        .await
-        .map_err(AuthError::Storage)?
-        .ok_or(AuthError::BootstrapTokenInvalid)?;
         Ok(AuthState {
             setup_required: false,
             auth_version: auth_version as u64,
@@ -245,83 +209,6 @@ impl AuthService {
         })
     }
 
-    pub async fn issue_bootstrap_token(&self) -> Result<String, AuthError> {
-        let existing = validated_record(
-            web_auth::load(&self.pool)
-                .await
-                .map_err(AuthError::Storage)?,
-        )?;
-        if existing.is_configured() {
-            return Err(AuthError::AlreadyInitialized);
-        }
-        let jwt_secret = existing.jwt_secret.unwrap_or_else(jwt::generate_secret);
-        let (token, token_hash, expires_at) = self.new_bootstrap_token().await?;
-        let issued =
-            web_auth::issue_bootstrap_token(&self.pool, &jwt_secret, &token_hash, expires_at)
-                .await
-                .map_err(AuthError::Storage)?;
-        if !issued {
-            return Err(AuthError::AlreadyInitialized);
-        }
-        Ok(token)
-    }
-
-    async fn verify_bootstrap_token(&self, token: &str) -> Result<String, AuthError> {
-        if token.len() != 43
-            || !token
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        {
-            return Err(AuthError::BootstrapTokenInvalid);
-        }
-        let record = validated_record(
-            web_auth::load(&self.pool)
-                .await
-                .map_err(AuthError::Storage)?,
-        )?;
-        if record.is_configured() {
-            return Err(AuthError::AlreadyInitialized);
-        }
-        next_auth_version(record.auth_version)?;
-        let Some(token_hash) = record.bootstrap_token_hash else {
-            return Err(AuthError::BootstrapTokenInvalid);
-        };
-        let expires_at = record
-            .bootstrap_token_expires_at
-            .ok_or(AuthError::BootstrapTokenInvalid)?;
-        if expires_at <= current_timestamp_ms()? {
-            return Err(AuthError::BootstrapTokenInvalid);
-        }
-        let token = token.to_string();
-        let token_hash_for_verify = token_hash.clone();
-        let valid = self
-            .password_hash_slots
-            .run(move || Ok(verify_password_hash(&token, &token_hash_for_verify)))
-            .await?;
-        if valid {
-            Ok(token_hash)
-        } else {
-            Err(AuthError::BootstrapTokenInvalid)
-        }
-    }
-
-    async fn new_bootstrap_token(&self) -> Result<(String, String, i64), AuthError> {
-        let mut bytes = [0_u8; 32];
-        OsRng
-            .try_fill_bytes(&mut bytes)
-            .map_err(|error| invalid_state(&format!("生成初始化凭据失败：{error}")))?;
-        let token = URL_SAFE_NO_PAD.encode(bytes);
-        let token_for_hash = token.clone();
-        let token_hash = self
-            .password_hash_slots
-            .run(move || hash_password(&token_for_hash))
-            .await?;
-        let expires_at = current_timestamp_ms()?
-            .checked_add(BOOTSTRAP_TOKEN_TTL_SECONDS * 1000)
-            .ok_or_else(|| invalid_state("初始化凭据过期时间超出范围"))?;
-        Ok((token, token_hash, expires_at))
-    }
-
     pub async fn issue_admin_token(&self, auth_state: &AuthState) -> Result<String, AuthError> {
         let record = validated_record(
             web_auth::load(&self.pool)
@@ -353,8 +240,6 @@ struct ValidatedAuthRecord {
     password_updated_at: Option<i64>,
     auth_version: u64,
     jwt_secret: Option<String>,
-    bootstrap_token_hash: Option<String>,
-    bootstrap_token_expires_at: Option<i64>,
 }
 
 impl ValidatedAuthRecord {
@@ -378,8 +263,6 @@ fn validated_record(row: Option<WebAuthRow>) -> Result<ValidatedAuthRecord, Auth
             password_updated_at: None,
             auth_version: 0,
             jwt_secret: None,
-            bootstrap_token_hash: None,
-            bootstrap_token_expires_at: None,
         });
     };
     match row.enabled {
@@ -403,8 +286,6 @@ fn validated_record(row: Option<WebAuthRow>) -> Result<ValidatedAuthRecord, Auth
         password_updated_at: row.password_updated_at,
         auth_version,
         jwt_secret: row.jwt_secret,
-        bootstrap_token_hash: row.bootstrap_token_hash,
-        bootstrap_token_expires_at: row.bootstrap_token_expires_at,
     })
 }
 

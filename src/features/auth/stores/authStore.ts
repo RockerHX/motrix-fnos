@@ -11,7 +11,6 @@ import {
   getAuthStatus,
   loginAuth,
   logoutAuth,
-  setupAuth,
 } from "../services/authService";
 import type { AuthChannelMessage, AuthPhase, AuthStatus, ChangePasswordRequest } from "../types";
 import { t } from "../../../i18n";
@@ -53,10 +52,6 @@ export const useAuthStore = defineStore("auth", () => {
     const status = await getAuthStatus();
     applyStatus(status);
     return status;
-  }
-
-  async function setup(password: string, bootstrapToken: string) {
-    return submit(() => setupAuth(password, bootstrapToken), true);
   }
 
   async function login(password: string) {
@@ -165,7 +160,8 @@ export const useAuthStore = defineStore("auth", () => {
     authenticated.value = status.authenticated;
     errorMessage.value = "";
     if (status.setupRequired) {
-      phase.value = "setup";
+      phase.value = "unconfigured";
+      authenticated.value = false;
       clearAccessToken();
     } else if (!status.authenticated) {
       phase.value = "login";
@@ -239,7 +235,6 @@ export const useAuthStore = defineStore("auth", () => {
     isReady,
     initialize,
     refreshStatus,
-    setup,
     login,
     logout,
     changePassword,

@@ -373,16 +373,18 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 全新安装在安装向导中输入并确认管理密码，由 `install_callback` 调用本机 `initialize-web-auth` 写入哈希；保留数据重装或升级时保留原密码。
+- 全新安装在 `wizard/install` 中输入并确认管理密码（8–128 个 Unicode 字符）；`install_callback` 通过向导字段环境变量调用 Rust `initialize-web-auth`，在首次服务启动前写入哈希。两次输入不一致或密码不合规时安装失败，不写入密码；保留数据重装与升级沿用原密码。
 - 忘记管理密码时，先在应用中心停止 Motrix，再通过 NAS SSH 交互终端以应用账户执行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，输入并确认新密码（终端不回显）。重置成功后启动应用并使用新密码登录；取消或验证失败保留原密码，旧 JWT 在成功重置后失效。任务、Aria2 session、下载设置、RPC Token、授权目录与下载文件均保留。
-- 本机命令通过安装目录的 `target`、`var` 链接定位二进制和数据，不要求 SSH 会话预先具有生命周期的 `TRIM_APPDEST`、`TRIM_PKGVAR`。不要直接以 root 运行 server 命令，避免改变应用数据所有权。旧网页初始化入口与 `bootstrap-web-auth` 暂时保留，后续提交移除。
+- 本机命令通过安装目录的 `target`、`var` 链接定位二进制和数据，不要求 SSH 会话预先具有生命周期的 `TRIM_APPDEST`、`TRIM_PKGVAR`。不要直接以 root 运行 server 命令，避免改变应用数据所有权。网页初始化入口与 `bootstrap-web-auth` 已移除。
 - 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
 
 ### 安装密码平台依据与验收
 
-2026-10-07 查证官方 [安装向导文档](https://developer.fnnas.com/docs/core-concepts/wizard/) 与 [应用框架文档](https://developer.fnnas.com/docs/core-concepts/framework/)：`password` 字段隐藏输入，`field` 对应生命周期环境变量，`install_callback` 在包文件安装后执行。回调重新校验密码长度与一致性，应用仅保存哈希，正式服务启动前清除向导密码环境变量。
+2026-10-07 查证官方 [安装向导文档](https://developer.fnnas.com/docs/core-concepts/wizard/) 与 [应用框架文档](https://developer.fnnas.com/docs/core-concepts/framework/)：`password` 字段隐藏输入，`field` 对应生命周期环境变量，`install_callback` 在包文件安装后执行。回调仍需重新验证输入，不依赖向导前端校验。
 
-发布前在 fnOS 实机验证全新安装、密码不匹配错误、保留数据重装、覆盖升级与应用账户对数据库的写权限；检查平台是否在配置、安装记录或日志中保留向导字段，官方资料尚不足以证明平台不保留字段。
+实机待验收：全新安装完成即能登录、两次密码不一致的提示、保留数据重装与覆盖升级、SSH 隐藏输入重置、Ctrl+C 取消与终端回显恢复、应用账户对数据库的写权限。使用仅供测试的密码检查平台是否将向导字段保存在应用配置、安装记录或日志中；目前官方资料不足以证明平台不会保留字段，应用仅保证自身不持久化或记录明文。正式服务启动前清除向导密码环境变量，避免继续传给 server 或 Aria2。
+
+受影响的 1.9.8 未初始化实例无需旧网页补设密码入口：保留应用数据卸载后，重新安装修正版并在向导设密即可；也可在停止后使用本机重置命令。撤回版本由维护者单独执行，此改动不自动发布或修改版本号。
 
 ### 升级前备份与回滚
 

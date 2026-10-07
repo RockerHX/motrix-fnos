@@ -26,14 +26,38 @@ const task = {
 };
 
 test.describe("browser smoke", () => {
-  test("completes setup, opens task form, creates a URL task, and receives SSE snapshot", async ({ page }) => {
+  test("shows the login form and keeps diagnostics visible", async ({ page }, testInfo) => {
+    await installFixture(page);
+    await page.goto("/");
+    await expect(page.locator('[data-test="auth-password"]')).toBeVisible();
+    await expect(page.locator('[data-test="auth-password-confirm"]')).toHaveCount(0);
+    await expect(page.locator('[data-test="auth-bootstrap-token"]')).toHaveCount(0);
+    await expect(page.locator('[data-test="auth-copy-diagnostic"]')).toBeVisible();
+    await expect(page.locator('[data-test="auth-download-diagnostic"]')).toBeVisible();
+    await expect(page.locator("#app-bootstrap")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("login.png"), fullPage: true });
+  });
+
+  test("keeps unconfigured installations protected and shows recovery diagnostics", async ({ page }, testInfo) => {
+    await installFixture(page);
+    await page.route("**/api/auth/status", (route) => json(route, 200, { setupRequired: true, authenticated: false }));
+    await page.goto("/");
+    await expect(page.locator('[data-test="auth-unconfigured"]')).toBeVisible();
+    await expect(page.locator('[data-test="auth-password"]')).toHaveCount(0);
+    await expect(page.locator(".window-shell")).toHaveCount(0);
+    await expect(page.locator('[data-test="auth-download-diagnostic"]')).toBeVisible();
+    await expect(page.locator("#app-bootstrap")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: testInfo.outputPath("unconfigured.png"), fullPage: true });
+  });
+
+  test("logs in, opens task form, creates a URL task, and receives SSE snapshot", async ({ page }) => {
     const fixture = await installFixture(page);
 
     await page.goto("/");
     await expect(page.locator('[data-test="auth-password"]')).toBeVisible();
-    await page.locator('[data-test="auth-bootstrap-token"] input').fill("local-bootstrap-token");
     await page.locator('[data-test="auth-password"] input').fill(password);
-    await page.locator('[data-test="auth-password-confirm"] input').fill(password);
     await page.locator('[data-test="auth-submit"]').click();
 
     await expect(page.locator(".window-shell")).toBeVisible();
@@ -54,7 +78,7 @@ test.describe("browser smoke", () => {
 
   test("handles an expired API token by returning to the login gate", async ({ page }) => {
     const fixture = await installFixture(page);
-    await completeSetup(page);
+    await completeLogin(page);
     fixture.forceUnauthorized = true;
 
     await page.reload();
@@ -64,14 +88,14 @@ test.describe("browser smoke", () => {
 
   test("reconnects the SSE stream after the first connection closes", async ({ page }) => {
     const fixture = await installFixture(page);
-    await completeSetup(page);
+    await completeLogin(page);
 
     await expect.poll(() => fixture.eventRequests, { timeout: 6_000 }).toBeGreaterThan(1);
   });
 
   test("renders the task shell at a mobile viewport", async ({ page }) => {
     await installFixture(page);
-    await completeSetup(page);
+    await completeLogin(page);
 
     await expect(page.locator(".window-shell")).toBeVisible();
     if ((page.viewportSize()?.width ?? 1024) < 768) {
@@ -82,19 +106,17 @@ test.describe("browser smoke", () => {
   });
 });
 
-async function completeSetup(page: Page) {
+async function completeLogin(page: Page) {
   await page.goto("/");
   await expect(page.locator('[data-test="auth-password"]')).toBeVisible();
-  await page.locator('[data-test="auth-bootstrap-token"] input').fill("local-bootstrap-token");
   await page.locator('[data-test="auth-password"] input').fill(password);
-  await page.locator('[data-test="auth-password-confirm"] input').fill(password);
   await page.locator('[data-test="auth-submit"]').click();
   await expect(page.locator(".window-shell")).toBeVisible();
 }
 
 async function installFixture(page: Page) {
   const fixture = {
-    setupComplete: false,
+    authenticated: false,
     forceUnauthorized: false,
     eventRequests: 0,
     createdUrls: [] as string[],
@@ -108,7 +130,7 @@ async function installFixture(page: Page) {
 
 async function handleApiRoute(
   route: Route,
-  fixture: { setupComplete: boolean; forceUnauthorized: boolean; eventRequests: number; createdUrls: string[] },
+  fixture: { authenticated: boolean; forceUnauthorized: boolean; eventRequests: number; createdUrls: string[] },
 ) {
   const request = route.request();
   const url = new URL(request.url());
@@ -135,19 +157,14 @@ async function handleApiRoute(
       200,
       fixture.forceUnauthorized
         ? { setupRequired: false, authenticated: false }
-        : fixture.setupComplete
+        : fixture.authenticated
           ? { setupRequired: false, authenticated: true }
-          : { setupRequired: true, authenticated: false },
+          : { setupRequired: false, authenticated: false },
     );
     return;
   }
-  if (path === "/api/auth/setup") {
-    fixture.setupComplete = true;
-    await json(route, 200, { setupRequired: false, authenticated: true, accessToken });
-    return;
-  }
   if (path === "/api/auth/login") {
-    fixture.setupComplete = true;
+    fixture.authenticated = true;
     await json(route, 200, { setupRequired: false, authenticated: true, accessToken });
     return;
   }

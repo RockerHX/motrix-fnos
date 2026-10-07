@@ -33,7 +33,6 @@ vi.mock("naive-ui", async () => {
 
 vi.mock("../services/authService", () => ({
   getAuthStatus: vi.fn(),
-  setupAuth: vi.fn(),
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),

@@ -51,7 +51,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .await
             .expect("setup should pass");
         assert!(!state.setup_required);
-        assert_eq!(state.auth_version, 2);
+        assert_eq!(state.auth_version, 1);
         let original_token = service
             .issue_admin_token(&state)
             .await
@@ -66,7 +66,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .change_password(VALID_PASSWORD, "replacement password")
             .await
             .expect("password should change");
-        assert_eq!(changed.auth_version, 3);
+        assert_eq!(changed.auth_version, 2);
         assert!(service
             .verify_password("replacement password")
             .await
@@ -82,7 +82,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .verify_password("reset management password")
             .await
             .is_ok());
-        assert_eq!(reset.auth_version, 4);
+        assert_eq!(reset.auth_version, 3);
         assert_eq!(
             service
                 .validate_admin_token(&original_token, reset.auth_version)
@@ -180,22 +180,15 @@ fn issued_tokens_remain_verifiable_after_database_reopen() {
 fn concurrent_setup_allows_only_one_password() {
     test_runtime().block_on(async {
         let (service, path) = test_service("concurrent").await;
-        let token = service.issue_bootstrap_token().await.unwrap();
         let first = service.clone();
         let second = service.clone();
         let (first, second) = tokio::join!(
-            first.setup_with_bootstrap_token(&token, VALID_PASSWORD),
-            second.setup_with_bootstrap_token(&token, "another secure password")
+            first.initialize_password(VALID_PASSWORD),
+            second.initialize_password("another secure password")
         );
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(matches!(
-            first,
-            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
-        ));
-        assert!(matches!(
-            second,
-            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
-        ));
+        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
         cleanup(service, path).await;
     });
 }
@@ -326,7 +319,7 @@ fn concurrent_password_changes_do_not_overwrite_each_other() {
             second,
             Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
         ));
-        assert_eq!(service.state().await.unwrap().auth_version, 3);
+        assert_eq!(service.state().await.unwrap().auth_version, 2);
         cleanup(service, path).await;
     });
 }
@@ -353,7 +346,7 @@ fn concurrent_reset_cannot_be_overwritten_by_password_change() {
             .verify_password("reset management password")
             .await
             .is_ok());
-        assert_eq!(state.auth_version, if changed.is_ok() { 4 } else { 3 });
+        assert_eq!(state.auth_version, if changed.is_ok() { 3 } else { 2 });
         if let Err(error) = changed {
             assert!(matches!(
                 error,
@@ -402,21 +395,4 @@ async fn test_service(name: &str) -> (AuthService, std::path::PathBuf) {
 async fn cleanup(service: AuthService, path: std::path::PathBuf) {
     service.pool.close().await;
     let _ = std::fs::remove_file(path);
-}
-
-#[test]
-fn concurrent_local_initialization_allows_only_one_password() {
-    test_runtime().block_on(async {
-        let (service, path) = test_service("concurrent").await;
-        let first = service.clone();
-        let second = service.clone();
-        let (first, second) = tokio::join!(
-            first.initialize_password(VALID_PASSWORD),
-            second.initialize_password("another secure password")
-        );
-        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
-        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
-        cleanup(service, path).await;
-    });
 }

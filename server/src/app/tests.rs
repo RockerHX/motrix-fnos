@@ -1014,7 +1014,7 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
         .verify_password("test management password")
         .await
         .is_err());
-    assert_eq!(reset_state.auth_version, 3);
+    assert_eq!(reset_state.auth_version, 2);
     assert_eq!(
         load_json_rpc_token(&database.pool)
             .await
@@ -1126,7 +1126,7 @@ async fn run_cli_rejects_unknown_commands() {
         .expect_err("unknown command should fail");
     assert_eq!(
         error,
-        "用法：motrix-fnos-server [initialize-web-auth|bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
+        "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
     );
 }
 

@@ -10,8 +10,7 @@ pub(crate) trait AuthServiceTestExt {
 
 impl AuthServiceTestExt for AuthService {
     async fn setup(&self, password: &str) -> Result<AuthState, AuthError> {
-        let token = self.issue_bootstrap_token().await?;
-        self.setup_with_bootstrap_token(&token, password).await
+        self.initialize_password(password).await
     }
 }
 
