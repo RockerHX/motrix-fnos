@@ -1,10 +1,42 @@
 [
   {
-    "stepTitle": "安装确认",
+    "stepTitle": "设置管理密码",
     "items": [
       {
         "type": "tips",
-        "helpText": "Motrix 将启动本地 Rust 服务和 Aria2 Next 下载引擎，请确认安装来源可信。"
+        "helpText": "Motrix 管理页面必须使用密码登录。新安装请设置 8–128 个字符的管理密码；保留数据重新安装时沿用原密码。此密码与 RPC Token 独立，请确认安装来源可信。"
+      },
+      {
+        "type": "password",
+        "field": "wizard_management_password",
+        "label": "管理密码",
+        "rules": [
+          {
+            "required": true,
+            "message": "请输入管理密码"
+          },
+          {
+            "min": 8,
+            "max": 128,
+            "message": "管理密码需要 8–128 个字符"
+          }
+        ]
+      },
+      {
+        "type": "password",
+        "field": "wizard_management_password_confirm",
+        "label": "确认管理密码",
+        "rules": [
+          {
+            "required": true,
+            "message": "请再次输入管理密码"
+          },
+          {
+            "min": 8,
+            "max": 128,
+            "message": "管理密码需要 8–128 个字符"
+          }
+        ]
       }
     ]
   }

@@ -47,6 +47,23 @@ pub(crate) async fn initialize_password(
     pool: &SqlitePool,
     password_hash: &str,
     updated_at: i64,
+    jwt_secret: &str,
+) -> Result<Option<i64>, String> {
+    sqlx::query_scalar(
+        "INSERT INTO web_auth_config (id, enabled, password_hash, password_updated_at, auth_version, jwt_secret) VALUES (1, 1, ?, ?, 1, ?) ON CONFLICT(id) DO UPDATE SET enabled = 1, password_hash = excluded.password_hash, password_updated_at = excluded.password_updated_at, auth_version = web_auth_config.auth_version + 1, bootstrap_token_hash = NULL, bootstrap_token_expires_at = NULL WHERE web_auth_config.password_hash IS NULL AND web_auth_config.password_updated_at IS NULL AND web_auth_config.auth_version < 9223372036854775807 RETURNING auth_version",
+    )
+    .bind(password_hash)
+    .bind(updated_at)
+    .bind(jwt_secret)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| format!("初始化 Web 管理密码失败：{error}"))
+}
+
+pub(crate) async fn initialize_password_with_bootstrap_token(
+    pool: &SqlitePool,
+    password_hash: &str,
+    updated_at: i64,
     bootstrap_token_hash: &str,
 ) -> Result<Option<i64>, String> {
     sqlx::query_scalar(

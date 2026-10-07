@@ -107,6 +107,8 @@
 
 登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
+全新安装在 fnOS 安装向导中输入并确认管理密码，`install_callback` 调用本机 `initialize-web-auth` 写入 Argon2id 哈希。已配置实例重装或升级保留原密码。过渡阶段保留旧版网页 setup 与凭证命令，后续提交移除。
+
 `POST /api/auth/setup` 请求：
 
 ```json

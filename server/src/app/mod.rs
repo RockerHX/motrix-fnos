@@ -707,6 +707,7 @@ pub async fn run_server() -> Result<(), String> {
 pub async fn run_cli(args: &[String]) -> Result<(), String> {
     match args {
         [] => run_server().await,
+        [command] if command == "initialize-web-auth" => initialize_web_auth().await,
         [command] if command == "bootstrap-web-auth" => bootstrap_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
@@ -720,7 +721,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [initialize-web-auth|bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }
@@ -809,6 +810,48 @@ async fn bootstrap_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Resul
         .map_err(|error| format!("生成 Web 鉴权初始化凭据失败：{error:?}"));
     database.pool.close().await;
     token
+}
+
+async fn initialize_web_auth() -> Result<(), String> {
+    let password = env::var("wizard_management_password").ok();
+    let confirmation = env::var("wizard_management_password_confirm").ok();
+    env::remove_var("wizard_management_password");
+    env::remove_var("wizard_management_password_confirm");
+    let runtime = ServerRuntimeConfig::from_env()?;
+    initialize_web_auth_with_runtime(&runtime, password.as_deref(), confirmation.as_deref()).await
+}
+
+async fn initialize_web_auth_with_runtime(
+    runtime: &ServerRuntimeConfig,
+    password: Option<&str>,
+    confirmation: Option<&str>,
+) -> Result<(), String> {
+    let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let database = connect_database(runtime.database_path.clone()).await?;
+    let service = AuthService::new(database.pool.clone());
+    let result = async {
+        let state = service
+            .state()
+            .await
+            .map_err(|error| format!("读取管理密码状态失败：{error:?}"))?;
+        if !state.setup_required {
+            println!("已保留原管理密码");
+            return Ok(());
+        }
+        let password = password.ok_or_else(|| "安装向导未提供管理密码".to_string())?;
+        if Some(password) != confirmation {
+            return Err("两次输入的管理密码不一致，请重新安装并确认密码".to_string());
+        }
+        service
+            .initialize_password(password)
+            .await
+            .map_err(|error| format!("初始化管理密码失败：{error:?}"))?;
+        println!("管理密码初始化完成");
+        Ok(())
+    }
+    .await;
+    database.pool.close().await;
+    result
 }
 
 #[derive(Debug)]

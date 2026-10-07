@@ -373,8 +373,14 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 首次安装后必须在 NAS 本机停止应用并执行 FPK 命令目录中的 `bootstrap-web-auth` 获取一次性初始化 token；忘记管理密码时只能在同样条件下执行 `reset-web-auth` 获取新的 token。两个命令都要求交互式终端，不得重定向输出，也不得通过公网触发；命令只处理 Web 鉴权并保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。token 15 分钟有效且只能使用一次。
+- 全新安装在安装向导中输入并确认管理密码，由 `install_callback` 调用本机 `initialize-web-auth` 写入哈希；保留数据重装或升级时保留原密码。忘记密码时暂时仍在停止应用后使用本机 `reset-web-auth` 生成一次性凭据，在网页重新设置密码；后续提交改为直接重置。
 - 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
+
+### 安装密码平台依据与验收
+
+2026-10-07 查证官方 [安装向导文档](https://developer.fnnas.com/docs/core-concepts/wizard/) 与 [应用框架文档](https://developer.fnnas.com/docs/core-concepts/framework/)：`password` 字段隐藏输入，`field` 对应生命周期环境变量，`install_callback` 在包文件安装后执行。回调重新校验密码长度与一致性，应用仅保存哈希，正式服务启动前清除向导密码环境变量。
+
+发布前在 fnOS 实机验证全新安装、密码不匹配错误、保留数据重装、覆盖升级与应用账户对数据库的写权限；检查平台是否在配置、安装记录或日志中保留向导字段，官方资料尚不足以证明平台不保留字段。
 
 ### 升级前备份与回滚
 

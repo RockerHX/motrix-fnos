@@ -2,6 +2,8 @@
 
 set -eu
 
+unset wizard_management_password wizard_management_password_confirm
+
 . "$(dirname -- "$0")/common.sh"
 
 prepare_runtime_dirs

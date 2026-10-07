@@ -1028,13 +1028,75 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
 }
 
 #[tokio::test]
+async fn installation_validates_password_preserves_existing_credentials_and_requires_stopped_server(
+) {
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    );
+    for (password, confirmation) in [
+        (None, None),
+        (Some("short"), Some("short")),
+        (Some("valid password"), Some("different password")),
+    ] {
+        assert!(
+            initialize_web_auth_with_runtime(&runtime, password, confirmation)
+                .await
+                .is_err()
+        );
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        assert!(
+            AuthService::new(database.pool.clone())
+                .state()
+                .await
+                .unwrap()
+                .setup_required
+        );
+        database.pool.close().await;
+    }
+    let running_lock = ServerProcessLock::acquire(&runtime.app_data_dir).unwrap();
+    assert!(initialize_web_auth_with_runtime(
+        &runtime,
+        Some("valid password"),
+        Some("valid password")
+    )
+    .await
+    .unwrap_err()
+    .contains("正在运行"));
+    drop(running_lock);
+    initialize_web_auth_with_runtime(&runtime, Some("valid password"), Some("valid password"))
+        .await
+        .unwrap();
+    initialize_web_auth_with_runtime(&runtime, None, None)
+        .await
+        .unwrap();
+    initialize_web_auth_with_runtime(
+        &runtime,
+        Some("replacement password"),
+        Some("replacement password"),
+    )
+    .await
+    .unwrap();
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .unwrap();
+    let auth = AuthService::new(database.pool.clone());
+    assert!(auth.verify_password("valid password").await.is_ok());
+    assert!(auth.verify_password("replacement password").await.is_err());
+    database.pool.close().await;
+    std::fs::remove_dir_all(&runtime.app_data_dir).unwrap();
+}
+
+#[tokio::test]
 async fn run_cli_rejects_unknown_commands() {
     let error = run_cli(&["unknown".to_string()])
         .await
         .expect_err("unknown command should fail");
     assert_eq!(
         error,
-        "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
+        "用法：motrix-fnos-server [initialize-web-auth|bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
     );
 }
 

@@ -168,4 +168,15 @@ grep -qx 'bootstrap-web-auth' "${SERVER_CALLS}"
 test ! -e "${PID_FILE}"
 test ! -e "${PID_START_FILE}"
 
+write_pid_record "$$"
+if "$(dirname -- "$0")/../../packaging/fnos/cmd/install_callback"; then
+  echo "server 运行时不应允许安装初始化密码" >&2
+  exit 1
+fi
+printf '%s\n' "9999" > "${PID_START_FILE}"
+"$(dirname -- "$0")/../../packaging/fnos/cmd/install_callback"
+grep -qx 'initialize-web-auth' "${SERVER_CALLS}"
+test ! -e "${PID_FILE}"
+test ! -e "${PID_START_FILE}"
+
 echo "FPK 进程身份校验测试通过。"

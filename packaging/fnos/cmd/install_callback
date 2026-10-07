@@ -1,5 +1,29 @@
 #!/bin/sh
 set -eu
 
-# 因 fnpack 1.2.1 会校验该文件存在而保留；当前无额外安装后置逻辑。
-exit 0
+. "$(dirname -- "$0")/common.sh"
+
+prepare_runtime_dirs
+export_runtime_env
+require_file "${SERVER_BIN}" "server 二进制"
+clear_stale_pid
+pid=$(read_pid || true)
+if [ -n "${pid}" ] && is_running_pid "${pid}"; then
+  echo "请先停止应用再安装" >&2
+  exit 1
+fi
+
+# 密码只通过安装向导环境传递，命令输出不得包含向导字段。
+if "${SERVER_BIN}" initialize-web-auth; then
+  unset wizard_management_password wizard_management_password_confirm
+  log_msg "安装管理密码检查完成"
+  exit 0
+fi
+
+unset wizard_management_password wizard_management_password_confirm
+message="管理密码配置失败，请检查密码长度及两次输入是否一致后重新安装；原有数据已保留。"
+if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+  printf '%s\n' "${message}" > "${TRIM_TEMP_LOGFILE}"
+fi
+echo "${message}" >&2
+exit 1

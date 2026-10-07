@@ -82,6 +82,41 @@ impl AuthService {
         .map(|record| record.state())
     }
 
+    pub async fn initialize_password(&self, password: &str) -> Result<AuthState, AuthError> {
+        let record = validated_record(
+            web_auth::load(&self.pool)
+                .await
+                .map_err(AuthError::Storage)?,
+        )?;
+        if record.is_configured() {
+            return Err(AuthError::AlreadyInitialized);
+        }
+        next_auth_version(record.auth_version)?;
+        validate_password(password)?;
+        let password_hash = self
+            .password_hash_slots
+            .run({
+                let password = password.to_string();
+                move || hash_password(&password)
+            })
+            .await?;
+        let password_updated_at = current_timestamp_ms()?;
+        let auth_version = web_auth::initialize_password(
+            &self.pool,
+            &password_hash,
+            password_updated_at,
+            &record.jwt_secret.unwrap_or_else(jwt::generate_secret),
+        )
+        .await
+        .map_err(AuthError::Storage)?
+        .ok_or(AuthError::AlreadyInitialized)?;
+        Ok(AuthState {
+            setup_required: false,
+            auth_version: auth_version as u64,
+            password_updated_at: Some(password_updated_at),
+        })
+    }
+
     pub async fn setup_with_bootstrap_token(
         &self,
         bootstrap_token: &str,
@@ -97,7 +132,7 @@ impl AuthService {
             })
             .await?;
         let password_updated_at = current_timestamp_ms()?;
-        let auth_version = web_auth::initialize_password(
+        let auth_version = web_auth::initialize_password_with_bootstrap_token(
             &self.pool,
             &password_hash,
             password_updated_at,

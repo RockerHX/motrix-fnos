@@ -365,3 +365,20 @@ async fn cleanup(service: AuthService, path: std::path::PathBuf) {
     service.pool.close().await;
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn concurrent_local_initialization_allows_only_one_password() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("concurrent").await;
+        let first = service.clone();
+        let second = service.clone();
+        let (first, second) = tokio::join!(
+            first.initialize_password(VALID_PASSWORD),
+            second.initialize_password("another secure password")
+        );
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        cleanup(service, path).await;
+    });
+}
