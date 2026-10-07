@@ -26,7 +26,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::env;
 use std::fs;
 use std::future::{Future, IntoFuture};
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -768,22 +768,70 @@ async fn database_cleanup_history(before: &str, apply: bool) -> Result<(), Strin
 }
 
 async fn reset_web_auth() -> Result<(), String> {
-    require_bootstrap_terminal()?;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err("请在 NAS 本机交互终端执行 cmd/reset-web-auth，不支持管道或重定向".to_string());
+    }
+    // 隐藏输入与信号后的终端恢复由 FPK 包装命令负责。
+    let status = std::process::Command::new("stty")
+        .arg("-a")
+        .stdin(std::process::Stdio::inherit())
+        .output()
+        .map_err(|_| "无法检查终端，请使用 cmd/reset-web-auth".to_string())?;
+    let settings = String::from_utf8_lossy(&status.stdout);
+    if !status.status.success()
+        || !settings
+            .split_whitespace()
+            .any(|value| value.trim_end_matches(';') == "-echo")
+    {
+        return Err("请使用 cmd/reset-web-auth 进行隐藏输入，勿直接执行 server 命令".to_string());
+    }
     let runtime = ServerRuntimeConfig::from_env()?;
-    let token = reset_web_auth_with_runtime(&runtime).await?;
-    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
+    reset_web_auth_with_runtime(&runtime, || {
+        let password = read_terminal_password("请输入新管理密码：")?;
+        let confirmation = read_terminal_password("请再次输入新管理密码：")?;
+        if password != confirmation {
+            return Err("两次输入的管理密码不一致，未修改密码".to_string());
+        }
+        Ok(password)
+    })
+    .await?;
+    println!("管理密码已重置，旧登录凭据已失效");
     Ok(())
 }
 
-async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
+fn read_terminal_password(prompt: &str) -> Result<String, String> {
+    print!("{prompt}");
+    std::io::stdout()
+        .flush()
+        .map_err(|_| "无法显示密码提示".to_string())?;
+    let mut bytes = Vec::new();
+    let count = std::io::stdin()
+        .lock()
+        .take(514)
+        .read_until(b'\n', &mut bytes)
+        .map_err(|_| "读取密码失败，未修改密码".to_string())?;
+    println!();
+    if count == 0 || bytes.last() != Some(&b'\n') {
+        return Err("密码输入已取消或超过长度限制，未修改密码".to_string());
+    }
+    bytes.pop();
+    String::from_utf8(bytes).map_err(|_| "密码必须是有效 UTF-8 文本".to_string())
+}
+
+async fn reset_web_auth_with_runtime(
+    runtime: &ServerRuntimeConfig,
+    read_password: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let password = read_password()?;
     let database = connect_database(runtime.database_path.clone()).await?;
-    let token = AuthService::new(database.pool.clone())
-        .reset()
+    let result = AuthService::new(database.pool.clone())
+        .reset(&password)
         .await
+        .map(|_| ())
         .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"));
     database.pool.close().await;
-    token
+    result
 }
 
 async fn bootstrap_web_auth() -> Result<(), String> {

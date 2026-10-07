@@ -984,15 +984,19 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
 
     let running_lock =
         ServerProcessLock::acquire(&runtime.app_data_dir).expect("server lock should acquire");
-    let error = reset_web_auth_with_runtime(&runtime)
-        .await
-        .expect_err("running server should block reset");
+    let error = reset_web_auth_with_runtime(&runtime, || {
+        Ok("replacement management password".to_string())
+    })
+    .await
+    .expect_err("running server should block reset");
     assert!(error.contains("正在运行"));
     drop(running_lock);
 
-    reset_web_auth_with_runtime(&runtime)
-        .await
-        .expect("stopped server should reset auth");
+    reset_web_auth_with_runtime(&runtime, || {
+        Ok("replacement management password".to_string())
+    })
+    .await
+    .expect("stopped server should reset auth");
     let database = connect_database(runtime.database_path.clone())
         .await
         .expect("database should reconnect");
@@ -1000,7 +1004,16 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
         .state()
         .await
         .expect("auth state should load");
-    assert!(reset_state.setup_required);
+    assert!(!reset_state.setup_required);
+    let auth = AuthService::new(database.pool.clone());
+    assert!(auth
+        .verify_password("replacement management password")
+        .await
+        .is_ok());
+    assert!(auth
+        .verify_password("test management password")
+        .await
+        .is_err());
     assert_eq!(reset_state.auth_version, 3);
     assert_eq!(
         load_json_rpc_token(&database.pool)
@@ -1085,6 +1098,23 @@ async fn installation_validates_password_preserves_existing_credentials_and_requ
     let auth = AuthService::new(database.pool.clone());
     assert!(auth.verify_password("valid password").await.is_ok());
     assert!(auth.verify_password("replacement password").await.is_err());
+    let before = auth.state().await.unwrap();
+    database.pool.close().await;
+    assert!(
+        reset_web_auth_with_runtime(&runtime, || Err("取消输入".to_string()))
+            .await
+            .is_err()
+    );
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        AuthService::new(database.pool.clone())
+            .state()
+            .await
+            .unwrap(),
+        before
+    );
     database.pool.close().await;
     std::fs::remove_dir_all(&runtime.app_data_dir).unwrap();
 }

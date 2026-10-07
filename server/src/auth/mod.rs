@@ -217,17 +217,32 @@ impl AuthService {
         })
     }
 
-    pub async fn reset(&self) -> Result<String, AuthError> {
+    pub async fn reset(&self, password: &str) -> Result<AuthState, AuthError> {
+        validate_password(password)?;
         let jwt_secret = web_auth::load(&self.pool)
             .await
             .map_err(AuthError::Storage)?
             .and_then(|row| row.jwt_secret)
+            .filter(|secret| !secret.is_empty())
             .unwrap_or_else(jwt::generate_secret);
-        let (token, token_hash, expires_at) = self.new_bootstrap_token().await?;
-        web_auth::reset(&self.pool, &jwt_secret, &token_hash, expires_at)
-            .await
-            .map_err(AuthError::Storage)?;
-        Ok(token)
+        let password_hash = self
+            .password_hash_slots
+            .run({
+                let password = password.to_string();
+                move || hash_password(&password)
+            })
+            .await?;
+        let password_updated_at = current_timestamp_ms()?;
+        let auth_version =
+            web_auth::reset(&self.pool, &jwt_secret, &password_hash, password_updated_at)
+                .await
+                .map_err(AuthError::Storage)?
+                .ok_or_else(|| invalid_state("auth_version 超出范围"))?;
+        Ok(AuthState {
+            setup_required: false,
+            auth_version: auth_version as u64,
+            password_updated_at: Some(password_updated_at),
+        })
     }
 
     pub async fn issue_bootstrap_token(&self) -> Result<String, AuthError> {

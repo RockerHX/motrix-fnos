@@ -373,7 +373,9 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 全新安装在安装向导中输入并确认管理密码，由 `install_callback` 调用本机 `initialize-web-auth` 写入哈希；保留数据重装或升级时保留原密码。忘记密码时暂时仍在停止应用后使用本机 `reset-web-auth` 生成一次性凭据，在网页重新设置密码；后续提交改为直接重置。
+- 全新安装在安装向导中输入并确认管理密码，由 `install_callback` 调用本机 `initialize-web-auth` 写入哈希；保留数据重装或升级时保留原密码。
+- 忘记管理密码时，先在应用中心停止 Motrix，再通过 NAS SSH 交互终端以应用账户执行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，输入并确认新密码（终端不回显）。重置成功后启动应用并使用新密码登录；取消或验证失败保留原密码，旧 JWT 在成功重置后失效。任务、Aria2 session、下载设置、RPC Token、授权目录与下载文件均保留。
+- 本机命令通过安装目录的 `target`、`var` 链接定位二进制和数据，不要求 SSH 会话预先具有生命周期的 `TRIM_APPDEST`、`TRIM_PKGVAR`。不要直接以 root 运行 server 命令，避免改变应用数据所有权。旧网页初始化入口与 `bootstrap-web-auth` 暂时保留，后续提交移除。
 - 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
 
 ### 安装密码平台依据与验收

@@ -118,28 +118,16 @@ pub(crate) async fn issue_bootstrap_token(
 pub(crate) async fn reset(
     pool: &SqlitePool,
     jwt_secret: &str,
-    token_hash: &str,
-    expires_at: i64,
-) -> Result<(), String> {
-    sqlx::query(
-        r#"
-        INSERT INTO web_auth_config (id, enabled, password_hash, password_updated_at, auth_version, jwt_secret, bootstrap_token_hash, bootstrap_token_expires_at)
-        VALUES (1, 1, NULL, NULL, 1, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            enabled = 1,
-            password_hash = NULL,
-            password_updated_at = NULL,
-            auth_version = web_auth_config.auth_version + 1,
-            jwt_secret = COALESCE(NULLIF(web_auth_config.jwt_secret, ''), excluded.jwt_secret),
-            bootstrap_token_hash = excluded.bootstrap_token_hash,
-            bootstrap_token_expires_at = excluded.bootstrap_token_expires_at
-        "#,
+    password_hash: &str,
+    updated_at: i64,
+) -> Result<Option<i64>, String> {
+    sqlx::query_scalar(
+        "INSERT INTO web_auth_config (id, enabled, password_hash, password_updated_at, auth_version, jwt_secret) VALUES (1, 1, ?, ?, 1, ?) ON CONFLICT(id) DO UPDATE SET enabled = 1, password_hash = excluded.password_hash, password_updated_at = excluded.password_updated_at, auth_version = web_auth_config.auth_version + 1, jwt_secret = COALESCE(NULLIF(web_auth_config.jwt_secret, ''), excluded.jwt_secret), bootstrap_token_hash = NULL, bootstrap_token_expires_at = NULL WHERE web_auth_config.auth_version > 0 AND web_auth_config.auth_version < 9223372036854775807 RETURNING auth_version",
     )
+    .bind(password_hash)
+    .bind(updated_at)
     .bind(jwt_secret)
-    .bind(token_hash)
-    .bind(expires_at)
-    .execute(pool)
+    .fetch_optional(pool)
     .await
-    .map_err(|error| format!("重置 Web 鉴权配置失败：{error}"))?;
-    Ok(())
+    .map_err(|error| format!("重置 Web 鉴权配置失败：{error}"))
 }

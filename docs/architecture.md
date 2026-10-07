@@ -230,7 +230,7 @@ Rust Runtime Event
 - Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
 - 除明确匿名的认证与就绪探测接口外，管理 API 与 SSE 始终要求有效管理员 JWT。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、本地重置和升级时恢复旧版关闭状态均递增版本，使旧 JWT 失效。不提供关闭管理密码保护的配置或 API。
 - 全新安装必须在 fnOS 安装向导中输入并确认管理密码，由 `install_callback` 调用 Rust 本机初始化命令，在首次启动前完成校验与哈希写入。已配置实例重装或升级保留原密码；密码不得进入命令参数、日志或应用持久化明文文件。平台向导字段的保留行为需按 `docs/fpk-packaging.md` 在实机验收。
-- 过渡阶段保留旧网页初始化与本机 bootstrap token 命令，仅用于尚未配置密码的实例；后续提交移除这些入口。旧版本机重置暂时返回短期一次性凭据，后续提交改为隐藏输入并直接设置新密码。
+- NAS 本机 `reset-web-auth` 必须在应用停止后，通过终端隐藏输入并确认新密码，直接完成重置，保留任务、配置、RPC Token 与下载文件。过渡阶段仍保留旧网页初始化与 bootstrap token 命令，后续提交移除。
 - 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
 - Motrix Web 管理鉴权不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。HTTP 与 SSE 请求使用 `credentials: "same-origin"`，允许浏览器按自身策略携带上游网关的同源 Cookie；这些 Cookie 不作为 Motrix 的管理授权依据。
 - 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，Web 管理认证变更不得影响 RPC 鉴权。
