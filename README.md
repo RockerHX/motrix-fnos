@@ -71,8 +71,10 @@ FPK 按设备 CPU 架构分别发布：
 ## 安装与使用
 
 1. 从 [GitHub Releases](https://github.com/RockerHX/motrix-fnos/releases) 下载与设备架构匹配的 FPK。
-2. 在飞牛应用中心安装 FPK，并为应用添加需要使用的读写文件夹授权。
+2. 在飞牛应用中心安装 FPK，在安装向导中设置并确认管理密码，并为应用添加需要使用的读写文件夹授权。
 3. 启动 Motrix，打开应用界面后选择授权目录并创建下载任务。
+
+管理页面使用安装时设置的密码登录，保留数据重装或升级时沿用原密码。忘记密码时先停止应用，再通过 NAS SSH 终端运行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，按提示隐藏输入并确认新密码，成功后启动应用；下载任务、设置、RPC Token 和下载文件均保留。
 
 同一 `appname=motrix` 身份下的后续升级默认保留任务、设置和运行数据。旧 `motrix.fnos` 包切换到 `motrix` 属于新应用安装，旧任务、设置和 JSON-RPC Token 不会自动迁移；安装前应停止旧应用，避免 `17080`、`17081` 端口冲突。
 

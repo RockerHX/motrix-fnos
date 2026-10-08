@@ -22,6 +22,10 @@
     "release:prepare": "node scripts/release/release-prepare.mjs",
     "release:notes": "node scripts/release/release-notes.mjs",
     "verify": "node scripts/verify/verify.mjs",
+    "test:e2e": "playwright test",
+    "test:aria2": "node --test --test-reporter=./scripts/verify/test-duration-reporter.mjs scripts/extended/aria2-sidecar.test.mjs",
+    "test:filesystem": "node scripts/verify/run-filesystem-tests.mjs",
+    "verify:extended": "node scripts/verify/verify-extended.mjs",
     "verify:pre-commit": "node scripts/verify/verify.mjs --quick",
     "verify:fpk": "node scripts/verify/verify-fpk-artifacts.mjs",
     "audit:deps": "node scripts/verify/dependency-audit.mjs",
@@ -36,7 +40,8 @@
     "build:fpk:arm64": "node scripts/build/build-fpk.mjs --target aarch64-unknown-linux-gnu",
     "build:fpk:prepare": "node scripts/build/build-fpk-all.mjs --prepare-only",
     "build:fpk:artifacts": "node scripts/build/build-fpk-all.mjs",
-    "build:fpk": "node scripts/build/package-local.mjs"
+    "build:fpk": "node scripts/build/package-local.mjs",
+    "build:fpk:release": "node scripts/build/package-release.mjs"
   },
   "dependencies": {
     "@tabler/icons-vue": "^3.46.0",
@@ -46,6 +51,7 @@
     "vue": "^3.5.41"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.11",
     "js-tiktoken": "1.0.21",

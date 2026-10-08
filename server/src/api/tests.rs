@@ -1846,6 +1846,7 @@ async fn settings_routes_round_trip_payloads_and_log_rpc_warning() {
         initial_lan_status,
         LanJsonRpcStatus {
             enabled: false,
+            available: true,
             configured: false,
             masked_token: None,
             allow_shared_address_space: false,

@@ -2,7 +2,7 @@
 
 ## 作用与维护规则
 
-本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
+本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。完整测试流程可查看[交互式测试 H5](testing-flow.html)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
 
 固定规则：
 
@@ -13,7 +13,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 只保留手动触发入口，依赖审计由独立的每周 workflow 执行。
+- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，nightly 和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
 
 ## 命令速查
 
@@ -33,6 +33,10 @@
 | `release:prepare` | 本地准备正式版本、日志、commit 和 tag | 是，属于高影响命令 |
 | `release:notes` | 从 `CHANGELOG.md` 提取某版本发布正文 | 否 |
 | `verify` | 执行发布前完整验证 | 写 Rust 与前端构建缓存 |
+| `test:e2e` | 运行 Playwright 浏览器冒烟测试 | 写测试报告和失败 trace |
+| `test:aria2` | 运行真实 Aria2 sidecar 集成测试 | 写临时下载目录和 session |
+| `test:filesystem` | 运行 Rust 文件系统故障测试 | 写系统临时目录和 Rust 构建缓存 |
+| `verify:extended` | 完整验证后运行全部扩展测试 | 写测试报告、临时目录和构建缓存 |
 | `verify:pre-commit` | 执行提交前快速静态检查 | 否 |
 | `verify:fpk` | 解包验收已生成的双架构 FPK | 只写临时解包目录 |
 | `prepare` | 安装依赖后尝试配置 Git hooks | 修改本仓库 Git 配置 |
@@ -47,6 +51,7 @@
 | `build:fpk:prepare` | 双架构预组装与预检，不调用 fnpack | 写双架构 stage 和编译产物 |
 | `build:fpk:artifacts` | 只构建 x86 与 ARM 两个 FPK，供 Release 调用 | 重建 FPK 输出目录 |
 | `build:fpk` | 完整验证源码并构建、验收双架构 FPK | 写构建缓存并重建 FPK 输出目录 |
+| `build:fpk:release` | 扩展验证后构建、验收双架构 FPK | 写测试缓存、构建缓存并重建 FPK 输出目录 |
 
 ## Web UI 开发
 
@@ -100,6 +105,18 @@ Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型�
 ### `pnpm run verify:fpk`
 
 要求 `packaging/fnos/dist/` 中存在版本匹配的 x86 与 ARM 两个 FPK，逐一解包检查 manifest、端口配置、生命周期脚本、Web UI、双架构 server/sidecar 和空运行数据目录。缺少产物时直接失败，不得静默跳过。
+
+### 扩展验证命令
+
+`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于 nightly、发布前和需要完整回归时，不加入普通 `pnpm run build:fpk`。
+
+单独运行某个扩展测试时使用：
+
+```bash
+rtk pnpm run test:e2e
+rtk pnpm run test:aria2
+rtk pnpm run test:filesystem
+```
 
 ### `pnpm run audit:deps`
 
@@ -233,7 +250,7 @@ git config core.hooksPath .githooks
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 或删除远端引用时跳过源码验证。
 
-因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 不随 `main` push 自动运行，需要远端复核时手动触发。
+因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，nightly 或手动触发时运行扩展验证。
 
 ## FPK 构建与资产命令
 
@@ -313,6 +330,10 @@ packaging/fnos/dist/motrix_<version>_arm.fpk
 4. 运行 `pnpm run verify:fpk` 解包验收新产物。
 
 Release 不调用该命令，避免在远端重复源码测试。
+
+### `pnpm run build:fpk:release`
+
+发布前入口依次运行一次 `pnpm run verify:extended`、复用已验证的 Web UI 构建双架构 FPK，并运行 `pnpm run verify:fpk`。普通本地开发使用 `pnpm run build:fpk`，避免每轮打包都执行浏览器和 sidecar 扩展测试。
 
 ## 推荐工作流
 

@@ -26,7 +26,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use std::env;
 use std::fs;
 use std::future::{Future, IntoFuture};
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -187,6 +187,7 @@ pub struct HttpAppState {
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
     listeners_ready: AtomicBool,
+    lan_jsonrpc_port_in_use: AtomicBool,
     file_cleanup_worker_running: AtomicBool,
     file_cleanup_worker_notify: tokio::sync::Notify,
 }
@@ -226,6 +227,7 @@ impl HttpAppState {
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),
             listeners_ready: AtomicBool::new(false),
+            lan_jsonrpc_port_in_use: AtomicBool::new(false),
             file_cleanup_worker_running: AtomicBool::new(false),
             file_cleanup_worker_notify: tokio::sync::Notify::new(),
         }
@@ -354,6 +356,10 @@ impl HttpAppState {
 
     pub(crate) fn subscribe_lan_json_rpc_config(&self) -> watch::Receiver<u64> {
         self.lan_json_rpc_config_revision.subscribe()
+    }
+
+    pub(crate) fn lan_jsonrpc_available(&self) -> bool {
+        !self.lan_jsonrpc_port_in_use.load(Ordering::Relaxed)
     }
 
     pub(crate) fn notify_lan_json_rpc_config_changed(&self) {
@@ -670,6 +676,9 @@ pub async fn run_server() -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let state = bootstrap_http_app_state(&runtime).await?;
     let listeners = bind_http_listeners(&runtime).await?;
+    state
+        .lan_jsonrpc_port_in_use
+        .store(listeners.lan_jsonrpc.is_none(), Ordering::Relaxed);
     state.mark_listeners_ready();
     crate::runtime::spawn_task_monitor(state.clone());
 
@@ -687,13 +696,6 @@ pub async fn run_server() -> Result<(), String> {
     state.core.debug_logs.info(
         "app",
         format!(
-            "局域网 JSON-RPC 入口已初始化，监听地址 {}",
-            state.runtime.lan_jsonrpc_addr
-        ),
-    );
-    state.core.debug_logs.info(
-        "app",
-        format!(
             "JSON-RPC 专用入口已初始化，监听地址 {}",
             state.runtime.jsonrpc_addr
         ),
@@ -705,7 +707,7 @@ pub async fn run_server() -> Result<(), String> {
 pub async fn run_cli(args: &[String]) -> Result<(), String> {
     match args {
         [] => run_server().await,
-        [command] if command == "bootstrap-web-auth" => bootstrap_web_auth().await,
+        [command] if command == "initialize-web-auth" => initialize_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
         [command, output] if command == "database-backup" => database_backup(output).await,
@@ -718,7 +720,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }
@@ -765,48 +767,112 @@ async fn database_cleanup_history(before: &str, apply: bool) -> Result<(), Strin
 }
 
 async fn reset_web_auth() -> Result<(), String> {
-    require_bootstrap_terminal()?;
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err("请在 NAS 本机交互终端执行 cmd/reset-web-auth，不支持管道或重定向".to_string());
+    }
+    // 隐藏输入与信号后的终端恢复由 FPK 包装命令负责。
+    let status = std::process::Command::new("stty")
+        .arg("-a")
+        .stdin(std::process::Stdio::inherit())
+        .output()
+        .map_err(|_| "无法检查终端，请使用 cmd/reset-web-auth".to_string())?;
+    let settings = String::from_utf8_lossy(&status.stdout);
+    if !status.status.success()
+        || !settings
+            .split_whitespace()
+            .any(|value| value.trim_end_matches(';') == "-echo")
+    {
+        return Err("请使用 cmd/reset-web-auth 进行隐藏输入，勿直接执行 server 命令".to_string());
+    }
     let runtime = ServerRuntimeConfig::from_env()?;
-    let token = reset_web_auth_with_runtime(&runtime).await?;
-    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
+    reset_web_auth_with_runtime(&runtime, || {
+        let password = read_terminal_password("请输入新管理密码：")?;
+        let confirmation = read_terminal_password("请再次输入新管理密码：")?;
+        if password != confirmation {
+            return Err("两次输入的管理密码不一致，未修改密码".to_string());
+        }
+        Ok(password)
+    })
+    .await?;
+    println!("管理密码已重置，旧登录凭据已失效");
     Ok(())
 }
 
-async fn reset_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
+fn read_terminal_password(prompt: &str) -> Result<String, String> {
+    print!("{prompt}");
+    std::io::stdout()
+        .flush()
+        .map_err(|_| "无法显示密码提示".to_string())?;
+    let mut bytes = Vec::new();
+    let count = std::io::stdin()
+        .lock()
+        .take(514)
+        .read_until(b'\n', &mut bytes)
+        .map_err(|_| "读取密码失败，未修改密码".to_string())?;
+    println!();
+    if count == 0 || bytes.last() != Some(&b'\n') {
+        return Err("密码输入已取消或超过长度限制，未修改密码".to_string());
+    }
+    bytes.pop();
+    String::from_utf8(bytes).map_err(|_| "密码必须是有效 UTF-8 文本".to_string())
+}
+
+async fn reset_web_auth_with_runtime(
+    runtime: &ServerRuntimeConfig,
+    read_password: impl FnOnce() -> Result<String, String>,
+) -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
+    let password = read_password()?;
     let database = connect_database(runtime.database_path.clone()).await?;
-    let token = AuthService::new(database.pool.clone())
-        .reset()
+    let result = AuthService::new(database.pool.clone())
+        .reset(&password)
         .await
+        .map(|_| ())
         .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"));
     database.pool.close().await;
-    token
+    result
 }
 
-async fn bootstrap_web_auth() -> Result<(), String> {
-    require_bootstrap_terminal()?;
+async fn initialize_web_auth() -> Result<(), String> {
+    let password = env::var("wizard_management_password").ok();
+    let confirmation = env::var("wizard_management_password_confirm").ok();
+    env::remove_var("wizard_management_password");
+    env::remove_var("wizard_management_password_confirm");
     let runtime = ServerRuntimeConfig::from_env()?;
-    let token = bootstrap_web_auth_with_runtime(&runtime).await?;
-    println!("Web 管理初始化凭据（15 分钟内有效，仅可使用一次）：{token}");
-    Ok(())
+    initialize_web_auth_with_runtime(&runtime, password.as_deref(), confirmation.as_deref()).await
 }
 
-fn require_bootstrap_terminal() -> Result<(), String> {
-    if !std::io::stdout().is_terminal() {
-        return Err("请在本机交互终端执行鉴权管理命令，不得重定向初始化凭据".to_string());
-    }
-    Ok(())
-}
-
-async fn bootstrap_web_auth_with_runtime(runtime: &ServerRuntimeConfig) -> Result<String, String> {
+async fn initialize_web_auth_with_runtime(
+    runtime: &ServerRuntimeConfig,
+    password: Option<&str>,
+    confirmation: Option<&str>,
+) -> Result<(), String> {
     let _process_lock = ServerProcessLock::acquire(&runtime.app_data_dir)?;
     let database = connect_database(runtime.database_path.clone()).await?;
-    let token = AuthService::new(database.pool.clone())
-        .issue_bootstrap_token()
-        .await
-        .map_err(|error| format!("生成 Web 鉴权初始化凭据失败：{error:?}"));
+    let service = AuthService::new(database.pool.clone());
+    let result = async {
+        let state = service
+            .state()
+            .await
+            .map_err(|error| format!("读取管理密码状态失败：{error:?}"))?;
+        if !state.setup_required {
+            println!("已保留原管理密码");
+            return Ok(());
+        }
+        let password = password.ok_or_else(|| "安装向导未提供管理密码".to_string())?;
+        if Some(password) != confirmation {
+            return Err("两次输入的管理密码不一致，请重新安装并确认密码".to_string());
+        }
+        service
+            .initialize_password(password)
+            .await
+            .map_err(|error| format!("初始化管理密码失败：{error:?}"))?;
+        println!("管理密码初始化完成");
+        Ok(())
+    }
+    .await;
     database.pool.close().await;
-    token
+    result
 }
 
 #[derive(Debug)]
@@ -814,7 +880,7 @@ struct HttpListeners {
     management: TcpListener,
     management_ipv6: Option<TcpListener>,
     jsonrpc: TcpListener,
-    lan_jsonrpc: TcpListener,
+    lan_jsonrpc: Option<TcpListener>,
 }
 
 async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListeners, String> {
@@ -839,14 +905,16 @@ async fn bind_http_listeners(runtime: &ServerRuntimeConfig) -> Result<HttpListen
                 runtime.jsonrpc_addr, error
             )
         })?;
-    let lan_jsonrpc = TcpListener::bind(runtime.lan_jsonrpc_addr)
-        .await
-        .map_err(|error| {
-            format!(
+    let lan_jsonrpc = match TcpListener::bind(runtime.lan_jsonrpc_addr).await {
+        Ok(listener) => Some(listener),
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => None,
+        Err(error) => {
+            return Err(format!(
                 "绑定局域网 JSON-RPC 监听地址失败：{}（{}）",
                 runtime.lan_jsonrpc_addr, error
-            )
-        })?;
+            ));
+        }
+    };
 
     Ok(HttpListeners {
         management,
@@ -924,6 +992,26 @@ where
         jsonrpc,
         lan_jsonrpc,
     } = listeners;
+    state
+        .lan_jsonrpc_port_in_use
+        .store(lan_jsonrpc.is_none(), Ordering::Relaxed);
+    if lan_jsonrpc.is_none() {
+        state.core.debug_logs.warn(
+            "app",
+            format!(
+                "局域网 JSON-RPC 不可用：端口被占用（{}）；管理和回环 RPC 服务继续运行，释放端口后请重启应用",
+                state.runtime.lan_jsonrpc_addr
+            ),
+        );
+    } else {
+        state.core.debug_logs.info(
+            "app",
+            format!(
+                "局域网 JSON-RPC 入口已初始化，监听地址 {}",
+                state.runtime.lan_jsonrpc_addr
+            ),
+        );
+    }
     let (shutdown_sender, shutdown_receiver) = watch::channel(false);
     let management_shutdown = shutdown_receiver.clone();
     let management_ipv6_shutdown = shutdown_receiver.clone();
@@ -957,13 +1045,24 @@ where
     let jsonrpc_server = axum::serve(jsonrpc, crate::api::jsonrpc_router(state.clone()))
         .with_graceful_shutdown(wait_for_http_shutdown(jsonrpc_shutdown))
         .into_future();
-    let lan_jsonrpc_server = axum::serve(
-        lan_jsonrpc,
-        crate::api::lan_jsonrpc_router(state.clone())
-            .into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(wait_for_http_shutdown(lan_jsonrpc_shutdown))
-    .into_future();
+    let lan_jsonrpc_state = state.clone();
+    let lan_jsonrpc_server = async move {
+        match lan_jsonrpc {
+            Some(listener) => {
+                axum::serve(
+                    listener,
+                    crate::api::lan_jsonrpc_router(lan_jsonrpc_state)
+                        .into_make_service_with_connect_info::<SocketAddr>(),
+                )
+                .with_graceful_shutdown(wait_for_http_shutdown(lan_jsonrpc_shutdown))
+                .await
+            }
+            None => {
+                wait_for_http_shutdown(lan_jsonrpc_shutdown).await;
+                Ok(())
+            }
+        }
+    };
 
     tokio::pin!(management_server);
     tokio::pin!(management_ipv6_server);

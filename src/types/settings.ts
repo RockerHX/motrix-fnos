@@ -35,6 +35,7 @@ export interface JsonRpcTokenStatus {
 
 export interface LanJsonRpcStatus {
   enabled: boolean;
+  available?: boolean;
   configured: boolean;
   maskedToken: string | null;
   allowSharedAddressSpace: boolean;

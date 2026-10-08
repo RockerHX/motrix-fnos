@@ -4,19 +4,17 @@ import { useDebugLogStore } from "../../diagnostics/stores/debugLogStore";
 import { useSettingsStore } from "../../settings/stores/settingsStore";
 import { useJsonRpcTokenStore } from "../../settings/stores/jsonRpcTokenStore";
 import { useTaskStore } from "../../tasks/stores/taskStore";
-import { getAuthStatus, loginAuth, logoutAuth, setupAuth } from "../services/authService";
+import { getAuthStatus, loginAuth, logoutAuth } from "../services/authService";
 import { useAuthStore } from "./authStore";
 
 vi.mock("../services/authService", () => ({
   getAuthStatus: vi.fn(),
-  setupAuth: vi.fn(),
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),
 }));
 
 const mockedStatus = vi.mocked(getAuthStatus);
-const mockedSetup = vi.mocked(setupAuth);
 const mockedLogin = vi.mocked(loginAuth);
 const mockedLogout = vi.mocked(logoutAuth);
 
@@ -27,11 +25,11 @@ describe("authStore", () => {
     localStorage.clear();
   });
 
-  it("maps server status to setup, login and ready phases without persisting a status response", async () => {
+  it("maps server status to unconfigured, login and ready phases without persisting a status response", async () => {
     const store = useAuthStore();
     mockedStatus.mockResolvedValueOnce(status({ setupRequired: true }));
     await store.initialize();
-    expect(store.phase).toBe("setup");
+    expect(store.phase).toBe("unconfigured");
     expect(store.accessToken).toBeNull();
 
     mockedStatus.mockResolvedValueOnce(status({ authenticated: false, accessToken: null }));
@@ -48,11 +46,6 @@ describe("authStore", () => {
 
   it("supports setup, login and logout while clearing sensitive stores", async () => {
     const store = useAuthStore();
-    mockedSetup.mockResolvedValueOnce(status({ authenticated: true, accessToken: "setup-jwt" }));
-    mockedStatus.mockResolvedValueOnce(status({ authenticated: true }));
-    await store.setup("new password value", "local-bootstrap-token");
-    expect(store.phase).toBe("ready");
-
     mockedLogin.mockResolvedValueOnce(status({ authenticated: true, accessToken: "login-jwt" }));
     mockedStatus.mockResolvedValueOnce(status({ authenticated: true }));
     await store.login("current password");
@@ -164,7 +157,7 @@ describe("authStore", () => {
 
     await store.refreshStatus();
 
-    expect(store.phase).toBe("setup");
+    expect(store.phase).toBe("unconfigured");
     expect(taskStore.tasks).toEqual([]);
   });
 });

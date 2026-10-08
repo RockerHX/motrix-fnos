@@ -1,5 +1,7 @@
 # FPK 打包说明
 
+完整测试阶段和自动化/人工边界见[交互式测试流程 H5](testing-flow.html)。
+
 ## 作用
 
 这份文档统一说明 **开发验证、FPK 构建、产物定位和发布流程**，以及最小调试 / 排障入口。
@@ -100,7 +102,7 @@ FPK 启动脚本必须向同一个 Rust server 注入三个入口地址；管理
 - `manifest.service_port` 与唯一 `app/ui/config` iframe 入口端口必须都是 `17080`；`MotrixFNOS.sc` 的源/目标端口必须精确声明 `17080/tcp,17082/tcp`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
 - `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
 - `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
-- `17082` 始终监听但由服务端开关和 IPv4 来源检查共同保护；默认只允许 RFC1918，管理员显式启用后额外允许 `100.64.0.0/10`。局域网 Token 不得在 `17081` 使用。
+- `17082` 启动时始终尝试监听，由服务端开关和 IPv4 来源检查共同保护；仅端口占用（`AddrInUse`）时降级为局域网 RPC 不可用，`17080` 和 `17081` 继续启动。日志、设置和诊断页显示冲突；释放端口后重启恢复，不自动换端口。其他监听错误仍使启动失败。默认只允许 RFC1918，管理员显式启用后额外允许 `100.64.0.0/10`。局域网 Token 不得在 `17081` 使用。
 - 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
 - FPK 日志可以记录三个监听地址，但不得记录 Web 密码、JWT、JSON-RPC Token 或 Aria2 secret。
 - 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。
@@ -371,8 +373,18 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 - 卸载默认保留 `TRIM_PKGVAR`，便于后续重装继续使用原任务和设置。
 - 只有卸载向导 `MOTRIX_FNOS_DELETE_APP_DATA` 被用户明确开启时，`cmd/uninstall_callback` 才会清理 `TRIM_PKGVAR`。
 - 清理范围仅限 Motrix 应用私有数据；用户下载目录和已下载文件不在清理范围内。
-- 首次安装后必须在 NAS 本机停止应用并执行 FPK 命令目录中的 `bootstrap-web-auth` 获取一次性初始化 token；忘记管理密码时只能在同样条件下执行 `reset-web-auth` 获取新的 token。两个命令都要求交互式终端，不得重定向输出，也不得通过公网触发；命令只处理 Web 鉴权并保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。token 15 分钟有效且只能使用一次。
+- 全新安装在 `wizard/install` 中输入并确认管理密码（8–128 个 Unicode 字符）；`install_callback` 通过向导字段环境变量调用 Rust `initialize-web-auth`，在首次服务启动前写入哈希。两次输入不一致或密码不合规时安装失败，不写入密码；保留数据重装与升级沿用原密码。
+- 忘记管理密码时，先在应用中心停止 Motrix，再通过 NAS SSH 交互终端以应用账户执行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，输入并确认新密码（终端不回显）。重置成功后启动应用并使用新密码登录；取消或验证失败保留原密码，旧 JWT 在成功重置后失效。任务、Aria2 session、下载设置、RPC Token、授权目录与下载文件均保留。
+- 本机命令通过安装目录的 `target`、`var` 链接定位二进制和数据，不要求 SSH 会话预先具有生命周期的 `TRIM_APPDEST`、`TRIM_PKGVAR`。不要直接以 root 运行 server 命令，避免改变应用数据所有权。网页初始化入口与 `bootstrap-web-auth` 已移除。
 - 卸载向导的 `switch` 不设置 `initValue`。当前实测中字符串不能可靠表达默认状态，布尔值会导致 fnpack 校验失败；在官方规则明确前保持省略。
+
+### 安装密码平台依据与验收
+
+2026-10-07 查证官方 [安装向导文档](https://developer.fnnas.com/docs/core-concepts/wizard/) 与 [应用框架文档](https://developer.fnnas.com/docs/core-concepts/framework/)：`password` 字段隐藏输入，`field` 对应生命周期环境变量，`install_callback` 在包文件安装后执行。回调仍需重新验证输入，不依赖向导前端校验。
+
+实机待验收：全新安装完成即能登录、两次密码不一致的提示、保留数据重装与覆盖升级、SSH 隐藏输入重置、Ctrl+C 取消与终端回显恢复、应用账户对数据库的写权限。使用仅供测试的密码检查平台是否将向导字段保存在应用配置、安装记录或日志中；目前官方资料不足以证明平台不会保留字段，应用仅保证自身不持久化或记录明文。正式服务启动前清除向导密码环境变量，避免继续传给 server 或 Aria2。
+
+受影响的 1.9.8 未初始化实例无需旧网页补设密码入口：保留应用数据卸载后，重新安装修正版并在向导设密即可；也可在停止后使用本机重置命令。撤回版本由维护者单独执行，此改动不自动发布或修改版本号。
 
 ### 升级前备份与回滚
 
@@ -480,9 +492,9 @@ packaging/fnos/app/ui/config
 
 - `pre-commit` 只执行版本、暂存区空白和 Rust 格式检查，不运行前端类型检查、单元测试或生产构建。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 时跳过。正常分支推送必须在本地通过全部脚本、Rust、前端测试和构建。
-- GitHub `Verify` 只支持 `workflow_dispatch` 手动触发，不随 `main` push 或 PR 自动运行，避免和本地 `pre-push` 重复。
+- GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动执行快速 `pnpm run verify`；nightly 或手动 dispatch 额外执行 `pnpm run verify:extended`。
 - Release 只允许修改 `CHANGELOG.md` 和固定版本文件；这些发布元数据变化与已经通过本地验证的业务源码视为等价，出现白名单外改动时立即中止。
-- `Release FPK` 不重复运行源码测试、依赖审计，也不查询 GitHub `Verify`；它只生成版本文件、构建双架构 FPK，并解包验证、签署和发布产物。
+- `Release FPK` 在构建产物前执行一次扩展验证，不重复调用 `verify`；之后构建双架构 FPK，并解包验证、签署和发布产物。
 - 自动生成的版本提交和内部推送都使用 `--no-verify`，避免 GitHub runner 因安装本地 hooks 而隐藏重复完整验证。
 - `Dependency Audit` 与源码验证和 Release 分离，每周一北京时间 03:23 定时执行。
 

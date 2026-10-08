@@ -74,8 +74,10 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(vitestProgressReporter, /onTestCaseReady/);
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
-  assert.doesNotMatch(verifyWorkflow, /^\s+push:\s*$/m);
-  assert.doesNotMatch(verifyWorkflow, /^\s+pull_request:\s*$/m);
+  assert.match(verifyWorkflow, /^\s+push:\s*$/m);
+  assert.match(verifyWorkflow, /^\s+pull_request:\s*$/m);
+  assert.match(verifyWorkflow, /schedule:/);
+  assert.match(verifyWorkflow, /pnpm exec playwright install --with-deps chromium/);
   assert.match(verifyWorkflow, /run:\s+pnpm run verify/);
 
   assert.match(releaseWorkflow, /git commit --no-verify/);
@@ -83,9 +85,10 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(releaseWorkflow, /git push --no-verify origin/);
   assert.match(releaseWorkflow, /pnpm run build:fpk:artifacts/);
   assert.match(releaseWorkflow, /pnpm run verify:fpk/);
+  assert.match(releaseWorkflow, /pnpm run verify:extended/);
   assert.doesNotMatch(releaseWorkflow, /^\s*actions:\s*read\s*$/m);
   assert.doesNotMatch(releaseWorkflow, /Require successful main verification|gh run list|source_sha/);
-  assert.doesNotMatch(releaseWorkflow, /cargo install cargo-audit|pnpm run audit:deps|pnpm run verify(?!:fpk)/);
+  assert.doesNotMatch(releaseWorkflow, /cargo install cargo-audit|pnpm run audit:deps|pnpm run verify(?::(?!extended|fpk)|\s)/);
 
   assert.doesNotMatch(verifyWorkflow, /cargo install cargo-audit|pnpm run audit:deps/);
   assert.match(auditWorkflow, /schedule:/);
@@ -104,6 +107,11 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   const buildWebScript = readFileSync('scripts/build/build-web.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/build/package-local.mjs');
+  assert.equal(packageJson.scripts['verify:extended'], 'node scripts/verify/verify-extended.mjs');
+  assert.equal(packageJson.scripts['build:fpk:release'], 'node scripts/build/package-release.mjs');
+  assert.match(packageJson.scripts['test:e2e'], /playwright test/);
+  assert.match(packageJson.scripts['test:aria2'], /scripts\/extended\/aria2-sidecar\.test\.mjs/);
+  assert.match(packageJson.scripts['test:filesystem'], /run-filesystem-tests\.mjs/);
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build/build-fpk-all.mjs');
   assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify/verify-fpk-artifacts.mjs');
   assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/verify\/test-duration-reporter\.mjs/);

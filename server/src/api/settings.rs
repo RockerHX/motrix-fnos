@@ -59,6 +59,7 @@ struct UpdateJsonRpcTokenRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LanJsonRpcStatus {
     pub enabled: bool,
+    pub available: bool,
     pub configured: bool,
     pub masked_token: Option<String>,
     pub allow_shared_address_space: bool,
@@ -187,7 +188,7 @@ async fn get_json_rpc_token(
 
 async fn get_lan_json_rpc(State(state): State<Arc<HttpAppState>>) -> Json<LanJsonRpcStatus> {
     let config = state.lan_json_rpc_config().await;
-    Json(lan_json_rpc_status(&config))
+    Json(lan_json_rpc_status(&state, &config))
 }
 
 async fn update_lan_json_rpc(
@@ -221,7 +222,7 @@ async fn update_lan_json_rpc(
         },
     );
     Ok(Json(LanJsonRpcMutationResponse {
-        status: lan_json_rpc_status(&persisted),
+        status: lan_json_rpc_status(&state, &persisted),
         issued_token,
     }))
 }
@@ -246,7 +247,7 @@ async fn rotate_lan_json_rpc_token(
         .debug_logs
         .info("settings.jsonrpc_lan", "局域网 JSON-RPC Token 已轮换");
     Ok(Json(LanJsonRpcMutationResponse {
-        status: lan_json_rpc_status(&persisted),
+        status: lan_json_rpc_status(&state, &persisted),
         issued_token: Some(token),
     }))
 }
@@ -285,10 +286,11 @@ fn json_rpc_token_status(token: &str) -> JsonRpcTokenStatus {
     }
 }
 
-fn lan_json_rpc_status(config: &LanJsonRpcConfig) -> LanJsonRpcStatus {
+fn lan_json_rpc_status(state: &HttpAppState, config: &LanJsonRpcConfig) -> LanJsonRpcStatus {
     let token = json_rpc_token_status(&config.token);
     LanJsonRpcStatus {
         enabled: config.enabled,
+        available: state.lan_jsonrpc_available(),
         configured: token.configured,
         masked_token: token.masked_token,
         allow_shared_address_space: config.allow_shared_address_space,

@@ -1,10 +1,70 @@
 [
   {
-    "stepTitle": "安装确认",
+    "stepTitle": "设置管理密码",
     "items": [
       {
         "type": "tips",
-        "helpText": "Motrix 将启动本地 Rust 服务和 Aria2 Next 下载引擎，请确认安装来源可信。"
+        "helpText": "---------- 【密码设置说明】 ----------"
+      },
+      {
+        "type": "tips",
+        "helpText": "卸载清除数据：本页密码生效（包含：初次安装）"
+      },
+      {
+        "type": "tips",
+        "helpText": "保留数据重装：沿用原密码，本页输入不会修改原密码"
+      },
+      {
+        "type": "tips",
+        "helpText": "正常升级操作：不会显示本次引导"
+      },
+      {
+        "type": "tips",
+        "helpText": "-----------------------------------"
+      },
+      {
+        "type": "tips",
+        "helpText": "两次输入必须一致，密码长度为 8–128 个字符"
+      },
+      {
+        "type": "tips",
+        "helpText": "（由于飞牛系统限制，必须要设置密码才能下一步）"
+      },
+      {
+        "type": "tips",
+        "helpText": "-----------------------------------"
+      },
+      {
+        "type": "password",
+        "field": "wizard_management_password",
+        "label": "管理密码",
+        "rules": [
+          {
+            "required": true,
+            "message": "请输入管理密码"
+          },
+          {
+            "min": 8,
+            "max": 128,
+            "message": "管理密码需要 8–128 个字符"
+          }
+        ]
+      },
+      {
+        "type": "password",
+        "field": "wizard_management_password_confirm",
+        "label": "确认管理密码",
+        "rules": [
+          {
+            "required": true,
+            "message": "请再次输入管理密码"
+          },
+          {
+            "min": 8,
+            "max": 128,
+            "message": "管理密码需要 8–128 个字符"
+          }
+        ]
       }
     ]
   }

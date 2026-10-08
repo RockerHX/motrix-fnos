@@ -2,6 +2,8 @@
 
 set -eu
 
+unset wizard_management_password wizard_management_password_confirm
+
 . "$(dirname -- "$0")/common.sh"
 
 prepare_runtime_dirs
@@ -49,7 +51,7 @@ if ! wait_for_server_identity "${pid}"; then
 fi
 
 if wait_for_server_ready "${pid}"; then
-  log_msg "motrix-fnos-server 启动成功且服务就绪，PID ${pid}，管理监听 ${HTTP_ADDR}，反代 JSON-RPC 监听 ${JSONRPC_ADDR}，局域网 JSON-RPC 监听 ${LAN_JSONRPC_ADDR}"
+  log_msg "motrix-fnos-server 启动成功且服务就绪，PID ${pid}，管理监听 ${HTTP_ADDR}，反代 JSON-RPC 监听 ${JSONRPC_ADDR}，局域网 JSON-RPC 固定地址 ${LAN_JSONRPC_ADDR}（实际状态见服务日志或诊断页）"
   echo "motrix-fnos-server 启动成功且服务就绪，PID ${pid}"
   exit 0
 fi

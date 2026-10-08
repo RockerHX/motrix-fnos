@@ -13,7 +13,6 @@ const platform = vi.hoisted(() => ({ initialize: vi.fn(), dispose: vi.fn() }));
 
 vi.mock("./features/auth/services/authService", () => ({
   getAuthStatus: vi.fn(),
-  setupAuth: vi.fn(),
   loginAuth: vi.fn(),
   logoutAuth: vi.fn(),
   changeAuthPassword: vi.fn(),

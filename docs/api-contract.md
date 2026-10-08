@@ -23,10 +23,10 @@
 
 - 管理入口（IPv4/IPv6）只承载 Web UI、`/api/*` 与 `/api/events`，未知路径统一返回 `404 Not Found`。
 - 回环 JSON-RPC 监听器只绑定回环地址，只注册精确的 `GET`、`POST` 和 `OPTIONS /jsonrpc`；其他路径统一返回 `404 Not Found`，不配置 SPA fallback。
-- 局域网 JSON-RPC 监听器始终绑定 IPv4 `17082`；入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
+- 局域网 JSON-RPC 监听器启动时始终尝试绑定 IPv4 `17082`；仅 `AddrInUse` 错误允许该入口降级不可用，保留管理和回环 RPC 服务。释放端口后须重启应用恢复，不自动换端口或重试。成功绑定后，入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
-- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6，任一实际地址绑定失败时 server 整体启动失败。
+- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6。除局域网 RPC 的 `AddrInUse` 降级外，任一实际地址绑定失败时 server 整体启动失败。
 
 ## 2. 前端消费约定
 
@@ -82,7 +82,6 @@
 | 方法 | 路径 | 访问要求 | 作用 |
 | --- | --- | --- | --- |
 | `GET` | `/api/auth/status` | 匿名 | 返回初始化和当前 JWT 状态 |
-| `POST` | `/api/auth/setup` | 匿名，仅从未初始化且持有一次性 bootstrap token 时 | 初始化 Web 管理密码并签发 JWT |
 | `POST` | `/api/auth/login` | 匿名 | 验证密码并签发 JWT |
 | `GET` | `/api/auth/login-diagnostic` | 匿名 | 下载脱敏登录排障 ZIP |
 | `POST` | `/api/auth/logout` | 匿名 | 返回 `204`；前端清除 JWT |
@@ -99,24 +98,15 @@
 
 约定：
 
-- `setupRequired=true` 时，除 `GET /api/auth/status`、`POST /api/auth/setup`、`GET /api/app/ready` 和静态资源外，管理 API 均返回 `401 Unauthorized`。
+- `setupRequired=true` 表示本机管理密码缺失，网页显示恢复提示和脱敏诊断，不提供初始化表单。受保护的管理 API 与 SSE 返回 `401 Unauthorized`；匿名认证、登录诊断、就绪探测与静态资源仍可访问，但不会开放管理功能。
 - `status` 只验证当前请求的 `Authorization`，不会签发或返回新的 JWT。JWT 缺失、格式错误或无效时返回 `authenticated=false`。
-- `setup`、`login` 和密码修改成功时，在上述状态字段外返回 `accessToken`；前端先保存它，再调用 `status` 确认后启动业务请求。
+- `login` 和密码修改成功时，在上述状态字段外返回 `accessToken`；前端先保存它，再调用 `status` 确认后启动业务请求。
 - 前端以内存保存 JWT，并尽力写入 `localStorage` 以支持刷新恢复；浏览器禁止存储时退化为当前页面会话。JWT 原文不得写入诊断、日志、URL 或跨标签页消息。
 - 鉴权配置读取失败时 `status` 安全失败。
 
 登录页还可以匿名调用 `GET /api/auth/login-diagnostic` 下载轻量排障 ZIP。它只包含版本、管理监听地址、JWT 传输摘要、脱敏鉴权调试记录和生命周期日志尾部；不会包含密码、JWT 原文、SQLite、Aria2 或下载内容。接口同一时间只生成一个诊断包，忙时返回 `429 login_diagnostic_busy`，并带 `Retry-After: 1`。
 
-`POST /api/auth/setup` 请求：
-
-```json
-{
-  "bootstrapToken": "local-command-token",
-  "password": "user-entered-password"
-}
-```
-
-`bootstrapToken` 由停止状态下的本机 `bootstrap-web-auth` 或 `reset-web-auth` 命令输出，有效期为 15 分钟且只能成功使用一次；命令要求交互式本地终端，禁止重定向输出。服务端不返回、记录或通过其他匿名接口提供明文 token。缺少、错误或过期 token 返回 `401 bootstrap_token_invalid`。
+密码在 fnOS 安装向导中输入并确认，由 `install_callback` 调用本机 `initialize-web-auth` 写入 Argon2id 哈希。已配置实例保留原密码；`POST /api/auth/setup` 已移除并返回 `404`，不再使用 bootstrap token。
 
 `POST /api/auth/login` 请求：
 
@@ -126,11 +116,10 @@
 }
 ```
 
-- `setup` 必须在数据库事务中同时校验并消费 bootstrap token、确认从未初始化；并发初始化最多一个请求成功，其余返回 `409 Conflict` 或 `401 bootstrap_token_invalid`。
 - `login` 失败统一返回相同的 `401` 错误，不区分密码不存在、密码错误或内部状态；连续失败返回 `429` 或施加递增延迟。
 - 登录和密码修改共用失败限速：同一来源 5 分钟内 5 次密码验证失败后锁定 30 秒；全局累计 100 次失败也会锁定 30 秒。达到限速时返回 `429 login_rate_limited` 和 `Retry-After`。
 - 限速来源使用管理 listener 的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS` 时，才使用 `X-Forwarded-For` 中第一个合法 IP；直连、未配置或未命中的代理都忽略该 Header。
-- setup、login 和密码修改的 Argon2 操作最多并行 2 个，超额请求快速返回 `429 password_hash_busy` 和 `Retry-After: 1`。哈希任务在受限阻塞线程中执行，请求取消后仍占用并发名额，直到该任务结束。
+- 本机初始化、重置、login 和密码修改的 Argon2 操作最多并行 2 个，超额请求快速返回 `429 password_hash_busy` 和 `Retry-After: 1`。哈希任务在受限阻塞线程中执行，请求取消后仍占用并发名额，直到该任务结束。
 
 `PUT /api/auth/password` 请求：
 
@@ -146,8 +135,8 @@
 - `logout` 不撤销服务端状态，只返回 `204`；前端必须清除内存和本地 JWT。
 - 密码明文、密码哈希、JWT 原文与 JSON-RPC Token 不得写入日志、普通设置响应或调试日志。
 - 密码修改先验证当前密码，再生成新密码哈希；更新同时匹配旧哈希和 `authVersion`，防止并发改密覆盖较新的凭据。
-- `bootstrap-web-auth` 和 `reset-web-auth` 只能在 NAS 本机停止应用后执行，不提供公网重置入口；前者只在尚未初始化时生成一次性 bootstrap token，后者重置 Web 鉴权并同时废止旧 token、生成新 token；两者都必须保留任务、Aria2 session、下载设置、JSON-RPC Token 和授权目录。命令只向本地终端输出 token，不写入日志。
-- SQLite schema v7 为 `web_auth_config` 增加 `bootstrap_token_hash` 和 `bootstrap_token_expires_at`；升级既有已初始化实例时不会生成 token，也不会重新开放匿名 setup。首次安装或 reset 后必须再次执行本机命令生成 token。
+- `reset-web-auth` 只能在 NAS 本机停止应用后执行，要求交互式终端隐藏输入并确认新密码，直接写入哈希并递增鉴权版本。输入取消、密码不匹配或不符合规则时保留原密码；不提供公网重置入口。任务、Aria2 session、下载设置、JSON-RPC Token、授权目录与下载文件均保留。
+- SQLite schema v7 的历史 `bootstrap_token_hash` 和 `bootstrap_token_expires_at` 列保留以避免破坏既有迁移；不再读写 token，初始化、改密与重置时清空历史值。已设置密码的实例升级保留原密码；旧版尚未设置密码的实例须保留数据重装，在安装向导设密，或使用本机重置命令。
 - 升级后旧浏览器 Cookie 不再生效，用户需重新登录；任务、设置和下载数据不受影响。
 
 密码使用 Argon2id 和随机 salt 保存不可逆哈希。Web 管理不使用 Cookie、服务端 Session 或 CSRF Token。
@@ -589,9 +578,12 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `LanJsonRpcStatus`：
 
+`available` 表示局域网 RPC 监听器本次启动是否可用；端口被占用而降级时为 `false`。`enabled` 仍是持久化开关，二者独立；降级不清除 Token 或来源配置。GET、更新开关与轮换 Token 的响应均返回 `available`。旧服务端未返回该新增字段时，前端保留原显示逻辑。
+
 ```json
 {
   "enabled": true,
+  "available": true,
   "configured": true,
   "maskedToken": "••••••••a1b2",
   "allowSharedAddressSpace": false,
@@ -612,6 +604,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "status": {
     "enabled": true,
+    "available": true,
     "configured": true,
     "maskedToken": "••••••••a1b2",
     "allowSharedAddressSpace": false,
@@ -926,7 +919,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `/jsonrpc` 是为解析站、浏览器扩展或外部工具提供的 Aria2 JSON-RPC 兼容入口，不属于 Web UI 的主通信路径。公网反代入口注册在 `127.0.0.1:17081`，局域网入口注册在 `0.0.0.0:17082`；Web UI 仍通过管理监听器的 `/api/*` 和 `/api/events` 工作。
 
-不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理首次使用必须先设置独立管理密码。
+不兼容变更：JSON-RPC 客户端必须迁移到指向回环专用监听器的反向代理；Web 管理密码必须在安装向导中设置。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |

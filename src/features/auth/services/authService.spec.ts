@@ -6,7 +6,6 @@ import {
   loginAuth,
   downloadLoginDiagnostic,
   logoutAuth,
-  setupAuth,
 } from "./authService";
 
 vi.mock("../../../services/http", () => ({
@@ -21,14 +20,8 @@ describe("authService", () => {
 
   it("uses public endpoints without global 401 handling", () => {
     getAuthStatus();
-    setupAuth("new password value", "local-bootstrap-token");
     loginAuth("current password");
     expect(httpGet).toHaveBeenCalledWith("/api/auth/status", { handleUnauthorized: false });
-    expect(httpPost).toHaveBeenCalledWith(
-      "/api/auth/setup",
-      { password: "new password value", bootstrapToken: "local-bootstrap-token" },
-      { handleUnauthorized: false, includeAuth: false },
-    );
     expect(httpPost).toHaveBeenCalledWith(
       "/api/auth/login",
       { password: "current password" },

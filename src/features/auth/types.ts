@@ -1,4 +1,4 @@
-export type AuthPhase = "loading" | "setup" | "login" | "ready" | "error";
+export type AuthPhase = "loading" | "unconfigured" | "login" | "ready" | "error";
 
 export interface AuthStatus {
   setupRequired: boolean;

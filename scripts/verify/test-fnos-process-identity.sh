@@ -152,19 +152,22 @@ fi
 test ! -e "${SERVER_CALLS}"
 
 printf '%s\n' "9999" > "${PID_START_FILE}"
-"$(dirname -- "$0")/../../packaging/fnos/cmd/reset-web-auth"
-grep -qx 'reset-web-auth' "${SERVER_CALLS}"
+if "$(dirname -- "$0")/../../packaging/fnos/cmd/reset-web-auth"; then
+  echo "非交互终端不应允许重置密码" >&2
+  exit 1
+fi
+test ! -e "${SERVER_CALLS}"
 test ! -e "${PID_FILE}"
 test ! -e "${PID_START_FILE}"
 
 write_pid_record "$$"
-if "$(dirname -- "$0")/../../packaging/fnos/cmd/bootstrap-web-auth"; then
-  echo "server 运行时不应允许生成 Web 初始化凭据" >&2
+if "$(dirname -- "$0")/../../packaging/fnos/cmd/install_callback"; then
+  echo "server 运行时不应允许安装初始化密码" >&2
   exit 1
 fi
 printf '%s\n' "9999" > "${PID_START_FILE}"
-"$(dirname -- "$0")/../../packaging/fnos/cmd/bootstrap-web-auth"
-grep -qx 'bootstrap-web-auth' "${SERVER_CALLS}"
+"$(dirname -- "$0")/../../packaging/fnos/cmd/install_callback"
+grep -qx 'initialize-web-auth' "${SERVER_CALLS}"
 test ! -e "${PID_FILE}"
 test ! -e "${PID_START_FILE}"
 

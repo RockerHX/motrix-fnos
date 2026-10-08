@@ -139,15 +139,45 @@ describe("LanJsonRpcSettings", () => {
     expect(wrapper.find('[data-test="lan-json-rpc-endpoint"]').exists()).toBe(true);
   });
 
+  it("shows port conflicts and preserves the enabled switch and Token", async () => {
+    const status = {
+      enabled: true,
+      available: false,
+      configured: true,
+      maskedToken: "••••••••oken",
+      allowSharedAddressSpace: true,
+      port: 17082,
+    };
+    mockedGet.mockResolvedValueOnce(status);
+    mockedUpdate.mockResolvedValueOnce({ status, issuedToken: null });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    expect(wrapper.get('[data-test="lan-json-rpc-port-in-use"]').text()).toContain("端口 17082 被占用");
+    expect(wrapper.get('[data-test="lan-json-rpc-port-in-use"]').text()).toContain("重启 Motrix");
+    expect((wrapper.get('[data-test="lan-json-rpc-switch"]').element as HTMLInputElement).checked).toBe(true);
+    expect(wrapper.get('[data-test="lan-json-rpc-masked-token"]').text()).toBe(status.maskedToken);
+    await wrapper.getComponent({ name: "NSwitchStage4Stub" }).vm.$emit("update:value", true);
+    await flushPromises();
+    expect(messages.warning).toHaveBeenCalledWith("不可用：端口 17082 被占用");
+    expect(messages.success).not.toHaveBeenCalled();
+
+    mockedGet.mockResolvedValueOnce({ ...status, available: true });
+    await wrapper.setProps({ active: false });
+    await wrapper.setProps({ active: true });
+    await flushPromises();
+    expect(wrapper.find('[data-test="lan-json-rpc-port-in-use"]').exists()).toBe(false);
+  });
+
   it("keeps the switch off when enabling fails", async () => {
     mockedUpdate.mockRejectedValueOnce(new Error("save failed"));
-    const { wrapper } = mountSettings();
+    const { wrapper, pinia } = mountSettings();
     await flushPromises();
 
     await wrapper.get('[data-test="lan-json-rpc-switch"]').setValue(true);
     await flushPromises();
 
-    expect(useLanJsonRpcStore().status?.enabled).toBe(false);
+    expect(useLanJsonRpcStore(pinia).status?.enabled).toBe(false);
     expect(wrapper.getComponent({ name: "NSwitchStage4Stub" }).props("value")).toBe(false);
   });
 

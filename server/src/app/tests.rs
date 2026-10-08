@@ -3,7 +3,9 @@ use crate::aria2::ARIA2_LOG_MAX_BYTES;
 use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
 use crate::database::tasks::list_download_tasks;
 use crate::database::tasks::upsert_download_task;
-use crate::settings::service::{load_json_rpc_token, save_json_rpc_token};
+use crate::settings::service::{
+    load_json_rpc_token, save_json_rpc_token, save_lan_json_rpc_config,
+};
 use crate::tasks::{
     DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationContext, TaskOperationType,
 };
@@ -440,7 +442,7 @@ async fn listener_binding_releases_management_when_jsonrpc_port_is_occupied() {
 }
 
 #[tokio::test]
-async fn listener_binding_releases_other_ports_when_lan_jsonrpc_port_is_occupied() {
+async fn occupied_lan_jsonrpc_port_keeps_management_and_loopback_available() {
     let management_addr = reserve_local_addr().await;
     let jsonrpc_addr = reserve_local_addr().await;
     let occupied_lan_jsonrpc = TcpListener::bind("127.0.0.1:0")
@@ -452,12 +454,144 @@ async fn listener_binding_releases_other_ports_when_lan_jsonrpc_port_is_occupied
     let mut runtime = listener_runtime(management_addr, jsonrpc_addr);
     runtime.lan_jsonrpc_addr = lan_jsonrpc_addr;
 
+    let state = bootstrap_http_app_state(&runtime)
+        .await
+        .expect("state should bootstrap");
+    let config = LanJsonRpcConfig {
+        enabled: true,
+        token: "preserved-lan-token".to_string(),
+        allow_shared_address_space: true,
+    };
+    save_lan_json_rpc_config(&state.core.database.pool, &config)
+        .await
+        .expect("LAN config should save");
+    *state.lan_json_rpc_config.write().await = config.clone();
+    let auth = state
+        .auth
+        .service
+        .setup("test management password")
+        .await
+        .expect("auth should initialize");
+    let token = state.auth.service.issue_admin_token(&auth).await.unwrap();
+    let listeners = bind_http_listeners(&runtime)
+        .await
+        .expect("LAN port conflict should allow startup");
+    assert!(listeners.lan_jsonrpc.is_none());
+    state.mark_listeners_ready();
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<String>();
+    let serving_state = state.clone();
+    let server = tokio::spawn(async move {
+        serve_http_listeners(serving_state, listeners, async move {
+            shutdown_receiver.await.map_err(|error| error.to_string())
+        })
+        .await
+    });
+    let client = reqwest::Client::new();
+    assert_eq!(
+        client
+            .get(format!("http://{management_addr}/api/app/ready"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let status = client
+        .get(format!("http://{management_addr}/api/settings/lan-jsonrpc"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(status["available"], false);
+    assert_eq!(status["enabled"], true);
+    assert_eq!(status["configured"], true);
+    assert_eq!(status["allowSharedAddressSpace"], true);
+    let response = client
+        .put(format!("http://{management_addr}/api/settings/lan-jsonrpc"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "enabled": true, "allowSharedAddressSpace": true }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert_eq!(response["status"]["available"], false);
+    assert_eq!(response["issuedToken"], serde_json::Value::Null);
+    assert_eq!(
+        load_lan_json_rpc_config(&state.core.database.pool)
+            .await
+            .unwrap(),
+        config
+    );
+    let version = client
+        .post(format!("http://{jsonrpc_addr}/jsonrpc"))
+        .json(&serde_json::json!({ "jsonrpc": "2.0", "id": "version", "method": "aria2.getVersion", "params": [] }))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+    assert!(version.get("result").is_some());
+    assert!(state.core.debug_logs.list().iter().any(|entry| {
+        entry.level == crate::debug_logs::DebugLogLevel::Warn
+            && entry.message.contains("局域网 JSON-RPC 不可用：端口被占用")
+    }));
+    assert!(state.aria2_runtime_snapshot().is_none());
+    shutdown_sender
+        .send("测试降级服务停止".to_string())
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), server)
+            .await
+            .unwrap()
+            .unwrap(),
+        Ok(())
+    );
+    assert_listener_closed(management_addr).await;
+    assert_listener_closed(jsonrpc_addr).await;
+    assert_eq!(
+        state
+            .core
+            .debug_logs
+            .list()
+            .iter()
+            .filter(|entry| {
+                entry.module == "runtime.exit" && entry.message == "开始执行统一退出流程"
+            })
+            .count(),
+        1
+    );
+    assert!(tokio::net::TcpStream::connect(lan_jsonrpc_addr)
+        .await
+        .is_ok());
+    drop(occupied_lan_jsonrpc);
+    let listeners = bind_http_listeners(&runtime)
+        .await
+        .expect("released LAN port should bind on restart");
+    assert!(listeners.lan_jsonrpc.is_some());
+    state.core.database.pool.close().await;
+    let _ = std::fs::remove_dir_all(&runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn non_conflict_lan_jsonrpc_bind_error_still_releases_other_ports() {
+    let management_addr = reserve_local_addr().await;
+    let jsonrpc_addr = reserve_local_addr().await;
+    let mut runtime = listener_runtime(management_addr, jsonrpc_addr);
+    runtime.lan_jsonrpc_addr = "192.0.2.1:17082".parse().unwrap();
     let error = bind_http_listeners(&runtime)
         .await
-        .expect_err("LAN JSON-RPC binding should fail");
-
+        .expect_err("non-local address must not degrade silently");
     assert!(error.contains("绑定局域网 JSON-RPC 监听地址失败"));
-    assert!(error.contains(&lan_jsonrpc_addr.to_string()));
     TcpListener::bind(management_addr)
         .await
         .expect("management port should be released after failure");
@@ -493,6 +627,8 @@ async fn wildcard_management_listener_serves_ipv4_and_ipv6() {
     assert_eq!(management_ipv6_addr.port(), management_port);
     let lan_jsonrpc_port = listeners
         .lan_jsonrpc
+        .as_ref()
+        .expect("LAN listener should be available")
         .local_addr()
         .expect("LAN JSON-RPC address should read")
         .port();
@@ -571,6 +707,8 @@ async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
         .expect("jsonrpc address should read");
     let lan_jsonrpc_addr = listeners
         .lan_jsonrpc
+        .as_ref()
+        .expect("LAN listener should be available")
         .local_addr()
         .expect("LAN JSON-RPC address should read");
     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel::<String>();
@@ -846,15 +984,19 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
 
     let running_lock =
         ServerProcessLock::acquire(&runtime.app_data_dir).expect("server lock should acquire");
-    let error = reset_web_auth_with_runtime(&runtime)
-        .await
-        .expect_err("running server should block reset");
+    let error = reset_web_auth_with_runtime(&runtime, || {
+        Ok("replacement management password".to_string())
+    })
+    .await
+    .expect_err("running server should block reset");
     assert!(error.contains("正在运行"));
     drop(running_lock);
 
-    reset_web_auth_with_runtime(&runtime)
-        .await
-        .expect("stopped server should reset auth");
+    reset_web_auth_with_runtime(&runtime, || {
+        Ok("replacement management password".to_string())
+    })
+    .await
+    .expect("stopped server should reset auth");
     let database = connect_database(runtime.database_path.clone())
         .await
         .expect("database should reconnect");
@@ -862,8 +1004,17 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
         .state()
         .await
         .expect("auth state should load");
-    assert!(reset_state.setup_required);
-    assert_eq!(reset_state.auth_version, 3);
+    assert!(!reset_state.setup_required);
+    let auth = AuthService::new(database.pool.clone());
+    assert!(auth
+        .verify_password("replacement management password")
+        .await
+        .is_ok());
+    assert!(auth
+        .verify_password("test management password")
+        .await
+        .is_err());
+    assert_eq!(reset_state.auth_version, 2);
     assert_eq!(
         load_json_rpc_token(&database.pool)
             .await
@@ -890,13 +1041,92 @@ async fn reset_web_auth_requires_stopped_server_and_preserves_application_data()
 }
 
 #[tokio::test]
+async fn installation_validates_password_preserves_existing_credentials_and_requires_stopped_server(
+) {
+    let runtime = listener_runtime(
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    );
+    for (password, confirmation) in [
+        (None, None),
+        (Some("short"), Some("short")),
+        (Some("valid password"), Some("different password")),
+    ] {
+        assert!(
+            initialize_web_auth_with_runtime(&runtime, password, confirmation)
+                .await
+                .is_err()
+        );
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        assert!(
+            AuthService::new(database.pool.clone())
+                .state()
+                .await
+                .unwrap()
+                .setup_required
+        );
+        database.pool.close().await;
+    }
+    let running_lock = ServerProcessLock::acquire(&runtime.app_data_dir).unwrap();
+    assert!(initialize_web_auth_with_runtime(
+        &runtime,
+        Some("valid password"),
+        Some("valid password")
+    )
+    .await
+    .unwrap_err()
+    .contains("正在运行"));
+    drop(running_lock);
+    initialize_web_auth_with_runtime(&runtime, Some("valid password"), Some("valid password"))
+        .await
+        .unwrap();
+    initialize_web_auth_with_runtime(&runtime, None, None)
+        .await
+        .unwrap();
+    initialize_web_auth_with_runtime(
+        &runtime,
+        Some("replacement password"),
+        Some("replacement password"),
+    )
+    .await
+    .unwrap();
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .unwrap();
+    let auth = AuthService::new(database.pool.clone());
+    assert!(auth.verify_password("valid password").await.is_ok());
+    assert!(auth.verify_password("replacement password").await.is_err());
+    let before = auth.state().await.unwrap();
+    database.pool.close().await;
+    assert!(
+        reset_web_auth_with_runtime(&runtime, || Err("取消输入".to_string()))
+            .await
+            .is_err()
+    );
+    let database = connect_database(runtime.database_path.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        AuthService::new(database.pool.clone())
+            .state()
+            .await
+            .unwrap(),
+        before
+    );
+    database.pool.close().await;
+    std::fs::remove_dir_all(&runtime.app_data_dir).unwrap();
+}
+
+#[tokio::test]
 async fn run_cli_rejects_unknown_commands() {
     let error = run_cli(&["unknown".to_string()])
         .await
         .expect_err("unknown command should fail");
     assert_eq!(
         error,
-        "用法：motrix-fnos-server [bootstrap-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
+        "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
     );
 }
 

@@ -108,6 +108,9 @@ jobs:
           cargo zigbuild --help >/dev/null
           command -v python-zig
 
+      - name: Run extended verification
+        run: pnpm run verify:extended
+
       - name: Build FPK packages
         run: pnpm run build:fpk:artifacts
 

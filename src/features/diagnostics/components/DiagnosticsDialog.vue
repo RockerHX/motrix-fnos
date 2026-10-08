@@ -46,6 +46,7 @@ const showDebugLogs = ref(false);
 const logMaintenanceRef = ref<InstanceType<typeof LogMaintenancePanel> | null>(null);
 const { isExporting, exportDiagnosticBundle } = useDiagnosticBundleExport();
 const lanEndpoint = computed(() => lanJsonRpcEndpoint(window.location.hostname));
+const lanPortInUse = computed(() => lanJsonRpcStore.status?.available === false);
 const overviewMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
   { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
@@ -77,18 +78,20 @@ const connectionMetrics = computed<AppMetricItem[]>(() => [
   },
   {
     label: t("diagnostics.lanJsonRpcToken"),
-    value: lanJsonRpcStore.status?.enabled
-      ? t("diagnostics.lanJsonRpcEnabled")
-      : t("diagnostics.lanJsonRpcDisabled"),
+    value: lanPortInUse.value
+      ? t("settings.lanJsonRpc.portInUse")
+      : lanJsonRpcStore.status?.enabled
+        ? t("diagnostics.lanJsonRpcEnabled")
+        : t("diagnostics.lanJsonRpcDisabled"),
     detail:
       lanJsonRpcStore.status?.configured === true
         ? t("diagnostics.jsonRpcTokenConfigured")
         : lanJsonRpcStore.status?.configured === false
           ? t("diagnostics.jsonRpcTokenMissing")
           : t("diagnostics.jsonRpcTokenUnknown"),
-    note: t("diagnostics.jsonRpcTokenNote"),
+    note: t(lanPortInUse.value ? "settings.lanJsonRpc.portInUseRecovery" : "diagnostics.jsonRpcTokenNote"),
     tone:
-      lanJsonRpcStore.status?.enabled && lanJsonRpcStore.status?.configured
+      !lanPortInUse.value && lanJsonRpcStore.status?.enabled && lanJsonRpcStore.status?.configured
         ? "success"
         : lanJsonRpcStore.status
           ? "warning"

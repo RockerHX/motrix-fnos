@@ -51,7 +51,7 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .await
             .expect("setup should pass");
         assert!(!state.setup_required);
-        assert_eq!(state.auth_version, 2);
+        assert_eq!(state.auth_version, 1);
         let original_token = service
             .issue_admin_token(&state)
             .await
@@ -66,16 +66,23 @@ fn auth_service_supports_setup_password_change_and_reset() {
             .change_password(VALID_PASSWORD, "replacement password")
             .await
             .expect("password should change");
-        assert_eq!(changed.auth_version, 3);
+        assert_eq!(changed.auth_version, 2);
         assert!(service
             .verify_password("replacement password")
             .await
             .is_ok());
 
-        service.reset().await.expect("reset should pass");
+        service
+            .reset("reset management password")
+            .await
+            .expect("reset should pass");
         let reset = service.state().await.expect("reset state should load");
-        assert!(reset.setup_required);
-        assert_eq!(reset.auth_version, 4);
+        assert!(!reset.setup_required);
+        assert!(service
+            .verify_password("reset management password")
+            .await
+            .is_ok());
+        assert_eq!(reset.auth_version, 3);
         assert_eq!(
             service
                 .validate_admin_token(&original_token, reset.auth_version)
@@ -173,52 +180,72 @@ fn issued_tokens_remain_verifiable_after_database_reopen() {
 fn concurrent_setup_allows_only_one_password() {
     test_runtime().block_on(async {
         let (service, path) = test_service("concurrent").await;
-        let token = service.issue_bootstrap_token().await.unwrap();
         let first = service.clone();
         let second = service.clone();
         let (first, second) = tokio::join!(
-            first.setup_with_bootstrap_token(&token, VALID_PASSWORD),
-            second.setup_with_bootstrap_token(&token, "another secure password")
+            first.initialize_password(VALID_PASSWORD),
+            second.initialize_password("another secure password")
         );
         assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-        assert!(matches!(
-            first,
-            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
-        ));
-        assert!(matches!(
-            second,
-            Ok(_) | Err(AuthError::AlreadyInitialized) | Err(AuthError::BootstrapTokenInvalid)
-        ));
+        assert!(matches!(first, Ok(_) | Err(AuthError::AlreadyInitialized)));
+        assert!(matches!(second, Ok(_) | Err(AuthError::AlreadyInitialized)));
         cleanup(service, path).await;
     });
 }
 
 #[test]
-fn bootstrap_token_is_single_use_and_reset_replaces_it() {
+fn initialization_preserves_existing_password_and_invalid_reset_leaves_it_usable() {
     test_runtime().block_on(async {
-        let (service, path) = test_service("bootstrap-lifecycle").await;
-        let token = service.issue_bootstrap_token().await.unwrap();
-        let initialized = service
-            .setup_with_bootstrap_token(&token, VALID_PASSWORD)
-            .await
-            .unwrap();
-        assert!(matches!(
-            service
-                .setup_with_bootstrap_token(&token, "another secure password")
-                .await,
+        let (service, path) = test_service("local-password-lifecycle").await;
+        let initialized = service.initialize_password(VALID_PASSWORD).await.unwrap();
+        assert_eq!(
+            service.initialize_password("another secure password").await,
             Err(AuthError::AlreadyInitialized)
+        );
+        assert!(matches!(
+            service.reset("short").await,
+            Err(AuthError::InvalidPassword(_))
         ));
-        let reset_token = service.reset().await.unwrap();
-        assert_ne!(token, reset_token);
-        assert!(service
-            .setup_with_bootstrap_token(&token, "replacement password")
-            .await
-            .is_err());
-        let reset = service
-            .setup_with_bootstrap_token(&reset_token, "replacement password")
-            .await
-            .unwrap();
-        assert_eq!(reset.auth_version, initialized.auth_version + 2);
+        assert_eq!(service.state().await.unwrap(), initialized);
+        assert!(service.verify_password(VALID_PASSWORD).await.is_ok());
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn auth_version_overflow_rejects_initialization_and_reset() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("version-overflow").await;
+        service.initialize_password(VALID_PASSWORD).await.unwrap();
+        sqlx::query("UPDATE web_auth_config SET auth_version = 9223372036854775807 WHERE id = 1")
+            .execute(&service.pool).await.unwrap();
+        assert!(service.reset("replacement password").await.is_err());
+        assert!(service.verify_password(VALID_PASSWORD).await.is_ok());
+        sqlx::query("UPDATE web_auth_config SET password_hash = NULL, password_updated_at = NULL WHERE id = 1")
+            .execute(&service.pool).await.unwrap();
+        assert!(service.initialize_password(VALID_PASSWORD).await.is_err());
+        assert!(service.state().await.unwrap().setup_required);
+        cleanup(service, path).await;
+    });
+}
+
+#[test]
+fn local_initialization_clears_obsolete_credentials_and_reset_repairs_missing_secret() {
+    test_runtime().block_on(async {
+        let (service, path) = test_service("obsolete-credentials").await;
+        sqlx::query("INSERT INTO web_auth_config (id, enabled, auth_version, jwt_secret, bootstrap_token_hash, bootstrap_token_expires_at) VALUES (1, 1, 7, 'existing-secret', 'obsolete-hash', 123)")
+            .execute(&service.pool).await.unwrap();
+        let initialized = service.initialize_password(VALID_PASSWORD).await.unwrap();
+        assert_eq!(initialized.auth_version, 8);
+        let legacy: (Option<String>, Option<i64>) = sqlx::query_as("SELECT bootstrap_token_hash, bootstrap_token_expires_at FROM web_auth_config")
+            .fetch_one(&service.pool).await.unwrap();
+        assert_eq!(legacy, (None, None));
+        sqlx::query("UPDATE web_auth_config SET jwt_secret = '' WHERE id = 1").execute(&service.pool).await.unwrap();
+        assert!(service.state().await.is_err());
+        let reset = service.reset("replacement password").await.unwrap();
+        assert_eq!(service.state().await.unwrap(), reset);
+        let token = service.issue_admin_token(&reset).await.unwrap();
+        assert!(service.validate_admin_token(&token, reset.auth_version).await.is_ok());
         cleanup(service, path).await;
     });
 }
@@ -292,7 +319,7 @@ fn concurrent_password_changes_do_not_overwrite_each_other() {
             second,
             Ok(_) | Err(AuthError::InvalidCredentials) | Err(AuthError::PasswordChanged)
         ));
-        assert_eq!(service.state().await.unwrap().auth_version, 3);
+        assert_eq!(service.state().await.unwrap().auth_version, 2);
         cleanup(service, path).await;
     });
 }
@@ -309,13 +336,17 @@ fn concurrent_reset_cannot_be_overwritten_by_password_change() {
         let reset_service = service.clone();
         let (changed, reset) = tokio::join!(
             change_service.change_password(VALID_PASSWORD, "replacement password"),
-            reset_service.reset()
+            reset_service.reset("reset management password")
         );
 
         assert!(reset.is_ok());
         let state = service.state().await.expect("auth state should load");
-        assert!(state.setup_required);
-        assert_eq!(state.auth_version, if changed.is_ok() { 4 } else { 3 });
+        assert!(!state.setup_required);
+        assert!(service
+            .verify_password("reset management password")
+            .await
+            .is_ok());
+        assert_eq!(state.auth_version, if changed.is_ok() { 3 } else { 2 });
         if let Err(error) = changed {
             assert!(matches!(
                 error,

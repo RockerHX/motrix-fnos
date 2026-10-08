@@ -16,9 +16,21 @@ if [ -n "${pid}" ] && is_running_pid "${pid}"; then
   exit 1
 fi
 
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  echo "请在 NAS 本机交互终端运行此命令，不支持管道或重定向" >&2
+  exit 1
+fi
+
+terminal_settings=$(stty -g)
+restore_terminal() { stty "${terminal_settings}"; }
+trap restore_terminal EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+stty -echo
+
 if "${SERVER_BIN}" reset-web-auth; then
   log_msg "Web 管理鉴权已在本地重置"
-  echo "Web 管理鉴权已重置，请重新启动应用并使用上方凭据设置管理密码"
+  echo "Web 管理鉴权已重置，请重新启动应用并使用新管理密码登录"
   exit 0
 fi
 

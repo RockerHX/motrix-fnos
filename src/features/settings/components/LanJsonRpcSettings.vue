@@ -64,7 +64,11 @@ async function loadStatus() {
 async function updateEnabled(enabled: boolean) {
   try {
     await store.setEnabled(enabled);
-    message.success(t(enabled ? "settings.lanJsonRpc.enabled" : "settings.lanJsonRpc.disabledSuccess"));
+    if (enabled && store.status?.available === false) {
+      message.warning(t("settings.lanJsonRpc.portInUse"));
+    } else {
+      message.success(t(enabled ? "settings.lanJsonRpc.enabled" : "settings.lanJsonRpc.disabledSuccess"));
+    }
   } catch (error) {
     message.error(getErrorMessage(error, t("settings.lanJsonRpc.saveFailed")));
   }
@@ -152,6 +156,16 @@ onUnmounted(closeSensitiveDialogs);
 
     <NAlert type="info" :bordered="false">
       {{ t("settings.lanJsonRpc.security") }}
+    </NAlert>
+
+    <NAlert
+      v-if="store.status?.available === false"
+      type="warning"
+      :bordered="false"
+      :title="t('settings.lanJsonRpc.portInUse')"
+      data-test="lan-json-rpc-port-in-use"
+    >
+      {{ t("settings.lanJsonRpc.portInUseRecovery") }}
     </NAlert>
 
     <div v-if="store.status?.enabled" class="lan-json-rpc-shared-address">

@@ -50,3 +50,20 @@ test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () 
   assert.match(start, /LAN_JSONRPC_ADDR/);
   assert.match(status, /readiness_request/);
 });
+
+test('安装向导要求管理密码与确认且不设置明文默认值', () => {
+  const steps = JSON.parse(readFileSync('packaging/fnos/wizard/install', 'utf8'));
+  const fields = steps.flatMap((step) => step.items).filter((item) => item.field);
+  assert.deepEqual(fields.map((item) => item.field), [
+    'wizard_management_password',
+    'wizard_management_password_confirm',
+  ]);
+  for (const item of fields) {
+    assert.equal(item.type, 'password');
+    assert.equal(Object.hasOwn(item, 'initValue'), false);
+    assert.ok(item.rules.some((rule) => rule.required === true));
+    assert.ok(item.rules.some((rule) => rule.min === 8 && rule.max === 128));
+  }
+  const start = readFileSync('packaging/fnos/cmd/start', 'utf8');
+  assert.ok(start.indexOf('unset wizard_management_password wizard_management_password_confirm') < start.indexOf('nohup'));
+});
