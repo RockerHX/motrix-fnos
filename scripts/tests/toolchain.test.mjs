@@ -78,6 +78,12 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(verifyWorkflow, /^\s+pull_request:\s*$/m);
   assert.match(verifyWorkflow, /schedule:/);
   assert.match(verifyWorkflow, /pnpm exec playwright install --with-deps chromium/);
+  assert.match(verifyWorkflow, /run:\s+pnpm run verify:extended/);
+  assert.ok(
+    verifyWorkflow.indexOf('pnpm exec playwright install --with-deps chromium')
+      < verifyWorkflow.indexOf('pnpm run verify:extended'),
+    '扩展验证前必须安装浏览器',
+  );
   assert.match(verifyWorkflow, /run:\s+pnpm run verify/);
 
   assert.match(releaseWorkflow, /git commit --no-verify/);
@@ -85,10 +91,9 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(releaseWorkflow, /git push --no-verify origin/);
   assert.match(releaseWorkflow, /pnpm run build:fpk:artifacts/);
   assert.match(releaseWorkflow, /pnpm run verify:fpk/);
-  assert.match(releaseWorkflow, /pnpm run verify:extended/);
   assert.doesNotMatch(releaseWorkflow, /^\s*actions:\s*read\s*$/m);
   assert.doesNotMatch(releaseWorkflow, /Require successful main verification|gh run list|source_sha/);
-  assert.doesNotMatch(releaseWorkflow, /cargo install cargo-audit|pnpm run audit:deps|pnpm run verify(?::(?!extended|fpk)|\s)/);
+  assert.doesNotMatch(releaseWorkflow, /cargo install cargo-audit|pnpm run audit:deps|pnpm run verify(?::(?!fpk\b)|\s)|pnpm run test:|playwright|cargo test/);
 
   assert.doesNotMatch(verifyWorkflow, /cargo install cargo-audit|pnpm run audit:deps/);
   assert.match(auditWorkflow, /schedule:/);
