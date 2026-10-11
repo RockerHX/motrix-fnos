@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -75,8 +75,17 @@ test("sidecar RPC becomes unavailable after an unexpected process exit", { skip:
   }
 });
 
-async function createHarness() {
+test("sidecar startup failure reports engine output without waiting for the RPC timeout", { skip: requiresLinux, timeout: 5_000 }, async () => {
+  await assert.rejects(
+    () => createHarness(["--motrix-invalid-test-option=true"]),
+    /sidecar exited:[\s\S]*motrix-invalid-test-option/,
+  );
+});
+
+async function createHarness(extraArgs = []) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "motrix-aria2-test-"));
+  const session = path.join(directory, "aria2.session");
+  await writeFile(session, "");
   const fixture = createFixtureServer();
   await fixture.listen();
   const harness = {
@@ -95,11 +104,12 @@ async function createHarness() {
         "aria2",
         process.arch === "arm64" ? "aria2-next-aarch64-unknown-linux-gnu" : "aria2-next-x86_64-unknown-linux-gnu",
       );
-      const session = path.join(directory, "aria2.session");
+      this.output = "";
+      this.spawnError = null;
       this.child = spawn(binary, [
+        "--no-conf=true",
         "--enable-rpc=true",
         "--rpc-listen-all=false",
-        "--rpc-listen-address=127.0.0.1",
         `--rpc-listen-port=${this.port}`,
         `--rpc-secret=${this.secret}`,
         `--dir=${directory}`,
@@ -108,17 +118,36 @@ async function createHarness() {
         "--save-session-interval=1",
         "--file-allocation=none",
         "--console-log-level=warn",
-      ], { stdio: ["ignore", "ignore", "pipe"] });
-      this.child.stderr.on("data", () => undefined);
+        ...extraArgs,
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+      const capture = (chunk) => { this.output = (this.output + chunk.toString()).slice(-8_192); };
+      this.child.stdout.on("data", capture);
+      this.child.stderr.on("data", capture);
+      this.child.on("error", (error) => { this.spawnError = error; capture(error.message); });
+      this.exited = new Promise((resolve) => this.child.once("close", resolve));
     },
     async stopSidecar() {
-      if (!this.child || this.child.exitCode !== null) return;
+      if (!this.child || this.spawnError || this.child.exitCode !== null || this.child.signalCode !== null) return;
       this.child.kill("SIGTERM");
-      await Promise.race([once(this.child, "exit"), delay(3_000)]);
-      if (this.child.exitCode === null) this.child.kill("SIGKILL");
+      await Promise.race([this.exited, delay(3_000)]);
+      if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill("SIGKILL");
+      await Promise.race([this.exited, delay(2_000).then(() => { throw new Error("sidecar did not exit after SIGKILL"); })]);
     },
     async waitForRpc(method) {
-      return retry(async () => this.rpc(method));
+      const deadline = Date.now() + 10_000;
+      let lastError;
+      while (Date.now() < deadline) {
+        if (this.spawnError || this.child.exitCode !== null || this.child.signalCode !== null) {
+          throw new Error(`sidecar exited: ${this.output}`, { cause: this.spawnError });
+        }
+        try {
+          return await this.rpc(method);
+        } catch (error) {
+          lastError = error;
+          await delay(100);
+        }
+      }
+      throw new Error(`sidecar RPC did not become ready: ${this.output}`, { cause: lastError });
     },
     async rpc(method, params = []) {
       const payload = JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params: [`token:${this.secret}`, ...params] });
@@ -143,6 +172,7 @@ async function createHarness() {
             });
           },
         );
+        req.setTimeout(3_000, () => req.destroy(new Error(`Aria2 RPC timed out: ${method}`)));
         req.on("error", reject);
         req.end(payload);
       });
@@ -153,7 +183,13 @@ async function createHarness() {
       await rm(directory, { recursive: true, force: true });
     },
   };
-  await harness.startSidecar();
+  try {
+    await harness.startSidecar();
+    await harness.waitForRpc("aria2.getVersion");
+  } catch (error) {
+    await harness.close();
+    throw error;
+  }
   return harness;
 }
 

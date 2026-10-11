@@ -184,7 +184,7 @@ Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
 
 ## 测试流程方面的发现
 
-- 本地 `verify` 是完整源码门禁，GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动运行；nightly 或手动 dispatch 运行 `verify:extended`。
+- 本地 `verify` 是完整源码门禁，GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动运行；每周定时或手动 dispatch 运行 `verify:extended`。
 - `verify` 不包含 FPK 构建和解包；`build:fpk` 才串联完整源码验证、双架构构建和 `verify:fpk`。发布 workflow 按当前架构决策只构建新产物，不重复源码验证，因此需要保证发布前已有同一提交的 verify 证据。
 - 当前仍没有真实 fnOS 测试和代码覆盖率门槛。测试数量很高，但不能据此推导功能覆盖率百分比；真实设备验收和覆盖率应继续单独管理。
 - `docs/installation-regression-test-plan.md` 已经把主要实机用例列全，下一步重点是把其中可在临时目录、mock fnOS 或本地 sidecar 完成的部分拆回自动化脚本。

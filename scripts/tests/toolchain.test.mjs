@@ -77,6 +77,7 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   assert.match(verifyWorkflow, /^\s+push:\s*$/m);
   assert.match(verifyWorkflow, /^\s+pull_request:\s*$/m);
   assert.match(verifyWorkflow, /schedule:/);
+  assert.match(verifyWorkflow, /cron:\s*"17 18 \* \* 6"/);
   assert.match(verifyWorkflow, /pnpm exec playwright install --with-deps chromium/);
   assert.match(verifyWorkflow, /run:\s+pnpm run verify:extended/);
   assert.ok(

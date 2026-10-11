@@ -13,7 +13,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，nightly 和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
+- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，每周定时和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
 
 ## 命令速查
 
@@ -108,9 +108,9 @@ Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型�
 
 ### 扩展验证命令
 
-`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于 nightly、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。
+`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于每周定时回归、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。每周定时安排在北京时间周日 02:17（UTC 周六 18:17），GitHub 调度可能延迟。
 
-浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；nightly 和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；文件系统故障测试使用临时目录，是完整 Rust 测试中相关用例的定向重跑，无需 NAS 或浏览器。
+浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；每周定时和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；测试预建 session 文件并等待 RPC 就绪，启动失败保留引擎输出。文件系统故障测试使用临时目录，是完整 Rust 测试中相关用例的定向重跑，无需 NAS 或浏览器。
 
 单独运行某个扩展测试时使用：
 
@@ -252,7 +252,7 @@ git config core.hooksPath .githooks
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 或删除远端引用时跳过源码验证。
 
-因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，nightly 或手动触发时运行扩展验证。
+因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，每周定时或手动触发时运行扩展验证。
 
 ## FPK 构建与资产命令
 

@@ -2,7 +2,7 @@ name: Verify
 
 on:
   schedule:
-    - cron: "17 18 * * *"
+    - cron: "17 18 * * 6" # Sunday 02:17 Asia/Shanghai
   push:
     branches: [main, develop]
   pull_request:
