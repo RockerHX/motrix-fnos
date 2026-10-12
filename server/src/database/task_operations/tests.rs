@@ -274,6 +274,7 @@ fn task_and_operation_roll_back_together_when_task_history_fails() {
 fn sample_task(id: u64) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: format!("https://example.com/{id}.zip"),
         source_type: DownloadTaskSourceType::Url,
         file_name: format!("{id}.zip"),
@@ -305,4 +306,24 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be valid")
         .as_millis()
+}
+
+#[tokio::test]
+async fn unknown_operation_status_is_an_error_instead_of_zero_operations() {
+    let path = std::env::temp_dir().join(format!("motrix-unknown-operation-{}.sqlite", now_ms()));
+    let database = crate::database::connect_database(path.clone())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO task_operations (id, task_id, operation_type, phase, context_json, status, created_at, updated_at) VALUES ('unknown-op', 1, 'create', 'unknown-phase', '{}', 'unknown-status', 1, 1)")
+        .execute(&database.pool).await.unwrap();
+    assert!(list_unfinished_task_operations(&database.pool)
+        .await
+        .is_err());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_operations")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
 }

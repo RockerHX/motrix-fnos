@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct PublicDownloadTask {
     pub id: u64,
+    pub engine_generation: crate::config::aria2::EngineGeneration,
     pub url: String,
     pub source_type: DownloadTaskSourceType,
     pub file_name: String,
@@ -30,6 +31,7 @@ impl From<DownloadTask> for PublicDownloadTask {
     fn from(task: DownloadTask) -> Self {
         let DownloadTask {
             id,
+            engine_generation,
             url,
             source_type,
             file_name,
@@ -57,6 +59,7 @@ impl From<DownloadTask> for PublicDownloadTask {
 
         Self {
             id,
+            engine_generation,
             url,
             source_type,
             file_name,

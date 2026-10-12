@@ -2468,6 +2468,7 @@ fn spawn_sleep_child() -> std::process::Child {
 fn active_task_for_stop() -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/active.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "active.zip".to_string(),

@@ -495,6 +495,7 @@ fn delete_task_record_rolls_back_when_operation_completion_fails() {
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/file.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
@@ -519,6 +520,210 @@ fn sample_task() -> DownloadTask {
         created_at: 1,
         updated_at: 1,
     }
+}
+
+#[tokio::test]
+async fn native_file_snapshot_survives_reload_and_invalidates_deleted_progress() {
+    let database = connect_database(
+        std::env::temp_dir().join(format!("motrix-native-snapshot-{}.sqlite", now_ms())),
+    )
+    .await
+    .unwrap();
+    let mut task = native_snapshot_task(1);
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let stored_path: String =
+        sqlx::query_scalar("SELECT path FROM task_file_snapshots WHERE task_id = 1")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_path, "file.bin");
+    assert_eq!(
+        list_download_tasks(&database.pool).await.unwrap()[0].files,
+        task.files
+    );
+    task.files_deleted = true;
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let loaded = list_download_tasks(&database.pool).await.unwrap().remove(0);
+    assert_eq!(loaded.completed_length, 0);
+    assert_eq!(loaded.files[0].completed_length, 0);
+    assert_eq!(loaded.selected_file_indexes, [1]);
+    let path = database.path.clone();
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn snapshot_failure_and_generation_change_roll_back_the_entire_task_update() {
+    let database = connect_database(
+        std::env::temp_dir().join(format!("motrix-native-atomic-{}.sqlite", now_ms())),
+    )
+    .await
+    .unwrap();
+    let task = native_snapshot_task(1);
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let mut changed = task.clone();
+    changed.engine_generation = crate::config::aria2::EngineGeneration::LegacyV1;
+    changed.status = DownloadTaskStatus::Removed;
+    assert!(upsert_download_task(&database.pool, &changed)
+        .await
+        .unwrap_err()
+        .contains("代际"));
+    changed.engine_generation = task.engine_generation;
+    sqlx::query("CREATE TRIGGER fail_snapshot BEFORE INSERT ON task_file_snapshots BEGIN SELECT RAISE(FAIL, 'snapshot failure'); END").execute(&database.pool).await.unwrap();
+    assert!(upsert_download_task(&database.pool, &changed)
+        .await
+        .unwrap_err()
+        .contains("snapshot failure"));
+    let loaded = list_download_tasks(&database.pool).await.unwrap().remove(0);
+    assert_eq!(loaded, task);
+    let path = database.path.clone();
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn removing_one_native_reference_preserves_other_tasks_and_the_shared_state() {
+    let root = std::env::temp_dir().join(format!("motrix-native-references-{}", now_ms()));
+    std::fs::create_dir_all(root.join("engine/native-v2/state")).unwrap();
+    std::fs::write(
+        root.join("engine/native-v2/state/checkpoint.db"),
+        b"engine-owned",
+    )
+    .unwrap();
+    let database = connect_database(root.join("motrix-fnos.sqlite"))
+        .await
+        .unwrap();
+    for id in [1, 2] {
+        let mut task = native_snapshot_task(id);
+        task.source_type = DownloadTaskSourceType::Torrent;
+        upsert_download_task(&database.pool, &task).await.unwrap();
+    }
+    delete_download_task_record(&database.pool, 1)
+        .await
+        .unwrap();
+    let references: Vec<(i64, String, String, i64)> =
+        sqlx::query_as("SELECT task_id, gid, private_path, available FROM task_metadata_refs")
+            .fetch_all(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        references,
+        [(2, "native-2".into(), "engine/native-v2/state".into(), 0)]
+    );
+    assert_eq!(
+        std::fs::read(root.join("engine/native-v2/state/checkpoint.db")).unwrap(),
+        b"engine-owned"
+    );
+    assert_eq!(
+        list_download_tasks(&database.pool).await.unwrap()[0]
+            .files
+            .len(),
+        1
+    );
+    database.pool.close().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn private_torrent_reference_records_actual_size_hash_and_missing_file_fact() {
+    let root = std::env::temp_dir().join(format!("motrix-torrent-reference-{}", now_ms()));
+    std::fs::create_dir_all(&root).unwrap();
+    let database = connect_database(root.join("motrix-fnos.sqlite"))
+        .await
+        .unwrap();
+    let path =
+        crate::tasks::files::save_restore_torrent_metadata(&root, 1, b"torrent-bytes").unwrap();
+    let mut task = native_snapshot_task(1);
+    task.source_type = DownloadTaskSourceType::Torrent;
+    task.metadata_torrent_path = Some(path.display().to_string());
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let reference: (i64, String, i64) = sqlx::query_as(
+        "SELECT size_bytes, checksum, available FROM task_metadata_refs WHERE task_id = 1",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(reference.0, 13);
+    assert_eq!(
+        reference.1,
+        format!("{:x}", Sha256::digest(b"torrent-bytes"))
+    );
+    assert_eq!(reference.2, 1);
+    validate_native_metadata_refs(&database.pool, &root, std::slice::from_ref(&task))
+        .await
+        .unwrap();
+    std::fs::write(&path, b"altered-bytes").unwrap();
+    assert!(
+        validate_native_metadata_refs(&database.pool, &root, std::slice::from_ref(&task))
+            .await
+            .unwrap_err()
+            .contains("task_resume_state_invalid")
+    );
+    std::fs::remove_file(path).unwrap();
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let available: i64 =
+        sqlx::query_scalar("SELECT available FROM task_metadata_refs WHERE task_id = 1")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(available, 0);
+    database.pool.close().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn native_snapshot_task(id: u64) -> DownloadTask {
+    let mut task = sample_task();
+    task.id = id;
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.gid = Some(format!("native-{id}"));
+    task.status = DownloadTaskStatus::Paused;
+    task.files = vec![DownloadTaskFile {
+        index: 1,
+        path: "/downloads/file.bin".into(),
+        name: "file.bin".into(),
+        length: 100,
+        completed_length: 40,
+        selected: true,
+    }];
+    task.selected_file_indexes = vec![1];
+    task
+}
+
+#[tokio::test]
+async fn batch_snapshot_failure_rolls_back_every_task_and_file_list() {
+    let database = connect_database(
+        std::env::temp_dir().join(format!("motrix-batch-state-{}.sqlite", now_ms())),
+    )
+    .await
+    .unwrap();
+    let mut tasks = vec![native_snapshot_task(1), native_snapshot_task(2)];
+    persist_download_task_states(&database.pool, &tasks)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TRIGGER fail_second_snapshot BEFORE INSERT ON task_file_snapshots WHEN NEW.task_id = 2 BEGIN SELECT RAISE(FAIL, 'batch failure'); END").execute(&database.pool).await.unwrap();
+    for task in &mut tasks {
+        task.completed_length = 90;
+        task.files[0].completed_length = 90;
+    }
+    assert!(persist_download_task_states(&database.pool, &tasks)
+        .await
+        .unwrap_err()
+        .contains("batch failure"));
+    let loaded = list_download_tasks(&database.pool).await.unwrap();
+    assert!(loaded
+        .iter()
+        .all(|task| task.completed_length == 40 && task.files[0].completed_length == 40));
+    sqlx::query("UPDATE download_tasks SET status = 'unrecognized' WHERE id = 1")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    assert!(list_download_tasks(&database.pool)
+        .await
+        .unwrap_err()
+        .contains("未知状态"));
+    let path = database.path.clone();
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
 }
 
 fn now_ms() -> u128 {

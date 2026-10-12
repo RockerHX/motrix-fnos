@@ -1339,6 +1339,7 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
     let fixture = ServiceFixture::new(
         vec![DownloadTask {
             id: 1,
+            engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
             url: "magnet:?xt=urn:btih:test".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "磁力链接任务".to_string(),
@@ -1428,6 +1429,7 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         repository: fixture.repository.clone(),
         tasks: TaskMemoryState::new(vec![DownloadTask {
             id: 1,
+            engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
             url: "magnet:?xt=urn:btih:test".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "archlinux.iso".to_string(),
@@ -3622,6 +3624,7 @@ fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {
         rpc_port: port,
         rpc_secret: rpc_secret.to_string(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }
@@ -3634,6 +3637,7 @@ pub(super) fn sample_task(
 ) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

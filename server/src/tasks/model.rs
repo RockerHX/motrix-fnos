@@ -84,6 +84,8 @@ pub struct DownloadTaskFile {
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
     pub id: u64,
+    #[serde(default)]
+    pub engine_generation: crate::config::aria2::EngineGeneration,
     pub url: String,
     pub source_type: DownloadTaskSourceType,
     pub file_name: String,

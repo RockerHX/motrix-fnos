@@ -74,7 +74,13 @@ impl<'a> TaskService<'a> {
                     .await;
                 return Err(error);
             }
-            match store_created_task_with_id(self.download_tasks, task_id, prepared, gid) {
+            match store_created_task_with_id(
+                self.download_tasks,
+                task_id,
+                prepared,
+                gid,
+                config.engine_generation(),
+            ) {
                 Ok(task) => task,
                 Err(error) => {
                     let gid = operation.context.new_gid.as_deref().unwrap_or_default();
@@ -192,8 +198,13 @@ impl<'a> TaskService<'a> {
                 .await;
             return Err(error);
         }
-        if let Err(error) = store_created_task_with_id(self.download_tasks, task_id, prepared, gid)
-        {
+        if let Err(error) = store_created_task_with_id(
+            self.download_tasks,
+            task_id,
+            prepared,
+            gid,
+            config.engine_generation(),
+        ) {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();
             let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared_for_cleanup);

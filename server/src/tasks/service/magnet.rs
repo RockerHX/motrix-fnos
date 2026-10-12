@@ -61,7 +61,13 @@ pub(super) async fn create_magnet_download_task(
             .await;
         return Err(error);
     }
-    match store_created_task_with_id(service.download_tasks, task_id, prepared, gid) {
+    match store_created_task_with_id(
+        service.download_tasks,
+        task_id,
+        prepared,
+        gid,
+        config.engine_generation(),
+    ) {
         Ok(task) => Ok(task),
         Err(error) => {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();

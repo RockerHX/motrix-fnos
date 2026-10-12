@@ -31,6 +31,7 @@ fn test_config() -> Aria2Config {
         rpc_port: 6800,
         rpc_secret: String::new(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }
@@ -47,6 +48,7 @@ fn temp_download_dir(name: &str) -> String {
 fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
@@ -391,6 +393,7 @@ fn store_created_task_persists_gid() {
             proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
+        crate::config::aria2::EngineGeneration::LegacyV1,
     )
     .expect("task should be stored");
 
@@ -424,6 +427,7 @@ fn store_created_task_preserves_paused_start_mode() {
             proxy_binding: TaskProxyBinding::default(),
         },
         "abc123".to_string(),
+        crate::config::aria2::EngineGeneration::LegacyV1,
     )
     .expect("task should be stored");
 
@@ -754,6 +758,7 @@ fn resume_error_readds_when_gid_is_not_found() {
 fn resume_error_does_not_readd_pending_magnet_metadata_task() {
     let task = DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -815,6 +820,7 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     let app_data_dir = PathBuf::from(temp_download_dir("refresh-stale-magnet"));
     let tasks = TaskMemoryState::new(vec![DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -1140,6 +1146,7 @@ fn tell_status_request_contains_gid_and_fields() {
 fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "download".to_string(),
@@ -1473,6 +1480,7 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
 fn apply_aria2_status_ignores_empty_error_code_zero() {
     let mut task = DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),

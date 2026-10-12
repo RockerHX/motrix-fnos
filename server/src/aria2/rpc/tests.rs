@@ -320,6 +320,7 @@ fn test_config(port: u16) -> Aria2Config {
         rpc_port: port,
         rpc_secret: String::new(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }

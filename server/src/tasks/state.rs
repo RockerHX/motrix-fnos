@@ -87,9 +87,10 @@ pub fn store_created_task(
     next_id: &AtomicU64,
     prepared: PreparedDownloadTask,
     gid: String,
+    engine_generation: crate::config::aria2::EngineGeneration,
 ) -> Result<DownloadTask, String> {
     let task_id = next_id.fetch_add(1, Ordering::Relaxed);
-    store_created_task_with_id(tasks, task_id, prepared, gid)
+    store_created_task_with_id(tasks, task_id, prepared, gid, engine_generation)
 }
 
 pub fn store_created_task_with_id(
@@ -97,6 +98,7 @@ pub fn store_created_task_with_id(
     task_id: u64,
     prepared: PreparedDownloadTask,
     gid: String,
+    engine_generation: crate::config::aria2::EngineGeneration,
 ) -> Result<DownloadTask, String> {
     let file_path = if prepared.source_type == DownloadTaskSourceType::Magnet {
         None
@@ -112,6 +114,7 @@ pub fn store_created_task_with_id(
     let now = current_timestamp_ms();
     let task = DownloadTask {
         id: task_id,
+        engine_generation,
         source_type: prepared.source_type,
         file_name: prepared.file_name,
         save_dir: prepared.save_dir.clone(),

@@ -41,7 +41,7 @@ pub async fn list_unfinished_task_operations(
         SELECT id, task_id, operation_type, phase, context_json, error_message, status,
                created_at, updated_at
         FROM task_operations
-        WHERE status IN ('in_progress', 'manual_review')
+        WHERE status NOT IN ('completed', 'failed')
         ORDER BY created_at, id
         "#,
     )

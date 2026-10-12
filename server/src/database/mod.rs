@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
+mod engine_state;
 pub mod maintenance;
 pub mod settings;
 pub mod task_operations;
@@ -137,6 +138,12 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<(), String> {
 }
 
 async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
+    let trusted_legacy_schema: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 7 AND name = 'web_auth_bootstrap_token')",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("读取旧代际迁移依据失败：{error}"))?;
     for migration in SCHEMA_MIGRATIONS {
         let mut transaction = pool
             .begin()
@@ -157,7 +164,7 @@ async fn migrate_schema(pool: &SqlitePool) -> Result<(), String> {
             continue;
         }
 
-        apply_schema_migration(&mut transaction, migration)
+        apply_schema_migration(&mut transaction, migration, trusted_legacy_schema)
             .await
             .map_err(|error| format!("执行 SQLite 迁移 {} 失败：{}", migration.name, error))?;
         sqlx::query("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
@@ -212,11 +219,16 @@ const SCHEMA_MIGRATIONS: &[SchemaMigration] = &[
         version: 7,
         name: "web_auth_bootstrap_token",
     },
+    SchemaMigration {
+        version: 8,
+        name: "engine_state_identity",
+    },
 ];
 
 async fn apply_schema_migration(
     transaction: &mut Transaction<'_, Sqlite>,
     migration: &SchemaMigration,
+    trusted_legacy_schema: bool,
 ) -> Result<(), String> {
     match migration.version {
         1 => migrate_legacy_download_tasks(transaction).await,
@@ -226,6 +238,7 @@ async fn apply_schema_migration(
         5 => create_web_auth_jwt_schema(transaction).await,
         6 => force_web_auth_protection(transaction).await,
         7 => create_web_auth_bootstrap_schema(transaction).await,
+        8 => engine_state::migrate_engine_state(transaction, trusted_legacy_schema).await,
         version => Err(format!("未注册 SQLite 迁移版本 {}", version)),
     }
 }

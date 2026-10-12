@@ -267,6 +267,7 @@ fn operation(
 fn task_with_gid(gid: &str) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

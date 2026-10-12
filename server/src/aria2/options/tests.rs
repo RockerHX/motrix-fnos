@@ -16,6 +16,7 @@ fn test_config() -> Aria2Config {
         rpc_port: 6800,
         rpc_secret: "test-secret".to_string(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }

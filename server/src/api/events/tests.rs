@@ -207,6 +207,7 @@ async fn next_sse_frame(body: &mut Body) -> String {
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
