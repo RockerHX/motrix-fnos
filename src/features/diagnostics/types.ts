@@ -51,6 +51,10 @@ export interface DiagnosticsStorageUsage {
     totalBytes: number;
     fileCount: number;
   };
+  nativeState: {
+    totalBytes: number;
+    fileCount: number;
+  };
 }
 
 export interface Aria2LogCleanupResponse {

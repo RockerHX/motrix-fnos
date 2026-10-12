@@ -27,6 +27,7 @@ pub(crate) struct StorageUsageSnapshot {
     pub disk: StorageDiskUsage,
     pub aria2_session_bytes: u64,
     pub magnet_metadata: StorageFileUsage,
+    pub native_state: StorageFileUsage,
 }
 
 pub(crate) fn collect_storage_usage(app_data_dir: &Path) -> Result<StorageUsageSnapshot, String> {
@@ -38,14 +39,35 @@ pub(crate) fn collect_storage_usage(app_data_dir: &Path) -> Result<StorageUsageS
         available_bytes: available_space(app_data_dir)
             .map_err(|error| format!("读取应用数据所在文件系统可用空间失败：{error}"))?,
     };
-    let aria2_session_bytes = collect_aria2_session_size(app_data_dir)?;
-    let magnet_metadata =
+    let mut aria2_session_bytes = collect_aria2_session_size(app_data_dir)?;
+    let mut magnet_metadata =
         collect_regular_file_usage(&app_data_dir.join(MAGNET_METADATA_DIRECTORY_NAME))?;
+    let torrents = collect_regular_file_usage(&app_data_dir.join("task-metadata"))?;
+    magnet_metadata.total_bytes = magnet_metadata
+        .total_bytes
+        .saturating_add(torrents.total_bytes);
+    magnet_metadata.file_count = magnet_metadata
+        .file_count
+        .saturating_add(torrents.file_count);
+    let native_root = app_data_dir.join("engine/native-v2");
+    let native_state = if is_regular_directory(&app_data_dir.join("engine"))?
+        && is_regular_directory(&native_root)?
+    {
+        if is_regular_directory(&native_root.join("session"))? {
+            aria2_session_bytes = aria2_session_bytes.saturating_add(
+                regular_file_size(&native_root.join("session/aria2.session"))?.unwrap_or_default(),
+            );
+        }
+        collect_regular_file_usage(&native_root.join("state"))?
+    } else {
+        StorageFileUsage::default()
+    };
 
     Ok(StorageUsageSnapshot {
         disk,
         aria2_session_bytes,
         magnet_metadata,
+        native_state,
     })
 }
 

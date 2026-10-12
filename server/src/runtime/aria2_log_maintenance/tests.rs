@@ -140,6 +140,17 @@ fn clear_removes_only_recognized_regular_aria2_logs() {
         fs::write(log_dir.join(name), contents).expect("log should write");
     }
     fs::write(log_dir.join("unrelated.log"), "keep").expect("unrelated file should write");
+    let protected = [
+        "engine/native-v2/state/checkpoint.db",
+        "engine/native-v2/state/checkpoint.db-wal",
+        "engine/native-v2/session/aria2.session",
+        "task-metadata/task-1/source.torrent",
+    ];
+    for path in protected {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"private-state").unwrap();
+    }
 
     let report = clear_aria2_log_files(&root).expect("clear should succeed");
 
@@ -147,6 +158,9 @@ fn clear_removes_only_recognized_regular_aria2_logs() {
     assert_eq!(report.removed_history_bytes, 12);
     assert_eq!(report.removed_history_files, 2);
     assert_eq!(report.reclaimed_bytes(), 19);
+    for path in protected {
+        assert_eq!(fs::read(root.join(path)).unwrap(), b"private-state");
+    }
     assert!(!log_dir.join(ARIA2_LOG_FILE_NAME).exists());
     assert!(!log_dir.join("aria2.1.log").exists());
     assert!(!log_dir.join("aria2.log.1").exists());

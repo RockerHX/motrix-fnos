@@ -83,6 +83,56 @@ fn rejects_symbolic_linked_application_data_directory() {
     remove_temp_dir(parent);
 }
 
+#[test]
+fn includes_native_session_state_and_torrents_without_counting_download_partfiles() {
+    let root = temp_dir("native");
+    for (path, bytes) in [
+        ("engine/native-v2/session/aria2.session", 12),
+        ("engine/native-v2/state/checkpoint.db", 20),
+        ("engine/native-v2/state/checkpoint.db-wal", 7),
+        ("task-metadata/task-1/source.torrent", 9),
+        ("downloads/movie.parts", 99),
+    ] {
+        let path = root.join(path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, vec![0; bytes]).unwrap();
+    }
+    let usage = collect_storage_usage(&root).unwrap();
+    assert_eq!(usage.aria2_session_bytes, 12);
+    assert_eq!(
+        usage.native_state,
+        StorageFileUsage {
+            total_bytes: 27,
+            file_count: 2
+        }
+    );
+    assert_eq!(
+        usage.magnet_metadata,
+        StorageFileUsage {
+            total_bytes: 9,
+            file_count: 1
+        }
+    );
+    remove_temp_dir(root);
+}
+
+#[test]
+fn skips_native_state_when_an_ancestor_is_a_symbolic_link() {
+    let root = temp_dir("native-ancestor");
+    fs::create_dir_all(root.join("outside/native-v2/state")).unwrap();
+    fs::write(
+        root.join("outside/native-v2/state/checkpoint.db"),
+        b"outside",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(root.join("outside"), root.join("engine")).unwrap();
+    assert_eq!(
+        collect_storage_usage(&root).unwrap().native_state,
+        StorageFileUsage::default()
+    );
+    remove_temp_dir(root);
+}
+
 fn temp_dir(label: &str) -> PathBuf {
     let sequence = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!(
