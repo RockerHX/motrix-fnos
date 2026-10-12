@@ -1,11 +1,15 @@
 use super::ensure_aria2_ready;
 use crate::app::HttpAppState;
+use crate::config::aria2::EngineGeneration;
 use crate::database::task_operations::{list_unfinished_task_operations, update_task_operation};
-use crate::database::tasks::persist_download_task_state_with_operation;
+use crate::database::tasks::{
+    delete_download_task_record_with_operation, persist_download_task_state_with_operation,
+};
 use crate::debug_logs::{emit_file_log, DebugLogLevel};
 use crate::tasks::{
-    find_aria2_task_for_request, reconcile_task_proxy_option, remove_task, task_exists,
-    DownloadTask, DownloadTaskStatus, TaskOperation, TaskOperationStatus, TaskOperationType,
+    find_aria2_task_for_request, is_stale_aria2_gid_error, reconcile_task_proxy_option,
+    remove_task, remove_task_result, remove_task_with_request_id, task_exists, DownloadTask,
+    DownloadTaskStatus, TaskOperation, TaskOperationStatus, TaskOperationType,
 };
 use std::collections::{BTreeSet, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -21,6 +25,10 @@ enum ReconcileAction {
     Complete(String),
     Fail(String),
     ManualReview(String),
+    FinalizeRemoved(String),
+    FinalizeRestored(String),
+    FinalizePermanentDelete(String),
+    ReleaseReplacedAria2Task(String),
     RemoveUnpersistedAria2Task(String),
 }
 
@@ -52,6 +60,17 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
             decide_reconcile_action(&operation, &tasks, &gid_presence)
         };
         let action = match action {
+            ReconcileAction::ReleaseReplacedAria2Task(gid) => {
+                match release_replaced_aria2_task(state, &operation, &tasks, &gid).await {
+                    Ok(()) => ReconcileAction::Complete(
+                        "启动时已释放替换任务遗留的旧 Aria2 GID".to_string(),
+                    ),
+                    Err(error) => ReconcileAction::ManualReview(format!(
+                        "启动时释放替换任务旧 GID 失败：{}；已保留任务和用户文件",
+                        error
+                    )),
+                }
+            }
             ReconcileAction::RemoveUnpersistedAria2Task(gid) => {
                 match remove_unpersisted_aria2_task(state, &gid).await {
                     Ok(()) => ReconcileAction::Fail(
@@ -218,7 +237,8 @@ async fn inspect_referenced_gids(
         .iter()
         .filter(|operation| operation.status == TaskOperationStatus::InProgress)
         .filter(|operation| operation.operation_type != TaskOperationType::Proxy)
-        .filter_map(operation_gid)
+        .filter(|operation| !is_engine_free_history_operation(operation))
+        .flat_map(operation_gids)
         .map(str::to_string)
         .collect::<BTreeSet<_>>();
     if gids.is_empty() {
@@ -281,6 +301,15 @@ fn decide_reconcile_action(
     }
 
     let task = tasks.iter().find(|task| task.id == operation.task_id);
+    if let Some(action) = decide_replaced_gid_action(operation, task, gid_presence) {
+        return action;
+    }
+    if let Some(action) = decide_permanent_delete_action(operation, task, gid_presence) {
+        return action;
+    }
+    if let Some(action) = decide_retained_task_action(operation, task, gid_presence) {
+        return action;
+    }
     let Some(new_gid) = operation
         .context
         .new_gid
@@ -325,6 +354,225 @@ fn decide_reconcile_action(
     }
 }
 
+fn decide_permanent_delete_action(
+    operation: &TaskOperation,
+    task: Option<&DownloadTask>,
+    gid_presence: &HashMap<String, Aria2TaskPresence>,
+) -> Option<ReconcileAction> {
+    if operation.operation_type != TaskOperationType::PermanentDelete {
+        return None;
+    }
+    let Some(task) = task else {
+        return Some(ReconcileAction::ManualReview(
+            "永久删除操作对应的任务记录不存在，需要人工核对".to_string(),
+        ));
+    };
+    if task.status != DownloadTaskStatus::Removed {
+        return Some(ReconcileAction::ManualReview(
+            "永久删除操作对应的任务不在回收站，需要人工核对".to_string(),
+        ));
+    }
+    let Some(old_gid) = operation
+        .context
+        .old_gid
+        .as_deref()
+        .filter(|gid| !gid.trim().is_empty())
+    else {
+        return Some(ReconcileAction::FinalizePermanentDelete(
+            "永久删除任务没有原 GID，启动时补齐记录清理".to_string(),
+        ));
+    };
+
+    match gid_presence.get(old_gid) {
+        Some(Aria2TaskPresence::Missing) => Some(ReconcileAction::FinalizePermanentDelete(
+            "原 GID 已确认不存在，启动时补齐记录清理".to_string(),
+        )),
+        Some(Aria2TaskPresence::Present) => Some(ReconcileAction::ManualReview(
+            "永久删除操作的原 GID 仍存在，未自动删除任务记录".to_string(),
+        )),
+        Some(Aria2TaskPresence::Unknown(error)) => Some(ReconcileAction::ManualReview(format!(
+            "服务重启时无法确认永久删除的原 GID：{}；已保留任务记录",
+            error
+        ))),
+        None => Some(ReconcileAction::ManualReview(
+            "服务重启时缺少永久删除的原 GID 核对结果，已保留任务记录".to_string(),
+        )),
+    }
+}
+
+fn decide_replaced_gid_action(
+    operation: &TaskOperation,
+    task: Option<&DownloadTask>,
+    gid_presence: &HashMap<String, Aria2TaskPresence>,
+) -> Option<ReconcileAction> {
+    if !matches!(operation.operation_type, TaskOperationType::Restore) {
+        return None;
+    }
+    let task = task?;
+    let Some(new_gid) = operation
+        .context
+        .new_gid
+        .as_deref()
+        .filter(|gid| !gid.trim().is_empty())
+    else {
+        return None;
+    };
+    let Some(old_gid) = operation
+        .context
+        .old_gid
+        .as_deref()
+        .filter(|gid| !gid.trim().is_empty())
+        .filter(|gid| *gid != new_gid)
+    else {
+        return None;
+    };
+    if !matches!(
+        operation.phase.as_str(),
+        "task_restored" | "engine_release_requested" | "engine_released"
+    ) || !task_has_gid(Some(task), new_gid)
+        || !matches!(gid_presence.get(new_gid), Some(Aria2TaskPresence::Present))
+    {
+        return None;
+    }
+
+    match gid_presence.get(old_gid) {
+        Some(Aria2TaskPresence::Present) => Some(ReconcileAction::ReleaseReplacedAria2Task(
+            old_gid.to_string(),
+        )),
+        Some(Aria2TaskPresence::Missing) => Some(ReconcileAction::Complete(
+            "替换任务的旧 GID 已不存在，启动时完成操作对账".to_string(),
+        )),
+        Some(Aria2TaskPresence::Unknown(error)) => Some(ReconcileAction::ManualReview(format!(
+            "服务重启时无法确认替换任务的旧 GID：{}；已保留任务和用户文件",
+            error
+        ))),
+        None => None,
+    }
+}
+
+fn decide_retained_task_action(
+    operation: &TaskOperation,
+    task: Option<&DownloadTask>,
+    gid_presence: &HashMap<String, Aria2TaskPresence>,
+) -> Option<ReconcileAction> {
+    if !matches!(
+        operation.operation_type,
+        TaskOperationType::Delete | TaskOperationType::Restore
+    ) {
+        return None;
+    }
+    // Restore operations that created a replacement GID use the normal new-GID
+    // reconciliation below; this branch is only for retained identities.
+    if operation
+        .context
+        .new_gid
+        .as_deref()
+        .is_some_and(|gid| !gid.trim().is_empty())
+    {
+        return None;
+    }
+    let task = task?;
+    let old_gid = operation
+        .context
+        .old_gid
+        .as_deref()
+        .filter(|gid| !gid.trim().is_empty());
+    let history = is_engine_free_history_operation(operation);
+
+    if history {
+        return match operation.operation_type {
+            TaskOperationType::Delete if task.status == DownloadTaskStatus::Removed => Some(
+                ReconcileAction::Complete("完成历史回收状态已写入，未触碰引擎".to_string()),
+            ),
+            TaskOperationType::Delete => Some(ReconcileAction::FinalizeRemoved(
+                "完成历史回收状态尚未写入，启动时补齐".to_string(),
+            )),
+            TaskOperationType::Restore if task.status == DownloadTaskStatus::Complete => Some(
+                ReconcileAction::Complete("完成历史恢复状态已写入，未触碰引擎".to_string()),
+            ),
+            TaskOperationType::Restore => Some(ReconcileAction::FinalizeRestored(
+                "完成历史恢复状态尚未写入，启动时补齐".to_string(),
+            )),
+            _ => None,
+        };
+    }
+
+    let Some(old_gid) = old_gid else {
+        return None;
+    };
+    match gid_presence.get(old_gid) {
+        Some(Aria2TaskPresence::Present)
+            if task.engine_generation == EngineGeneration::NativeV2
+                && operation.operation_type == TaskOperationType::Delete
+                && matches!(operation.phase.as_str(), "aria2_paused" | "aria2_retained")
+                && task.status != DownloadTaskStatus::Removed =>
+        {
+            Some(ReconcileAction::FinalizeRemoved(
+                "原生任务已暂停，启动时补齐回收站状态".to_string(),
+            ))
+        }
+        Some(Aria2TaskPresence::Present)
+            if task.engine_generation == EngineGeneration::NativeV2
+                && operation.operation_type == TaskOperationType::Restore
+                && task.status == DownloadTaskStatus::Removed =>
+        {
+            if task.files_deleted {
+                Some(ReconcileAction::ManualReview(
+                    "任务文件已删除，未自动绕过从头下载确认".to_string(),
+                ))
+            } else if operation.phase == "aria2_proxy_reconciled"
+                && task.removed_from_status.is_some()
+            {
+                Some(ReconcileAction::FinalizeRestored(
+                    "原生任务已暂停且代理已对账，启动时补齐恢复状态".to_string(),
+                ))
+            } else {
+                Some(ReconcileAction::ManualReview(
+                    "回收站任务缺少原始状态，未猜测恢复结果".to_string(),
+                ))
+            }
+        }
+        Some(Aria2TaskPresence::Present) => Some(ReconcileAction::Complete(
+            "原 GID 与 SQLite 状态已一致".to_string(),
+        )),
+        Some(Aria2TaskPresence::Missing)
+            if operation.operation_type == TaskOperationType::Delete
+                && task.engine_generation != EngineGeneration::NativeV2
+                && task.status == DownloadTaskStatus::Removed =>
+        {
+            Some(ReconcileAction::Complete(
+                "旧版引擎任务已移除，回收站状态已写入".to_string(),
+            ))
+        }
+        Some(Aria2TaskPresence::Unknown(error)) => Some(ReconcileAction::ManualReview(format!(
+            "服务重启时无法确认原 GID：{}；已保留任务和文件",
+            error
+        ))),
+        Some(Aria2TaskPresence::Missing) | None => Some(ReconcileAction::ManualReview(
+            "服务重启时无法确认原 GID，未自动重建或删除用户文件".to_string(),
+        )),
+    }
+}
+
+fn is_engine_free_history_operation(operation: &TaskOperation) -> bool {
+    operation.operation_type == TaskOperationType::Delete
+        && operation
+            .context
+            .task_snapshot
+            .as_ref()
+            .is_some_and(|task| task.status == DownloadTaskStatus::Complete)
+        || operation.operation_type == TaskOperationType::Restore
+            && operation
+                .context
+                .task_snapshot
+                .as_ref()
+                .is_some_and(|task| {
+                    task.status == DownloadTaskStatus::Removed
+                        && !task.files_deleted
+                        && task.removed_from_status == Some(DownloadTaskStatus::Complete)
+                })
+}
+
 fn has_staged_user_files(operation: &TaskOperation) -> bool {
     operation.phase == "file_staging_in_progress"
         || operation
@@ -332,6 +580,51 @@ fn has_staged_user_files(operation: &TaskOperation) -> bool {
             .completed_side_effects
             .iter()
             .any(|effect| matches!(effect.as_str(), "old_files_staged" | "task_files_staged"))
+}
+
+async fn release_replaced_aria2_task(
+    state: &HttpAppState,
+    operation: &TaskOperation,
+    tasks: &[DownloadTask],
+    gid: &str,
+) -> Result<(), String> {
+    if tasks
+        .iter()
+        .any(|task| task.id != operation.task_id && task.gid.as_deref() == Some(gid))
+    {
+        return Ok(());
+    }
+    let config = ensure_aria2_ready(state).await?;
+    match remove_task_with_request_id(
+        &state.aria2_rpc,
+        &config,
+        gid,
+        Some(&operation.id),
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        Ok(_) => {}
+        Err(error) if is_stale_aria2_gid_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+    crate::aria2::save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs)).await?;
+    if config.engine_generation() == EngineGeneration::NativeV2
+        && task_exists(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await?
+    {
+        remove_task_result(
+            &state.aria2_rpc,
+            &config,
+            gid,
+            Some(&format!("{}:remove-result", operation.id)),
+            Some(&state.core.debug_logs),
+        )
+        .await?;
+        if task_exists(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await? {
+            return Err("task_outcome_unknown：替换任务旧 GID 尚未移除".to_string());
+        }
+    }
+    Ok(())
 }
 
 fn task_has_gid(task: Option<&DownloadTask>, gid: &str) -> bool {
@@ -349,7 +642,7 @@ fn can_complete_persisted_operation(operation: &TaskOperation) -> bool {
 
 async fn apply_reconcile_action(
     pool: &sqlx::SqlitePool,
-    tasks: &mut [DownloadTask],
+    tasks: &mut Vec<DownloadTask>,
     operation: &mut TaskOperation,
     action: ReconcileAction,
 ) -> Result<(), String> {
@@ -378,20 +671,99 @@ async fn apply_reconcile_action(
                 update_task_operation(pool, operation).await?;
             }
         }
+        ReconcileAction::FinalizeRemoved(message) => {
+            let Some(task) = tasks.iter_mut().find(|task| task.id == operation.task_id) else {
+                operation.fail("startup_rolled_back", "回收操作对应的任务已不存在");
+                update_task_operation(pool, operation).await?;
+                return Ok(());
+            };
+            if task.status != DownloadTaskStatus::Removed {
+                let source = task.status.clone();
+                task.removed_from_status = Some(source);
+                task.status = DownloadTaskStatus::Removed;
+                task.selected_file_indexes = task
+                    .files
+                    .iter()
+                    .filter(|file| file.selected)
+                    .map(|file| file.index)
+                    .collect();
+                task.download_speed = 0;
+                task.error_code = None;
+                task.error_message = None;
+            }
+            operation.complete("startup_reconciled");
+            persist_download_task_state_with_operation(pool, task, operation).await?;
+            emit_file_log(DebugLogLevel::Info, "runtime.operation_reconcile", &message);
+        }
+        ReconcileAction::FinalizeRestored(message) => {
+            let Some(task) = tasks.iter_mut().find(|task| task.id == operation.task_id) else {
+                operation.fail("startup_rolled_back", "恢复操作对应的任务已不存在");
+                update_task_operation(pool, operation).await?;
+                return Ok(());
+            };
+            if task.status == DownloadTaskStatus::Removed {
+                let Some(source) = task.removed_from_status.clone().or_else(|| {
+                    operation
+                        .context
+                        .task_snapshot
+                        .as_ref()
+                        .and_then(|snapshot| snapshot.removed_from_status.clone())
+                }) else {
+                    operation.require_manual_review(
+                        "startup_manual_review",
+                        "回收站任务缺少原始状态，未猜测恢复结果",
+                    );
+                    persist_download_task_state_with_operation(pool, task, operation).await?;
+                    return Ok(());
+                };
+                task.status = if source == DownloadTaskStatus::Complete {
+                    DownloadTaskStatus::Complete
+                } else {
+                    DownloadTaskStatus::Paused
+                };
+                task.removed_from_status = None;
+                task.files_deleted = false;
+                task.download_speed = 0;
+                task.error_code = None;
+                task.error_message = None;
+            }
+            operation.complete("startup_reconciled");
+            persist_download_task_state_with_operation(pool, task, operation).await?;
+            emit_file_log(DebugLogLevel::Info, "runtime.operation_reconcile", &message);
+        }
+        ReconcileAction::FinalizePermanentDelete(message) => {
+            operation.complete("record_deleted");
+            if !delete_download_task_record_with_operation(pool, operation.task_id, operation)
+                .await?
+            {
+                operation.require_manual_review(
+                    "startup_manual_review",
+                    "永久删除操作对应的数据库记录不存在，已保留操作记录",
+                );
+                update_task_operation(pool, operation).await?;
+                return Ok(());
+            }
+            tasks.retain(|task| task.id != operation.task_id);
+            emit_file_log(DebugLogLevel::Info, "runtime.operation_reconcile", &message);
+        }
         ReconcileAction::RemoveUnpersistedAria2Task(_) => {
             return Err("未持久化 Aria2 任务尚未完成撤销".to_string());
+        }
+        ReconcileAction::ReleaseReplacedAria2Task(_) => {
+            return Err("替换任务旧 GID 尚未完成释放".to_string());
         }
     }
     Ok(())
 }
 
-fn operation_gid(operation: &TaskOperation) -> Option<&str> {
-    operation
-        .context
-        .new_gid
-        .as_deref()
-        .or(operation.context.old_gid.as_deref())
-        .filter(|gid| !gid.trim().is_empty())
+fn operation_gids(operation: &TaskOperation) -> impl Iterator<Item = &str> {
+    [
+        operation.context.old_gid.as_deref(),
+        operation.context.new_gid.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|gid| !gid.trim().is_empty())
 }
 
 fn current_timestamp_ms() -> u64 {

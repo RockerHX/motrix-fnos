@@ -77,6 +77,13 @@ pub(super) struct TaskProxyOverrideRequest {
     pub(super) proxy_field_present: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct TaskRestoreOptions {
+    #[serde(default)]
+    pub(super) restart_from_zero: bool,
+}
+
 pub(super) fn parse_task_proxy_override_body(
     body: &[u8],
 ) -> Result<Option<TaskProxyOverrideRequest>, ApiError> {

@@ -26,7 +26,9 @@ pub use aria2_rpc::{
     remove_task, remove_task_with_request_id, unpause_task, unpause_task_with_request_id,
     Aria2TaskCreationError, Aria2TaskOptionError,
 };
-pub(crate) use aria2_rpc::{is_aria2_outcome_unknown_error, tell_active_task_activity};
+pub(crate) use aria2_rpc::{
+    is_aria2_outcome_unknown_error, remove_task_result, tell_active_task_activity,
+};
 pub use file_context::{task_file_actions, TaskFileActions, TaskFileAvailability};
 pub use files::{delete_task_files, validate_task_files};
 use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};

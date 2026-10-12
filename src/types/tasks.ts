@@ -30,6 +30,8 @@ export interface DownloadTask {
   errorMessage?: string | null;
   filePath?: string | null;
   useProxy: boolean;
+  filesDeleted?: boolean;
+  cleanupState?: "none" | "pending" | "failed";
   confirmationRequired: boolean;
   files: DownloadTaskFile[];
   createdAt: number;

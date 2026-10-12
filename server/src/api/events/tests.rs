@@ -63,7 +63,7 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert!(text.contains("\"revision\":1"));
     assert!(!text.contains("proxyBinding"));
     assert!(!text.contains("metadataTorrentPath"));
-    assert!(!text.contains("filesDeleted"));
+    assert!(text.contains("\"filesDeleted\":true"));
     assert!(!text.contains("selectedFileIndexes"));
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(state
@@ -208,6 +208,7 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

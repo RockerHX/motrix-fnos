@@ -1151,7 +1151,7 @@ async fn list_tasks_hides_internal_recovery_fields() {
 
     assert!(task.get("proxyBinding").is_none());
     assert!(task.get("metadataTorrentPath").is_none());
-    assert!(task.get("filesDeleted").is_none());
+    assert_eq!(task["filesDeleted"], true);
     assert!(task.get("selectedFileIndexes").is_none());
 }
 
@@ -1633,6 +1633,7 @@ fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: format!("https://example.com/archive-{id}.zip"),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: format!("archive-{id}.zip"),
@@ -1763,6 +1764,7 @@ async fn mock_aria2_rpc(
                 "version": "1.37.0"
             }
         }),
+        "aria2.saveSession" => json!({ "result": "OK" }),
         "aria2.addUri" => {
             let options_index = if first_param_is_token(&params) { 2 } else { 1 };
             let options = params

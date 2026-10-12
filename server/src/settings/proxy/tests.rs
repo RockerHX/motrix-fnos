@@ -405,6 +405,7 @@ fn sample_task(id: u64, proxy_binding: TaskProxyBinding) -> DownloadTask {
     DownloadTask {
         id,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: format!("https://example.com/{id}.zip"),
         source_type: DownloadTaskSourceType::Url,
         file_name: format!("{id}.zip"),

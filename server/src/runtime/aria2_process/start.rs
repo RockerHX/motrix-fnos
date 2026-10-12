@@ -409,6 +409,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             &state.core.download_tasks,
             &state.aria2_rpc,
             &config,
+            &state.runtime.app_data_dir,
             Some(&state.core.debug_logs),
         )
         .await

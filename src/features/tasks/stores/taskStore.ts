@@ -212,12 +212,12 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
-  async function restoreTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  async function restoreTask(taskId: number, useProxy?: boolean, restartFromZero = false): Promise<DownloadTask> {
     ensureRuntimeActive();
     const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
-      const task = await restoreDownloadTask(taskId, useProxy);
+      const task = await restoreDownloadTask(taskId, useProxy, restartFromZero);
       if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
         removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
         upsertTask(task);

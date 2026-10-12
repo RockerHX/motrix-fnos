@@ -267,6 +267,7 @@ export const zhCN = {
   "task.redownload.confirm": "重新下载会在新任务可靠建立后清理“{name}”当前本地文件，并从 0 开始下载。确定继续吗？",
   "task.restore.title": "恢复下载任务",
   "task.restore.confirm": "恢复“{name}”并以暂停状态重新加入任务列表？",
+  "task.restore.restartConfirm": "“{name}”的下载文件已删除。确认从 0 开始下载并以暂停状态加入任务列表？",
   "task.delete.title": "删除下载任务",
   "task.delete.confirm": "确定要删除“{name}”吗？",
   "task.delete.files": "同时删除本地文件",

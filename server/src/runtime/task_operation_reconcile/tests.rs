@@ -40,6 +40,45 @@ fn persisted_create_is_completed_when_aria2_gid_matches() {
 }
 
 #[test]
+fn restored_task_with_new_gid_uses_new_gid_reconciliation() {
+    let operation = operation(
+        TaskOperationType::Restore,
+        "task_restored",
+        Some("old-gid"),
+        Some("new-gid"),
+        vec!["aria2_task_created", "task_state_persisted"],
+    );
+    let task = task_with_gid("new-gid");
+    let presence = HashMap::from([("new-gid".to_string(), Aria2TaskPresence::Present)]);
+
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task], &presence),
+        ReconcileAction::Complete(_)
+    ));
+}
+
+#[test]
+fn restored_task_with_both_gids_releases_the_old_gid_first() {
+    let operation = operation(
+        TaskOperationType::Restore,
+        "task_restored",
+        Some("old-gid"),
+        Some("new-gid"),
+        vec!["aria2_task_created", "task_state_persisted"],
+    );
+    let task = task_with_gid("new-gid");
+    let presence = HashMap::from([
+        ("old-gid".to_string(), Aria2TaskPresence::Present),
+        ("new-gid".to_string(), Aria2TaskPresence::Present),
+    ]);
+
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task], &presence),
+        ReconcileAction::ReleaseReplacedAria2Task(gid) if gid == "old-gid"
+    ));
+}
+
+#[test]
 fn unpersisted_aria2_task_is_scheduled_for_removal() {
     let operation = operation(
         TaskOperationType::Create,
@@ -110,6 +149,94 @@ fn missing_persisted_gid_requires_manual_review() {
 }
 
 #[test]
+fn native_recycle_operations_without_new_gid_reconcile_against_old_gid() {
+    let mut deleted_task = task_with_gid("old-gid");
+    deleted_task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let delete_operation = operation(
+        TaskOperationType::Delete,
+        "aria2_retained",
+        Some("old-gid"),
+        None,
+        vec!["aria2_task_retained"],
+    );
+    let presence = HashMap::from([("old-gid".to_string(), Aria2TaskPresence::Present)]);
+
+    assert!(matches!(
+        decide_reconcile_action(&delete_operation, &[deleted_task], &presence),
+        ReconcileAction::FinalizeRemoved(_)
+    ));
+
+    let mut restored_task = task_with_gid("old-gid");
+    restored_task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    restored_task.status = DownloadTaskStatus::Removed;
+    restored_task.removed_from_status = Some(DownloadTaskStatus::Paused);
+    let restore_operation = operation(
+        TaskOperationType::Restore,
+        "aria2_proxy_reconciled",
+        Some("old-gid"),
+        None,
+        vec!["aria2_task_paused", "task_proxy_reconciled"],
+    );
+
+    assert!(matches!(
+        decide_reconcile_action(&restore_operation, &[restored_task], &presence),
+        ReconcileAction::FinalizeRestored(_)
+    ));
+
+    let paused_before_proxy = operation(
+        TaskOperationType::Restore,
+        "aria2_paused",
+        Some("old-gid"),
+        None,
+        vec!["aria2_task_paused"],
+    );
+    let mut removed_task = task_with_gid("old-gid");
+    removed_task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    removed_task.status = DownloadTaskStatus::Removed;
+    removed_task.removed_from_status = Some(DownloadTaskStatus::Paused);
+    assert_matches_manual(decide_reconcile_action(
+        &paused_before_proxy,
+        &[removed_task],
+        &presence,
+    ));
+}
+
+#[test]
+fn permanent_delete_with_missing_gid_finishes_record_cleanup() {
+    let mut task = task_with_gid("old-gid");
+    task.status = DownloadTaskStatus::Removed;
+    let operation = operation(
+        TaskOperationType::PermanentDelete,
+        "engine_released",
+        Some("old-gid"),
+        None,
+        vec!["aria2_task_removed"],
+    );
+    let presence = HashMap::from([("old-gid".to_string(), Aria2TaskPresence::Missing)]);
+
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task], &presence),
+        ReconcileAction::FinalizePermanentDelete(_)
+    ));
+}
+
+#[test]
+fn permanent_delete_with_present_gid_requires_manual_review() {
+    let mut task = task_with_gid("old-gid");
+    task.status = DownloadTaskStatus::Removed;
+    let operation = operation(
+        TaskOperationType::PermanentDelete,
+        "engine_release_requested",
+        Some("old-gid"),
+        None,
+        Vec::new(),
+    );
+    let presence = HashMap::from([("old-gid".to_string(), Aria2TaskPresence::Present)]);
+
+    assert_matches_manual(decide_reconcile_action(&operation, &[task], &presence));
+}
+
+#[test]
 fn unknown_rpc_result_requires_manual_review_without_retry_or_delete() {
     let operation = operation(
         TaskOperationType::Create,
@@ -167,6 +294,52 @@ async fn manual_review_persists_visible_task_error_with_operation() {
         .expect("unfinished operations should list");
     assert_eq!(unfinished.len(), 1);
     assert_eq!(unfinished[0].status, TaskOperationStatus::ManualReview);
+
+    database.pool.close().await;
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn finalized_permanent_delete_removes_task_and_operation_atomically() {
+    let path = temp_path("finalize-permanent-delete");
+    let database = connect_database(path.clone())
+        .await
+        .expect("database should connect");
+    let mut task = task_with_gid("old-gid");
+    task.status = DownloadTaskStatus::Removed;
+    upsert_download_task(&database.pool, &task)
+        .await
+        .expect("task should be inserted");
+    let mut operation = operation(
+        TaskOperationType::PermanentDelete,
+        "engine_released",
+        Some("old-gid"),
+        None,
+        vec!["aria2_task_removed"],
+    );
+    begin_task_operation(&database.pool, &operation)
+        .await
+        .expect("operation should persist");
+    let mut tasks = vec![task];
+
+    apply_reconcile_action(
+        &database.pool,
+        &mut tasks,
+        &mut operation,
+        ReconcileAction::FinalizePermanentDelete("GID 已不存在".to_string()),
+    )
+    .await
+    .expect("permanent delete should reconcile");
+
+    assert!(tasks.is_empty());
+    assert!(list_unfinished_task_operations(&database.pool)
+        .await
+        .expect("unfinished operations should list")
+        .is_empty());
+    assert!(crate::database::tasks::list_download_tasks(&database.pool)
+        .await
+        .expect("tasks should list")
+        .is_empty());
 
     database.pool.close().await;
     let _ = std::fs::remove_file(path);
@@ -268,6 +441,7 @@ fn task_with_gid(gid: &str) -> DownloadTask {
     DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

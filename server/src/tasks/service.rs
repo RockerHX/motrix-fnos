@@ -15,7 +15,7 @@ use crate::tasks::{
     mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
     mark_task_resumed, pause_task, pause_task_with_request_id, prepare_task_with_logs,
     prepare_torrent_task_with_logs, readd_task_to_aria2, reconcile_task_proxy_option, remove_task,
-    remove_task_record, remove_task_with_request_id, replace_task_snapshot,
+    remove_task_record, remove_task_result, remove_task_with_request_id, replace_task_snapshot,
     set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
@@ -206,6 +206,15 @@ impl<'a> TaskService<'a> {
         phase: impl Into<String>,
         context: TaskOperationContext,
     ) -> Result<TaskOperation, String> {
+        if self
+            .repository
+            .list_unfinished_operations()
+            .await?
+            .iter()
+            .any(|operation| operation.task_id == task_id)
+        {
+            return Err("该任务已有操作正在进行，请稍后重试".to_string());
+        }
         let operation = TaskOperation::new(task_id, operation_type, phase, context);
         self.repository.begin_operation(&operation).await?;
         Ok(operation)
@@ -480,7 +489,7 @@ impl<'a> TaskService<'a> {
         query::get_download_task(self, task_id)
     }
 
-    pub(super) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
+    pub(crate) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
         let pending = self
             .repository
             .list_unfinished_operations()

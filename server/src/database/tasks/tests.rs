@@ -542,6 +542,7 @@ fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),

@@ -269,6 +269,7 @@ export const enUS: Record<TranslationKey, string> = {
   "task.redownload.confirm": "Redownloading will remove the current local files for \"{name}\" only after the new task is ready, then start from 0. Continue?",
   "task.restore.title": "Restore Download Task",
   "task.restore.confirm": "Restore \"{name}\" to the task list in a paused state?",
+  "task.restore.restartConfirm": "The downloaded files for \"{name}\" were deleted. Start from zero and return it to the task list in a paused state?",
   "task.delete.title": "Delete Download Task",
   "task.delete.confirm": "Delete \"{name}\"?",
   "task.delete.files": "Also delete local file",

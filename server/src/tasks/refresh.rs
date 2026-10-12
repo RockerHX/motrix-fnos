@@ -123,10 +123,9 @@ pub async fn refresh_tasks_from_aria2(
         for update in &updates {
             match update {
                 TaskRefreshUpdate::Status { gid, status } => {
-                    for task in tasks
-                        .iter_mut()
-                        .filter(|task| task.gid.as_ref() == Some(gid))
-                    {
+                    for task in tasks.iter_mut().filter(|task| {
+                        task.gid.as_ref() == Some(gid) && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_aria2_status(task, status);
                     }
                 }
@@ -135,10 +134,11 @@ pub async fn refresh_tasks_from_aria2(
                     old_gid,
                     new_gid,
                 } => {
-                    if let Some(task) = tasks
-                        .iter_mut()
-                        .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
-                    {
+                    if let Some(task) = tasks.iter_mut().find(|task| {
+                        task.id == *task_id
+                            && task.gid.as_ref() == Some(old_gid)
+                            && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_readded_gid(task, new_gid);
                     }
                 }
@@ -147,10 +147,10 @@ pub async fn refresh_tasks_from_aria2(
                     status,
                     metadata_torrent_path,
                 } => {
-                    if let Some(task) = tasks
-                        .iter_mut()
-                        .find(|task| task.gid.as_ref() == Some(old_gid))
-                    {
+                    if let Some(task) = tasks.iter_mut().find(|task| {
+                        task.gid.as_ref() == Some(old_gid)
+                            && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_magnet_metadata_confirmation(
                             task,
                             status,
@@ -185,6 +185,16 @@ pub async fn sync_task_progress_after_pause_by_gid(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
+    let status = read_task_status_after_pause(client, config, gid, debug_logs).await?;
+    apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+pub(crate) async fn read_task_status_after_pause(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Aria2TaskStatus, String> {
     const MAX_ATTEMPTS: usize = 61;
     const RETRY_INTERVAL_MS: u64 = 500;
 
@@ -212,11 +222,14 @@ pub async fn sync_task_progress_after_pause_by_gid(
 
     let status =
         latest_status.ok_or_else(|| "暂停后同步 Aria2 任务状态失败：未获取到状态".to_string())?;
+    if status.gid.as_deref() != Some(gid) && config.state_dir.is_some() {
+        return Err("task_resume_state_invalid：暂停状态的 GID 不一致".to_string());
+    }
     if let Err(error) = ensure_pause_status_settled(gid, &status, settled) {
         log_info(debug_logs, "tasks.control", &error);
         return Err(error);
     }
-    apply_aria2_status_by_gid(tasks, gid, &status)
+    Ok(status)
 }
 
 pub(super) fn ensure_pause_status_settled(

@@ -133,9 +133,10 @@ async fn session_restore_updates_gid_before_proxy_reconcile() {
     let client = Aria2RpcClient::new();
     let config = test_config(mock.addr.port());
 
-    let restored = sync_session_tasks_from_aria2(&tasks, &client, &config, None)
-        .await
-        .expect("session tasks should synchronize");
+    let restored =
+        sync_session_tasks_from_aria2(&tasks, &client, &config, Path::new("/private"), None)
+            .await
+            .expect("session tasks should synchronize");
     reconcile_session_task_proxies(&tasks, &client, &config, None)
         .await
         .expect("restored task proxy should reconcile");
@@ -167,6 +168,7 @@ fn proxy_task(proxy_url: Option<&str>) -> DownloadTask {
     DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -213,6 +215,7 @@ async fn native_restore_keeps_original_gid_and_recycle_bin_fact() {
         &tasks,
         &Aria2RpcClient::new(),
         &native_config(mock.addr.port()),
+        Path::new("/private"),
         None,
     )
     .await
@@ -236,6 +239,7 @@ async fn native_restore_rejects_unknown_gid_and_keeps_snapshot_unchanged() {
         &tasks,
         &Aria2RpcClient::new(),
         &native_config(mock.addr.port()),
+        Path::new("/private"),
         None,
     )
     .await
@@ -264,6 +268,7 @@ async fn native_restore_rejects_changed_file_selection_before_updating_any_task(
         &tasks,
         &Aria2RpcClient::new(),
         &native_config(mock.addr.port()),
+        Path::new("/private"),
         None
     )
     .await

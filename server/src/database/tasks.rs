@@ -32,9 +32,9 @@ async fn upsert_download_task_in_transaction(
         INSERT INTO download_tasks (
             id, engine_generation, url, source_type, file_name, save_dir, owned_task_dir, category, gid, status, total_length, completed_length,
             download_speed, error_code, error_message, file_path, metadata_torrent_path, files_deleted,
-            selected_file_indexes, confirmation_required, use_proxy, proxy_source, created_at, updated_at
+            selected_file_indexes, confirmation_required, use_proxy, proxy_source, created_at, updated_at, removed_from_status
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             url = excluded.url,
             source_type = excluded.source_type,
@@ -56,7 +56,8 @@ async fn upsert_download_task_in_transaction(
             confirmation_required = excluded.confirmation_required,
             use_proxy = excluded.use_proxy,
             proxy_source = excluded.proxy_source,
-            updated_at = excluded.updated_at
+            updated_at = excluded.updated_at,
+            removed_from_status = excluded.removed_from_status
         WHERE download_tasks.engine_generation = excluded.engine_generation
         "#,
     )
@@ -95,6 +96,7 @@ async fn upsert_download_task_in_transaction(
     .as_storage_value())
     .bind(u64_to_i64(task.created_at, "创建时间")?)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
+    .bind(task.removed_from_status.as_ref().map(DownloadTaskStatus::as_storage_value))
     .execute(&mut **transaction)
     .await
     .map_err(|error| format!("保存下载任务失败：{}", error))?;
@@ -412,7 +414,7 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
                total_length, completed_length, category, download_speed, error_code, error_message,
                file_path, metadata_torrent_path, files_deleted, selected_file_indexes,
                confirmation_required, use_proxy, proxy_source, task_proxy_overrides.proxy_url AS proxy_override_url,
-               created_at, download_tasks.updated_at
+               created_at, download_tasks.updated_at, removed_from_status
         FROM download_tasks
         LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id
         ORDER BY created_at DESC, download_tasks.id DESC
@@ -697,6 +699,8 @@ fn row_to_task(
         category: get(&row, "category")?,
         gid: get(&row, "gid")?,
         status: DownloadTaskStatus::from_storage_value(&status),
+        removed_from_status: get::<Option<String>>(&row, "removed_from_status")?
+            .map(|status| DownloadTaskStatus::from_storage_value(&status)),
         total_length: i64_to_u64(get(&row, "total_length")?, "总大小")?,
         completed_length: i64_to_u64(get(&row, "completed_length")?, "已下载大小")?,
         download_speed: i64_to_u64(get(&row, "download_speed")?, "下载速度")?,

@@ -33,7 +33,7 @@ async fn gid_control_rejects_empty_result() {
     .await
     .expect_err("empty gid should fail");
 
-    assert!(error.contains("响应缺少 GID"));
+    assert!(is_aria2_outcome_unknown_error(&error));
     mock.abort();
 }
 

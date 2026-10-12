@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 mod native;
+pub(crate) use native::reconcile_native_task;
 
 pub(crate) async fn validate_url_task_output_before_resume(
     client: &Aria2RpcClient,
@@ -107,11 +108,12 @@ pub async fn sync_session_tasks_from_aria2(
     tasks: &TaskMemoryState,
     client: &Aria2RpcClient,
     config: &Aria2Config,
+    app_data_dir: &Path,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
     let session_tasks = list_current_aria2_tasks(client, config, debug_logs).await?;
     if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
-        return native::sync_native_session(tasks, &session_tasks);
+        return native::sync_native_session(tasks, &session_tasks, app_data_dir);
     }
     if session_tasks.is_empty() {
         log_info(debug_logs, "tasks.restore", "Aria2 session 未加载任何任务");

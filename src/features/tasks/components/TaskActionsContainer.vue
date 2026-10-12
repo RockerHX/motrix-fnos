@@ -73,8 +73,8 @@ const permissions = computed<TaskActionPermissions>(() => ({
   canConfirmFiles: props.task.confirmationRequired && props.task.files.length > 0,
   canRedownload: props.task.status === "complete",
   canDelete: props.task.status !== "removed",
-  canRestore: props.task.status === "removed",
-  canPermanentDelete: props.task.status === "removed",
+  canRestore: props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
+  canPermanentDelete: props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
 }));
 const labels = computed<TaskActionLabels>(() => ({
   details: t("task.actions.details"),
@@ -129,7 +129,7 @@ const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
   redownloadTitle: t("task.redownload.title"),
   redownloadConfirmText: t("task.redownload.confirm", { name: props.task.fileName }),
   restoreTitle: t("task.restore.title"),
-  restoreConfirmText: t("task.restore.confirm", { name: props.task.fileName }),
+  restoreConfirmText: t(props.task.filesDeleted ? "task.restore.restartConfirm" : "task.restore.confirm", { name: props.task.fileName }),
   deleteTitle: t("task.delete.title"),
   deleteConfirmText: t("task.delete.confirm", { name: props.task.fileName }),
   deleteFilesLabel: t("task.delete.files"),
@@ -191,7 +191,7 @@ async function confirmPermanentDeleteTask() {
 async function restoreTask(useProxy: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.restoreTask(props.task.id, isBtTask.value ? undefined : useProxy);
+    await taskStore.restoreTask(props.task.id, isBtTask.value ? undefined : useProxy, props.task.filesDeleted === true);
     message.success(t("task.actions.restored"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));

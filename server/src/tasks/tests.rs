@@ -49,6 +49,7 @@ fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
     DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),
@@ -90,7 +91,7 @@ fn public_download_task_serialization_hides_internal_recovery_fields() {
 
     assert!(serialized.get("proxyBinding").is_none());
     assert!(serialized.get("metadataTorrentPath").is_none());
-    assert!(serialized.get("filesDeleted").is_none());
+    assert_eq!(serialized["filesDeleted"], true);
     assert!(serialized.get("selectedFileIndexes").is_none());
 }
 
@@ -763,6 +764,7 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
     let task = DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -825,6 +827,7 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     let tasks = TaskMemoryState::new(vec![DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -1151,6 +1154,7 @@ fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "download".to_string(),
@@ -1485,6 +1489,7 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
     let mut task = DownloadTask {
         id: 1,
         engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "file.zip".to_string(),

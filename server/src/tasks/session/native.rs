@@ -1,9 +1,12 @@
 use super::*;
 use crate::config::aria2::EngineGeneration;
+use crate::tasks::is_pending_magnet_metadata_task;
+use std::path::PathBuf;
 
 pub(super) fn sync_native_session(
     tasks: &TaskMemoryState,
     session: &[Aria2TaskStatus],
+    app_data_dir: &Path,
 ) -> Result<Vec<DownloadTask>, String> {
     let mut snapshot = tasks.list()?;
     let mut seen = BTreeSet::new();
@@ -31,39 +34,23 @@ pub(super) fn sync_native_session(
             );
         };
         let task = &mut snapshot[*index];
-        validate_native_task(task, status)?;
-        let previous_status = task.status.clone();
-        let expected_dir = task.save_dir.clone();
-        apply_aria2_status(task, status);
-        task.total_length = status
-            .total_length
-            .parse()
-            .map_err(|_| "原生任务总大小无效".to_string())?;
-        task.completed_length = status
-            .completed_length
-            .parse()
-            .map_err(|_| "原生任务有效进度无效".to_string())?;
-        task.save_dir = expected_dir;
-        // 回收站和完成历史属于 SQLite 事实，不能被暂停加载覆盖。
-        if matches!(
-            previous_status,
-            DownloadTaskStatus::Removed | DownloadTaskStatus::Complete
-        ) {
-            task.status = previous_status;
-        }
-        if task.files_deleted {
-            task.completed_length = 0;
-            for file in &mut task.files {
-                file.completed_length = 0;
-            }
-        }
-        task.download_speed = 0;
+        let expected_dir =
+            if task.source_type == DownloadTaskSourceType::Magnet && task.file_path.is_none() {
+                app_data_dir
+                    .join("magnet-metadata")
+                    .join(format!("task-{}", task.id))
+            } else {
+                PathBuf::from(task_download_dir(task))
+            };
+        *task = reconcile_native_task(task, status, &expected_dir)?;
     }
     for task in snapshot
         .iter()
         .filter(|task| task.engine_generation == EngineGeneration::NativeV2)
     {
-        if task.status == DownloadTaskStatus::Complete {
+        if task.status == DownloadTaskStatus::Complete
+            || task.removed_from_status == Some(DownloadTaskStatus::Complete)
+        {
             continue;
         }
         if !task.gid.as_deref().is_some_and(|gid| seen.contains(gid)) {
@@ -77,14 +64,60 @@ pub(super) fn sync_native_session(
     Ok(snapshot)
 }
 
-fn validate_native_task(task: &DownloadTask, status: &Aria2TaskStatus) -> Result<(), String> {
+pub(crate) fn reconcile_native_task(
+    task: &DownloadTask,
+    status: &Aria2TaskStatus,
+    expected_dir: &Path,
+) -> Result<DownloadTask, String> {
+    validate_native_task(task, status, expected_dir)?;
+    let mut reconciled = task.clone();
+    apply_aria2_status(&mut reconciled, status);
+    if task.source_type == DownloadTaskSourceType::Magnet && task.file_path.is_none() {
+        reconciled.files = super::super::progress::task_files(status);
+    }
+    reconciled.total_length = status
+        .total_length
+        .parse()
+        .map_err(|_| "原生任务总大小无效".to_string())?;
+    reconciled.completed_length = status
+        .completed_length
+        .parse()
+        .map_err(|_| "原生任务有效进度无效".to_string())?;
+    reconciled.save_dir = task.save_dir.clone();
+    if task.confirmation_required || is_pending_magnet_metadata_task(task) {
+        reconciled.file_path = task.file_path.clone();
+    }
+    // 回收站和完成历史属于 SQLite 事实，不能被暂停加载覆盖。
+    if matches!(
+        task.status,
+        DownloadTaskStatus::Removed | DownloadTaskStatus::Complete
+    ) {
+        reconciled.status = task.status.clone();
+    }
+    if task.files_deleted {
+        reconciled.completed_length = 0;
+        for file in &mut reconciled.files {
+            file.completed_length = 0;
+        }
+    }
+    reconciled.download_speed = 0;
+    Ok(reconciled)
+}
+
+fn validate_native_task(
+    task: &DownloadTask,
+    status: &Aria2TaskStatus,
+    expected_dir: &Path,
+) -> Result<(), String> {
     let invalid = || {
         format!(
             "task_resume_state_invalid：任务 {} 的状态、目录或文件选择无法核对，已保留文件",
             task.id
         )
     };
-    if !matches!(status.status.as_str(), "paused" | "complete" | "error") {
+    if task.gid.as_deref() != status.gid.as_deref()
+        || !matches!(status.status.as_str(), "paused" | "complete" | "error")
+    {
         return Err(invalid());
     }
     if status
@@ -95,12 +128,19 @@ fn validate_native_task(task: &DownloadTask, status: &Aria2TaskStatus) -> Result
         return Err(invalid());
     }
     let dir = status.dir.as_deref().ok_or_else(invalid)?;
-    let expected_dir = Path::new(task_download_dir(task));
     if Path::new(dir) != expected_dir {
         return Err(invalid());
     }
     let mut indexes = BTreeSet::new();
     let files = status.files.as_deref().unwrap_or_default();
+    if status.total_length.parse::<u64>().is_err()
+        || status.completed_length.parse::<u64>().is_err()
+        || status.completed_length.parse::<u64>().unwrap()
+            > status.total_length.parse::<u64>().unwrap()
+        || (task.confirmation_required && files.is_empty())
+    {
+        return Err(invalid());
+    }
     for file in files {
         let relative = Path::new(&file.path)
             .strip_prefix(expected_dir)

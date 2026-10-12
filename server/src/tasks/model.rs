@@ -95,6 +95,8 @@ pub struct DownloadTask {
     pub category: String,
     pub gid: Option<String>,
     pub status: DownloadTaskStatus,
+    #[serde(default)]
+    pub removed_from_status: Option<DownloadTaskStatus>,
     pub total_length: u64,
     pub completed_length: u64,
     pub download_speed: u64,

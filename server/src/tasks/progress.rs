@@ -185,7 +185,7 @@ fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus
     true
 }
 
-fn task_files(status: &Aria2TaskStatus) -> Vec<DownloadTaskFile> {
+pub(super) fn task_files(status: &Aria2TaskStatus) -> Vec<DownloadTaskFile> {
     status
         .files
         .as_ref()
