@@ -5,8 +5,11 @@ export function getDownloadProxyStatus() {
   return httpGet<DownloadProxyStatus>("/api/settings/proxy");
 }
 
-export function updateDownloadProxy(proxyUrl: string) {
-  return httpPut<DownloadProxyMutationResponse>("/api/settings/proxy", { proxyUrl });
+export function updateDownloadProxy(proxyUrl?: string, btUseProxy?: boolean) {
+  const payload: { proxyUrl?: string; btUseProxy?: boolean } = {};
+  if (proxyUrl !== undefined) payload.proxyUrl = proxyUrl;
+  if (btUseProxy !== undefined) payload.btUseProxy = btUseProxy;
+  return httpPut<DownloadProxyMutationResponse>("/api/settings/proxy", payload);
 }
 
 export function deleteDownloadProxy() {

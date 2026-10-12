@@ -51,6 +51,8 @@ export interface DownloadProxyStatus {
   configured: boolean;
   maskedProxyUrl: string | null;
   revision: number;
+  btUseProxy: boolean;
+  btRuntimeApply: "applied" | "deferred" | "blocked";
 }
 
 export interface DownloadProxyApplyFailure {

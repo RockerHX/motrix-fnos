@@ -51,13 +51,35 @@ export const useDownloadProxyStore = defineStore("download-proxy", () => {
     }
   }
 
+  async function setBtUseProxy(enabled: boolean) {
+    const requestGeneration = transientGeneration;
+    lastMutation.value = null;
+    isSaving.value = true;
+    try {
+      const response = await updateDownloadProxy(undefined, enabled);
+      status.value = response.status;
+      if (requestGeneration === transientGeneration) {
+        lastMutation.value = response;
+      }
+      return response;
+    } finally {
+      isSaving.value = false;
+    }
+  }
+
   async function clearProxy() {
     draftProxyUrl.value = "";
     lastMutation.value = null;
     isSaving.value = true;
     try {
       await deleteDownloadProxy();
-      status.value = { configured: false, maskedProxyUrl: null, revision: 0 };
+      status.value = {
+        configured: false,
+        maskedProxyUrl: null,
+        revision: 0,
+        btUseProxy: false,
+        btRuntimeApply: "deferred",
+      };
       return status.value;
     } finally {
       isSaving.value = false;
@@ -79,6 +101,7 @@ export const useDownloadProxyStore = defineStore("download-proxy", () => {
     loadStatus,
     setDraftProxyUrl,
     saveDraft,
+    setBtUseProxy,
     clearProxy,
     clearTransientState,
   };

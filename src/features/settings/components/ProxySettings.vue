@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { IconDeviceFloppy, IconTrash } from "@tabler/icons-vue";
-import { NAlert, NButton, NIcon, NInput, NSpace, NText, useMessage } from "naive-ui";
+import { NAlert, NButton, NIcon, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -23,7 +23,18 @@ const statusText = computed(() => {
     : t("settings.proxy.notConfigured");
 });
 const canSave = computed(() => Boolean(store.draftProxyUrl.trim()) && !store.isLoading && !store.isSaving);
+const canToggleBtProxy = computed(() => Boolean(store.status?.configured) && !store.isLoading && !store.isSaving);
 const saveMode = computed(() => (store.status?.configured ? "replace" : "save"));
+const btRuntimeStatusText = computed(() => {
+  const status = store.status?.btRuntimeApply;
+  if (status === "applied") return t("settings.proxy.btApplied");
+  if (status === "blocked") return t("settings.proxy.btBlocked");
+  return t("settings.proxy.btDeferred");
+});
+const btRuntimeStatusType = computed(() => {
+  if (store.status?.btRuntimeApply === "applied") return "success";
+  return store.status?.btRuntimeApply === "blocked" ? "error" : "warning";
+});
 const mutationSummary = computed(() => {
   const result = store.lastMutation;
   if (!result) return "";
@@ -82,6 +93,15 @@ async function clearProxy() {
   }
 }
 
+async function updateBtUseProxy(enabled: boolean) {
+  try {
+    await store.setBtUseProxy(enabled);
+    message.success(t(enabled ? "settings.proxy.btEnabled" : "settings.proxy.btDisabled"));
+  } catch (error) {
+    message.error(getErrorMessage(error, t("settings.proxy.saveFailed")));
+  }
+}
+
 function closeTransientState() {
   showSaveConfirm.value = false;
   showClearConfirm.value = false;
@@ -104,6 +124,24 @@ onUnmounted(closeTransientState);
     </div>
 
     <NAlert type="info" :bordered="false">{{ t("settings.proxy.privacyHelp") }}</NAlert>
+
+    <div class="proxy-settings-bt" data-test="bt-proxy-settings">
+      <div>
+        <h4>{{ t("settings.proxy.btTitle") }}</h4>
+        <NText depth="3">{{ t("settings.proxy.btHelp") }}</NText>
+      </div>
+      <NSpace align="center" :size="12">
+        <NText :type="btRuntimeStatusType" data-test="bt-proxy-runtime-status">{{ btRuntimeStatusText }}</NText>
+        <NSwitch
+          :value="store.status?.btUseProxy ?? false"
+          :disabled="!canToggleBtProxy"
+          :loading="store.isSaving"
+          :aria-label="t('settings.proxy.btTitle')"
+          data-test="bt-proxy-switch"
+          @update:value="updateBtUseProxy"
+        />
+      </NSpace>
+    </div>
 
     <NInput
       :value="store.draftProxyUrl"

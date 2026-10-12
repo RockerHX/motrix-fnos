@@ -57,6 +57,7 @@ import {
   updateDownloadProxy,
 } from "../services/downloadProxyService";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
+import type { DownloadProxyStatus } from "../../../types/settings";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import ProxySettings from "./ProxySettings.vue";
 
@@ -83,7 +84,13 @@ describe("ProxySettings", () => {
   });
 
   it("confirms saving, clears the raw draft, and reports task application results", async () => {
-    mockedGetStatus.mockResolvedValueOnce({ configured: false, maskedProxyUrl: null, revision: 0 });
+    mockedGetStatus.mockResolvedValueOnce({
+      configured: false,
+      maskedProxyUrl: null,
+      revision: 0,
+      btUseProxy: false,
+      btRuntimeApply: "deferred",
+    });
     mockedUpdate.mockResolvedValueOnce({
       status: configuredStatus(),
       appliedTaskIds: [1],
@@ -140,6 +147,31 @@ describe("ProxySettings", () => {
     expect(wrapper.get('[data-test="download-proxy-status"]').text()).toContain("未配置");
     expect(messageMocks.success).toHaveBeenCalledWith("下载代理已清除");
   });
+
+  it("shows the BT application state and updates the global switch", async () => {
+    mockedGetStatus.mockResolvedValueOnce({
+      ...configuredStatus(),
+      btUseProxy: true,
+      btRuntimeApply: "applied",
+    });
+    mockedUpdate.mockResolvedValueOnce({
+      status: { ...configuredStatus(), btUseProxy: false, btRuntimeApply: "deferred" },
+      appliedTaskIds: [],
+      deferredTaskIds: [],
+      failed: [],
+    });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    expect(wrapper.get('[data-test="bt-proxy-runtime-status"]').text()).toContain("BT 代理已应用");
+    const toggle = wrapper.get('[data-test="bt-proxy-switch"]');
+    expect(toggle.attributes("aria-checked")).toBe("true");
+    await toggle.trigger("click");
+    await flushPromises();
+
+    expect(mockedUpdate).toHaveBeenCalledWith(undefined, false);
+    expect(toggle.attributes("aria-checked")).toBe("false");
+  });
 });
 
 function mountSettings() {
@@ -152,11 +184,13 @@ function mountSettings() {
   });
 }
 
-function configuredStatus() {
+function configuredStatus(): DownloadProxyStatus {
   return {
     configured: true,
     maskedProxyUrl: "http://***:***@proxy.example.com:7890/",
     revision: 4,
+    btUseProxy: false,
+    btRuntimeApply: "deferred",
   };
 }
 
