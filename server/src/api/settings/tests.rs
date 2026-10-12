@@ -3,8 +3,10 @@ use super::*;
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
 };
-use crate::config::aria2::Aria2BinarySource;
+use crate::config::aria2::{Aria2BinarySource, EngineGeneration};
+use crate::database::settings::{get_download_proxy_config, BtRuntimeApplyStatus};
 use crate::runtime::Aria2LifecyclePhase;
+use crate::tasks::{DownloadTask, DownloadTaskStatus, TaskProxyBinding};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
@@ -218,6 +220,232 @@ async fn bt_proxy_update_persists_global_mode_and_defers_until_engine_start() {
     assert!(saved.deferred_task_ids.is_empty());
 
     cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn bt_proxy_switch_verifies_before_resume_and_keeps_failures_paused() {
+    use BtRuntimeApplyStatus::{Applied, Blocked, Deferred};
+    for (scenario, expected_apply) in [
+        ("success", Applied),
+        ("write-rejected", Blocked),
+        ("write-unknown", Blocked),
+        ("verify-mismatch", Blocked),
+        ("verify-unknown", Blocked),
+        ("save-failed", Applied),
+        ("status-save-failed", Deferred),
+        ("disable-rejected", Blocked),
+    ] {
+        let (mut state, runtime) = lan_test_state(scenario).await;
+        let pool = state.core.database.pool.clone();
+        crate::database::settings::replace_download_proxy_config(
+            &pool,
+            Some("http://SensitiveUser:SensitivePassword@old.example:7890/".to_string()),
+            Some(scenario == "disable-rejected"),
+            Applied,
+            1,
+        )
+        .await
+        .unwrap();
+        std::fs::write(
+            &runtime.accessible_paths_path,
+            json!({"paths": [runtime.app_data_dir]}).to_string(),
+        )
+        .unwrap();
+        for (id, source, status) in [
+            (1, "torrent", "active"),
+            (2, "magnet", "pending"),
+            (3, "torrent", "paused"),
+            (4, "url", "active"),
+        ] {
+            let mut task: DownloadTask = serde_json::from_value(json!({
+                "id": id, "engineGeneration": EngineGeneration::NativeV2,
+                "url": if source == "magnet" { "magnet:?xt=urn:btih:test" } else { "https://example.com/test" },
+                "sourceType": source, "status": status, "gid": format!("gid-{id}"),
+                "fileName": "test", "saveDir": runtime.app_data_dir.join(format!("task-{id}")),
+                "category": "默认", "totalLength": 100, "completedLength": 10,
+                "downloadSpeed": 0, "confirmationRequired": false, "files": [],
+                "createdAt": 1, "updatedAt": 1
+            })).unwrap();
+            if source == "url" {
+                task.use_proxy = true;
+                task.proxy_binding =
+                    TaskProxyBinding::override_url("http://private.example:7890/".to_string());
+            } else {
+                task.owned_task_dir = Some(task.save_dir.clone());
+            }
+            crate::database::tasks::upsert_download_task(&pool, &task)
+                .await
+                .unwrap();
+            state
+                .core
+                .download_tasks
+                .with_tasks_mut(|tasks| tasks.push(task))
+                .unwrap();
+        }
+        let http_task = state.core.download_tasks.list().unwrap().pop().unwrap();
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&requests);
+        let rpc_pool = pool.clone();
+        let engine = Arc::new(std::sync::Mutex::new((
+            String::new(),
+            std::collections::HashSet::<String>::new(),
+        )));
+        let app = Router::new().route("/jsonrpc", post(move |Json(payload): Json<Value>| {
+            let (pool, recorded, engine) = (rpc_pool.clone(), Arc::clone(&recorded), Arc::clone(&engine));
+            async move {
+                let method = payload["method"].as_str().unwrap();
+                let stored = get_download_proxy_config(&pool).await.unwrap().unwrap();
+                if method == "aria2.changeGlobalOption" {
+                    let statuses = sqlx::query_scalar::<_, String>("SELECT status FROM download_tasks WHERE source_type != 'url'").fetch_all(&pool).await.unwrap();
+                    assert_eq!(statuses, ["paused", "paused", "paused"]);
+                    assert_eq!(stored.bt_runtime_apply, BtRuntimeApplyStatus::Deferred);
+                }
+                recorded.lock().unwrap().push(method.to_string());
+                let gid = payload["params"][1].as_str().unwrap_or_default();
+                let mut engine = engine.lock().unwrap();
+                let result = match method {
+                    "aria2.pause" => { engine.1.insert(gid.to_string()); json!(gid) }
+                    "aria2.unpause" => {
+                        assert_eq!(stored.bt_runtime_apply, BtRuntimeApplyStatus::Applied);
+                        assert_ne!(gid, "gid-3");
+                        engine.1.remove(gid);
+                        json!(gid)
+                    }
+                    "aria2.tellStatus" => json!({"gid": gid, "status": if engine.1.contains(gid) {"paused"} else {"active"}, "totalLength": "100", "completedLength": "10", "downloadSpeed": "0"}),
+                    "aria2.changeGlobalOption" => {
+                        let target = payload["params"][1]["bt-proxy"].as_str().unwrap();
+                        assert_eq!(target, if stored.bt_use_proxy { stored.proxy_url.as_deref().unwrap() } else { "" });
+                        if matches!(scenario, "write-rejected" | "disable-rejected") {
+                            return Json(json!({"error": {"message": format!("invalid proxy {target}")}})).into_response();
+                        }
+                        engine.0 = target.to_string();
+                        if scenario == "write-unknown" { return StatusCode::SERVICE_UNAVAILABLE.into_response(); }
+                        json!("OK")
+                    }
+                    "aria2.getGlobalOption" => {
+                        if scenario == "verify-unknown" { return StatusCode::SERVICE_UNAVAILABLE.into_response(); }
+                        json!({"bt-proxy": if scenario == "verify-mismatch" { "http://wrong.example/" } else { &engine.0 }})
+                    }
+                    other => panic!("unexpected RPC: {other}"),
+                };
+                Json(json!({"result": result})).into_response()
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        Arc::get_mut(&mut state)
+            .unwrap()
+            .base_aria2_config
+            .state_dir = Some(runtime.app_data_dir.join("state").display().to_string());
+        configure_rpc_runtime(&mut state, listener.local_addr().unwrap().port());
+        state
+            .aria2_lifecycle
+            .set_phase(Aria2LifecyclePhase::Ready)
+            .unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        if scenario.contains("save-failed") {
+            let condition = if scenario == "status-save-failed" {
+                "AND json_extract(NEW.value, '$.btRuntimeApply') = 'applied'"
+            } else {
+                ""
+            };
+            sqlx::query(&format!("CREATE TRIGGER reject_proxy_save BEFORE UPDATE ON app_config WHEN NEW.key = 'download_proxy' {condition} BEGIN SELECT RAISE(ABORT, 'injected save failure'); END"))
+                .execute(&pool).await.unwrap();
+        }
+        let updates = if scenario == "success" {
+            vec![
+                json!({"btUseProxy": true}),
+                json!({"proxyUrl": "socks5://new.example:1080"}),
+                json!({"btUseProxy": false}),
+            ]
+        } else {
+            vec![json!({"btUseProxy": scenario != "disable-rejected"})]
+        };
+        for update in updates {
+            requests.lock().unwrap().clear();
+            let result = put_download_proxy(State(state.clone()), ApiJson(update)).await;
+            let saved = get_download_proxy_config(&pool).await.unwrap().unwrap();
+            assert_eq!(saved.bt_runtime_apply, expected_apply, "{scenario}");
+            let calls = requests.lock().unwrap().clone();
+            let tasks = crate::database::tasks::list_download_tasks(&pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                state.core.download_tasks.list().unwrap().pop().unwrap(),
+                http_task
+            );
+            assert!(tasks.iter().filter(|t| t.id < 4).all(|t| {
+                t.status
+                    == if scenario == "success" && t.id < 3 {
+                        DownloadTaskStatus::Active
+                    } else {
+                        DownloadTaskStatus::Paused
+                    }
+            }));
+            if scenario.contains("save-failed") {
+                assert_eq!(
+                    result.unwrap_err().status(),
+                    StatusCode::INTERNAL_SERVER_ERROR
+                );
+                assert_eq!(saved.bt_use_proxy, scenario == "status-save-failed");
+            } else {
+                let response = result.unwrap().0;
+                assert_eq!(response.status.bt_runtime_apply, expected_apply);
+                let public = serde_json::to_string(&response).unwrap();
+                for secret in ["SensitiveUser", "SensitivePassword"] {
+                    assert!(!public.contains(secret));
+                    assert!(state
+                        .core
+                        .debug_logs
+                        .list()
+                        .iter()
+                        .all(|entry| !entry.message.contains(secret)));
+                }
+            }
+            if scenario == "success" {
+                let changes = calls
+                    .iter()
+                    .filter(|c| *c != "aria2.tellStatus")
+                    .map(String::as_str)
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    changes,
+                    [
+                        "aria2.pause",
+                        "aria2.pause",
+                        "aria2.changeGlobalOption",
+                        "aria2.getGlobalOption",
+                        "aria2.unpause",
+                        "aria2.unpause"
+                    ]
+                );
+            } else {
+                assert!(!calls.iter().any(|c| c == "aria2.unpause"));
+                assert_eq!(
+                    calls
+                        .iter()
+                        .filter(|c| *c == "aria2.changeGlobalOption")
+                        .count(),
+                    usize::from(scenario != "save-failed")
+                );
+            }
+        }
+        if scenario == "disable-rejected" {
+            requests.lock().unwrap().clear();
+            let saved = put_download_proxy(
+                State(state.clone()),
+                ApiJson(json!({"proxyUrl": "http://http-only.example:7890"})),
+            )
+            .await
+            .unwrap()
+            .0;
+            assert_eq!(saved.status.bt_runtime_apply, Blocked);
+            assert!(requests.lock().unwrap().is_empty());
+        }
+        server.abort();
+        cleanup_test_state(&state, runtime).await;
+    }
 }
 
 #[tokio::test]

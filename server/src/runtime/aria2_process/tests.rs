@@ -426,12 +426,10 @@ async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadli
 async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restore() {
     let _process_start_guard = process_start_test_guard().await;
     use std::os::unix::fs::PermissionsExt;
-    for unknown_gid in [false, true] {
-        let root = temp_dir(if unknown_gid {
-            "native-unknown"
-        } else {
-            "native-empty"
-        });
+    for scenario in ["empty", "unknown", "bt-proxy", "bt-proxy-rejected"] {
+        let unknown_gid = scenario == "unknown";
+        let reject_proxy = scenario == "bt-proxy-rejected";
+        let root = temp_dir(&format!("native-{scenario}"));
         std::fs::create_dir_all(&root).unwrap();
         let binary = root.join("fake-native");
         let script = r#"#!/usr/bin/env python3
@@ -445,13 +443,19 @@ root = pathlib.Path(__file__).parent
 (root / 'launch-args.json').write_text(json.dumps(sys.argv[1:]))
 with (root / 'starts').open('a') as file: file.write('started\n')
 port = int(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-listen-port=')))
+bt_proxy = ''
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        global bt_proxy
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         method = body['method']
         with (root / 'calls').open('a') as file: file.write(method + '\n')
         if method == 'aria2.getVersion': result = {'version': '2.8.6'}
-        elif method == 'aria2.getGlobalOption': result = {'bt-proxy': ''}
+        elif method == 'aria2.changeGlobalOption' and 'bt-proxy' in body['params'][-1]:
+            bt_proxy = body['params'][-1]['bt-proxy']
+            result = 'OK'
+        elif method == 'aria2.getGlobalOption':
+            result = {'bt-proxy': '' if (root / 'reject-proxy').exists() else bt_proxy}
         elif method == 'aria2.tellWaiting' and (root / 'unknown').exists():
             result = [{'gid': 'untracked-gid', 'status': 'paused', 'totalLength': '0', 'completedLength': '0', 'downloadSpeed': '0'}]
         elif method.startswith('aria2.tell'): result = []
@@ -469,6 +473,9 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
         if unknown_gid {
             std::fs::write(root.join("unknown"), b"unknown").unwrap();
         }
+        if reject_proxy {
+            std::fs::write(root.join("reject-proxy"), b"reject").unwrap();
+        }
         let runtime = ServerRuntimeConfig {
             database_path: root.join("motrix-fnos.sqlite"),
             accessible_paths_path: root.join("accessible-paths.json"),
@@ -480,10 +487,25 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
             trusted_proxy_ips: Vec::new(),
         };
         let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        if scenario.starts_with("bt-proxy") {
+            crate::database::settings::replace_download_proxy_config(
+                &state.core.database.pool,
+                Some("socks5://proxy.example:1080".to_string()),
+                Some(true),
+                crate::database::settings::BtRuntimeApplyStatus::Deferred,
+                1,
+            )
+            .await
+            .unwrap();
+        }
         for _ in 0..2 {
             let result = ensure_aria2_ready(&state).await;
-            if unknown_gid {
-                assert!(result.err().unwrap().contains("task_resume_state_invalid"));
+            if unknown_gid || reject_proxy {
+                assert!(result.err().unwrap().contains(if unknown_gid {
+                    "task_resume_state_invalid"
+                } else {
+                    "BT 全局代理"
+                }));
                 assert_eq!(
                     state.aria2_lifecycle.snapshot().unwrap().phase,
                     crate::runtime::Aria2LifecyclePhase::Faulted
@@ -502,7 +524,22 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
         }
         let calls = std::fs::read_to_string(root.join("calls")).unwrap();
         assert!(calls.contains("aria2.forcePauseAll"));
-        assert!(calls.contains("aria2.tellWaiting"));
+        assert!(calls.contains("aria2.getGlobalOption"));
+        if scenario.starts_with("bt-proxy") {
+            let proxy =
+                crate::database::settings::get_download_proxy_config(&state.core.database.pool)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(
+                proxy.bt_runtime_apply,
+                if reject_proxy {
+                    crate::database::settings::BtRuntimeApplyStatus::Blocked
+                } else {
+                    crate::database::settings::BtRuntimeApplyStatus::Applied
+                }
+            );
+        }
         assert!(!calls.contains("aria2.add"));
         assert!(!calls.contains("aria2.unpause"));
         assert_eq!(
@@ -510,7 +547,11 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                 .lines()
                 .filter(|line| *line == "aria2.tellWaiting")
                 .count(),
-            if unknown_gid { 2 } else { 1 }
+            if unknown_gid {
+                2
+            } else {
+                usize::from(!reject_proxy)
+            }
         );
         assert_eq!(
             std::fs::read_to_string(root.join("starts"))

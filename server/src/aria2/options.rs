@@ -57,6 +57,13 @@ pub async fn apply_bt_proxy(
     config: &Aria2Config,
     proxy_url: Option<&str>,
 ) -> Result<(), String> {
+    if config.engine_generation() != crate::config::aria2::EngineGeneration::NativeV2 {
+        return if proxy_url.is_some() {
+            Err("BT 总代理需要使用已验证的 NativeV2 引擎".to_string())
+        } else {
+            Ok(())
+        };
+    }
     let target = proxy_url.unwrap_or_default();
     let mut params = Vec::new();
     if !config.rpc_secret.is_empty() {

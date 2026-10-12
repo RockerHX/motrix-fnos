@@ -366,9 +366,16 @@ async fn create_download_task_persist_failure_marks_operation_failed_and_removes
 }
 
 #[tokio::test]
-async fn create_torrent_download_task_persists_without_task_proxy() {
-    let mock = MockAria2Server::spawn().await;
+async fn legacy_torrent_creation_stays_direct_and_resume_rejects_enabled_bt_proxy() {
+    let mock = TaskCreationMockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
+    fixture
+        .repository
+        .set_download_proxy("http://proxy.example:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("legacy engine should be ready");
     let save_dir = temp_dir("service-create-torrent");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
     let config = test_config(mock.addr.port(), "secret");
@@ -421,14 +428,56 @@ async fn create_torrent_download_task_persists_without_task_proxy() {
         .context
         .completed_side_effects
         .contains(&"restore_metadata_saved".to_string()));
+    assert!(!mock.requests().iter().any(|request| {
+        matches!(
+            request["method"].as_str(),
+            Some("aria2.changeGlobalOption" | "aria2.getGlobalOption")
+        )
+    }));
+
+    {
+        let mut state = fixture.repository.state.lock().unwrap();
+        let proxy = state.download_proxy_config.as_mut().unwrap();
+        proxy.bt_use_proxy = true;
+        proxy.bt_runtime_apply = crate::database::settings::BtRuntimeApplyStatus::Applied;
+    }
+    let request_count = mock.requests().len();
+    let error = fixture
+        .service()
+        .resume_download_task(&config, 1)
+        .await
+        .unwrap_err();
+    assert!(error.contains("BT 全局代理"));
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Paused
+    );
+    assert_eq!(
+        fixture
+            .repository
+            .get_download_proxy_config()
+            .await
+            .unwrap()
+            .unwrap()
+            .bt_runtime_apply,
+        crate::database::settings::BtRuntimeApplyStatus::Blocked
+    );
+    assert_eq!(mock.requests().len(), request_count);
 
     mock.abort();
 }
 
 #[tokio::test]
-async fn create_magnet_download_task_persists_without_task_proxy() {
-    let mock = MockAria2Server::spawn().await;
+async fn create_magnet_download_task_with_http_profile_on_legacy_engine() {
+    let mock = TaskCreationMockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
+    fixture
+        .repository
+        .set_download_proxy("http://proxy.example:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("legacy engine should be ready");
     let save_dir = temp_dir("service-create-magnet-proxy");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
 
@@ -456,6 +505,12 @@ async fn create_magnet_download_task_persists_without_task_proxy() {
         crate::tasks::TaskProxySource::Profile
     );
     assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+    assert!(!mock.requests().iter().any(|request| {
+        matches!(
+            request["method"].as_str(),
+            Some("aria2.changeGlobalOption" | "aria2.getGlobalOption")
+        )
+    }));
 
     mock.abort();
 }

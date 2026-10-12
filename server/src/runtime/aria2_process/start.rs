@@ -4,8 +4,8 @@ use super::stop::{stop_process, stop_process_with_timeout_inner};
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
-    apply_bt_proxy, apply_global_options, generate_rpc_secret, global_options_from_values,
-    ping_rpc, process_args_with_log_level, rpc_ports_exhausted_message, runtime_config,
+    apply_global_options, generate_rpc_secret, global_options_from_values, ping_rpc,
+    process_args_with_log_level, rpc_ports_exhausted_message, runtime_config,
     select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config, EngineGeneration};
@@ -389,55 +389,20 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                 crate::database::settings::get_download_proxy_config(&state.core.database.pool)
                     .await
                     .map_err(|error| lifecycle_error(state, error))?;
-            let bt_proxy = match proxy.as_ref() {
-                Some(proxy) if proxy.bt_use_proxy => {
-                    let Some(proxy_url) = proxy.proxy_url.as_deref() else {
-                        let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
-                            &state.core.database.pool,
-                            crate::database::settings::BtRuntimeApplyStatus::Blocked,
-                        )
-                        .await;
-                        return Err(lifecycle_error(
-                            state,
-                            "BT 总代理已开启，但没有可用的代理地址".to_string(),
-                        ));
-                    };
-                    match crate::settings::proxy::normalize_proxy_url(proxy_url) {
-                        Ok(normalized) if !normalized.starts_with("https://") => Some(normalized),
-                        _ => {
-                            let _ =
-                                crate::database::settings::set_download_proxy_runtime_apply_status(
-                                    &state.core.database.pool,
-                                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
-                                )
-                                .await;
-                            return Err(lifecycle_error(
-                                state,
-                                "BT 总代理地址无效或使用了不支持的 HTTPS 协议".to_string(),
-                            ));
-                        }
-                    }
-                }
-                _ => None,
-            };
-            if let Err(error) = apply_bt_proxy(&state.aria2_rpc, &config, bt_proxy.as_deref()).await
-            {
-                let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
-                    &state.core.database.pool,
-                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
-                )
-                .await;
-                return Err(lifecycle_error(
-                    state,
-                    format!("BT 全局代理应用或核验失败，恢复任务保持暂停：{error}"),
-                ));
-            }
-            crate::database::settings::set_download_proxy_runtime_apply_status(
-                &state.core.database.pool,
-                crate::database::settings::BtRuntimeApplyStatus::Applied,
+            let applied = crate::settings::proxy::apply_bt_proxy_config(
+                &crate::tasks::repository::SqliteTaskRepository::new(&state.core.database.pool),
+                &state.aria2_rpc,
+                &config,
+                proxy.as_ref(),
             )
             .await
             .map_err(|error| lifecycle_error(state, error))?;
+            if applied == crate::database::settings::BtRuntimeApplyStatus::Blocked {
+                return Err(lifecycle_error(
+                    state,
+                    "BT 全局代理配置无效、应用或核验失败，恢复任务保持暂停".to_string(),
+                ));
+            }
         }
         let previous_tasks = state.core.download_tasks.list()?;
         let tasks = sync_session_tasks_from_aria2(

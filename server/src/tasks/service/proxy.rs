@@ -1,14 +1,16 @@
 use super::TaskService;
 use crate::config::aria2::Aria2Config;
+use crate::database::settings::BtRuntimeApplyStatus;
 use crate::runtime::Aria2LifecyclePhase;
-use crate::settings::proxy::{normalize_proxy_url, DownloadProxyServiceError};
+use crate::settings::proxy::{
+    apply_bt_proxy_config, normalize_proxy_url, DownloadProxyServiceError,
+};
 use crate::tasks::{
     change_task_options_with_request_id, replace_task_snapshot, task_snapshot,
     update_task_proxy_state, Aria2TaskOptionError, CreateTaskAdvancedOptions, DownloadTask,
     DownloadTaskStatus, TaskOperationType, TaskProxyBinding, TaskProxySource,
 };
 use serde_json::{Map, Value};
-use url::Url;
 
 pub(super) const PROXY_CONFLICT_MESSAGE: &str = "代理选择冲突：useProxy 不能与原始代理字段同时使用";
 pub(super) const PROXY_NOT_CONFIGURED_MESSAGE: &str = "未配置下载代理，请先在设置中保存代理地址";
@@ -324,55 +326,35 @@ impl TaskService<'_> {
         &self,
         aria2_config: &Aria2Config,
     ) -> Result<(), String> {
-        let config = self.repository.get_download_proxy_config().await?;
-        if config.is_none() {
+        let Some(config) = self.repository.get_download_proxy_config().await? else {
             return Ok(());
-        }
-        let lifecycle = self.aria2_lifecycle.snapshot()?;
-        if lifecycle.phase != Aria2LifecyclePhase::Ready
-            && !config.as_ref().is_some_and(|config| config.bt_use_proxy)
-        {
-            return Ok(());
-        }
-        if config.as_ref().is_some_and(|config| {
-            config.bt_runtime_apply == crate::database::settings::BtRuntimeApplyStatus::Applied
-                && lifecycle.phase == Aria2LifecyclePhase::Ready
-        }) {
-            return Ok(());
-        }
-        let target = match config.as_ref() {
-            Some(config) if config.bt_use_proxy => Some(normalize_stored_proxy(
-                config
-                    .proxy_url
-                    .as_deref()
-                    .ok_or_else(|| "未配置 BT 总代理地址".to_string())?,
-            )?),
-            _ => None,
         };
-        if target
-            .as_deref()
-            .is_some_and(|value| Url::parse(value).is_ok_and(|url| url.scheme() == "https"))
-        {
-            return Err("BT 总代理不支持 HTTPS 代理协议".to_string());
-        }
+        let lifecycle = self.aria2_lifecycle.snapshot()?;
         if lifecycle.phase != Aria2LifecyclePhase::Ready {
-            return Err("Aria2 运行态未就绪，BT 任务保持暂停".to_string());
+            return if config.bt_use_proxy {
+                Err("Aria2 运行态未就绪，BT 任务保持暂停".to_string())
+            } else {
+                Ok(())
+            };
         }
-        if let Err(error) =
-            crate::aria2::apply_bt_proxy(self.aria2_rpc, aria2_config, target.as_deref()).await
+        if config.bt_runtime_apply == BtRuntimeApplyStatus::Applied
+            && (!config.bt_use_proxy
+                || aria2_config.engine_generation()
+                    == crate::config::aria2::EngineGeneration::NativeV2)
         {
-            self.repository
-                .set_bt_proxy_runtime_apply_status(
-                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
-                )
-                .await?;
-            return Err(error);
+            return Ok(());
         }
-        self.repository
-            .set_bt_proxy_runtime_apply_status(
-                crate::database::settings::BtRuntimeApplyStatus::Applied,
-            )
-            .await
+        match apply_bt_proxy_config(
+            self.repository.as_ref(),
+            self.aria2_rpc,
+            aria2_config,
+            Some(&config),
+        )
+        .await?
+        {
+            BtRuntimeApplyStatus::Applied => Ok(()),
+            _ => Err("BT 全局代理应用或核验失败，BT 任务保持暂停".to_string()),
+        }
     }
 
     pub async fn pause_active_bt_tasks_for_proxy_change(
