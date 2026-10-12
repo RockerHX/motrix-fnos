@@ -230,7 +230,7 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
                     <NInputNumber v-model:value="form.downloadLimitKb" class="full-width" :min="0" :precision="0" />
                   </NFormItem>
                 </NGi>
-                <NGi>
+                <NGi v-if="activeInputType === 'url'">
                   <NFormItem :label="t('create.advanced.proxy.label')" path="useProxy">
                     <div class="proxy-control">
                       <NSwitch

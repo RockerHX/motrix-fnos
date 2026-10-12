@@ -1,5 +1,5 @@
 import { t, type TranslationKey } from "../../../i18n";
-import type { DownloadTask, DownloadTaskStatus } from "../../../types/tasks";
+import type { DownloadTask, DownloadTaskSourceType, DownloadTaskStatus } from "../../../types/tasks";
 
 export type TaskDisplayStatus = DownloadTaskStatus | "resolving" | "confirming";
 
@@ -46,6 +46,14 @@ export function formatTaskEta(task: DownloadTask) {
 export function formatTaskError(task: DownloadTask) {
   const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
   return `${code}${task.errorMessage || t("common.unknown")}`;
+}
+
+export function getTaskSourceType(task: Pick<DownloadTask, "sourceType" | "url">): DownloadTaskSourceType {
+  if (task.sourceType) return task.sourceType;
+  const url = task.url.trim().toLowerCase();
+  if (url.startsWith("magnet:?")) return "magnet";
+  if (url.startsWith("torrent:")) return "torrent";
+  return "url";
 }
 
 export function formatTaskProgress(task: DownloadTask) {

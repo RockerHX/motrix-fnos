@@ -7,9 +7,16 @@ import { useI18n } from "../../../i18n";
 import type { DownloadTask } from "../../../types/tasks";
 import type { TaskActionDetails, TaskActionLabels, TaskFileActionView } from "./taskActionViewModel";
 import TaskProxyToggle from "./TaskProxyToggle.vue";
-import { deriveTaskDisplayStatus, formatTaskEta, formatTaskProgress, formatTaskSize, formatTaskStatusLabel } from "../utils/taskFormat";
+import {
+  deriveTaskDisplayStatus,
+  formatTaskEta,
+  formatTaskProgress,
+  formatTaskSize,
+  formatTaskStatusLabel,
+  getTaskSourceType,
+} from "../utils/taskFormat";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   show: boolean;
   details: TaskActionDetails;
   closeLabel: string;
@@ -18,7 +25,10 @@ const props = defineProps<{
   isActionDisabled: boolean;
   fileActions?: TaskFileActionView;
   labels?: TaskActionLabels;
-}>();
+  showProxy?: boolean;
+}>(), {
+  showProxy: true,
+});
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
@@ -37,11 +47,9 @@ const detailItems = computed(() => ({
 }));
 const displayStatus = computed(() => deriveTaskDisplayStatus(props.task));
 const statusLabel = computed(() => formatTaskStatusLabel(props.task));
-const sourceLabel = computed(() => {
-  const url = props.task.url.trim().toLowerCase();
-  const sourceType = props.task.sourceType ?? (url.startsWith("magnet:?") ? "magnet" : url.startsWith("torrent:") ? "torrent" : "url");
-  return t(`task.source.${sourceType}` as const);
-});
+const sourceType = computed(() => getTaskSourceType(props.task));
+const isBtTask = computed(() => sourceType.value !== "url");
+const sourceLabel = computed(() => t(`task.source.${sourceType.value}` as const));
 const categoryLabel = computed(() => props.task.category || t("common.notAvailable"));
 const formattedSpeed = computed(() =>
   props.task.downloadSpeed > 0 ? `${formatTaskSize(props.task.downloadSpeed)}/s` : t("common.notAvailable"),
@@ -87,7 +95,7 @@ watch(
 );
 
 function requestProxyUpdate(enabled: boolean) {
-  if (enabled === props.task.useProxy || props.isActionDisabled) return;
+  if (isBtTask.value || enabled === props.task.useProxy || props.isActionDisabled) return;
   if (props.task.status === "active") {
     pendingProxyEnabled.value = enabled;
     return;
@@ -192,7 +200,7 @@ function confirmProxyUpdate() {
         <p v-else-if="props.fileActions" class="task-file-host-hint">{{ actionLabels.hostOnly }}</p>
       </section>
 
-      <section class="task-detail-section" data-test="task-detail-settings-section">
+      <section v-if="props.showProxy !== false && !isBtTask" class="task-detail-section" data-test="task-detail-settings-section">
         <h3>{{ t("task.detail.taskSettings") }}</h3>
         <TaskProxyToggle
           class="task-detail-proxy"

@@ -9,7 +9,7 @@ import { formatDateTime, language, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { fnosHost, type FnosHostKind } from "../../../services/fnos";
 import { getTaskFileContext } from "../services/taskService";
-import { formatTaskError, formatTaskSizePair, formatTaskStatusLabel } from "../utils/taskFormat";
+import { formatTaskError, formatTaskSizePair, formatTaskStatusLabel, getTaskSourceType } from "../utils/taskFormat";
 import type { DownloadTask } from "../../../types/tasks";
 import type {
   TaskActionConfirmTexts,
@@ -49,6 +49,7 @@ const fileActions = computed<TaskFileActionView>(() => ({
   loading: isFileContextLoading.value,
   context: fileContext.value,
 }));
+const isBtTask = computed(() => getTaskSourceType(props.task) !== "url");
 
 onMounted(async () => {
   hostKind.value = await fnosHost.getHostKind();
@@ -148,7 +149,7 @@ async function confirmTaskFiles(selectedFileIndexes: number[]) {
 }
 
 async function updateTaskProxy(enabled: boolean) {
-  if (!ensureCanOperate()) return;
+  if (isBtTask.value || !ensureCanOperate()) return;
   try {
     await taskStore.updateTaskProxy(props.task.id, enabled);
     message.success(t(enabled ? "task.proxy.enabled" : "task.proxy.disabled"));
@@ -160,7 +161,7 @@ async function updateTaskProxy(enabled: boolean) {
 async function confirmRedownloadTask(useProxy: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.redownloadTask(props.task.id, useProxy);
+    await taskStore.redownloadTask(props.task.id, isBtTask.value ? undefined : useProxy);
     message.success(t("task.actions.redownloaded"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
@@ -190,7 +191,7 @@ async function confirmPermanentDeleteTask() {
 async function restoreTask(useProxy: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.restoreTask(props.task.id, useProxy);
+    await taskStore.restoreTask(props.task.id, isBtTask.value ? undefined : useProxy);
     message.success(t("task.actions.restored"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));

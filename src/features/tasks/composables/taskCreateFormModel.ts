@@ -34,11 +34,11 @@ export function resetTaskCreateFormState(form: TaskCreateFormState) {
   Object.assign(form, createTaskCreateFormState());
 }
 
-export function buildTaskAdvancedOptions(form: TaskCreateFormState): CreateTaskAdvancedOptions {
+export function buildTaskAdvancedOptions(form: TaskCreateFormState, includeProxy = true): CreateTaskAdvancedOptions {
   return {
     connections: form.connections,
     downloadLimitKb: form.downloadLimitKb,
-    useProxy: form.useProxy,
+    ...(includeProxy ? { useProxy: form.useProxy } : {}),
   };
 }
 

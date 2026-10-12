@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
 import { t } from "../../../i18n";
 import TaskStatusBadge from "./TaskStatusBadge.vue";
 import TaskSourceIcon from "./TaskSourceIcon.vue";
 import type { DownloadTask } from "../../../types/tasks";
+import { getTaskSourceType } from "../utils/taskFormat";
 
 const props = withDefaults(
   defineProps<{
@@ -14,6 +16,7 @@ const props = withDefaults(
     variant: "desktop",
   },
 );
+const showTaskProxy = computed(() => props.task.useProxy && getTaskSourceType(props.task) === "url");
 </script>
 
 <template>
@@ -23,7 +26,7 @@ const props = withDefaults(
       <strong class="task-card-title" :title="props.task.fileName">{{ props.task.fileName }}</strong>
       <TaskStatusBadge :task="props.task" />
       <span
-        v-if="props.task.useProxy"
+        v-if="showTaskProxy"
         class="task-proxy-indicator"
         role="img"
         :title="t('task.proxy.iconHint')"
