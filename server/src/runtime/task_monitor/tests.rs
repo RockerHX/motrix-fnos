@@ -386,6 +386,7 @@ async fn auto_stop_allows_missing_metadata_record_and_clears_runtime() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -454,7 +455,9 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
     let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 }
 
 fn temp_dir(label: &str) -> PathBuf {
@@ -634,6 +637,7 @@ async fn mock_aria2_rpc(
             let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
             json!({ "result": gid })
         }
+        "aria2.saveSession" => json!({ "result": "OK" }),
         _ => json!({ "result": "ok" }),
     })
 }

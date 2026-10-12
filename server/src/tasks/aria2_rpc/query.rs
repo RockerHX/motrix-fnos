@@ -15,9 +15,20 @@ pub(crate) struct Aria2ActiveTaskActivity {
     pub(crate) seeder: Value,
     #[serde(default)]
     pub(crate) bittorrent: Option<Value>,
+    #[serde(default)]
+    verify_integrity_pending: Value,
+    #[serde(default)]
+    verified_length: Option<Value>,
 }
 
 impl Aria2ActiveTaskActivity {
+    pub(crate) fn is_verifying(&self) -> bool {
+        value_as_bool(&self.verify_integrity_pending)
+            || self
+                .verified_length
+                .as_ref()
+                .is_some_and(|value| !value.is_null())
+    }
     pub(crate) fn is_bt_uploading(&self) -> bool {
         let is_bittorrent = self
             .bittorrent
@@ -105,8 +116,7 @@ pub(crate) async fn tell_active_task_activity(
     client
         .request::<Vec<Aria2ActiveTaskActivity>>(config, &request_body)
         .await
-        .and_then(|response| response.into_optional_result())
-        .map(|tasks| tasks.unwrap_or_default())
+        .and_then(|response| response.into_result())
         .map_err(|error| {
             let message = format!("读取 Aria2 活动任务失败：{}", error);
             log_error(debug_logs, "aria2.tellActive", &message);
@@ -150,6 +160,9 @@ fn status_fields() -> serde_json::Value {
         "totalLength",
         "completedLength",
         "downloadSpeed",
+        "uploadSpeed",
+        "verifyIntegrityPending",
+        "verifiedLength",
         "connections",
         "numSeeders",
         "seeder",
@@ -164,3 +177,6 @@ fn status_fields() -> serde_json::Value {
         "files"
     ])
 }
+
+#[cfg(test)]
+mod tests;

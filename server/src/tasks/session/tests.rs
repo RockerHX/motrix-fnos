@@ -166,6 +166,7 @@ async fn session_restore_updates_gid_before_proxy_reconcile() {
 fn proxy_task(proxy_url: Option<&str>) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -192,6 +193,109 @@ fn proxy_task(proxy_url: Option<&str>) -> DownloadTask {
     }
 }
 
+fn native_config(port: u16) -> Aria2Config {
+    let mut config = test_config(port);
+    config.state_dir = Some("/private/native-state".to_string());
+    config
+}
+
+#[tokio::test]
+async fn native_restore_keeps_original_gid_and_recycle_bin_fact() {
+    let mock = MockAria2Server::spawn("").await;
+    let mut task = proxy_task(None);
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.gid = Some("gid-session".to_string());
+    task.status = DownloadTaskStatus::Removed;
+    task.completed_length = 900;
+    task.use_proxy = false;
+    let tasks = TaskMemoryState::new(vec![task]);
+    let restored = sync_session_tasks_from_aria2(
+        &tasks,
+        &Aria2RpcClient::new(),
+        &native_config(mock.addr.port()),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(restored[0].status, DownloadTaskStatus::Removed);
+    assert_eq!(restored[0].gid.as_deref(), Some("gid-session"));
+    assert_eq!(restored[0].completed_length, 512);
+    assert_eq!(restored[0].files.len(), 1);
+    assert!(mock.methods().iter().all(|method| !method.contains("add")));
+    mock.abort();
+}
+
+#[tokio::test]
+async fn native_restore_rejects_unknown_gid_and_keeps_snapshot_unchanged() {
+    let mock = MockAria2Server::spawn("").await;
+    let mut task = proxy_task(None);
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.status = DownloadTaskStatus::Active;
+    let tasks = TaskMemoryState::new(vec![task.clone()]);
+    let error = sync_session_tasks_from_aria2(
+        &tasks,
+        &Aria2RpcClient::new(),
+        &native_config(mock.addr.port()),
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.contains("task_resume_state_invalid"));
+    assert_eq!(tasks.list().unwrap(), vec![task]);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn native_restore_rejects_changed_file_selection_before_updating_any_task() {
+    let mock = MockAria2Server::spawn("").await;
+    let mut task = proxy_task(None);
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.gid = Some("gid-session".to_string());
+    task.files = vec![crate::tasks::DownloadTaskFile {
+        index: 1,
+        path: "/downloads/archive.zip".to_string(),
+        name: "archive.zip".to_string(),
+        length: 1024,
+        completed_length: 512,
+        selected: false,
+    }];
+    let tasks = TaskMemoryState::new(vec![task.clone()]);
+    assert!(sync_session_tasks_from_aria2(
+        &tasks,
+        &Aria2RpcClient::new(),
+        &native_config(mock.addr.port()),
+        None
+    )
+    .await
+    .is_err());
+    assert_eq!(tasks.list().unwrap(), vec![task]);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn native_or_unknown_tasks_never_readd_a_missing_gid() {
+    let mock = MockAria2Server::spawn("").await;
+    for generation in [
+        crate::config::aria2::EngineGeneration::NativeV2,
+        crate::config::aria2::EngineGeneration::Unknown,
+    ] {
+        let mut task = proxy_task(None);
+        task.engine_generation = generation;
+        let error = readd_download_task(
+            &Aria2RpcClient::new(),
+            &native_config(mock.addr.port()),
+            &task,
+            Path::new("/missing-auth"),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("task_resume_state_invalid"));
+    }
+    assert!(mock.requests().is_empty());
+    mock.abort();
+}
+
 fn test_config(port: u16) -> Aria2Config {
     Aria2Config {
         aria2_path: None,
@@ -202,6 +306,7 @@ fn test_config(port: u16) -> Aria2Config {
         rpc_port: port,
         rpc_secret: String::new(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }

@@ -45,6 +45,32 @@ impl ManagedAria2Process {
             .map_err(|error| format!("停止 Aria2 进程句柄失败：{}", error))
     }
 
+    pub(super) fn interrupt_and_wait(&mut self, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        // 持有未回收的 Child 身份，SIGINT 让引擎自行排空 I/O 和提交原生状态。
+        if unsafe { libc::kill(self.child.id() as libc::pid_t, libc::SIGINT) } != 0 {
+            return Err(format!(
+                "请求 Aria2 正常退出失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(status)) if status.success() => return Ok(()),
+                Ok(Some(status)) => {
+                    return Err(format!("Aria2 异常退出（{status}），无法确认原生状态提交"))
+                }
+                Err(error) => return Err(format!("等待 Aria2 正常退出失败：{error}")),
+                Ok(None) => {}
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("Aria2 正常退出超时，无法确认原生状态提交，已保留运行态".to_string());
+            }
+            std::thread::sleep(remaining.min(Duration::from_millis(10)));
+        }
+    }
+
     pub(super) fn wait_for_exit(&mut self, timeout: Duration) -> Result<bool, String> {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {

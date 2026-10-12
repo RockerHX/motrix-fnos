@@ -228,7 +228,7 @@ fn should_monitor_task(task: &DownloadTask) -> bool {
         .map(|gid| !gid.trim().is_empty())
         .unwrap_or(false);
 
-    if !has_gid {
+    if !has_gid || task.confirmation_required {
         return false;
     }
 

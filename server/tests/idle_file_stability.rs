@@ -135,7 +135,9 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     drop(tracing_guard);
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     state.core.database.pool.close().await;
     rpc_server.abort();
     let _ = rpc_server.await;

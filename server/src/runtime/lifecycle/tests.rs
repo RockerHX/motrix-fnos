@@ -20,7 +20,7 @@ fn activity_classifier_matches_engine_keepalive_matrix() {
     let mut confirmation_wait = sample_task(DownloadTaskStatus::Pending);
     confirmation_wait.source_type = DownloadTaskSourceType::Magnet;
     confirmation_wait.url = "magnet:?xt=urn:btih:confirmation".to_string();
-    confirmation_wait.gid = None;
+    confirmation_wait.gid = Some("original-gid".to_string());
     confirmation_wait.confirmation_required = true;
     confirmation_wait.metadata_torrent_path = Some("/app-data/magnet/task.torrent".to_string());
     confirmation_wait.file_path = None;
@@ -105,6 +105,15 @@ fn activity_classifier_matches_engine_keepalive_matrix() {
             vec![seeding],
             Aria2ActivitySignals {
                 has_bt_upload: true,
+                ..Aria2ActivitySignals::default()
+            },
+            false,
+        ),
+        (
+            "校验文件",
+            Vec::new(),
+            Aria2ActivitySignals {
+                has_verification_activity: true,
                 ..Aria2ActivitySignals::default()
             },
             false,
@@ -408,6 +417,7 @@ async fn lifecycle_failure_backoff_does_not_block_user_work() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

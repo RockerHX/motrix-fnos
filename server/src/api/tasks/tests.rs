@@ -1538,7 +1538,9 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
     let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 }
 
 async fn response_json<T: DeserializeOwned>(response: Response, expected_status: StatusCode) -> T {
@@ -1616,6 +1618,7 @@ fn multipart_torrent_request(
 fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: format!("https://example.com/archive-{id}.zip"),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: format!("archive-{id}.zip"),

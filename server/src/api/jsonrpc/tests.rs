@@ -588,7 +588,9 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 
     let cached_result = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
@@ -665,7 +667,9 @@ async fn get_version_logs_confirmed_rpc_failure_as_warning() {
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     server.abort();
     let _ = server.await;
 }
@@ -868,7 +872,9 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
         .expect("WebSocket server task should join");
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     state.core.database.pool.close().await;
     rpc_server.abort();
     let _ = rpc_server.await;
@@ -1010,7 +1016,9 @@ async fn quiescing_auto_stop_yields_to_external_add_uri_workflow() {
         .is_some();
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     state.core.database.pool.close().await;
     rpc_server.abort();
     let _ = rpc_server.await;

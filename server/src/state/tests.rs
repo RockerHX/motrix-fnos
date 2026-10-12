@@ -7,6 +7,7 @@ fn aria2_runtime_paths_use_app_data_aria2_directory() {
 
     assert_eq!(paths.runtime_dir, app_data_dir.join("aria2"));
     assert_eq!(paths.session_path, app_data_dir.join("aria2/aria2.session"));
+    assert_eq!(paths.state_dir, app_data_dir.join("aria2/state"));
     assert_eq!(paths.log_path, app_data_dir.join("aria2/aria2.log"));
 }
 
@@ -86,6 +87,7 @@ fn runtime_record_round_trips_and_removes() {
         sidecar_name: Some("aria2-next".to_string()),
         app_data_dir: Some("/tmp/motrix-fnos".to_string()),
         aria2_session_path: Some("/tmp/motrix-fnos/aria2/aria2.session".to_string()),
+        aria2_state_path: Some("/tmp/motrix-fnos/aria2/state".to_string()),
         aria2_log_path: Some("/tmp/motrix-fnos/aria2/aria2.log".to_string()),
         launch_args: Some(vec!["--enable-rpc=true".to_string()]),
         process_start_time: None,
@@ -102,4 +104,85 @@ fn runtime_record_round_trips_and_removes() {
     assert!(read_aria2_runtime_record(&path)
         .expect("missing runtime should read")
         .is_none());
+}
+
+#[tokio::test]
+async fn native_runtime_is_isolated_from_legacy_session_and_uses_private_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = state_test_dir("isolated");
+    fs::create_dir_all(root.join("aria2")).unwrap();
+    fs::write(root.join("aria2/aria2.session"), b"legacy-state").unwrap();
+    let database = crate::database::connect_database(root.join("motrix-fnos.sqlite"))
+        .await
+        .unwrap();
+    let state = ServerState::new(database, Vec::new(), 1);
+    let mut config = Aria2Config::from_env();
+    config.state_dir = Some("ignored-external-path".to_string());
+    let config = state.with_aria2_runtime_paths(config).unwrap();
+    let paths = native_aria2_runtime_paths(&root);
+    assert_eq!(config.session_path.as_deref(), paths.session_path.to_str());
+    assert_eq!(config.state_dir.as_deref(), paths.state_dir.to_str());
+    assert_eq!(
+        fs::read(root.join("aria2/aria2.session")).unwrap(),
+        b"legacy-state"
+    );
+    assert_eq!(
+        fs::metadata(paths.state_dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(paths.session_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    state.database.pool.close().await;
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn private_state_rejects_directory_and_file_links_without_touching_targets() {
+    let root = state_test_dir("links");
+    let outside = root.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("session"), b"original").unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("engine")).unwrap();
+    assert!(ensure_private_directory(&root, Path::new("engine/native-v2/state")).is_err());
+    let link = root.join("session-link");
+    std::os::unix::fs::symlink(outside.join("session"), &link).unwrap();
+    assert!(ensure_aria2_session_file(&link).is_err());
+    fs::hard_link(outside.join("session"), root.join("session-hard-link")).unwrap();
+    assert!(ensure_aria2_session_file(&root.join("session-hard-link")).is_err());
+    assert_eq!(fs::read(outside.join("session")).unwrap(), b"original");
+    let native = root.join("state");
+    fs::create_dir(&native).unwrap();
+    std::os::unix::fs::symlink(outside.join("session"), native.join("checkpoint.db")).unwrap();
+    assert!(validate_native_state_tree(&native).is_err());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn invalid_runtime_record_is_an_error_instead_of_no_record() {
+    let root = state_test_dir("invalid-record");
+    let path = root.join("aria2-runtime.json");
+    fs::create_dir(&path).unwrap();
+    assert!(read_aria2_runtime_record(&path).is_err());
+    fs::remove_dir(&path).unwrap();
+    fs::write(&path, b"truncated-json").unwrap();
+    assert!(read_aria2_runtime_record(&path).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"truncated-json");
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn state_test_dir(label: &str) -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!(
+        "motrix-state-{label}-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&root).unwrap();
+    root
 }

@@ -385,6 +385,7 @@ impl HttpAppState {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
             config.session_path = runtime.aria2_session_path.clone();
+            config.state_dir = runtime.aria2_state_path.clone();
             config.log_path = runtime.aria2_log_path.clone();
         }
         config
@@ -409,11 +410,11 @@ impl HttpAppState {
         self.core.set_aria2_runtime(runtime)
     }
 
-    pub fn clear_aria2_runtime(&self) {
+    pub fn clear_aria2_runtime(&self) -> Result<(), String> {
         self.core.clear_aria2_runtime()
     }
 
-    pub fn load_saved_aria2_runtime(&self) -> Option<Aria2RuntimeInfo> {
+    pub fn load_saved_aria2_runtime(&self) -> Result<Option<Aria2RuntimeInfo>, String> {
         self.core.load_saved_aria2_runtime()
     }
 
@@ -561,6 +562,9 @@ fn migrate_legacy_owned_task_dirs(tasks: &mut [DownloadTask], accessible_paths: 
 }
 
 fn should_migrate_legacy_owned_task_dir(task: &DownloadTask) -> bool {
+    if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
+        return false;
+    }
     if task.source_type == crate::tasks::DownloadTaskSourceType::Torrent {
         return true;
     }
@@ -588,6 +592,20 @@ fn reconcile_magnet_metadata_dirs(
     // 清理范围固定在应用私有根目录；先收集仍被任务引用的目录，随后只删除其中未被引用的孤儿子目录。
     let mut referenced_dirs = std::collections::BTreeSet::new();
     for task in tasks.iter_mut() {
+        if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
+            // 新代际完整 metadata 归引擎管理；不能用旧临时种子约定清除其身份。
+            if let Some(parent) = task
+                .metadata_torrent_path
+                .as_deref()
+                .and_then(|path| Path::new(path).parent())
+            {
+                referenced_dirs.insert(parent.to_path_buf());
+            }
+            if is_pending_magnet_metadata_task(task) {
+                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
+            }
+            continue;
+        }
         let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {
             Some(magnet_metadata_task_dir(app_data_dir, task.id))
         } else {

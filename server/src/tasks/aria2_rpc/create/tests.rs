@@ -15,6 +15,7 @@ fn test_config() -> Aria2Config {
         rpc_port: 6800,
         rpc_secret: String::new(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }
@@ -90,6 +91,41 @@ async fn add_uri_rejects_invalid_url_output_before_rpc() {
     .expect_err("invalid URL output path component should fail before RPC");
 
     assert!(error.to_string().contains("单个普通文件名"));
+}
+
+#[tokio::test]
+async fn native_bt_rejects_legacy_task_proxy_before_any_rpc() {
+    let mut config = test_config();
+    config.state_dir = Some("/private/native-state".to_string());
+    let task = PreparedDownloadTask {
+        url: "magnet:?xt=urn:btih:test".to_string(),
+        file_name: "torrent".to_string(),
+        output_file_name: None,
+        save_dir: "/downloads".to_string(),
+        aria2_save_dir: None,
+        category: "默认".to_string(),
+        source_type: DownloadTaskSourceType::Magnet,
+        start_mode: DownloadTaskStartMode::Now,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+        use_proxy: true,
+        proxy_binding: TaskProxyBinding::profile(Some("http://127.0.0.1:7890".to_string())),
+    };
+    let error = add_uri_to_aria2(&Aria2RpcClient::new(), &config, &task, None, None)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("BT 全局代理"));
+    let error = add_torrent_to_aria2(
+        &Aria2RpcClient::new(),
+        &config,
+        &task,
+        b"torrent",
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("BT 全局代理"));
 }
 
 #[test]

@@ -62,6 +62,10 @@ pub fn process_args_with_log_level(config: &Aria2Config, log_level: Aria2LogLeve
         }
     }
 
+    if let Some(state_dir) = config.state_dir.as_deref() {
+        args.push(format!("--state-dir={state_dir}"));
+    }
+
     if let Some(log_path) = config.log_path.as_deref() {
         args.push(format!("--log={log_path}"));
     }

@@ -824,6 +824,7 @@ fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
     std::fs::write(metadata_dir.join("pending.torrent"), b"torrent").expect("torrent should write");
     let mut tasks = vec![DownloadTask {
         id: 9,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -865,6 +866,7 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
         .expect("metadata root should create");
     let mut tasks = vec![DownloadTask {
         id: 10,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -914,6 +916,7 @@ fn reconcile_missing_magnet_metadata_preserves_user_download_files() {
         .expect("metadata root should create");
     let mut tasks = vec![DownloadTask {
         id: 11,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -1179,6 +1182,7 @@ fn migrate_legacy_owned_task_dirs_uses_authorized_parent_without_trusting_root()
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -1203,6 +1207,31 @@ fn sample_task() -> DownloadTask {
         created_at: 100,
         updated_at: 101,
     }
+}
+
+#[test]
+fn legacy_metadata_reconcile_preserves_native_confirmation_and_original_gid() {
+    let root = std::env::temp_dir().join(format!("motrix-native-boot-{}", now_ms()));
+    std::fs::create_dir_all(root.join("magnet-metadata")).unwrap();
+    let mut task = sample_task();
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+    task.url = "magnet:?xt=urn:btih:test".into();
+    task.confirmation_required = true;
+    task.metadata_torrent_path = None;
+    task.files = vec![crate::tasks::DownloadTaskFile {
+        index: 1,
+        path: "/downloads/file.bin".into(),
+        name: "file.bin".into(),
+        length: 100,
+        completed_length: 0,
+        selected: false,
+    }];
+    let mut tasks = vec![task.clone()];
+    reconcile_magnet_metadata_dirs(&root, &mut tasks).unwrap();
+    migrate_legacy_owned_task_dirs(&mut tasks, &["/downloads".into()]);
+    assert_eq!(tasks, vec![task]);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 async fn reserve_local_addr() -> SocketAddr {
