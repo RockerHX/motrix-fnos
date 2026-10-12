@@ -75,8 +75,10 @@ async fn proxy_profile_save_is_idempotent_and_updates_deferred_task_bindings() {
             aria2_config: None,
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        raw_proxy,
+        Some(raw_proxy),
+        None,
     )
     .await
     .expect("proxy should save");
@@ -105,8 +107,10 @@ async fn proxy_profile_save_is_idempotent_and_updates_deferred_task_bindings() {
             aria2_config: None,
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "  http://ProfileUser:ProfilePassword@proxy.example:7890/  ",
+        Some("  http://ProfileUser:ProfilePassword@proxy.example:7890/  "),
+        None,
     )
     .await
     .expect("same normalized proxy should be a no-op");
@@ -135,8 +139,10 @@ async fn concurrent_proxy_saves_have_monotonic_revisions() {
             aria2_config: None,
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "http://proxy-one.example:7890",
+        Some("http://proxy-one.example:7890"),
+        None,
     );
     let second = update_download_proxy(
         DownloadProxyServiceContext {
@@ -147,8 +153,10 @@ async fn concurrent_proxy_saves_have_monotonic_revisions() {
             aria2_config: None,
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "http://proxy-two.example:7890",
+        Some("http://proxy-two.example:7890"),
+        None,
     );
     let (first, second) = tokio::join!(first, second);
     let mut revisions = [
@@ -190,8 +198,10 @@ async fn proxy_clear_checks_profile_references_and_ignores_private_overrides() {
             aria2_config: None,
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "http://proxy.example:7890",
+        Some("http://proxy.example:7890"),
+        None,
     )
     .await
     .expect("proxy should save");
@@ -224,7 +234,7 @@ async fn proxy_clear_checks_profile_references_and_ignores_private_overrides() {
     assert!(get_download_proxy_config(&database.pool)
         .await
         .expect("config should load")
-        .is_none());
+        .is_some_and(|config| config.proxy_url.is_none()));
     assert_eq!(
         tasks.list().expect("task should be readable")[0]
             .proxy_binding
@@ -276,8 +286,10 @@ async fn proxy_replacement_reports_partial_runtime_application_without_leaking_c
             aria2_config: Some(config),
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "http://RuntimeUser:RuntimePassword@proxy.example:7890",
+        Some("http://RuntimeUser:RuntimePassword@proxy.example:7890"),
+        None,
     )
     .await
     .expect("profile replacement should persist despite one runtime failure");
@@ -309,8 +321,10 @@ async fn proxy_replacement_reports_partial_runtime_application_without_leaking_c
             }),
             debug_logs: &debug_logs,
             update_lock: &update_lock,
+            task_service: None,
         },
-        "http://RuntimeUser:RuntimePassword@PROXY.EXAMPLE:7890/",
+        Some("http://RuntimeUser:RuntimePassword@PROXY.EXAMPLE:7890/"),
+        None,
     )
     .await
     .expect("same normalized profile should be a no-op");

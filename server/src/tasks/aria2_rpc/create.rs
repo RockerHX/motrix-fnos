@@ -58,7 +58,7 @@ pub async fn add_uri_to_aria2(
         validate_url_output_file_name(task.output_file_name.as_deref())
             .map_err(Aria2TaskCreationError::Failed)?;
     }
-    validate_prepared_task_proxy(config, task).map_err(Aria2TaskCreationError::Failed)?;
+    validate_prepared_task_proxy(task).map_err(Aria2TaskCreationError::Failed)?;
     log_info(
         debug_logs,
         "aria2.addUri",
@@ -115,7 +115,7 @@ pub async fn add_torrent_to_aria2(
     request_id: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, Aria2TaskCreationError> {
-    validate_prepared_task_proxy(config, task).map_err(Aria2TaskCreationError::Failed)?;
+    validate_prepared_task_proxy(task).map_err(Aria2TaskCreationError::Failed)?;
     log_info(
         debug_logs,
         "aria2.addTorrent",
@@ -269,15 +269,9 @@ pub(crate) fn build_add_torrent_request_with_id(
     })
 }
 
-fn validate_prepared_task_proxy(
-    config: &Aria2Config,
-    task: &PreparedDownloadTask,
-) -> Result<(), String> {
-    if config.state_dir.is_some()
-        && task.source_type != DownloadTaskSourceType::Url
-        && task.use_proxy
-    {
-        return Err("BT 全局代理尚未完成适配，拒绝以任务代理代替或回退直连".to_string());
+fn validate_prepared_task_proxy(task: &PreparedDownloadTask) -> Result<(), String> {
+    if task.source_type != DownloadTaskSourceType::Url && task.use_proxy {
+        return Err("BT 任务不支持任务级代理，请使用 BT 使用代理总开关".to_string());
     }
     if task.use_proxy && task.proxy_binding.effective_proxy_url().is_none() {
         return Err("任务要求使用代理，但没有可用的代理配置".to_string());

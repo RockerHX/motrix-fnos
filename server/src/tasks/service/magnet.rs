@@ -105,6 +105,7 @@ impl<'a> TaskService<'a> {
         if !task.confirmation_required {
             return Err("当前任务不需要确认文件".to_string());
         }
+        self.ensure_bt_proxy_ready(config).await?;
         self.validate_task_authorization(&task)?;
         let proxy_binding = self.resolve_existing_task_proxy(&task).await?;
         let select_file = selected
@@ -209,7 +210,7 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
-        prepared.use_proxy = task.use_proxy;
+        prepared.use_proxy = false;
         prepared.proxy_binding = proxy_binding;
         let gid = match self
             .add_torrent_for_task_operation(config, &mut operation, &prepared, &torrent_data)

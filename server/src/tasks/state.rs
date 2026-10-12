@@ -291,6 +291,7 @@ pub fn mark_task_files_confirmed(
         task.error_code = None;
         task.error_message = None;
         task.metadata_torrent_path = Some(metadata_torrent_path);
+        task.use_proxy = false;
         task.proxy_binding = proxy_binding;
         task.files_deleted = false;
         task.selected_file_indexes = selected_indexes.to_vec();

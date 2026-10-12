@@ -4,8 +4,8 @@ use super::stop::{stop_process, stop_process_with_timeout_inner};
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
-    apply_global_options, generate_rpc_secret, global_options_from_values, ping_rpc,
-    process_args_with_log_level, rpc_ports_exhausted_message, runtime_config,
+    apply_bt_proxy, apply_global_options, generate_rpc_secret, global_options_from_values,
+    ping_rpc, process_args_with_log_level, rpc_ports_exhausted_message, runtime_config,
     select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config, EngineGeneration};
@@ -177,21 +177,26 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             .map_err(|error| lifecycle_error(state, error))?;
         validate_task_generations(state, generation)
             .map_err(|error| lifecycle_error(state, error))?;
+        let proxy_config =
+            crate::database::settings::get_download_proxy_config(&state.core.database.pool)
+                .await
+                .map_err(|error| lifecycle_error(state, error))?;
+        if proxy_config
+            .as_ref()
+            .is_some_and(|proxy| proxy.bt_use_proxy)
+            && generation != EngineGeneration::NativeV2
+        {
+            let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
+                &state.core.database.pool,
+                crate::database::settings::BtRuntimeApplyStatus::Blocked,
+            )
+            .await;
+            return Err(lifecycle_error(
+                state,
+                "已启用的 BT 总代理要求使用已验证的 NativeV2 引擎".to_string(),
+            ));
+        }
         if generation == EngineGeneration::NativeV2 {
-            for task in state
-                .core
-                .download_tasks
-                .list()?
-                .iter()
-                .filter(|task| task.engine_generation == EngineGeneration::NativeV2)
-            {
-                if task.source_type != crate::tasks::DownloadTaskSourceType::Url && task.use_proxy {
-                    return Err(lifecycle_error(
-                        state,
-                        "BT 全局代理尚未完成适配，拒绝启动或回退直连".to_string(),
-                    ));
-                }
-            }
             validate_native_metadata_refs(
                 &state.core.database.pool,
                 &state.runtime.app_data_dir,
@@ -379,6 +384,61 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         || (started_process && has_session_restore_candidates(state)?)
     {
         let _proxy_update_guard = state.download_proxy_update_lock.lock().await;
+        if config.engine_generation() == EngineGeneration::NativeV2 {
+            let proxy =
+                crate::database::settings::get_download_proxy_config(&state.core.database.pool)
+                    .await
+                    .map_err(|error| lifecycle_error(state, error))?;
+            let bt_proxy = match proxy.as_ref() {
+                Some(proxy) if proxy.bt_use_proxy => {
+                    let Some(proxy_url) = proxy.proxy_url.as_deref() else {
+                        let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
+                            &state.core.database.pool,
+                            crate::database::settings::BtRuntimeApplyStatus::Blocked,
+                        )
+                        .await;
+                        return Err(lifecycle_error(
+                            state,
+                            "BT 总代理已开启，但没有可用的代理地址".to_string(),
+                        ));
+                    };
+                    match crate::settings::proxy::normalize_proxy_url(proxy_url) {
+                        Ok(normalized) if !normalized.starts_with("https://") => Some(normalized),
+                        _ => {
+                            let _ =
+                                crate::database::settings::set_download_proxy_runtime_apply_status(
+                                    &state.core.database.pool,
+                                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
+                                )
+                                .await;
+                            return Err(lifecycle_error(
+                                state,
+                                "BT 总代理地址无效或使用了不支持的 HTTPS 协议".to_string(),
+                            ));
+                        }
+                    }
+                }
+                _ => None,
+            };
+            if let Err(error) = apply_bt_proxy(&state.aria2_rpc, &config, bt_proxy.as_deref()).await
+            {
+                let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
+                    &state.core.database.pool,
+                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
+                )
+                .await;
+                return Err(lifecycle_error(
+                    state,
+                    format!("BT 全局代理应用或核验失败，恢复任务保持暂停：{error}"),
+                ));
+            }
+            crate::database::settings::set_download_proxy_runtime_apply_status(
+                &state.core.database.pool,
+                crate::database::settings::BtRuntimeApplyStatus::Applied,
+            )
+            .await
+            .map_err(|error| lifecycle_error(state, error))?;
+        }
         let previous_tasks = state.core.download_tasks.list()?;
         let tasks = sync_session_tasks_from_aria2(
             &state.core.download_tasks,

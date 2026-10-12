@@ -366,12 +366,9 @@ async fn create_download_task_persist_failure_marks_operation_failed_and_removes
 }
 
 #[tokio::test]
-async fn create_torrent_download_task_persists_with_fake_repository() {
+async fn create_torrent_download_task_persists_without_task_proxy() {
     let mock = MockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
-    fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
     let save_dir = temp_dir("service-create-torrent");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
     let config = test_config(mock.addr.port(), "secret");
@@ -386,10 +383,7 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
                 save_dir: save_dir.display().to_string(),
                 start_mode: DownloadTaskStartMode::Paused,
                 category: None,
-                advanced_options: CreateTaskAdvancedOptions {
-                    use_proxy: Some(true),
-                    ..CreateTaskAdvancedOptions::default()
-                },
+                advanced_options: CreateTaskAdvancedOptions::default(),
             },
         )
         .await
@@ -398,7 +392,7 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
     assert_eq!(task.id, 1);
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
     assert_eq!(task.status, DownloadTaskStatus::Paused);
-    assert!(task.use_proxy);
+    assert!(!task.use_proxy);
     assert_eq!(
         task.proxy_binding.source(),
         crate::tasks::TaskProxySource::Profile
@@ -432,12 +426,9 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
 }
 
 #[tokio::test]
-async fn create_magnet_download_task_persists_proxy_selection() {
+async fn create_magnet_download_task_persists_without_task_proxy() {
     let mock = MockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
-    fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
     let save_dir = temp_dir("service-create-magnet-proxy");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
 
@@ -452,17 +443,14 @@ async fn create_magnet_download_task_persists_proxy_selection() {
                 source_type: DownloadTaskSourceType::Magnet,
                 start_mode: DownloadTaskStartMode::Now,
                 category: None,
-                advanced_options: CreateTaskAdvancedOptions {
-                    use_proxy: Some(true),
-                    ..CreateTaskAdvancedOptions::default()
-                },
+                advanced_options: CreateTaskAdvancedOptions::default(),
                 aria2_options: serde_json::Map::new(),
             },
         )
         .await
         .expect("magnet proxy task should create");
 
-    assert!(task.use_proxy);
+    assert!(!task.use_proxy);
     assert_eq!(
         task.proxy_binding.source(),
         crate::tasks::TaskProxySource::Profile
@@ -485,12 +473,12 @@ async fn update_download_task_proxy_applies_runtime_option_then_persists() {
         false,
     );
     fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
-    fixture
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
         .expect("lifecycle should be ready");
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
 
     let task = fixture
         .service()
@@ -1503,11 +1491,8 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         .filter_map(Result::ok)
         .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("torrent")));
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
-    assert!(task.use_proxy);
-    assert_eq!(
-        task.proxy_binding.effective_proxy_url(),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(!task.use_proxy);
+    assert_eq!(task.proxy_binding.effective_proxy_url(), None);
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].operation_type, TaskOperationType::Confirm);
@@ -1760,7 +1745,7 @@ async fn restore_inherits_override_proxy_when_omitted_or_unchanged() {
 }
 
 #[tokio::test]
-async fn restore_torrent_explicit_enable_uses_profile_proxy() {
+async fn restore_torrent_rejects_task_proxy_override() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let save_dir = temp_dir("restore-torrent-enable-profile");
     let mut task = sample_task(
@@ -1781,27 +1766,19 @@ async fn restore_torrent_explicit_enable_uses_profile_proxy() {
     set_task_metadata_torrent_path(&fixture.tasks, 1, metadata_path.display().to_string())
         .expect("metadata path should update");
 
-    let restored = fixture
+    let error = fixture
         .service()
         .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, Some(true))
         .await
-        .expect("explicit proxy enable should restore torrent");
+        .expect_err("task proxy override should reject torrent restore");
 
-    assert!(restored.use_proxy);
-    assert_eq!(
-        restored.proxy_binding.source(),
-        crate::tasks::TaskProxySource::Profile
-    );
-    let options = mock.creation_options("aria2.addTorrent");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(error.contains("BT 任务不支持任务级代理"));
+    assert!(mock.requests().is_empty());
     mock.abort();
 }
 
 #[tokio::test]
-async fn restore_reparsed_magnet_inherits_profile_proxy() {
+async fn restore_reparsed_magnet_discards_legacy_task_proxy() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let task_dir = temp_dir("restore-magnet-profile").join("example");
     let mut task = sample_task(
@@ -1815,9 +1792,6 @@ async fn restore_reparsed_magnet_inherits_profile_proxy() {
     task.use_proxy = true;
     task.proxy_binding = crate::tasks::TaskProxyBinding::profile(None);
     let fixture = ServiceFixture::new(vec![task], false);
-    fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
 
     let restored = fixture
         .service()
@@ -1825,13 +1799,10 @@ async fn restore_reparsed_magnet_inherits_profile_proxy() {
         .await
         .expect("magnet metadata parsing should inherit profile proxy");
 
-    assert!(restored.use_proxy);
+    assert!(!restored.use_proxy);
     assert_eq!(restored.status, DownloadTaskStatus::Pending);
     let options = mock.creation_options("aria2.addUri");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(!options[0].contains_key("all-proxy"));
     mock.abort();
 }
 
@@ -1903,7 +1874,7 @@ async fn redownload_explicit_disable_switches_override_to_profile() {
 }
 
 #[tokio::test]
-async fn redownload_confirmed_magnet_inherits_override_proxy() {
+async fn redownload_confirmed_magnet_discards_legacy_task_proxy() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let save_dir = temp_dir("redownload-magnet-override");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1933,16 +1904,13 @@ async fn redownload_confirmed_magnet_inherits_override_proxy() {
         .await
         .expect("confirmed magnet should inherit override proxy");
 
-    assert!(redownloaded.use_proxy);
+    assert!(!redownloaded.use_proxy);
     assert_eq!(
         redownloaded.proxy_binding.source(),
-        crate::tasks::TaskProxySource::Override
+        crate::tasks::TaskProxySource::Profile
     );
     let options = mock.creation_options("aria2.addTorrent");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("socks5://legacy.example.com:1080")
-    );
+    assert!(!options[0].contains_key("all-proxy"));
     mock.abort();
 }
 
@@ -2762,9 +2730,11 @@ impl FakeTaskRepository {
             .lock()
             .expect("repository state should lock")
             .download_proxy_config = Some(StoredDownloadProxyConfig {
-            proxy_url: proxy_url.to_string(),
+            proxy_url: Some(proxy_url.to_string()),
             revision: 1,
             updated_at: 1,
+            bt_use_proxy: false,
+            bt_runtime_apply: crate::database::settings::BtRuntimeApplyStatus::Deferred,
         });
     }
 
@@ -2824,6 +2794,22 @@ impl TaskRepository for Arc<FakeTaskRepository> {
             .expect("repository state should lock")
             .download_proxy_config
             .clone())
+    }
+
+    async fn set_bt_proxy_runtime_apply_status(
+        &self,
+        status: crate::database::settings::BtRuntimeApplyStatus,
+    ) -> Result<(), String> {
+        if let Some(config) = self
+            .state
+            .lock()
+            .expect("repository state should lock")
+            .download_proxy_config
+            .as_mut()
+        {
+            config.bt_runtime_apply = status;
+        }
+        Ok(())
     }
 
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String> {

@@ -60,6 +60,12 @@ fn restore_and_redownload_proxy_override_body_is_optional() {
             .use_proxy,
         Some(true)
     );
+    assert!(
+        parse_task_proxy_override_body(br#"{"useProxy":null}"#)
+            .expect("explicit null should parse")
+            .expect("JSON body should be present")
+            .proxy_field_present
+    );
     assert_eq!(
         parse_task_proxy_override_body(b"not-json")
             .expect_err("invalid JSON should be rejected")
@@ -458,7 +464,9 @@ async fn update_proxy_route_persists_without_starting_aria2() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -509,7 +517,9 @@ async fn update_proxy_route_applies_active_task_and_maps_rpc_failure() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -563,7 +573,9 @@ async fn update_proxy_route_rejects_runtime_transition() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -685,7 +697,9 @@ async fn create_batch_route_returns_created_and_failed_items() {
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await

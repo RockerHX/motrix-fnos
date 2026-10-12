@@ -69,9 +69,13 @@ fn repository_persists_private_override_and_injects_profile_without_serializing_
                 &database.pool,
                 DOWNLOAD_PROXY_CONFIG_KEY,
                 &StoredDownloadProxyConfig {
-                    proxy_url: "http://profile-user:profile-pass@profile.example:7890".to_string(),
+                    proxy_url: Some(
+                        "http://profile-user:profile-pass@profile.example:7890".to_string(),
+                    ),
                     revision: 1,
                     updated_at: 1,
+                    bt_use_proxy: false,
+                    bt_runtime_apply: crate::database::settings::BtRuntimeApplyStatus::Deferred,
                 },
             )
             .await
@@ -140,6 +144,48 @@ fn repository_persists_private_override_and_injects_profile_without_serializing_
             database.pool.close().await;
             let _ = std::fs::remove_file(path);
         });
+}
+
+#[tokio::test]
+async fn legacy_bt_proxy_state_is_normalized_when_tasks_are_loaded() {
+    let path = std::env::temp_dir().join(format!(
+        "motrix-fnos-legacy-bt-proxy-normalization-{}.sqlite",
+        now_ms()
+    ));
+    let database = connect_database(path.clone())
+        .await
+        .expect("database should connect");
+    let mut task = sample_task();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.use_proxy = false;
+    upsert_download_task(&database.pool, &task)
+        .await
+        .expect("BT task should persist");
+    sqlx::query("UPDATE download_tasks SET use_proxy = 1, proxy_source = 'override' WHERE id = ?")
+        .bind(task.id as i64)
+        .execute(&database.pool)
+        .await
+        .expect("legacy proxy state should be writable");
+    sqlx::query(
+        "INSERT INTO task_proxy_overrides (task_id, proxy_url, updated_at) VALUES (?, ?, ?)",
+    )
+    .bind(task.id as i64)
+    .bind("socks5://legacy.example:1080")
+    .bind(task.updated_at as i64)
+    .execute(&database.pool)
+    .await
+    .expect("legacy override should be writable");
+
+    let loaded = list_download_tasks(&database.pool)
+        .await
+        .expect("legacy task should load")
+        .remove(0);
+    assert!(!loaded.use_proxy);
+    assert_eq!(loaded.proxy_binding.source(), TaskProxySource::Profile);
+    assert_eq!(loaded.proxy_binding.effective_proxy_url(), None);
+
+    database.pool.close().await;
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]

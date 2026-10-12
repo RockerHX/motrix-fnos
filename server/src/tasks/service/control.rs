@@ -282,6 +282,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
         if task_before_resume.confirmation_required {
@@ -289,6 +290,9 @@ impl<'a> TaskService<'a> {
         }
         self.validate_task_authorization(&task_before_resume)?;
         let gid = task_gid(self.download_tasks, task_id)?;
+        if task_before_resume.source_type != DownloadTaskSourceType::Url {
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         let mut operation = self
             .begin_task_operation(
                 task_id,
@@ -297,7 +301,6 @@ impl<'a> TaskService<'a> {
                 task_operation_context(Some(task_before_resume.clone()), Vec::new()),
             )
             .await?;
-        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let mut runtime_task = task_before_resume.clone();
         runtime_task.proxy_binding = match self.resolve_existing_task_proxy(&runtime_task).await {
             Ok(binding) => binding,
@@ -507,8 +510,15 @@ impl<'a> TaskService<'a> {
         use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.source_type != DownloadTaskSourceType::Url {
+            if use_proxy_override.is_some() {
+                return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+            }
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         if snapshot.status != DownloadTaskStatus::Complete {
             return Err("只有已完成任务可以重新下载".to_string());
         }

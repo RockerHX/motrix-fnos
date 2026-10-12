@@ -126,7 +126,11 @@ async fn create_task(
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     validate_create_preconditions(&state, payload.save_dir.as_deref())?;
     build_task_service(&state)
-        .validate_create_task_proxy(&payload.advanced_options, &payload.aria2_options)
+        .validate_create_task_proxy(
+            payload.source_type,
+            &payload.advanced_options,
+            &payload.aria2_options,
+        )
         .await
         .map_err(classify_task_error)?;
     let context =
@@ -168,7 +172,11 @@ async fn create_batch_tasks(
         ));
     }
     if let Err(error) = build_task_service(&state)
-        .validate_create_task_proxy(&payload.advanced_options, &serde_json::Map::new())
+        .validate_create_task_proxy(
+            DownloadTaskSourceType::Url,
+            &payload.advanced_options,
+            &serde_json::Map::new(),
+        )
         .await
     {
         if !is_proxy_request_error(&error) {
@@ -236,7 +244,11 @@ async fn create_torrent_task(
     let upload = parse_torrent_multipart(multipart, &state).await?;
     validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
     build_task_service(&state)
-        .validate_create_task_proxy(&upload.request.advanced_options, &serde_json::Map::new())
+        .validate_create_task_proxy(
+            DownloadTaskSourceType::Torrent,
+            &upload.request.advanced_options,
+            &serde_json::Map::new(),
+        )
         .await
         .map_err(classify_task_error)?;
     let context =
@@ -320,7 +332,11 @@ async fn redownload_task(
     Path(task_id): Path<u64>,
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
+    let request = parse_task_proxy_override_body(&body)?;
+    let (use_proxy, proxy_field_present) = request.map_or((None, false), |request| {
+        (request.use_proxy, request.proxy_field_present)
+    });
+    reject_bt_task_proxy_override(&state, task_id, proxy_field_present)?;
     let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
@@ -335,7 +351,11 @@ async fn restore_task(
     Path(task_id): Path<u64>,
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
+    let request = parse_task_proxy_override_body(&body)?;
+    let (use_proxy, proxy_field_present) = request.map_or((None, false), |request| {
+        (request.use_proxy, request.proxy_field_present)
+    });
+    reject_bt_task_proxy_override(&state, task_id, proxy_field_present)?;
     let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
@@ -391,6 +411,27 @@ fn validate_create_preconditions(
         .ensure_not_exiting()
         .map_err(classify_task_error)?;
     validate_authorized_save_dir(state, save_dir)
+}
+
+fn reject_bt_task_proxy_override(
+    state: &HttpAppState,
+    task_id: u64,
+    proxy_field_present: bool,
+) -> Result<(), ApiError> {
+    if !proxy_field_present {
+        return Ok(());
+    }
+    let task = build_task_service(state)
+        .get_download_task(task_id)
+        .map_err(classify_task_error)?
+        .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
+    if task.source_type != DownloadTaskSourceType::Url {
+        return Err(ApiError::bad_request(
+            "bt_task_proxy_unsupported",
+            "BT 任务不能提交任务级代理字段，请使用 BT 使用代理总开关",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_authorized_save_dir(
@@ -489,6 +530,9 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("任务保存目录当前未获授权") {
         return ApiError::forbidden("save_dir_not_authorized", error);
     }
+    if error.contains("BT 任务不支持任务级代理") {
+        return ApiError::bad_request("bt_task_proxy_unsupported", error);
+    }
     if error.contains("代理选择冲突") {
         return ApiError::bad_request("proxy_conflict", error);
     }
@@ -521,6 +565,9 @@ fn classify_task_error(error: String) -> ApiError {
 }
 
 fn classify_task_proxy_error(error: String) -> ApiError {
+    if error.contains("BT 任务不支持任务级代理") {
+        return ApiError::bad_request("bt_task_proxy_unsupported", error);
+    }
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }

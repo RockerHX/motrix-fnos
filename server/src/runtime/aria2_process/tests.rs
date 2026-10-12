@@ -16,7 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 #[test]
@@ -175,6 +175,7 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
 #[cfg(unix)]
 #[tokio::test]
 async fn concurrent_start_requests_apply_saved_download_config_once() {
+    let _process_start_guard = process_start_test_guard().await;
     let temp_dir = temp_dir("concurrent-start");
     std::fs::create_dir_all(&temp_dir).expect("test directory should create");
     let aria2_path = temp_dir.join("fake-aria2");
@@ -423,6 +424,7 @@ async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadli
 
 #[tokio::test]
 async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restore() {
+    let _process_start_guard = process_start_test_guard().await;
     use std::os::unix::fs::PermissionsExt;
     for unknown_gid in [false, true] {
         let root = temp_dir(if unknown_gid {
@@ -449,6 +451,7 @@ class Handler(BaseHTTPRequestHandler):
         method = body['method']
         with (root / 'calls').open('a') as file: file.write(method + '\n')
         if method == 'aria2.getVersion': result = {'version': '2.8.6'}
+        elif method == 'aria2.getGlobalOption': result = {'bt-proxy': ''}
         elif method == 'aria2.tellWaiting' and (root / 'unknown').exists():
             result = [{'gid': 'untracked-gid', 'status': 'paused', 'totalLength': '0', 'completedLength': '0', 'downloadSpeed': '0'}]
         elif method.startswith('aria2.tell'): result = []
@@ -529,6 +532,13 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
         state.core.database.pool.close().await;
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+async fn process_start_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
 }
 
 async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {

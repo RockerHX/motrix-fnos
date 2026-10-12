@@ -8,9 +8,20 @@ use crate::tasks::{
     DownloadTaskStatus, TaskOperationType, TaskProxyBinding, TaskProxySource,
 };
 use serde_json::{Map, Value};
+use url::Url;
 
 pub(super) const PROXY_CONFLICT_MESSAGE: &str = "代理选择冲突：useProxy 不能与原始代理字段同时使用";
 pub(super) const PROXY_NOT_CONFIGURED_MESSAGE: &str = "未配置下载代理，请先在设置中保存代理地址";
+pub const BT_TASK_PROXY_UNSUPPORTED_MESSAGE: &str =
+    "BT 任务不支持任务级代理，请在设置页使用 BT 使用代理总开关";
+
+const BT_PROXY_OPTIONS: &[&str] = &[
+    "all-proxy",
+    "http-proxy",
+    "https-proxy",
+    "ftp-proxy",
+    "bt-proxy",
+];
 
 pub(super) struct ResolvedTaskProxy {
     pub(super) use_proxy: bool,
@@ -25,9 +36,12 @@ impl TaskService<'_> {
         enabled: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        let _task_operation_guard = self.download_tasks.begin_operation(task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let _task_operation_guard = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.source_type != crate::tasks::DownloadTaskSourceType::Url {
+            return Err(BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+        }
         if snapshot.use_proxy == enabled {
             return Ok(snapshot);
         }
@@ -179,21 +193,32 @@ impl TaskService<'_> {
 
     pub async fn validate_create_task_proxy(
         &self,
+        source_type: crate::tasks::DownloadTaskSourceType,
         advanced_options: &CreateTaskAdvancedOptions,
         aria2_options: &Map<String, Value>,
     ) -> Result<(), String> {
         let mut advanced_options = advanced_options.clone();
         let mut aria2_options = aria2_options.clone();
-        self.resolve_create_task_proxy(&mut advanced_options, &mut aria2_options)
+        self.resolve_create_task_proxy(source_type, &mut advanced_options, &mut aria2_options)
             .await
             .map(|_| ())
     }
 
     pub(super) async fn resolve_create_task_proxy(
         &self,
+        source_type: crate::tasks::DownloadTaskSourceType,
         advanced_options: &mut CreateTaskAdvancedOptions,
         aria2_options: &mut Map<String, Value>,
     ) -> Result<ResolvedTaskProxy, String> {
+        if has_bt_proxy_option(aria2_options)
+            || (source_type != crate::tasks::DownloadTaskSourceType::Url
+                && (advanced_options.proxy_fields_present
+                    || advanced_options.use_proxy.is_some()
+                    || advanced_options.proxy.is_some()
+                    || aria2_options.keys().any(|key| is_task_proxy_option(key))))
+        {
+            return Err(BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+        }
         let advanced_proxy = take_advanced_proxy(advanced_options.proxy.take())?;
         let aria2_proxy = take_aria2_proxy(aria2_options.remove("all-proxy"))?;
         let legacy_proxy = match (advanced_proxy, aria2_proxy) {
@@ -223,7 +248,11 @@ impl TaskService<'_> {
             .get_download_proxy_config()
             .await?
             .ok_or_else(|| PROXY_NOT_CONFIGURED_MESSAGE.to_string())?;
-        let proxy_url = normalize_stored_proxy(&config.proxy_url)?;
+        let proxy_url = config
+            .proxy_url
+            .as_deref()
+            .ok_or_else(|| PROXY_NOT_CONFIGURED_MESSAGE.to_string())?;
+        let proxy_url = normalize_stored_proxy(proxy_url)?;
         Ok(ResolvedTaskProxy {
             use_proxy: true,
             binding: TaskProxyBinding::profile(Some(proxy_url)),
@@ -234,6 +263,9 @@ impl TaskService<'_> {
         &self,
         task: &DownloadTask,
     ) -> Result<TaskProxyBinding, String> {
+        if task.source_type != crate::tasks::DownloadTaskSourceType::Url {
+            return Ok(TaskProxyBinding::profile(None));
+        }
         if !task.use_proxy {
             return Ok(task.proxy_binding.clone());
         }
@@ -256,6 +288,12 @@ impl TaskService<'_> {
         task: &DownloadTask,
         use_proxy_override: Option<bool>,
     ) -> Result<ResolvedTaskProxy, String> {
+        if task.source_type != crate::tasks::DownloadTaskSourceType::Url {
+            return Ok(ResolvedTaskProxy {
+                use_proxy: false,
+                binding: TaskProxyBinding::profile(None),
+            });
+        }
         let use_proxy = use_proxy_override.unwrap_or(task.use_proxy);
         let binding = if use_proxy == task.use_proxy {
             self.resolve_existing_task_proxy(task).await?
@@ -273,9 +311,91 @@ impl TaskService<'_> {
             .get_download_proxy_config()
             .await?
             .ok_or_else(|| PROXY_NOT_CONFIGURED_MESSAGE.to_string())?;
+        let proxy_url = config
+            .proxy_url
+            .as_deref()
+            .ok_or_else(|| PROXY_NOT_CONFIGURED_MESSAGE.to_string())?;
         Ok(TaskProxyBinding::profile(Some(normalize_stored_proxy(
-            &config.proxy_url,
+            proxy_url,
         )?)))
+    }
+
+    pub(super) async fn ensure_bt_proxy_ready(
+        &self,
+        aria2_config: &Aria2Config,
+    ) -> Result<(), String> {
+        let config = self.repository.get_download_proxy_config().await?;
+        if config.is_none() {
+            return Ok(());
+        }
+        let lifecycle = self.aria2_lifecycle.snapshot()?;
+        if lifecycle.phase != Aria2LifecyclePhase::Ready
+            && !config.as_ref().is_some_and(|config| config.bt_use_proxy)
+        {
+            return Ok(());
+        }
+        if config.as_ref().is_some_and(|config| {
+            config.bt_runtime_apply == crate::database::settings::BtRuntimeApplyStatus::Applied
+                && lifecycle.phase == Aria2LifecyclePhase::Ready
+        }) {
+            return Ok(());
+        }
+        let target = match config.as_ref() {
+            Some(config) if config.bt_use_proxy => Some(normalize_stored_proxy(
+                config
+                    .proxy_url
+                    .as_deref()
+                    .ok_or_else(|| "未配置 BT 总代理地址".to_string())?,
+            )?),
+            _ => None,
+        };
+        if target
+            .as_deref()
+            .is_some_and(|value| Url::parse(value).is_ok_and(|url| url.scheme() == "https"))
+        {
+            return Err("BT 总代理不支持 HTTPS 代理协议".to_string());
+        }
+        if lifecycle.phase != Aria2LifecyclePhase::Ready {
+            return Err("Aria2 运行态未就绪，BT 任务保持暂停".to_string());
+        }
+        if let Err(error) =
+            crate::aria2::apply_bt_proxy(self.aria2_rpc, aria2_config, target.as_deref()).await
+        {
+            self.repository
+                .set_bt_proxy_runtime_apply_status(
+                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
+                )
+                .await?;
+            return Err(error);
+        }
+        self.repository
+            .set_bt_proxy_runtime_apply_status(
+                crate::database::settings::BtRuntimeApplyStatus::Applied,
+            )
+            .await
+    }
+
+    pub async fn pause_active_bt_tasks_for_proxy_change(
+        &self,
+        config: &Aria2Config,
+    ) -> Result<Vec<u64>, String> {
+        let active = self
+            .download_tasks
+            .list()?
+            .into_iter()
+            .filter(|task| {
+                task.source_type != crate::tasks::DownloadTaskSourceType::Url
+                    && matches!(
+                        task.status,
+                        DownloadTaskStatus::Pending | DownloadTaskStatus::Active
+                    )
+            })
+            .map(|task| task.id)
+            .collect::<Vec<_>>();
+        for task_id in &active {
+            self.pause_download_task(config, *task_id).await?;
+        }
+        Ok(active)
     }
 
     async fn compensate_proxy_after_persist_failure(
@@ -343,6 +463,23 @@ impl TaskService<'_> {
             }
         }
     }
+}
+
+fn is_task_proxy_option(key: &str) -> bool {
+    BT_PROXY_OPTIONS.contains(&key)
+        || key
+            .strip_suffix("-user")
+            .or_else(|| key.strip_suffix("-passwd"))
+            .is_some_and(|prefix| BT_PROXY_OPTIONS.contains(&prefix))
+}
+
+fn has_bt_proxy_option(options: &Map<String, Value>) -> bool {
+    options.keys().any(|key| {
+        matches!(
+            key.as_str(),
+            "bt-proxy" | "bt-proxy-user" | "bt-proxy-passwd"
+        )
+    })
 }
 
 fn proxy_options(enabled: bool, binding: &TaskProxyBinding) -> Result<Map<String, Value>, String> {

@@ -153,9 +153,9 @@ async fn proxy_settings_handlers_round_trip_masked_status_and_clear_safely() {
     let (state, runtime) = lan_test_state("proxy-round-trip").await;
     let saved = put_download_proxy(
         State(state.clone()),
-        ApiJson(UpdateDownloadProxyRequest {
-            proxy_url: "http://ApiUser:ApiPassword@Proxy.Example:7890".to_string(),
-        }),
+        ApiJson(serde_json::json!({
+            "proxyUrl": "http://ApiUser:ApiPassword@Proxy.Example:7890"
+        })),
     )
     .await
     .expect("proxy should save")
@@ -195,14 +195,76 @@ async fn proxy_settings_handlers_round_trip_masked_status_and_clear_safely() {
 }
 
 #[tokio::test]
+async fn bt_proxy_update_persists_global_mode_and_defers_until_engine_start() {
+    let (state, runtime) = lan_test_state("bt-proxy-deferred").await;
+    let saved = put_download_proxy(
+        State(state.clone()),
+        ApiJson(serde_json::json!({
+            "proxyUrl": "socks4://proxy.example:1080",
+            "btUseProxy": true
+        })),
+    )
+    .await
+    .expect("BT proxy should save while Aria2 is stopped")
+    .0;
+
+    assert!(saved.status.bt_use_proxy);
+    assert_eq!(
+        saved.status.bt_runtime_apply,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred
+    );
+    assert_eq!(saved.status.revision, 1);
+    assert!(saved.applied_task_ids.is_empty());
+    assert!(saved.deferred_task_ids.is_empty());
+
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn enabling_bt_proxy_rejects_https_without_changing_configuration() {
+    let (state, runtime) = lan_test_state("bt-proxy-https").await;
+    let _ = put_download_proxy(
+        State(state.clone()),
+        ApiJson(serde_json::json!({
+            "proxyUrl": "https://proxy.example:8443"
+        })),
+    )
+    .await
+    .expect("HTTPS proxy should remain valid for HTTP tasks");
+
+    let error = put_download_proxy(
+        State(state.clone()),
+        ApiJson(serde_json::json!({ "btUseProxy": true })),
+    )
+    .await
+    .expect_err("BT should reject HTTPS proxy protocol");
+    assert_eq!(error.status(), StatusCode::BAD_REQUEST);
+    let body = error
+        .into_response()
+        .into_body()
+        .collect()
+        .await
+        .expect("error body should collect")
+        .to_bytes();
+    let body = String::from_utf8(body.to_vec()).expect("error body should be utf-8");
+    assert!(body.contains("bt_proxy_protocol_unsupported"));
+
+    let loaded = get_download_proxy(State(state.clone()))
+        .await
+        .expect("proxy status should load")
+        .0;
+    assert!(!loaded.bt_use_proxy);
+    assert_eq!(loaded.revision, 1);
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
 async fn invalid_proxy_api_error_never_echoes_credentials() {
     let (state, runtime) = lan_test_state("proxy-invalid").await;
     let raw = "http://SecretUser:SecretPassword@proxy.example:7890?token=private";
     let error = put_download_proxy(
         State(state.clone()),
-        ApiJson(UpdateDownloadProxyRequest {
-            proxy_url: raw.to_string(),
-        }),
+        ApiJson(serde_json::json!({ "proxyUrl": raw })),
     )
     .await
     .expect_err("query should be rejected");

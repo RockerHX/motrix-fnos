@@ -82,8 +82,17 @@ async fn upsert_download_task_in_transaction(
         format!("序列化任务文件选择失败：{}", error)
     })?)
     .bind(if task.confirmation_required { 1_i64 } else { 0_i64 })
-    .bind(if task.use_proxy { 1_i64 } else { 0_i64 })
-    .bind(task.proxy_binding.source().as_storage_value())
+    .bind(if task.source_type == DownloadTaskSourceType::Url && task.use_proxy {
+        1_i64
+    } else {
+        0_i64
+    })
+    .bind(if task.source_type == DownloadTaskSourceType::Url && task.use_proxy {
+        task.proxy_binding.source()
+    } else {
+        TaskProxySource::Profile
+    }
+    .as_storage_value())
     .bind(u64_to_i64(task.created_at, "创建时间")?)
     .bind(u64_to_i64(task.updated_at, "更新时间")?)
     .execute(&mut **transaction)
@@ -284,7 +293,10 @@ async fn persist_task_proxy_override_in_transaction(
     task: &DownloadTask,
 ) -> Result<(), String> {
     let task_id = u64_to_i64(task.id, "任务 ID")?;
-    if task.use_proxy && task.proxy_binding.source() == TaskProxySource::Override {
+    if task.source_type == DownloadTaskSourceType::Url
+        && task.use_proxy
+        && task.proxy_binding.source() == TaskProxySource::Override
+    {
         let proxy_url = task
             .proxy_binding
             .effective_proxy_url()
@@ -393,7 +405,7 @@ pub async fn persist_download_task_states(
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
     let profile_proxy_url = get_download_proxy_config(pool)
         .await?
-        .map(|config| config.proxy_url);
+        .and_then(|config| config.proxy_url);
     let rows = sqlx::query(
         r#"
         SELECT download_tasks.id, engine_generation, url, source_type, file_name, save_dir, owned_task_dir, gid, status,
@@ -660,8 +672,12 @@ fn row_to_task(
     {
         return Err("原生任务记录包含未知状态或来源，已保留并拒绝恢复".to_string());
     }
-    let use_proxy = get::<i64>(&row, "use_proxy")? != 0;
-    let proxy_source = TaskProxySource::from_storage_value(&get::<String>(&row, "proxy_source")?);
+    let use_proxy = source_type == "url" && get::<i64>(&row, "use_proxy")? != 0;
+    let proxy_source = if use_proxy {
+        TaskProxySource::from_storage_value(&get::<String>(&row, "proxy_source")?)
+    } else {
+        TaskProxySource::Profile
+    };
     let effective_proxy_url = if use_proxy {
         match proxy_source {
             TaskProxySource::Profile => profile_proxy_url.map(str::to_owned),

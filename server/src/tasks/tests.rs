@@ -263,6 +263,7 @@ fn prepare_task_maps_non_proxy_advanced_options_and_category() {
             download_limit_kb: Some(512),
             use_proxy: None,
             proxy: None,
+            proxy_fields_present: false,
         },
         aria2_options: serde_json::Map::from_iter([
             (
@@ -300,6 +301,7 @@ fn prepare_task_rejects_invalid_advanced_options() {
             download_limit_kb: None,
             use_proxy: None,
             proxy: None,
+            proxy_fields_present: false,
         },
         aria2_options: serde_json::Map::new(),
     })
@@ -318,6 +320,7 @@ fn prepare_task_rejects_invalid_advanced_options() {
             download_limit_kb: None,
             use_proxy: None,
             proxy: Some("   ".to_string()),
+            proxy_fields_present: false,
         },
         aria2_options: serde_json::Map::new(),
     })
@@ -336,6 +339,7 @@ fn prepare_task_rejects_invalid_advanced_options() {
             download_limit_kb: None,
             use_proxy: None,
             proxy: Some("ftp://127.0.0.1:7890".to_string()),
+            proxy_fields_present: false,
         },
         aria2_options: serde_json::Map::new(),
     })

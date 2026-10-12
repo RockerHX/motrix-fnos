@@ -16,9 +16,17 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let source_type = payload.source_type;
         let resolved_proxy = self
-            .resolve_create_task_proxy(&mut payload.advanced_options, &mut payload.aria2_options)
+            .resolve_create_task_proxy(
+                source_type,
+                &mut payload.advanced_options,
+                &mut payload.aria2_options,
+            )
             .await?;
+        if source_type != DownloadTaskSourceType::Url {
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         let mut prepared = prepare_task_with_logs(payload, self.debug_logs)?;
         prepared.use_proxy = resolved_proxy.use_proxy;
         prepared.proxy_binding = resolved_proxy.binding;
@@ -127,9 +135,20 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        if payload.advanced_options.proxy_fields_present
+            || payload.advanced_options.use_proxy.is_some()
+            || payload.advanced_options.proxy.is_some()
+        {
+            return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+        }
+        self.ensure_bt_proxy_ready(config).await?;
         let mut aria2_options = serde_json::Map::new();
         let resolved_proxy = self
-            .resolve_create_task_proxy(&mut payload.advanced_options, &mut aria2_options)
+            .resolve_create_task_proxy(
+                DownloadTaskSourceType::Torrent,
+                &mut payload.advanced_options,
+                &mut aria2_options,
+            )
             .await?;
         let torrent_data = payload.torrent_data.clone();
         let mut prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;

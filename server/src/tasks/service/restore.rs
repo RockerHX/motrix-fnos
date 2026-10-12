@@ -9,8 +9,15 @@ impl<'a> TaskService<'a> {
         use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.source_type != DownloadTaskSourceType::Url {
+            if use_proxy_override.is_some() {
+                return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+            }
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         if snapshot.status != DownloadTaskStatus::Removed {
             return Err("只有回收站任务可以恢复".to_string());
         }
@@ -309,6 +316,7 @@ impl<'a> TaskService<'a> {
 }
 
 fn restored_task_options(task: &DownloadTask, save_dir: String) -> PreparedDownloadTask {
+    let use_proxy = task.source_type == DownloadTaskSourceType::Url && task.use_proxy;
     PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
@@ -320,7 +328,11 @@ fn restored_task_options(task: &DownloadTask, save_dir: String) -> PreparedDownl
         start_mode: DownloadTaskStartMode::Paused,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
-        use_proxy: task.use_proxy,
-        proxy_binding: task.proxy_binding.clone(),
+        use_proxy,
+        proxy_binding: if use_proxy {
+            task.proxy_binding.clone()
+        } else {
+            crate::tasks::TaskProxyBinding::profile(None)
+        },
     }
 }

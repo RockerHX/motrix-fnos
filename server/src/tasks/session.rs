@@ -232,14 +232,7 @@ pub async fn reconcile_task_proxy_option(
     gid_override: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<bool, Aria2TaskOptionError> {
-    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2
-        && task.source_type != DownloadTaskSourceType::Url
-    {
-        if task.use_proxy {
-            return Err(Aria2TaskOptionError::Failed(
-                "BT 代理尚未完成全局模式适配，任务保持暂停".to_string(),
-            ));
-        }
+    if task.source_type != DownloadTaskSourceType::Url {
         return Ok(false);
     }
     let gid = gid_override
@@ -542,6 +535,7 @@ pub(crate) async fn readd_download_task(
         )
         .map_err(|error| format!("准备任务保存目录失败：{error:?}"))?;
     }
+    let use_proxy = task.source_type == DownloadTaskSourceType::Url && task.use_proxy;
     let prepared = PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
@@ -553,8 +547,12 @@ pub(crate) async fn readd_download_task(
         start_mode: DownloadTaskStartMode::Now,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
-        use_proxy: task.use_proxy,
-        proxy_binding: task.proxy_binding.clone(),
+        use_proxy,
+        proxy_binding: if use_proxy {
+            task.proxy_binding.clone()
+        } else {
+            crate::tasks::TaskProxyBinding::profile(None)
+        },
     };
     match task.source_type {
         DownloadTaskSourceType::Url => {

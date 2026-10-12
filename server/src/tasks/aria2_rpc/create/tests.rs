@@ -114,7 +114,7 @@ async fn native_bt_rejects_legacy_task_proxy_before_any_rpc() {
     let error = add_uri_to_aria2(&Aria2RpcClient::new(), &config, &task, None, None)
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("BT 全局代理"));
+    assert!(error.to_string().contains("BT 任务不支持任务级代理"));
     let error = add_torrent_to_aria2(
         &Aria2RpcClient::new(),
         &config,
@@ -125,7 +125,7 @@ async fn native_bt_rejects_legacy_task_proxy_before_any_rpc() {
     )
     .await
     .unwrap_err();
-    assert!(error.to_string().contains("BT 全局代理"));
+    assert!(error.to_string().contains("BT 任务不支持任务级代理"));
 }
 
 #[test]
