@@ -92,6 +92,7 @@ fn public_download_task_serialization_hides_internal_recovery_fields() {
     assert!(serialized.get("proxyBinding").is_none());
     assert!(serialized.get("metadataTorrentPath").is_none());
     assert_eq!(serialized["filesDeleted"], true);
+    assert_eq!(serialized["metadataState"], "none");
     assert!(serialized.get("selectedFileIndexes").is_none());
 }
 
@@ -797,6 +798,18 @@ fn resume_error_does_not_readd_pending_magnet_metadata_task() {
 }
 
 #[test]
+fn resume_error_does_not_readd_native_task_with_missing_gid() {
+    let mut task = sample_task(None, "/downloads".to_string());
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.status = DownloadTaskStatus::Error;
+
+    assert!(!should_readd_task_after_resume_error(
+        &task,
+        "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
+    ));
+}
+
+#[test]
 fn resume_error_readds_only_when_task_already_has_stale_gid_error() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.status = DownloadTaskStatus::Error;
@@ -1298,6 +1311,7 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
             }]),
             followed_by: None,
             bittorrent: Some(Aria2BittorrentStatus {
+                file_selection_state: None,
                 info: Some(Aria2BittorrentInfo {
                     name: Some("archlinux.iso".to_string()),
                 }),
@@ -1321,6 +1335,53 @@ fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
         task.metadata_torrent_path.as_deref(),
         Some("/app/data/magnet-metadata/task-1/123.torrent")
     );
+}
+
+#[test]
+fn apply_native_magnet_metadata_confirmation_keeps_gid_and_private_metadata_path() {
+    let mut task = sample_task(None, "/downloads".to_string());
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "磁力链接任务".to_string();
+    task.gid = Some("native-gid".to_string());
+    task.status = DownloadTaskStatus::Active;
+
+    apply_magnet_metadata_confirmation(
+        &mut task,
+        &Aria2TaskStatus {
+            gid: Some("native-gid".to_string()),
+            status: "paused".to_string(),
+            total_length: "1024".to_string(),
+            completed_length: "0".to_string(),
+            download_speed: "0".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: Some("/app/data/magnet-metadata/task-1".to_string()),
+            files: Some(vec![Aria2FileStatus {
+                index: 1,
+                path: "/app/data/magnet-metadata/task-1/archlinux.iso".to_string(),
+                length: "1024".to_string(),
+                completed_length: "0".to_string(),
+                selected: "true".to_string(),
+                uris: Vec::new(),
+            }]),
+            followed_by: None,
+            bittorrent: Some(Aria2BittorrentStatus {
+                file_selection_state: Some("awaiting".to_string()),
+                info: Some(Aria2BittorrentInfo {
+                    name: Some("archlinux.iso".to_string()),
+                }),
+            }),
+        },
+        String::new(),
+    );
+
+    assert_eq!(task.gid.as_deref(), Some("native-gid"));
+    assert_eq!(task.status, DownloadTaskStatus::Paused);
+    assert!(task.confirmation_required);
+    assert!(task.metadata_torrent_path.is_none());
+    assert_eq!(task.files[0].path, "/downloads/archlinux/archlinux.iso");
 }
 
 #[test]

@@ -72,9 +72,6 @@ pub(crate) fn reconcile_native_task(
     validate_native_task(task, status, expected_dir)?;
     let mut reconciled = task.clone();
     apply_aria2_status(&mut reconciled, status);
-    if task.source_type == DownloadTaskSourceType::Magnet && task.file_path.is_none() {
-        reconciled.files = super::super::progress::task_files(status);
-    }
     reconciled.total_length = status
         .total_length
         .parse()
@@ -120,10 +117,13 @@ fn validate_native_task(
     {
         return Err(invalid());
     }
-    if status
-        .followed_by
-        .as_ref()
-        .is_some_and(|gids| !gids.is_empty())
+    if task.source_type == DownloadTaskSourceType::Magnet
+        && task.confirmation_required
+        && status
+            .bittorrent
+            .as_ref()
+            .and_then(|bittorrent| bittorrent.file_selection_state.as_deref())
+            != Some("awaiting")
     {
         return Err(invalid());
     }
@@ -158,7 +158,22 @@ fn validate_native_task(
             return Err(invalid());
         }
         if let Some(saved) = task.files.iter().find(|saved| saved.index == file.index) {
-            if Path::new(&saved.path) != Path::new(&file.path)
+            let saved_relative =
+                if task.source_type == DownloadTaskSourceType::Magnet && task.file_path.is_none() {
+                    let preview_root = PathBuf::from(&task.save_dir)
+                        .join(crate::tasks::files::bt_task_path_component(&task.file_name));
+                    Path::new(&saved.path)
+                        .strip_prefix(&preview_root)
+                        .map_err(|_| invalid())?
+                } else {
+                    Path::new(&saved.path)
+                        .strip_prefix(expected_dir)
+                        .map_err(|_| invalid())?
+                };
+            let status_relative = Path::new(&file.path)
+                .strip_prefix(expected_dir)
+                .map_err(|_| invalid())?;
+            if saved_relative != status_relative
                 || saved.length != file.length.parse::<u64>().map_err(|_| invalid())?
                 || saved.selected != (file.selected == "true")
             {

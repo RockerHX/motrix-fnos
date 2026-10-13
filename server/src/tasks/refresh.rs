@@ -36,9 +36,17 @@ pub async fn refresh_tasks_from_aria2(
         // session 恢复后旧 GID 可能已经失效：普通任务可按原配置重建，等待 metadata 的磁链任务则必须保留确认流程并报告错误。
         match tell_status(client, config, &gid, debug_logs).await {
             Ok(status) if is_stale_aria2_gid_status(&status) => {
-                if is_pending_magnet_metadata_task(&candidate) {
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
                     updates.push(TaskRefreshUpdate::Status {
-                        gid,
+                        gid: gid.clone(),
+                        status: task_status_error(
+                            "task_resume_state_invalid：原生任务 GID 已丢失，未自动重建"
+                                .to_string(),
+                        ),
+                    });
+                } else if is_pending_magnet_metadata_task(&candidate) {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid: gid.clone(),
                         status: stale_magnet_metadata_status(app_data_dir, &candidate),
                     });
                     continue;
@@ -64,27 +72,39 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Ok(status) => {
-                match resolve_followed_metadata(
-                    client, config, &candidate, &gid, &status, debug_logs,
-                )
-                .await
-                {
-                    Some(Ok((followed_status, metadata_torrent_path))) => {
-                        updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
-                            old_gid: gid,
-                            status: followed_status,
-                            metadata_torrent_path,
-                        });
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
+                    updates.push(TaskRefreshUpdate::Status { gid, status });
+                } else {
+                    match resolve_followed_metadata(
+                        client, config, &candidate, &gid, &status, debug_logs,
+                    )
+                    .await
+                    {
+                        Some(Ok((followed_status, metadata_torrent_path))) => {
+                            updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
+                                old_gid: gid,
+                                status: followed_status,
+                                metadata_torrent_path,
+                            });
+                        }
+                        Some(Err(error)) => updates.push(TaskRefreshUpdate::Status {
+                            gid,
+                            status: task_status_error(error),
+                        }),
+                        None => updates.push(TaskRefreshUpdate::Status { gid, status }),
                     }
-                    Some(Err(error)) => updates.push(TaskRefreshUpdate::Status {
-                        gid,
-                        status: task_status_error(error),
-                    }),
-                    None => updates.push(TaskRefreshUpdate::Status { gid, status }),
                 }
             }
             Err(error) if is_stale_aria2_gid_error(&error) => {
-                if is_pending_magnet_metadata_task(&candidate) {
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid: gid.clone(),
+                        status: task_status_error(
+                            "task_resume_state_invalid：原生任务 GID 已丢失，未自动重建"
+                                .to_string(),
+                        ),
+                    });
+                } else if is_pending_magnet_metadata_task(&candidate) {
                     updates.push(TaskRefreshUpdate::Status {
                         gid,
                         status: stale_magnet_metadata_status(app_data_dir, &candidate),
@@ -303,7 +323,9 @@ pub fn is_stale_aria2_gid_error(message: &str) -> bool {
 }
 
 pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) -> bool {
-    if is_pending_magnet_metadata_task(task) {
+    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+        || is_pending_magnet_metadata_task(task)
+    {
         return false;
     }
     let normalized = message.to_ascii_lowercase();

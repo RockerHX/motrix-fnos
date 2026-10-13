@@ -24,6 +24,7 @@ pub struct PublicDownloadTask {
     pub files_deleted: bool,
     #[serde(default)]
     pub cleanup_state: String,
+    pub metadata_state: String,
     pub confirmation_required: bool,
     pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,
@@ -60,6 +61,19 @@ impl From<DownloadTask> for PublicDownloadTask {
             created_at,
             updated_at,
         } = task;
+        let metadata_state = if source_type != DownloadTaskSourceType::Magnet {
+            "none"
+        } else if status == DownloadTaskStatus::Error {
+            "error"
+        } else if confirmation_required {
+            "awaiting"
+        } else if !files.is_empty() {
+            "ready"
+        } else if gid.is_some() {
+            "resolving"
+        } else {
+            "error"
+        };
 
         Self {
             id,
@@ -81,6 +95,7 @@ impl From<DownloadTask> for PublicDownloadTask {
             use_proxy,
             files_deleted,
             cleanup_state: "none".to_string(),
+            metadata_state: metadata_state.to_string(),
             confirmation_required,
             files,
             created_at,

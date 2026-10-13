@@ -27,7 +27,13 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     status: &Aria2TaskStatus,
     metadata_torrent_path: String,
 ) {
-    // metadata 下载完成后，临时 GID 的职责已经结束；真实下载必须等待用户选文件，因此清空 GID 并进入待确认状态。
+    let same_gid = task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+        && task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
+        && status
+            .bittorrent
+            .as_ref()
+            .and_then(|bittorrent| bittorrent.file_selection_state.as_deref())
+            == Some("awaiting");
     let display_name = status
         .bittorrent
         .as_ref()
@@ -44,8 +50,19 @@ pub(crate) fn apply_magnet_metadata_confirmation(
         files.iter().map(|file| file.length).sum()
     };
 
-    task.gid = None;
-    task.status = DownloadTaskStatus::Pending;
+    if same_gid {
+        // aria2-next keeps metadata and the eventual download on one paused GID.
+        task.gid = status.gid.clone().or_else(|| task.gid.clone());
+        task.status = DownloadTaskStatus::Paused;
+        task.metadata_torrent_path = None;
+        task.selected_file_indexes.clear();
+    } else {
+        // Legacy aria2 creates a follow-up GID and still needs the saved torrent.
+        task.gid = None;
+        task.status = DownloadTaskStatus::Pending;
+        task.metadata_torrent_path =
+            (!metadata_torrent_path.trim().is_empty()).then_some(metadata_torrent_path);
+    }
     task.total_length = total_length;
     task.completed_length = 0;
     task.download_speed = 0;
@@ -53,17 +70,25 @@ pub(crate) fn apply_magnet_metadata_confirmation(
     task.error_message = None;
     task.confirmation_required = true;
     task.files = files;
-    task.metadata_torrent_path = Some(metadata_torrent_path);
     task.file_name = display_name;
     task.file_path = None;
     task.updated_at = current_timestamp_ms();
 }
 
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+        && task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
+        && is_magnet_metadata_awaiting(status)
+    {
+        apply_magnet_metadata_confirmation(task, status, String::new());
+        return;
+    }
     if follow_magnet_metadata_task(task, status) {
         return;
     }
     let is_pending_magnet_metadata = is_pending_magnet_metadata_task(task);
+    let is_unconfirmed_magnet =
+        task.url.to_ascii_lowercase().starts_with("magnet:?") && task.confirmation_required;
 
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
@@ -96,7 +121,7 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message =
         readable_aria2_error_message(task.error_code.as_deref(), status.error_message.as_deref());
-    if !is_pending_magnet_metadata {
+    if !is_pending_magnet_metadata && !is_unconfirmed_magnet {
         if let Some(dir) = status.dir.clone().filter(|dir| !dir.is_empty()) {
             task.save_dir = dir;
         }
@@ -113,6 +138,8 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     }
     if is_pending_magnet_metadata {
         task.files.clear();
+        task.file_path = None;
+    } else if is_unconfirmed_magnet {
         task.file_path = None;
     } else {
         let lower_url = task.url.to_ascii_lowercase();
@@ -158,7 +185,9 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
 }
 
 fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus) -> bool {
-    if !task.url.to_ascii_lowercase().starts_with("magnet:?") {
+    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+        || !task.url.to_ascii_lowercase().starts_with("magnet:?")
+    {
         return false;
     }
     let Some(next_gid) = status
@@ -183,6 +212,14 @@ fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus
     task.file_path = None;
     task.updated_at = current_timestamp_ms();
     true
+}
+
+fn is_magnet_metadata_awaiting(status: &Aria2TaskStatus) -> bool {
+    status
+        .bittorrent
+        .as_ref()
+        .and_then(|bittorrent| bittorrent.file_selection_state.as_deref())
+        == Some("awaiting")
 }
 
 pub(super) fn task_files(status: &Aria2TaskStatus) -> Vec<DownloadTaskFile> {

@@ -32,6 +32,7 @@ export interface DownloadTask {
   useProxy: boolean;
   filesDeleted?: boolean;
   cleanupState?: "none" | "pending" | "failed";
+  metadataState?: "none" | "resolving" | "awaiting" | "ready" | "error";
   confirmationRequired: boolean;
   files: DownloadTaskFile[];
   createdAt: number;

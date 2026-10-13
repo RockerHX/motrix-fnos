@@ -604,6 +604,12 @@ fn reconcile_magnet_metadata_dirs(
             if is_pending_magnet_metadata_task(task) {
                 referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
             }
+            if task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
+                && task.file_path.is_none()
+            {
+                // NativeV2 keeps complete magnet metadata in the task directory until confirmation.
+                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
+            }
             continue;
         }
         let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {

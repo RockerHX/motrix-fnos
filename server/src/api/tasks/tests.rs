@@ -252,7 +252,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
         StatusCode::BAD_REQUEST,
     )
     .await;
-    assert_eq!(error.code, "task_operation_failed");
+    assert_eq!(error.code, "task_file_selection_invalid");
     assert!(error.message.contains("至少选择一个文件"));
 
     let confirmed = response_json::<DownloadTask>(

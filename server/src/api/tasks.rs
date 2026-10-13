@@ -594,6 +594,7 @@ fn classify_task_error(error: String) -> ApiError {
         "task_resume_state_invalid",
         "task_metadata_missing",
         "task_engine_incompatible",
+        "task_already_confirmed",
     ] {
         if error.contains(code) {
             return ApiError::conflict(code, error);
@@ -601,6 +602,9 @@ fn classify_task_error(error: String) -> ApiError {
     }
     if error.contains("task_restore_options_invalid") {
         return ApiError::bad_request("task_restore_options_invalid", error);
+    }
+    if error.contains("请至少选择一个文件") || error.contains("选择的文件索引") {
+        return ApiError::bad_request("task_file_selection_invalid", error);
     }
     if error.contains("task_outcome_unknown")
         || crate::tasks::is_aria2_outcome_unknown_error(&error)
@@ -645,7 +649,6 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")
         || error.contains("请先确认")
-        || error.contains("请至少选择")
         || error.contains("不需要确认")
         || error.contains("URL")
         || error.contains("文件名")

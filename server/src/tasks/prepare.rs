@@ -244,7 +244,7 @@ pub(crate) fn resolve_save_dir_with_logs(
     Ok(path.display().to_string())
 }
 
-fn create_bt_task_dir(
+pub(crate) fn create_bt_task_dir(
     base_save_dir: &str,
     task_name: &str,
     task_kind: &str,

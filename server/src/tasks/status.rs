@@ -59,6 +59,8 @@ pub(super) struct Aria2UriStatus {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Aria2BittorrentStatus {
+    #[serde(default)]
+    pub(super) file_selection_state: Option<String>,
     pub(super) info: Option<Aria2BittorrentInfo>,
 }
 

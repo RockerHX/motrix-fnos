@@ -1602,6 +1602,164 @@ async fn confirm_download_task_files_archives_restore_metadata() {
 }
 
 #[tokio::test]
+async fn confirm_native_magnet_changes_the_original_gid() {
+    let metadata_dir_name = "magnet-metadata/task-1";
+    let final_dir = Arc::new(Mutex::new(None::<String>));
+    let final_dir_for_handler = final_dir.clone();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let requests_for_handler = requests.clone();
+    let metadata_dir = format!("/tmp/{metadata_dir_name}");
+    let call_count = Arc::new(Mutex::new(0_usize));
+    let call_count_for_handler = call_count.clone();
+    let app = Router::new().route(
+        "/jsonrpc",
+        post(move |Json(payload): Json<Value>| {
+            let requests = requests_for_handler.clone();
+            let final_dir = final_dir_for_handler.clone();
+            let call_count = call_count_for_handler.clone();
+            let metadata_dir = metadata_dir.clone();
+            async move {
+                requests
+                    .lock()
+                    .expect("native magnet requests should lock")
+                    .push(payload.clone());
+                let method = payload["method"].as_str().unwrap_or_default();
+                let response = match method {
+                    "aria2.tellStatus" => {
+                        let mut count = call_count.lock().expect("call count should lock");
+                        *count += 1;
+                        let awaiting = *count == 1;
+                        let dir = if awaiting {
+                            metadata_dir.clone()
+                        } else {
+                            final_dir
+                                .lock()
+                                .expect("final dir should lock")
+                                .clone()
+                                .expect("changeOption should set final dir")
+                        };
+                        let state = if awaiting { "awaiting" } else { "ready" };
+                        json!({
+                            "result": {
+                                "gid": "native-gid",
+                                "status": if awaiting || *count == 2 { "paused" } else { "active" },
+                                "totalLength": "1024",
+                                "completedLength": "0",
+                                "downloadSpeed": "0",
+                                "dir": dir,
+                                "files": [{
+                                    "index": "1",
+                                    "path": format!("{dir}/archlinux.iso"),
+                                    "length": "1024",
+                                    "completedLength": "0",
+                                    "selected": "true"
+                                }],
+                                "bittorrent": {
+                                    "fileSelectionState": state,
+                                    "info": { "name": "archlinux.iso" }
+                                }
+                            }
+                        })
+                    }
+                    "aria2.changeOption" => {
+                        let dir = payload["params"]
+                            .as_array()
+                            .and_then(|params| params.last())
+                            .and_then(Value::as_object)
+                            .and_then(|options| options.get("dir"))
+                            .and_then(Value::as_str)
+                            .expect("native confirmation should set dir")
+                            .to_string();
+                        *final_dir.lock().expect("final dir should lock") = Some(dir);
+                        json!({ "result": "native-gid" })
+                    }
+                    "aria2.unpause" => json!({ "result": "native-gid" }),
+                    _ => json!({ "error": { "message": format!("unexpected method: {method}") } }),
+                };
+                Json(response)
+            }
+        }),
+    );
+    let mock = MockAria2Server::spawn_with_router(app).await;
+    let save_dir = temp_dir("service-confirm-native-magnet");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "native-gid",
+        save_dir.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "archlinux.iso".to_string();
+    task.file_path = None;
+    task.confirmation_required = true;
+    task.files = vec![DownloadTaskFile {
+        index: 1,
+        path: save_dir
+            .join("archlinux/archlinux.iso")
+            .display()
+            .to_string(),
+        name: "archlinux.iso".to_string(),
+        length: 1024,
+        completed_length: 0,
+        selected: true,
+    }];
+    let fixture = ServiceFixture::new(vec![task], false);
+    let metadata_dir = fixture.app_data_dir.join(metadata_dir_name);
+    std::fs::create_dir_all(&metadata_dir).expect("native metadata dir should create");
+    std::fs::write(metadata_dir.join("native-state"), b"metadata")
+        .expect("native metadata marker should write");
+    let mut config = test_config(mock.addr.port(), "secret");
+    config.state_dir = Some(
+        fixture
+            .app_data_dir
+            .join("native-state")
+            .display()
+            .to_string(),
+    );
+
+    let confirmed = fixture
+        .service()
+        .confirm_download_task_files(&config, 1, vec![1])
+        .await
+        .expect("native magnet should confirm on the original GID");
+
+    assert_eq!(confirmed.gid.as_deref(), Some("native-gid"));
+    assert_eq!(confirmed.status, DownloadTaskStatus::Active);
+    assert!(!confirmed.confirmation_required);
+    assert_eq!(confirmed.selected_file_indexes, [1]);
+    assert!(confirmed.metadata_torrent_path.is_none());
+    assert!(!metadata_dir.exists());
+    assert_eq!(
+        requests
+            .lock()
+            .expect("requests should lock")
+            .iter()
+            .filter_map(|request| request["method"].as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "aria2.tellStatus",
+            "aria2.changeOption",
+            "aria2.tellStatus",
+            "aria2.unpause",
+            "aria2.tellStatus"
+        ]
+    );
+    assert!(!requests
+        .lock()
+        .expect("requests should lock")
+        .iter()
+        .any(|request| request["method"] == "aria2.addTorrent"));
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Completed
+    );
+    mock.abort();
+}
+
+#[tokio::test]
 async fn restore_removed_url_task_returns_paused_task() {
     let mock = MockAria2Server::spawn().await;
     let mut task = sample_task(
