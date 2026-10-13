@@ -3,7 +3,7 @@ use crate::app::ServerRuntimeConfig;
 use crate::config::aria2::{Aria2BinarySource, Aria2Config, EngineGeneration};
 use std::path::{Path, PathBuf};
 
-pub(super) async fn inspect_engine_generation(binary: &Path) -> Result<EngineGeneration, String> {
+pub(crate) async fn inspect_engine_generation(binary: &Path) -> Result<EngineGeneration, String> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(3),
         tokio::process::Command::new(binary)

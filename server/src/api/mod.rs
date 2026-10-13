@@ -103,8 +103,48 @@ pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
         aria2_rpc: &state.aria2_rpc,
         aria2_lifecycle: &state.aria2_lifecycle,
         proxy_update_lock: &state.download_proxy_update_lock,
-        runtime_guard: RuntimeGuard::new(&state.core.shutdown),
+        runtime_guard: RuntimeGuard::with_compatibility(&state.core.shutdown, &state.compatibility),
     })
+}
+
+fn ensure_compatible_management_request(
+    state: &HttpAppState,
+    request: &Request<Body>,
+) -> Result<(), error::ApiError> {
+    let path = request.uri().path();
+    let path = path.strip_prefix("/api").unwrap_or(path);
+    let writes = !matches!(
+        *request.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    );
+    if writes
+        && (path.starts_with("/tasks")
+            || path == "/settings"
+            || path == "/settings/proxy"
+            || path == "/aria2/start")
+    {
+        state
+            .ensure_download_available()
+            .map_err(|message| error::ApiError::conflict("engine_upgrade_required", message))?;
+        if let Some(id) = path
+            .strip_prefix("/tasks/")
+            .and_then(|tail| tail.split('/').next())
+            .and_then(|id| id.parse::<u64>().ok())
+        {
+            if let Some(task) = build_task_service(state)
+                .get_download_task(id)
+                .map_err(|message| error::ApiError::internal("task_snapshot_failed", message))?
+            {
+                if state.public_task(task).read_only {
+                    return Err(error::ApiError::conflict(
+                        "task_engine_incompatible",
+                        "旧版任务仅供查看，不能继续、恢复、修改或删除",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn authorize_lan_jsonrpc_peer(

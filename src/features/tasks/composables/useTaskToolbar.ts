@@ -5,6 +5,7 @@ import type { DownloadTask } from "../../../types/tasks";
 interface UseTaskToolbarOptions {
   activeCategory: Ref<MainNavCategory>;
   isRuntimeExiting: Ref<boolean>;
+  isDownloadBlocked?: Ref<boolean>;
   visibleTasks?: Ref<DownloadTask[]>;
   clearTrashTasks?: Ref<DownloadTask[]>;
   isTaskOperating?: (taskId: number) => boolean;
@@ -21,6 +22,7 @@ const createEnabledCategories: MainNavCategory[] = ["all", "downloading", "compl
 export function useTaskToolbar({
   activeCategory,
   isRuntimeExiting,
+  isDownloadBlocked,
   visibleTasks,
   clearTrashTasks,
   isTaskOperating = () => false,
@@ -28,13 +30,13 @@ export function useTaskToolbar({
 }: UseTaskToolbarOptions) {
   const pauseCandidates = computed(() =>
     (visibleTasks?.value ?? []).filter(
-      (task) => (task.status === "active" || task.status === "pending") && !isTaskOperating(task.id),
+      (task) => !task.readOnly && (task.status === "active" || task.status === "pending") && !isTaskOperating(task.id),
     ),
   );
   const resumeCandidates = computed(() =>
     (visibleTasks?.value ?? []).filter(
       (task) =>
-        !task.confirmationRequired &&
+        !task.readOnly && !task.confirmationRequired &&
         (task.status === "paused" || task.status === "error") &&
         !isTaskOperating(task.id),
     ),
@@ -42,33 +44,34 @@ export function useTaskToolbar({
   const deleteCandidates = computed(() =>
     activeCategory.value === "trash" || activeCategory.value === "extensions"
       ? []
-      : (visibleTasks?.value ?? []).filter((task) => task.status !== "removed" && !isTaskOperating(task.id)),
+      : (visibleTasks?.value ?? []).filter((task) => !task.readOnly && task.status !== "removed" && !isTaskOperating(task.id)),
   );
   const clearTrashCandidates = computed(() =>
     activeCategory.value === "trash"
       ? (clearTrashTasks?.value ?? visibleTasks?.value ?? []).filter(
-          (task) => task.status === "removed" && !isTaskOperating(task.id),
+          (task) => !task.readOnly && task.status === "removed" && !isTaskOperating(task.id),
         )
       : [],
   );
   const isBusy = computed(() => Boolean(isBulkOperating?.value));
+  const canWrite = computed(() => !isRuntimeExiting.value && !isDownloadBlocked?.value);
   const canCreate = computed(
-    () => !isRuntimeExiting.value && createEnabledCategories.includes(activeCategory.value),
+    () => canWrite.value && createEnabledCategories.includes(activeCategory.value),
   );
   const canRefresh = computed(
     () => !isRuntimeExiting.value && activeCategory.value !== "extensions",
   );
   const canPauseVisible = computed(
-    () => !isRuntimeExiting.value && !isBusy.value && pauseCandidates.value.length > 0,
+    () => canWrite.value && !isBusy.value && pauseCandidates.value.length > 0,
   );
   const canResumeVisible = computed(
-    () => !isRuntimeExiting.value && !isBusy.value && resumeCandidates.value.length > 0,
+    () => canWrite.value && !isBusy.value && resumeCandidates.value.length > 0,
   );
   const canDeleteVisible = computed(
-    () => !isRuntimeExiting.value && !isBusy.value && deleteCandidates.value.length > 0,
+    () => canWrite.value && !isBusy.value && deleteCandidates.value.length > 0,
   );
   const canClearTrash = computed(
-    () => !isRuntimeExiting.value && !isBusy.value && clearTrashCandidates.value.length > 0,
+    () => canWrite.value && !isBusy.value && clearTrashCandidates.value.length > 0,
   );
 
   return {

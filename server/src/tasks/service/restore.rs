@@ -10,12 +10,10 @@ impl<'a> TaskService<'a> {
         restart_from_zero: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
-        if snapshot.engine_generation != config.engine_generation() {
-            return Err("task_engine_incompatible：任务与当前引擎代际不兼容".to_string());
-        }
         if snapshot.source_type != DownloadTaskSourceType::Url && use_proxy_override.is_some() {
             return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
         }

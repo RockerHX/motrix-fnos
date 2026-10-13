@@ -110,6 +110,9 @@ function stageServerBinary(target) {
   mkdirSync(destinationDir, { recursive: true });
   copyFileSync(source, destination);
   chmodSync(destination, 0o755);
+  copyFileSync(source, path.join(packagingRoot, 'cmd', 'upgrade-checker'));
+  chmodSync(path.join(packagingRoot, 'cmd', 'upgrade-checker'), 0o755);
+  writeFileSync(path.join(packagingRoot, 'app', 'bin', 'engine-generation'), 'legacy-v1\n');
 }
 
 function syncUiIcons() {

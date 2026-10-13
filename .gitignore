@@ -98,3 +98,4 @@ docs/verification/
 
 # CodeGraph local index, if generated later
 .codegraph/
+packaging/fnos/cmd/upgrade-checker

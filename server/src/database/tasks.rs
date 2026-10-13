@@ -405,11 +405,12 @@ pub async fn persist_download_task_states(
 }
 
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
+    let has_generation: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pragma_table_info('download_tasks') WHERE name = 'engine_generation')")
+        .fetch_one(pool).await.map_err(|_| "无法读取任务代际字段")?;
     let profile_proxy_url = get_download_proxy_config(pool)
         .await?
         .and_then(|config| config.proxy_url);
-    let rows = sqlx::query(
-        r#"
+    let query = r#"
         SELECT download_tasks.id, engine_generation, url, source_type, file_name, save_dir, owned_task_dir, gid, status,
                total_length, completed_length, category, download_speed, error_code, error_message,
                file_path, metadata_torrent_path, files_deleted, selected_file_indexes,
@@ -418,16 +419,35 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
         FROM download_tasks
         LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id
         ORDER BY created_at DESC, download_tasks.id DESC
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|error| format!("读取下载任务失败：{}", error))?;
+        "#;
+    let query = if has_generation {
+        query.to_string()
+    } else {
+        let trusted: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 7 AND name = 'web_auth_bootstrap_token')")
+            .fetch_one(pool).await.map_err(|_| "无法核对旧任务来源")?;
+        query
+            .replace(
+                "engine_generation",
+                if trusted {
+                    "'legacy-v1' AS engine_generation"
+                } else {
+                    "'unknown' AS engine_generation"
+                },
+            )
+            .replace("removed_from_status", "NULL AS removed_from_status")
+    };
+    let rows = sqlx::query(&query)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("读取下载任务失败：{}", error))?;
 
     let mut tasks = rows
         .into_iter()
         .map(|row| row_to_task(row, profile_proxy_url.as_deref()))
         .collect::<Result<Vec<_>, _>>()?;
+    if !has_generation {
+        return Ok(tasks);
+    }
     let files = sqlx::query("SELECT task_id, file_index, path, name, length, completed_length, selected FROM task_file_snapshots ORDER BY task_id, file_index")
         .fetch_all(pool)
         .await

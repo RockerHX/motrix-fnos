@@ -36,6 +36,9 @@ impl IdleStopDebouncer {
 }
 
 pub fn spawn_task_monitor(state: Arc<HttpAppState>) {
+    if state.ensure_download_available().is_err() {
+        return;
+    }
     tokio::spawn(async move {
         let mut idle_stop = IdleStopDebouncer::default();
         loop {
@@ -159,6 +162,7 @@ async fn maybe_auto_stop(
 }
 
 pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String> {
+    state.ensure_download_available()?;
     let previous_tasks = visible_tasks_snapshot(state)?;
     if !previous_tasks.iter().any(should_monitor_task) {
         return Ok(());
@@ -174,7 +178,12 @@ pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String>
         Some(&state.core.debug_logs),
     )
     .await?;
-    persist_download_task_states(&state.core.database.pool, &tasks).await?;
+    let compatible_tasks: Vec<_> = tasks
+        .iter()
+        .filter(|task| task.engine_generation == config.engine_generation())
+        .cloned()
+        .collect();
+    persist_download_task_states(&state.core.database.pool, &compatible_tasks).await?;
     let next_tasks = visible_tasks(tasks);
     if next_tasks != previous_tasks {
         broadcast_tasks_snapshot(state)?;
@@ -208,7 +217,7 @@ fn tasks_snapshot(
         .map_err(|_| "无法读取任务快照版本".to_string())?;
     let tasks = visible_tasks_snapshot(state)?
         .into_iter()
-        .map(Into::into)
+        .map(|task| state.public_task(task))
         .collect();
     if advance_revision {
         *revision = revision

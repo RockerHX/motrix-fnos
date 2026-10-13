@@ -42,6 +42,12 @@ pub(super) async fn add_uri(
     params: &Value,
 ) -> Result<String, RpcFault> {
     ensure_add_uri_token(state, access, params).await?;
+    state
+        .ensure_download_available()
+        .map_err(|message| RpcFault {
+            code: -32005,
+            message,
+        })?;
     let command = parse_add_uri_command(params)?;
     let save_dir = match command.save_dir {
         Some(save_dir) => save_dir,

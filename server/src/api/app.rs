@@ -91,7 +91,14 @@ pub fn routes() -> Router<Arc<HttpAppState>> {
     Router::new()
         .route("/app/info", get(get_app_info))
         .route("/app/ping", get(ping_backend))
+        .route("/app/compatibility", get(get_compatibility))
         .route("/app/update-check", get(check_update))
+}
+
+async fn get_compatibility(
+    State(state): State<Arc<HttpAppState>>,
+) -> Json<crate::app::compatibility::AppCompatibility> {
+    Json(state.compatibility_snapshot())
 }
 
 pub(crate) fn readiness_routes() -> Router<Arc<HttpAppState>> {

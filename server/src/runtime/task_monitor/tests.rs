@@ -236,7 +236,9 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
             assert_eq!(payload.tasks.len(), 1);
             assert_eq!(payload.tasks[0].status, DownloadTaskStatus::Complete);
         }
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     }
 
     cleanup_state(&state);
@@ -258,7 +260,9 @@ async fn task_snapshot_revisions_strictly_increase() {
         .expect("first event should be broadcast")
     {
         RuntimeEvent::TasksSnapshot(payload) => payload.revision,
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     };
     let second_revision = match receiver
         .recv()
@@ -266,7 +270,9 @@ async fn task_snapshot_revisions_strictly_increase() {
         .expect("second event should be broadcast")
     {
         RuntimeEvent::TasksSnapshot(payload) => payload.revision,
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     };
     assert_eq!(first_revision, 1);
     assert_eq!(second_revision, 2);

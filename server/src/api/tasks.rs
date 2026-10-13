@@ -119,7 +119,7 @@ async fn list_tasks(
             tasks
                 .into_iter()
                 .map(|task| {
-                    let mut public: PublicDownloadTask = task.into();
+                    let mut public = state.public_task(task);
                     if let Some(operation) = operations.iter().find(|operation| {
                         operation.task_id == public.id && operation.is_file_cleanup_pending()
                     }) {
@@ -140,7 +140,12 @@ async fn list_tasks(
     let tasks = service
         .list_download_task_snapshot()
         .map_err(classify_task_error)?;
-    Ok(Json(tasks.into_iter().map(Into::into).collect()))
+    Ok(Json(
+        tasks
+            .into_iter()
+            .map(|task| state.public_task(task))
+            .collect(),
+    ))
 }
 
 async fn create_task(
@@ -663,6 +668,9 @@ fn classify_task_error(error: String) -> ApiError {
 }
 
 fn classify_task_proxy_error(error: String) -> ApiError {
+    if error.contains("task_engine_incompatible") {
+        return ApiError::conflict("task_engine_incompatible", error);
+    }
     if error.contains("BT 任务不支持任务级代理") {
         return ApiError::bad_request("bt_task_proxy_unsupported", error);
     }

@@ -89,6 +89,7 @@ impl<'a> TaskService<'a> {
         selected_file_indexes: Vec<u32>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut selected = selected_file_indexes

@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct PublicDownloadTask {
     pub id: u64,
     pub engine_generation: crate::config::aria2::EngineGeneration,
+    #[serde(default)]
+    pub read_only: bool,
     pub url: String,
     pub source_type: DownloadTaskSourceType,
     pub file_name: String,
@@ -78,6 +80,7 @@ impl From<DownloadTask> for PublicDownloadTask {
         Self {
             id,
             engine_generation,
+            read_only: engine_generation != crate::config::aria2::EngineGeneration::NativeV2,
             url,
             source_type,
             file_name,

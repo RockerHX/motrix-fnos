@@ -9,6 +9,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         let gid = task_gid(self.download_tasks, task_id)?;
@@ -103,6 +104,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _guard = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if !matches!(
@@ -282,6 +284,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
@@ -510,6 +513,7 @@ impl<'a> TaskService<'a> {
         use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;

@@ -10,13 +10,11 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if snapshot.status == DownloadTaskStatus::Removed {
             return Err("任务已在回收站中".to_string());
-        }
-        if snapshot.engine_generation != config.engine_generation() {
-            return Err("task_engine_incompatible：任务与当前引擎代际不兼容".to_string());
         }
         if delete_files {
             self.validate_task_authorization(&snapshot)?;
@@ -277,18 +275,11 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<(), String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let task = task_snapshot(self.download_tasks, task_id)?;
         if task.status != DownloadTaskStatus::Removed {
             return Err("只有已删除任务可以永久删除".to_string());
-        }
-        if task
-            .gid
-            .as_deref()
-            .is_some_and(|gid| !gid.trim().is_empty())
-            && task.engine_generation != config.engine_generation()
-        {
-            return Err("task_engine_incompatible：任务与当前引擎代际不兼容".to_string());
         }
         self.ensure_file_cleanup_not_pending(task_id).await?;
 

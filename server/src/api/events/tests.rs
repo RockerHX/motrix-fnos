@@ -57,6 +57,8 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let mut body = response.into_body();
+    let compatibility = next_sse_frame(&mut body).await;
+    assert!(compatibility.contains("event: app.compatibility"));
     let text = next_sse_frame(&mut body).await;
     assert!(text.contains("event: tasks.snapshot"));
     assert!(text.contains("\"archive.zip\""));
@@ -107,12 +109,17 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
         .await
         .expect("response should succeed");
     let mut body = response.into_body();
+    assert!(next_sse_frame(&mut body)
+        .await
+        .contains("event: app.compatibility"));
     assert!(next_sse_frame(&mut body).await.contains("\"revision\":0"));
 
     for _ in 0..40 {
         broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
     }
 
+    let resync = next_sse_frame(&mut body).await;
+    assert!(resync.contains("event: app.compatibility"));
     let resync = next_sse_frame(&mut body).await;
     assert!(resync.contains("event: tasks.snapshot"));
     assert!(resync.contains("\"archive.zip\""));
@@ -153,6 +160,7 @@ async fn sse_route_closes_when_its_jwt_is_invalidated() {
         .await
         .expect("response should succeed");
     let mut body = response.into_body();
+    let _compatibility = next_sse_frame(&mut body).await;
     let _initial = next_sse_frame(&mut body).await;
 
     state

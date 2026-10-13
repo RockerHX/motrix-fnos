@@ -33,6 +33,7 @@ enum ReconcileAction {
 }
 
 pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Result<(), String> {
+    state.ensure_download_available()?;
     let operations = list_unfinished_task_operations(&state.core.database.pool)
         .await?
         .into_iter()

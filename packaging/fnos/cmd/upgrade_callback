@@ -1,5 +1,17 @@
 #!/bin/sh
 set -eu
 
-# 因 fnpack 1.2.1 会校验该文件存在而保留；当前无额外升级后置逻辑。
-exit 0
+. "$(dirname -- "$0")/common.sh"
+prepare_runtime_dirs
+export_runtime_env
+generation_file="${APP_DEST}/bin/engine-generation"
+[ -r "${generation_file}" ] || exit 1
+generation=$(sed -n '1{s/[[:space:]]//g;p;}' "${generation_file}")
+[ "${generation}" = native-v2 ] || exit 0
+if ! ensure_uninstall_processes_stopped; then
+  log_msg "升级迁移失败：服务或引擎仍在运行"
+  exit 1
+fi
+require_file "${CMD_DIR}/upgrade-checker" "独立升级迁移工具"
+MOTRIX_FNOS_APP_DATA_DIR="${APP_DATA_DIR}" MOTRIX_FNOS_ARIA2_PATH="${ARIA2_BIN}" \
+  "${CMD_DIR}/upgrade-checker" engine-upgrade-migrate

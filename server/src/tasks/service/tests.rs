@@ -15,6 +15,80 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[tokio::test]
+async fn incompatible_task_mutations_preserve_records_and_files_without_rpc() {
+    use crate::config::aria2::EngineGeneration;
+
+    let mock = TaskCreationMockAria2Server::spawn().await;
+    for generation in [EngineGeneration::LegacyV1, EngineGeneration::Unknown] {
+        let save_dir = temp_dir("incompatible-task");
+        std::fs::create_dir_all(&save_dir).expect("save dir should create");
+        let payload = save_dir.join("archive.zip");
+        std::fs::write(&payload, b"existing download").expect("payload should write");
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "old-gid",
+            save_dir.display().to_string(),
+        );
+        task.engine_generation = generation;
+        task.gid = None;
+        let fixture = ServiceFixture::new(vec![task.clone()], false);
+        let service = fixture.service();
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
+
+        let errors = [
+            service.pause_download_task(&config, 1).await.unwrap_err(),
+            service
+                .pause_task_for_revocation(&config, 1)
+                .await
+                .unwrap_err(),
+            service.resume_download_task(&config, 1).await.unwrap_err(),
+            service
+                .redownload_download_task(&config, 1, None)
+                .await
+                .unwrap_err(),
+            service
+                .confirm_download_task_files(&config, 1, vec![1])
+                .await
+                .unwrap_err(),
+            service
+                .restore_removed_task(&config, 1, None, false)
+                .await
+                .unwrap_err(),
+            service
+                .delete_download_task(&config, 1, true)
+                .await
+                .unwrap_err(),
+            service
+                .permanently_delete_removed_task(&config, 1)
+                .await
+                .unwrap_err(),
+            service
+                .update_download_task_proxy(Some(&config), 1, false)
+                .await
+                .unwrap_err(),
+        ];
+        assert!(errors
+            .iter()
+            .all(|error| error.contains("task_engine_incompatible")));
+        if generation == EngineGeneration::Unknown {
+            assert!(service
+                .update_download_task_proxy(None, 1, false)
+                .await
+                .unwrap_err()
+                .contains("task_engine_incompatible"));
+        }
+        assert_eq!(fixture.tasks.list().unwrap(), vec![task]);
+        assert!(fixture.repository.operations().is_empty());
+        assert!(fixture.repository.persisted_tasks().is_empty());
+        assert_eq!(std::fs::read(&payload).unwrap(), b"existing download");
+    }
+    assert!(mock.requests().is_empty());
+    mock.abort();
+}
+
+#[tokio::test]
 async fn create_download_task_rejects_when_runtime_is_exiting() {
     let fixture = ServiceFixture::new(Vec::new(), true);
     let config = test_config(6800, "");
@@ -1487,10 +1561,12 @@ async fn permanently_delete_native_task_without_gid_skips_engine() {
     task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
     task.gid = None;
     let fixture = ServiceFixture::new(vec![task], false);
+    let mut config = test_config(1, "secret");
+    config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
 
     fixture
         .service()
-        .permanently_delete_removed_task(&test_config(1, "secret"), 1)
+        .permanently_delete_removed_task(&config, 1)
         .await
         .expect("native task without GID should delete without starting Aria2");
 

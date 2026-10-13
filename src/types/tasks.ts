@@ -13,6 +13,7 @@ export interface CreateTaskAdvancedOptions {
 export interface DownloadTask {
   id: number;
   engineGeneration?: EngineGeneration;
+  readOnly?: boolean;
   url: string;
   /** Older servers may omit this field; the UI falls back to URL inference. */
   sourceType?: DownloadTaskSourceType;

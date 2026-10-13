@@ -9,6 +9,9 @@ use std::time::Duration;
 const FILE_CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 pub(crate) async fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
+    if state.ensure_download_available().is_err() {
+        return;
+    }
     let has_pending_cleanup = match has_pending_file_cleanup(&state).await {
         Ok(has_pending_cleanup) => has_pending_cleanup,
         Err(error) => {
@@ -79,6 +82,7 @@ async fn has_pending_file_cleanup(state: &HttpAppState) -> Result<bool, String> 
 }
 
 pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), String> {
+    state.ensure_download_available()?;
     let mut attempted = HashSet::new();
     let mut first_error = None;
 

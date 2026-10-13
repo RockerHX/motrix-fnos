@@ -48,6 +48,9 @@ pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 pub const JSONRPC_WEBSOCKET_CONNECTION_LIMIT: usize = 64;
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
+pub mod compatibility;
+mod engine_upgrade;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerRuntimeConfig {
     pub app_data_dir: PathBuf,
@@ -131,6 +134,7 @@ pub struct TasksSnapshotPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEvent {
+    AppCompatibility(compatibility::AppCompatibility),
     TasksSnapshot(TasksSnapshotPayload),
     RuntimeExiting(RuntimeExitingPayload),
 }
@@ -166,6 +170,7 @@ impl Default for RuntimeEventHub {
 }
 
 pub struct HttpAppState {
+    pub(crate) compatibility: Mutex<compatibility::AppCompatibility>,
     pub core: Arc<ServerState>,
     pub auth: AuthRuntime,
     pub runtime: ServerRuntimeConfig,
@@ -204,6 +209,9 @@ impl HttpAppState {
         let auth = AuthRuntime::new(core.database.pool.clone());
         let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
         Self {
+            compatibility: Mutex::new(compatibility::AppCompatibility::normal(
+                crate::config::aria2::EngineGeneration::LegacyV1,
+            )),
             core: Arc::new(core),
             auth,
             runtime,
@@ -381,6 +389,13 @@ impl HttpAppState {
 
     pub fn aria2_config(&self) -> Aria2Config {
         let mut config = self.base_aria2_config.clone();
+        if self.compatibility_snapshot().engine_generation
+            == crate::config::aria2::EngineGeneration::NativeV2
+        {
+            let paths = crate::state::native_aria2_runtime_paths(&self.runtime.app_data_dir);
+            config.state_dir = Some(paths.state_dir.display().to_string());
+            config.session_path = Some(paths.session_path.display().to_string());
+        }
         if let Some(runtime) = self.aria2_runtime_snapshot() {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
@@ -389,6 +404,25 @@ impl HttpAppState {
             config.log_path = runtime.aria2_log_path.clone();
         }
         config
+    }
+
+    pub fn compatibility_snapshot(&self) -> compatibility::AppCompatibility {
+        self.compatibility
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn ensure_download_available(&self) -> Result<(), String> {
+        self.compatibility_snapshot().ensure_download_available()
+    }
+
+    pub(crate) fn public_task(&self, task: DownloadTask) -> PublicDownloadTask {
+        let mut public: PublicDownloadTask = task.into();
+        public.read_only = self.compatibility_snapshot().mode == "restricted"
+            || public.engine_generation == crate::config::aria2::EngineGeneration::Unknown
+            || public.engine_generation != self.compatibility_snapshot().engine_generation;
+        public
     }
 
     pub fn with_aria2_runtime_paths(&self, config: Aria2Config) -> Result<Aria2Config, String> {
@@ -488,8 +522,30 @@ pub async fn bootstrap_http_app_state(
             "启动阶段无法刷新 fnOS 共享授权目录，继续使用旧快照"
         ),
     }
-    let database = connect_database(runtime.database_path.clone()).await?;
-    let mut restored_tasks = list_download_tasks(&database.pool).await?;
+    let generation = match crate::runtime::resolve_aria2_binary(runtime, &Aria2Config::from_env()) {
+        Ok(binary) => crate::runtime::aria2_process::inspect_engine_generation(&binary.path)
+            .await
+            .unwrap_or(crate::config::aria2::EngineGeneration::Unknown),
+        Err(_) if runtime.aria2_path.is_none() => crate::config::aria2::EngineGeneration::LegacyV1,
+        Err(_) => crate::config::aria2::EngineGeneration::Unknown,
+    };
+    let mut compatibility =
+        engine_upgrade::startup_compatibility(&runtime.app_data_dir, generation).await;
+    let database = if compatibility.mode == "restricted" && runtime.database_path.exists() {
+        crate::database::open_existing_database(runtime.database_path.clone()).await?
+    } else {
+        connect_database(runtime.database_path.clone()).await?
+    };
+    let mut restored_tasks = match list_download_tasks(&database.pool).await {
+        Ok(tasks) => tasks,
+        Err(_) if compatibility.mode == "restricted" => Vec::new(),
+        Err(error) => {
+            compatibility =
+                compatibility::AppCompatibility::restricted(generation, "legacy_state_invalid");
+            tracing::warn!("任务快照不可读取，进入受限管理：{error}");
+            Vec::new()
+        }
+    };
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
     let fallback_download_dir = default_download_dir(&accessible_paths, &runtime.app_data_dir)
         .display()
@@ -497,15 +553,23 @@ pub async fn bootstrap_http_app_state(
     let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
     let json_rpc_token = load_json_rpc_token(&database.pool).await?;
     let lan_json_rpc_config = load_lan_json_rpc_config(&database.pool).await?;
-    migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
-    // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
-    reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
-    persist_download_task_states(&database.pool, &restored_tasks).await?;
+    if compatibility.mode == "normal"
+        && generation == crate::config::aria2::EngineGeneration::LegacyV1
+    {
+        migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
+        // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
+        reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
+        persist_download_task_states(&database.pool, &restored_tasks).await?;
+    }
     let next_task_id = max_download_task_id(&database.pool)
         .await?
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
     let state = Arc::new(HttpAppState::new(state, runtime.clone()));
+    *state
+        .compatibility
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = compatibility;
     state.set_app_config(app_config.clone()).await;
     state
         .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
@@ -513,8 +577,10 @@ pub async fn bootstrap_http_app_state(
     *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
     // cmd/start 已完成孤儿进程对账；必须在未完成操作可能唤醒 Aria2 前收敛旧日志。
     crate::runtime::maintain_startup_aria2_logs(&state).await;
-    crate::runtime::reconcile_unfinished_task_operations(&state).await?;
-    crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    if state.ensure_download_available().is_ok() {
+        crate::runtime::reconcile_unfinished_task_operations(&state).await?;
+        crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    }
 
     Ok(state)
 }
@@ -734,6 +800,10 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
         [command] if command == "initialize-web-auth" => initialize_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
+        [command] if command == "engine-upgrade-check" || command == "engine-upgrade-migrate" => {
+            let runtime = ServerRuntimeConfig::from_env()?;
+            engine_upgrade::run_upgrade(&runtime.app_data_dir, command == "engine-upgrade-migrate").await
+        }
         [command, output] if command == "database-backup" => database_backup(output).await,
         [command, before] if command == "database-cleanup-history" => {
             database_cleanup_history(before, false).await
@@ -744,7 +814,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|engine-upgrade-check|engine-upgrade-migrate|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }

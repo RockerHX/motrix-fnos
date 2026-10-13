@@ -19,6 +19,16 @@ pub(crate) async fn run_shutdown_cleanup_until(
     state: &Arc<HttpAppState>,
     deadline: Instant,
 ) -> bool {
+    if state.ensure_download_available().is_err() {
+        return run_shutdown_stage(state, deadline, "停止受限管理引擎", async {
+            super::aria2_process::stop_aria2_after_shutdown(state, deadline)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .await
+            == Some(true);
+    }
     state
         .core
         .debug_logs
@@ -115,7 +125,7 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String>
     )
     .await
     {
-        Ok(tasks) => persist_download_task_states(&state.core.database.pool, &tasks).await,
+        Ok(tasks) => persist_compatible_tasks(state, &tasks).await,
         Err(error) => {
             persist_last_known_tasks(state).await?;
             Err(format!(
@@ -184,7 +194,20 @@ async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) -> Result<(),
 
 async fn persist_last_known_tasks(state: &Arc<HttpAppState>) -> Result<(), String> {
     let tasks = list_tasks(&state.core.download_tasks)?;
-    persist_download_task_states(&state.core.database.pool, &tasks)
+    persist_compatible_tasks(state, &tasks).await
+}
+
+async fn persist_compatible_tasks(
+    state: &Arc<HttpAppState>,
+    tasks: &[crate::tasks::DownloadTask],
+) -> Result<(), String> {
+    let generation = state.aria2_config().engine_generation();
+    let compatible = tasks
+        .iter()
+        .filter(|task| task.engine_generation == generation)
+        .cloned()
+        .collect::<Vec<_>>();
+    persist_download_task_states(&state.core.database.pool, &compatible)
         .await
         .map_err(|error| format!("退出前保存最后已知任务状态失败：{error}"))
 }

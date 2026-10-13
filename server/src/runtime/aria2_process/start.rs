@@ -113,6 +113,12 @@ impl Deref for ReadyAria2 {
 }
 
 pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<ReadyAria2, String> {
+    // 先确认配置的二进制路径；受限状态仍应返回明确的安装错误，而不是掩盖成兼容性错误。
+    if state.compatibility_snapshot().mode == "restricted" {
+        resolve_aria2_binary(&state.runtime, &state.aria2_config())
+            .map_err(|error| lifecycle_error(state, error))?;
+    }
+    state.ensure_download_available()?;
     let activity = state.aria2_lifecycle.acquire_activity()?;
     let _operation = state
         .aria2_lifecycle
@@ -126,6 +132,11 @@ pub async fn ensure_aria2_ready(state: &HttpAppState) -> Result<ReadyAria2, Stri
 }
 
 async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, String> {
+    if state.compatibility_snapshot().mode == "restricted" {
+        resolve_aria2_binary(&state.runtime, &state.aria2_config())
+            .map_err(|error| lifecycle_error(state, error))?;
+    }
+    state.ensure_download_available()?;
     let process = process_status(&state.aria2_process)?;
     if process.running {
         let Some(runtime) = state.aria2_runtime_snapshot() else {
@@ -423,7 +434,14 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                 return Err(lifecycle_error(state, error));
             }
         }
-        if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
+        let compatible_tasks: Vec<_> = tasks
+            .iter()
+            .filter(|task| task.engine_generation == config.engine_generation())
+            .cloned()
+            .collect();
+        if let Err(error) =
+            persist_download_task_states(&state.core.database.pool, &compatible_tasks).await
+        {
             state
                 .core
                 .download_tasks

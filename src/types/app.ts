@@ -1,3 +1,12 @@
+export interface AppCompatibility {
+  engineGeneration: "legacy-v1" | "native-v2" | "unknown";
+  mode: "normal" | "restricted";
+  reasonCode: string | null;
+  unfinishedTaskCount: number;
+  unresolvedOperationCount: number;
+  message: string;
+}
+
 export interface AppInfo {
   name: string;
   version: string;

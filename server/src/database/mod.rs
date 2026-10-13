@@ -13,6 +13,19 @@ pub(crate) mod web_auth;
 
 pub const DATABASE_FILE_NAME: &str = "motrix-fnos.sqlite";
 
+pub(crate) async fn open_existing_database(path: PathBuf) -> Result<AppDatabase, String> {
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(false)
+        .busy_timeout(Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(options)
+        .await
+        .map_err(|_| "无法打开原数据库，已保留数据；请通过原版本或本机备份恢复".to_string())?;
+    Ok(AppDatabase { pool, path })
+}
+
 #[derive(Debug, Clone)]
 pub struct AppDatabase {
     pub pool: SqlitePool,

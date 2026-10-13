@@ -38,6 +38,14 @@ impl TaskService<'_> {
         enabled: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_generation_writable(task_id)?;
+        if let Some(config) = config {
+            self.ensure_task_engine_compatible(config, task_id)?;
+        } else if task_snapshot(self.download_tasks, task_id)?.engine_generation
+            == crate::config::aria2::EngineGeneration::Unknown
+        {
+            return Err("task_engine_incompatible：任务代际未知，旧记录仅供查看".to_string());
+        }
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _task_operation_guard = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;

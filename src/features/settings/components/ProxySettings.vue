@@ -7,9 +7,11 @@ import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
+import { useTaskStore } from "../../tasks/stores/taskStore";
 
 const props = defineProps<{ active: boolean }>();
 const store = useDownloadProxyStore();
+const taskStore = useTaskStore();
 const message = useMessage();
 const { t } = useI18n();
 const showSaveConfirm = ref(false);
@@ -22,8 +24,8 @@ const statusText = computed(() => {
     ? store.status.maskedProxyUrl || t("settings.proxy.configured")
     : t("settings.proxy.notConfigured");
 });
-const canSave = computed(() => Boolean(store.draftProxyUrl.trim()) && !store.isLoading && !store.isSaving);
-const canToggleBtProxy = computed(() => Boolean(store.status?.configured) && !store.isLoading && !store.isSaving);
+const canSave = computed(() => !taskStore.isDownloadBlocked && Boolean(store.draftProxyUrl.trim()) && !store.isLoading && !store.isSaving);
+const canToggleBtProxy = computed(() => !taskStore.isDownloadBlocked && Boolean(store.status?.configured) && !store.isLoading && !store.isSaving);
 const saveMode = computed(() => (store.status?.configured ? "replace" : "save"));
 const btRuntimeStatusText = computed(() => {
   const status = store.status?.btRuntimeApply;
@@ -148,7 +150,7 @@ onUnmounted(closeTransientState);
       type="password"
       show-password-on="mousedown"
       :placeholder="t('settings.proxy.placeholder')"
-      :disabled="store.isLoading || store.isSaving"
+      :disabled="taskStore.isDownloadBlocked || store.isLoading || store.isSaving"
       :input-props="{ autocomplete: 'off', spellcheck: 'false' }"
       :maxlength="2048"
       data-test="download-proxy-input"
@@ -160,7 +162,7 @@ onUnmounted(closeTransientState);
       <NButton
         type="error"
         secondary
-        :disabled="!store.status?.configured || store.isLoading || store.isSaving"
+        :disabled="taskStore.isDownloadBlocked || !store.status?.configured || store.isLoading || store.isSaving"
         @click="showClearConfirm = true"
       >
         <template #icon><NIcon><IconTrash /></NIcon></template>

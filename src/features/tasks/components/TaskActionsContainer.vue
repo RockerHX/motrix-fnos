@@ -64,17 +64,17 @@ watch(
 
 const actionState = computed<TaskActionState>(() => ({
   isOperating: taskStore.isTaskOperating(props.task.id),
-  isActionDisabled: taskStore.isTaskOperating(props.task.id) || taskStore.isRuntimeExiting,
+  isActionDisabled: taskStore.isTaskOperating(props.task.id) || taskStore.isRuntimeExiting || taskStore.isDownloadBlocked || props.task.readOnly === true,
   isRuntimeExiting: taskStore.isRuntimeExiting,
 }));
 const permissions = computed<TaskActionPermissions>(() => ({
-  canPause: props.task.status === "active" || props.task.status === "pending",
-  canResume: !props.task.confirmationRequired && (props.task.status === "paused" || props.task.status === "error"),
-  canConfirmFiles: props.task.confirmationRequired && props.task.files.length > 0,
-  canRedownload: props.task.status === "complete",
-  canDelete: props.task.status !== "removed",
-  canRestore: props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
-  canPermanentDelete: props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
+  canPause: !props.task.readOnly && (props.task.status === "active" || props.task.status === "pending"),
+  canResume: !props.task.readOnly && !props.task.confirmationRequired && (props.task.status === "paused" || props.task.status === "error"),
+  canConfirmFiles: !props.task.readOnly && props.task.confirmationRequired && props.task.files.length > 0,
+  canRedownload: !props.task.readOnly && props.task.status === "complete",
+  canDelete: !props.task.readOnly && props.task.status !== "removed",
+  canRestore: !props.task.readOnly && props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
+  canPermanentDelete: !props.task.readOnly && props.task.status === "removed" && (!props.task.cleanupState || props.task.cleanupState === "none"),
 }));
 const labels = computed<TaskActionLabels>(() => ({
   details: t("task.actions.details"),
@@ -264,6 +264,10 @@ async function runFileAction(kind: "fileManager" | "file" | "details") {
 }
 
 function ensureCanOperate() {
+  if (taskStore.isDownloadBlocked || props.task.readOnly) {
+    message.warning(t("task.legacyReadOnly"));
+    return false;
+  }
   if (taskStore.isRuntimeExiting) {
     message.warning(t("task.runtimeExiting"));
     return false;

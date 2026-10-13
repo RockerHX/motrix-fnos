@@ -3,13 +3,15 @@ import { computed } from "vue";
 import { NTag } from "naive-ui";
 import type { DownloadTask } from "../../../types/tasks";
 import { deriveTaskDisplayStatus, formatTaskStatusLabel } from "../utils/taskFormat";
+import { useI18n } from "../../../i18n";
+const { t } = useI18n();
 
 const props = defineProps<{
   task: DownloadTask;
 }>();
 
 const displayStatus = computed(() => deriveTaskDisplayStatus(props.task));
-const label = computed(() => formatTaskStatusLabel(props.task));
+const label = computed(() => props.task.readOnly ? `${formatTaskStatusLabel(props.task)} · ${t("task.readOnly")}` : formatTaskStatusLabel(props.task));
 
 const badgeType = computed(() => {
   if (displayStatus.value === "active") {

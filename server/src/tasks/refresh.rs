@@ -13,6 +13,7 @@ pub async fn refresh_tasks_from_aria2(
     let candidates: Vec<DownloadTask> = snapshot
         .iter()
         .filter(|task| should_refresh_task(task))
+        .filter(|task| task.engine_generation == config.engine_generation())
         .filter(|task| {
             task.gid
                 .as_deref()
