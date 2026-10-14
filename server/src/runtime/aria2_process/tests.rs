@@ -256,9 +256,7 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         AppConfig {
             default_download_dir: default_download_dir.clone(),
             max_concurrent_downloads: 9,
-            max_connection_per_server: 6,
-            split: 7,
-            min_split_size: "5M".to_string(),
+            http_max_connections: 6,
             connect_timeout: 90,
             max_tries: 8,
             download_limit: 1024,
@@ -335,8 +333,7 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         global_options["params"][1]["max-connection-per-server"],
         "6"
     );
-    assert_eq!(global_options["params"][1]["split"], "7");
-    assert_eq!(global_options["params"][1]["min-split-size"], "5M");
+    assert_eq!(global_options["params"][1]["split"], "6");
     assert_eq!(global_options["params"][1]["connect-timeout"], "90");
     assert_eq!(global_options["params"][1]["max-tries"], "8");
 }

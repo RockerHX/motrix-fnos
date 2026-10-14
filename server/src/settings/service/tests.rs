@@ -26,9 +26,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 AppConfig {
                     default_download_dir: "/tmp/downloads".to_string(),
                     max_concurrent_downloads: 0,
-                    max_connection_per_server: 6,
-                    split: 7,
-                    min_split_size: "5M".to_string(),
+                    http_max_connections: 6,
                     connect_timeout: 90,
                     max_tries: 8,
                     download_limit: 1024,
@@ -55,9 +53,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 AppConfig {
                     default_download_dir: "/tmp/downloads".to_string(),
                     max_concurrent_downloads: 1,
-                    max_connection_per_server: 6,
-                    split: 7,
-                    min_split_size: "5M".to_string(),
+                    http_max_connections: 6,
                     connect_timeout: 90,
                     max_tries: 8,
                     download_limit: 1024,
@@ -76,9 +72,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 .expect("config should load");
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
             assert_eq!(loaded.max_concurrent_downloads, 1);
-            assert_eq!(loaded.max_connection_per_server, 6);
-            assert_eq!(loaded.split, 7);
-            assert_eq!(loaded.min_split_size, "5M");
+            assert_eq!(loaded.http_max_connections, 6);
             assert_eq!(loaded.connect_timeout, 90);
             assert_eq!(loaded.max_tries, 8);
             assert_eq!(loaded.download_limit, 1024);
@@ -185,7 +179,7 @@ fn app_config_accepts_legacy_saved_values() {
             sqlx::query(
                 r#"
                 INSERT INTO app_config (key, value, updated_at)
-                VALUES ('download', '{"defaultDownloadDir":"/tmp/downloads","maxConcurrentDownloads":128,"downloadLimit":0,"uploadLimit":0,"autoStartEnabled":true,"notificationsEnabled":true}', 1)
+                VALUES ('download', '{"defaultDownloadDir":"/tmp/downloads","maxConcurrentDownloads":128,"split":8,"maxConnectionPerServer":3,"minSplitSize":"5M","downloadLimit":0,"uploadLimit":0,"autoStartEnabled":true,"notificationsEnabled":true}', 1)
                 "#,
             )
             .execute(&database.pool)
@@ -198,12 +192,7 @@ fn app_config_accepts_legacy_saved_values() {
 
             assert_eq!(loaded.default_download_dir, "/tmp/downloads");
             assert_eq!(loaded.max_concurrent_downloads, 128);
-            assert_eq!(
-                loaded.max_connection_per_server,
-                DEFAULT_MAX_CONNECTION_PER_SERVER
-            );
-            assert_eq!(loaded.split, DEFAULT_SPLIT);
-            assert_eq!(loaded.min_split_size, "20M");
+            assert_eq!(loaded.http_max_connections, 3);
             assert_eq!(loaded.connect_timeout, DEFAULT_CONNECT_TIMEOUT);
             assert_eq!(loaded.max_tries, DEFAULT_MAX_TRIES);
             assert_eq!(loaded.language, "zh-CN");
@@ -246,9 +235,7 @@ fn app_config_normalizes_download_tuning_bounds() {
         AppConfig {
             default_download_dir: "/tmp/downloads".to_string(),
             max_concurrent_downloads: 0,
-            max_connection_per_server: 0,
-            split: 0,
-            min_split_size: "invalid".to_string(),
+            http_max_connections: 1,
             connect_timeout: 0,
             max_tries: 0,
             download_limit: 0,
@@ -259,9 +246,7 @@ fn app_config_normalizes_download_tuning_bounds() {
     )
     .expect("config should normalize");
     assert_eq!(lower.max_concurrent_downloads, 1);
-    assert_eq!(lower.max_connection_per_server, 1);
-    assert_eq!(lower.split, 1);
-    assert_eq!(lower.min_split_size, "20M");
+    assert_eq!(lower.http_max_connections, DEFAULT_HTTP_MAX_CONNECTIONS);
     assert_eq!(lower.connect_timeout, 1);
     assert_eq!(lower.max_tries, 1);
 
@@ -269,9 +254,7 @@ fn app_config_normalizes_download_tuning_bounds() {
         AppConfig {
             default_download_dir: "/tmp/downloads".to_string(),
             max_concurrent_downloads: MAX_CONCURRENT_DOWNLOADS_LIMIT + 1,
-            max_connection_per_server: MAX_CONNECTION_PER_SERVER_LIMIT + 1,
-            split: MAX_SPLIT_LIMIT + 1,
-            min_split_size: "1M".to_string(),
+            http_max_connections: HTTP_MAX_CONNECTIONS_LIMIT,
             connect_timeout: MAX_CONNECT_TIMEOUT_LIMIT + 1,
             max_tries: MAX_TRIES_LIMIT + 1,
             download_limit: 0,
@@ -285,12 +268,65 @@ fn app_config_normalizes_download_tuning_bounds() {
         upper.max_concurrent_downloads,
         MAX_CONCURRENT_DOWNLOADS_LIMIT
     );
-    assert_eq!(
-        upper.max_connection_per_server,
-        MAX_CONNECTION_PER_SERVER_LIMIT
-    );
-    assert_eq!(upper.split, MAX_SPLIT_LIMIT);
-    assert_eq!(upper.min_split_size, "1M");
+    assert_eq!(upper.http_max_connections, HTTP_MAX_CONNECTIONS_LIMIT);
     assert_eq!(upper.connect_timeout, MAX_CONNECT_TIMEOUT_LIMIT);
     assert_eq!(upper.max_tries, MAX_TRIES_LIMIT);
+}
+
+#[test]
+fn legacy_connection_settings_use_the_lower_valid_limit() {
+    for (value, expected) in [
+        (serde_json::json!({}), 1),
+        (
+            serde_json::json!({"split": 12, "maxConnectionPerServer": 8}),
+            8,
+        ),
+        (
+            serde_json::json!({"split": -1, "maxConnectionPerServer": 8}),
+            5,
+        ),
+        (
+            serde_json::json!({"split": "invalid", "maxConnectionPerServer": 0}),
+            1,
+        ),
+    ] {
+        let mut value = value;
+        migrate_connection_settings(&mut value).expect("legacy settings should migrate");
+        assert_eq!(value["httpMaxConnections"], expected);
+        assert!(value.get("split").is_none());
+        assert!(value.get("maxConnectionPerServer").is_none());
+    }
+}
+
+#[test]
+fn invalid_stored_connection_limit_defaults_but_api_input_is_rejected() {
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!("bad"),
+        serde_json::json!(65),
+    ] {
+        let mut stored = serde_json::json!({"httpMaxConnections": value});
+        migrate_connection_settings(&mut stored).expect("stored config should migrate");
+        assert_eq!(stored["httpMaxConnections"], DEFAULT_HTTP_MAX_CONNECTIONS);
+    }
+
+    for value in [
+        serde_json::json!(-1),
+        serde_json::json!("bad"),
+        serde_json::json!(65),
+    ] {
+        let error = parse_app_config_request(serde_json::json!({
+            "defaultDownloadDir": "/downloads",
+            "maxConcurrentDownloads": 5,
+            "httpMaxConnections": value,
+            "downloadLimit": 0,
+            "uploadLimit": 0
+        }))
+        .expect_err("invalid API value should fail");
+        assert!(error.starts_with("settings_connections_invalid"));
+    }
+
+    let error = parse_app_config_request(serde_json::json!({"minSplitSize": "5M"}))
+        .expect_err("deprecated option should fail");
+    assert!(error.starts_with("settings_option_unsupported"));
 }

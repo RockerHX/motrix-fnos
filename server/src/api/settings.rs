@@ -161,8 +161,10 @@ async fn clear_download_proxy(
 
 async fn update_settings(
     State(state): State<Arc<HttpAppState>>,
-    ApiJson(payload): ApiJson<AppConfig>,
+    ApiJson(payload): ApiJson<serde_json::Value>,
 ) -> Result<Json<UpdateSettingsResponse>, ApiError> {
+    let payload = crate::settings::service::parse_app_config_request(payload)
+        .map_err(classify_settings_save_error)?;
     let accessible_paths = accessible_paths(&state)?;
     let default_download_dir =
         crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
@@ -322,6 +324,16 @@ fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
 }
 
 fn classify_settings_save_error(error: String) -> ApiError {
+    for code in [
+        "settings_connections_invalid",
+        "settings_option_conflict",
+        "settings_option_unsupported",
+        "settings_save_failed",
+    ] {
+        if error.starts_with(code) {
+            return ApiError::bad_request(code, error);
+        }
+    }
     if error.contains("默认下载目录") {
         return ApiError::bad_request("settings_save_failed", error);
     }
@@ -440,9 +452,7 @@ async fn apply_runtime_download_config(
         config.max_concurrent_downloads,
         config.download_limit,
         config.upload_limit,
-        config.max_connection_per_server,
-        config.split,
-        &config.min_split_size,
+        config.http_max_connections,
         config.connect_timeout,
         config.max_tries,
     );

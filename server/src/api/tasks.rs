@@ -595,6 +595,16 @@ fn classify_aria2_ready_error(error: String) -> ApiError {
 
 fn classify_task_error(error: String) -> ApiError {
     for code in [
+        "task_connections_invalid",
+        "aria2_option_conflict",
+        "aria2_option_unsupported",
+        "aria2_option_forbidden",
+    ] {
+        if error.starts_with(code) {
+            return ApiError::bad_request(code, error);
+        }
+    }
+    for code in [
         "task_restart_confirmation_required",
         "task_resume_state_invalid",
         "task_metadata_missing",

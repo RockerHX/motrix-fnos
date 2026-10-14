@@ -281,8 +281,7 @@ fn prepare_task_maps_non_proxy_advanced_options_and_category() {
     .expect("advanced options task should be prepared");
 
     assert_eq!(task.category, "电影");
-    assert_eq!(task.aria2_options["split"], "8");
-    assert_eq!(task.aria2_options["max-connection-per-server"], "8");
+    assert_eq!(task.aria2_options["stream-max-connections"], "8");
     assert_eq!(task.aria2_options["max-download-limit"], "524288");
     assert!(!task.aria2_options.contains_key("all-proxy"));
     assert_eq!(task.aria2_options["user-agent"], "Motrix");
@@ -1450,6 +1449,34 @@ fn apply_aria2_status_keeps_active_progress_non_decreasing() {
     assert_eq!(task.total_length, 100);
     assert_eq!(task.completed_length, 65);
     assert_eq!(task.download_speed, 20);
+}
+
+#[test]
+fn native_aria2_status_reflects_progress_regressions() {
+    let mut task = sample_task(None, "/downloads".to_string());
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.total_length = 100;
+    task.completed_length = 65;
+
+    apply_aria2_status(
+        &mut task,
+        &Aria2TaskStatus {
+            gid: None,
+            status: "active".to_string(),
+            total_length: "100".to_string(),
+            completed_length: "63".to_string(),
+            download_speed: "20".to_string(),
+            error_code: None,
+            error_message: None,
+            dir: None,
+            files: None,
+            followed_by: None,
+            bittorrent: None,
+        },
+    );
+
+    assert_eq!(task.total_length, 100);
+    assert_eq!(task.completed_length, 63);
 }
 
 #[test]

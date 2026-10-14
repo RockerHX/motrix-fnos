@@ -93,20 +93,23 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
     let next_total_length = parse_aria2_u64(&status.total_length);
     let next_completed_length = parse_aria2_u64(&status.completed_length);
     // Aria2 在切换状态或 session 恢复时可能暂时返回 0 长度，不能用瞬时空值抹掉已经持久化的进度。
-    let should_preserve_progress = should_preserve_existing_progress(
-        &status.status,
-        next_total_length,
-        next_completed_length,
-        task.total_length,
-    );
+    let legacy = task.engine_generation == crate::config::aria2::EngineGeneration::LegacyV1;
+    let should_preserve_progress = legacy
+        && should_preserve_existing_progress(
+            &status.status,
+            next_total_length,
+            next_completed_length,
+            task.total_length,
+        );
     // 活跃任务的 completedLength 偶尔会短暂回退；总长度未变化时保持单调递增，避免 UI 和数据库进度倒退。
-    let should_keep_completed_length = should_keep_non_decreasing_completed_length(
-        &status.status,
-        next_total_length,
-        next_completed_length,
-        task.total_length,
-        task.completed_length,
-    );
+    let should_keep_completed_length = legacy
+        && should_keep_non_decreasing_completed_length(
+            &status.status,
+            next_total_length,
+            next_completed_length,
+            task.total_length,
+            task.completed_length,
+        );
 
     task.status = map_aria2_status(&status.status);
     if !should_preserve_progress {

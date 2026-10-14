@@ -1259,11 +1259,10 @@ fn parse_add_uri_preserves_speed_related_options() {
         {
             "dir": "/vol1/1000/tmp",
             "out": "file.zip",
-            "split": "256",
-            "max-connection-per-server": "256",
+            "split": "12",
+            "max-connection-per-server": "8",
             "max-download-limit": "524288",
             "all-proxy": "socks5://127.0.0.1:7890",
-            "min-split-size": "1M",
             "user-agent": "Motrix",
             "header": ["Referer: https://example.com"],
             "unknown-option": "ignored"
@@ -1271,14 +1270,16 @@ fn parse_add_uri_preserves_speed_related_options() {
     ]))
     .expect("addUri params should parse");
 
-    assert_eq!(command.aria2_options["split"], "256");
-    assert_eq!(command.aria2_options["max-connection-per-server"], "256");
+    assert_eq!(command.aria2_options["stream-max-connections"], "8");
+    assert!(!command.aria2_options.contains_key("split"));
+    assert!(!command
+        .aria2_options
+        .contains_key("max-connection-per-server"));
     assert_eq!(command.aria2_options["max-download-limit"], "524288");
     assert_eq!(
         command.aria2_options["all-proxy"],
         "socks5://127.0.0.1:7890"
     );
-    assert_eq!(command.aria2_options["min-split-size"], "1M");
     assert_eq!(command.aria2_options["user-agent"], "Motrix");
     assert_eq!(
         command.aria2_options["header"][0],

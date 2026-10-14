@@ -20,17 +20,13 @@ import { supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import {
   DEFAULT_CONNECT_TIMEOUT,
-  DEFAULT_MAX_CONNECTION_PER_SERVER,
+  DEFAULT_HTTP_MAX_CONNECTIONS,
   DEFAULT_MAX_CONCURRENT_DOWNLOADS,
   DEFAULT_MAX_TRIES,
-  DEFAULT_MIN_SPLIT_SIZE,
-  DEFAULT_SPLIT,
   MAX_CONNECT_TIMEOUT_LIMIT,
-  MAX_CONNECTION_PER_SERVER_LIMIT,
+  HTTP_MAX_CONNECTIONS_LIMIT,
   MAX_CONCURRENT_DOWNLOADS_LIMIT,
-  MAX_SPLIT_LIMIT,
   MAX_TRIES_LIMIT,
-  MIN_SPLIT_SIZE_OPTIONS,
   type AppConfig,
 } from "../../../types/settings";
 import WebAuthSettings from "../../auth/components/WebAuthSettings.vue";
@@ -68,9 +64,7 @@ const savedLanguage = ref<AppConfig["language"] | null>(null);
 const form = reactive({
   defaultDownloadDir: "",
   maxConcurrentDownloads: DEFAULT_MAX_CONCURRENT_DOWNLOADS,
-  maxConnectionPerServer: DEFAULT_MAX_CONNECTION_PER_SERVER,
-  split: DEFAULT_SPLIT,
-  minSplitSize: DEFAULT_MIN_SPLIT_SIZE,
+  httpMaxConnections: DEFAULT_HTTP_MAX_CONNECTIONS,
   connectTimeout: DEFAULT_CONNECT_TIMEOUT,
   maxTries: DEFAULT_MAX_TRIES,
   downloadLimitKb: 0,
@@ -107,7 +101,6 @@ const languageOptions = computed(() =>
     value: language,
   })),
 );
-const minSplitSizeOptions = MIN_SPLIT_SIZE_OPTIONS.map((value) => ({ label: value, value }));
 const isDefaultDownloadDirUnauthorized = computed(
   () =>
     settingsStore.accessiblePaths.length > 0 &&
@@ -271,9 +264,7 @@ function showSaveResult(status: AppConfig["runtimeApply"]) {
 function applyConfig(config: AppConfig) {
   form.defaultDownloadDir = config.defaultDownloadDir;
   form.maxConcurrentDownloads = config.maxConcurrentDownloads;
-  form.maxConnectionPerServer = config.maxConnectionPerServer ?? DEFAULT_MAX_CONNECTION_PER_SERVER;
-  form.split = config.split ?? DEFAULT_SPLIT;
-  form.minSplitSize = config.minSplitSize ?? DEFAULT_MIN_SPLIT_SIZE;
+  form.httpMaxConnections = config.httpMaxConnections ?? DEFAULT_HTTP_MAX_CONNECTIONS;
   form.connectTimeout = config.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT;
   form.maxTries = config.maxTries ?? DEFAULT_MAX_TRIES;
   form.downloadLimitKb = bytesToKb(config.downloadLimit);
@@ -286,9 +277,7 @@ function buildPayload(): AppConfig {
   return {
     defaultDownloadDir: form.defaultDownloadDir,
     maxConcurrentDownloads: Math.trunc(form.maxConcurrentDownloads || 1),
-    maxConnectionPerServer: Math.trunc(form.maxConnectionPerServer || 1),
-    split: Math.trunc(form.split || 1),
-    minSplitSize: form.minSplitSize,
+    httpMaxConnections: Math.trunc(form.httpMaxConnections || 1),
     connectTimeout: Math.trunc(form.connectTimeout || 1),
     maxTries: Math.trunc(form.maxTries || 1),
     downloadLimit: kbToBytes(form.downloadLimitKb),
@@ -470,21 +459,14 @@ function formatSpeed(value: number) {
                     />
                   </NFormItem>
 
-                  <NFormItem :label="t('settings.maxConnectionPerServer')">
+                  <NFormItem :label="t('settings.httpMaxConnections')">
                     <NInputNumber
-                      v-model:value="form.maxConnectionPerServer"
+                      v-model:value="form.httpMaxConnections"
                       :min="1"
-                      :max="MAX_CONNECTION_PER_SERVER_LIMIT"
+                      :max="HTTP_MAX_CONNECTIONS_LIMIT"
+                      :precision="0"
                       :step="1"
                     />
-                  </NFormItem>
-
-                  <NFormItem :label="t('settings.defaultSplit')">
-                    <NInputNumber v-model:value="form.split" :min="1" :max="MAX_SPLIT_LIMIT" :step="1" />
-                  </NFormItem>
-
-                  <NFormItem :label="t('settings.minSplitSize')">
-                    <NSelect v-model:value="form.minSplitSize" :options="minSplitSizeOptions" />
                   </NFormItem>
 
                   <NFormItem :label="t('settings.connectTimeout')">

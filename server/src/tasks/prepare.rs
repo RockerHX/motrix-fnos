@@ -77,13 +77,12 @@ pub(crate) fn prepare_bt_download_task_with_logs(
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<PreparedDownloadTask, String> {
     let file_name = normalize_required(&request.display_name, "BT 任务名不能为空")?;
+    let aria2_options =
+        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
     let base_save_dir = resolve_save_dir_with_logs(Some(request.base_save_dir), debug_logs)?;
     let save_dir = create_bt_task_dir(&base_save_dir, &file_name, request.task_kind, debug_logs)?;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
-    let aria2_options =
-        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
-
     Ok(PreparedDownloadTask {
         file_name,
         output_file_name: None,
@@ -117,6 +116,8 @@ fn prepare_task_inner(
     }
 
     let output_file_name = normalize_optional(request.file_name);
+    let aria2_options =
+        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
     let file_name = output_file_name
         .clone()
         .unwrap_or_else(|| infer_file_name(request.source_type, &url));
@@ -131,8 +132,6 @@ fn prepare_task_inner(
     let save_dir = base_save_dir;
     let category =
         normalize_optional(request.category).unwrap_or_else(|| DEFAULT_TASK_CATEGORY.to_string());
-    let aria2_options =
-        sanitize_create_task_options(&request.advanced_options, &request.aria2_options)?;
     log_info(
         debug_logs,
         "tasks.create",

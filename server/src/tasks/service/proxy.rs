@@ -210,8 +210,9 @@ impl TaskService<'_> {
         let mut advanced_options = advanced_options.clone();
         let mut aria2_options = aria2_options.clone();
         self.resolve_create_task_proxy(source_type, &mut advanced_options, &mut aria2_options)
-            .await
-            .map(|_| ())
+            .await?;
+        crate::tasks::sanitize_create_task_options(&advanced_options, &aria2_options)?;
+        Ok(())
     }
 
     pub(super) async fn resolve_create_task_proxy(

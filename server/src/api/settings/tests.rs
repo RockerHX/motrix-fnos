@@ -126,23 +126,20 @@ async fn runtime_apply_reports_failed_when_rpc_rejects_options() {
 #[tokio::test]
 async fn legacy_settings_payload_uses_tuning_defaults_and_updates_runtime_cache() {
     let (state, runtime) = lan_test_state("legacy-settings-payload").await;
-    let payload = serde_json::from_value::<AppConfig>(json!({
+    let payload = json!({
         "defaultDownloadDir": runtime.app_data_dir.display().to_string(),
         "maxConcurrentDownloads": 8,
         "downloadLimit": 1024,
         "uploadLimit": 2048,
         "language": "zh-CN",
-    }))
-    .expect("legacy payload should deserialize");
+    });
 
     let response = update_settings(State(state.clone()), ApiJson(payload))
         .await
         .expect("legacy payload should save")
         .0;
     assert_eq!(response.runtime_apply, Some(RuntimeApplyStatus::Deferred));
-    assert_eq!(response.config.max_connection_per_server, 1);
-    assert_eq!(response.config.split, 5);
-    assert_eq!(response.config.min_split_size, "20M");
+    assert_eq!(response.config.http_max_connections, 1);
     assert_eq!(response.config.connect_timeout, 60);
     assert_eq!(response.config.max_tries, 5);
     assert_eq!(state.current_app_config().await, response.config);
@@ -644,9 +641,7 @@ fn test_app_config() -> AppConfig {
     AppConfig {
         default_download_dir: "/downloads".to_string(),
         max_concurrent_downloads: 128,
-        max_connection_per_server: 6,
-        split: 7,
-        min_split_size: "5M".to_string(),
+        http_max_connections: 6,
         connect_timeout: 90,
         max_tries: 8,
         download_limit: 0,

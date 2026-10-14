@@ -36,7 +36,7 @@ export function resetTaskCreateFormState(form: TaskCreateFormState) {
 
 export function buildTaskAdvancedOptions(form: TaskCreateFormState, includeProxy = true): CreateTaskAdvancedOptions {
   return {
-    connections: form.connections,
+    connections: includeProxy ? form.connections : null,
     downloadLimitKb: form.downloadLimitKb,
     ...(includeProxy ? { useProxy: form.useProxy } : {}),
   };

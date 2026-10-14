@@ -34,11 +34,7 @@ fn add_uri_request_contains_url_and_options() {
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::from_iter([
             (
-                "split".to_string(),
-                serde_json::Value::String("8".to_string()),
-            ),
-            (
-                "max-connection-per-server".to_string(),
+                "stream-max-connections".to_string(),
                 serde_json::Value::String("8".to_string()),
             ),
             (
@@ -58,9 +54,34 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][1]["out"], "custom.zip");
     assert_eq!(request["params"][1]["split"], "8");
     assert_eq!(request["params"][1]["max-connection-per-server"], "8");
+    assert!(request["params"][1].get("stream-max-connections").is_none());
     assert_eq!(request["params"][1]["max-download-limit"], "524288");
     assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
     assert_eq!(request["params"][1]["pause"], "false");
+}
+
+#[test]
+fn native_http_request_keeps_file_download_semantics() {
+    let mut config = test_config();
+    config.state_dir = Some("/private/native-state".to_string());
+    let task = PreparedDownloadTask {
+        url: "https://example.com/video.m3u8".to_string(),
+        file_name: "video.m3u8".to_string(),
+        output_file_name: None,
+        save_dir: "/downloads".to_string(),
+        aria2_save_dir: None,
+        category: "默认".to_string(),
+        source_type: DownloadTaskSourceType::Url,
+        start_mode: DownloadTaskStartMode::Now,
+        advanced_options: CreateTaskAdvancedOptions::default(),
+        aria2_options: serde_json::Map::new(),
+        use_proxy: false,
+        proxy_binding: TaskProxyBinding::default(),
+    };
+
+    let request = build_add_uri_request_with_id(&config, &task, "test-native-http");
+
+    assert_eq!(request["params"][1]["media"], "file");
 }
 
 #[tokio::test]

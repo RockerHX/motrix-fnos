@@ -125,7 +125,11 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         }
     }
 
-    let mut aria2_options = options.map(sanitize_aria2_options).unwrap_or_default();
+    let mut aria2_options = options
+        .map(sanitize_aria2_options)
+        .transpose()
+        .map_err(RpcFault::invalid_params)?
+        .unwrap_or_default();
     match aria2_options.get("all-proxy") {
         Some(Value::String(proxy_url)) => {
             let normalized =
