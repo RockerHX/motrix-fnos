@@ -117,7 +117,13 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         let has_forbidden_bt_proxy = options.keys().any(|key| {
             is_bt_proxy_option(key)
                 || (source_type != DownloadTaskSourceType::Url && is_task_proxy_option(key))
-        });
+        }) || (source_type != DownloadTaskSourceType::Url
+            && options
+                .get("advancedOptions")
+                .and_then(Value::as_object)
+                .is_some_and(|advanced| {
+                    advanced.contains_key("useProxy") || advanced.contains_key("proxy")
+                }));
         if has_forbidden_bt_proxy {
             return Err(RpcFault::invalid_params(
                 "BT 任务不支持任务级代理，请在设置页使用 BT 使用代理总开关",

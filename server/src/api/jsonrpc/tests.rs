@@ -1252,6 +1252,91 @@ fn parse_add_uri_detects_torrent_source_type() {
 }
 
 #[test]
+fn parse_add_uri_rejects_bt_proxy_fields_before_option_filtering() {
+    for options in [
+        json!({ "all-proxy": "" }),
+        json!({ "http-proxy": false }),
+        json!({ "https-proxy-user": null }),
+        json!({ "ftp-proxy-passwd": "secret" }),
+        json!({ "bt-proxy": null }),
+        json!({ "advancedOptions": { "useProxy": false } }),
+        json!({ "advancedOptions": { "proxy": null } }),
+    ] {
+        let error = parse_add_uri_command(&json!([["magnet:?xt=urn:btih:test"], options]))
+            .expect_err("BT proxy inputs must be rejected even when empty or false-like");
+
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("BT 使用代理总开关"));
+    }
+}
+
+#[tokio::test]
+async fn bt_proxy_validation_errors_are_preserved_in_batch_and_multicall() {
+    let state = test_state().await;
+    write_json_rpc_token(&state, "secret").await;
+    let invalid_call = json!({
+        "jsonrpc": "2.0",
+        "id": "bt-proxy",
+        "method": "aria2.addUri",
+        "params": [
+            "token:secret",
+            ["magnet:?xt=urn:btih:test"],
+            { "advancedOptions": { "useProxy": null } }
+        ]
+    });
+
+    let batch = handle_jsonrpc_payload(
+        &state,
+        json!([
+            invalid_call.clone(),
+            { "jsonrpc": "2.0", "id": "version", "method": "aria2.getVersion", "params": [] }
+        ]),
+    )
+    .await;
+    assert_eq!(batch[0]["error"]["code"], -32602);
+    assert!(batch[0]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("BT 使用代理总开关"));
+    assert!(batch[1]["result"].is_object());
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+
+    let multicall = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall",
+            "method": "system.multicall",
+            "params": [[{
+                "methodName": "aria2.addUri",
+                "params": [
+                    "token:secret",
+                    ["magnet:?xt=urn:btih:test"],
+                    { "http-proxy-passwd": "secret" }
+                ]
+            }]]
+        }),
+    )
+    .await;
+    assert_eq!(multicall["result"][0]["faultCode"], -32602);
+    assert!(multicall["result"][0]["faultString"]
+        .as_str()
+        .unwrap()
+        .contains("BT 使用代理总开关"));
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+}
+
+#[test]
 fn parse_add_uri_preserves_speed_related_options() {
     let command = parse_add_uri_command(&json!([
         "token:anything",
