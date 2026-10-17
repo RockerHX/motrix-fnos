@@ -3,7 +3,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-export function createSpdxDocument({ version, artifact }) {
+const sidecarVersion = '2.8.6';
+const sidecarReleaseUrl = `https://github.com/AnInsomniacy/aria2-next/releases/tag/v${sidecarVersion}`;
+const sidecarDependencyManifest = `assets/aria2/aria2-next-${sidecarVersion}-dependencies.env`;
+
+export function createSpdxDocument({ version, artifact, sidecar }) {
+  const packageId = `SPDXRef-${artifact.name.replace(/[^A-Za-z0-9.-]/g, '-')}`;
+  const sidecarId = `SPDXRef-aria2-next-${artifact.architecture}`;
   return {
     spdxVersion: 'SPDX-2.3',
     dataLicense: 'CC0-1.0',
@@ -16,7 +22,7 @@ export function createSpdxDocument({ version, artifact }) {
     },
     packages: [
       {
-        SPDXID: `SPDXRef-${artifact.name.replace(/[^A-Za-z0-9.-]/g, '-')}`,
+        SPDXID: packageId,
         name: artifact.name,
         versionInfo: version,
         downloadLocation: 'NOASSERTION',
@@ -31,7 +37,29 @@ export function createSpdxDocument({ version, artifact }) {
           },
         ],
       },
+      {
+        SPDXID: sidecarId,
+        name: 'aria2-next',
+        versionInfo: sidecarVersion,
+        downloadLocation: sidecarReleaseUrl,
+        filesAnalyzed: false,
+        supplier: 'NOASSERTION',
+        checksums: [{ algorithm: 'SHA256', checksumValue: sidecar.sha256 }],
+        externalRefs: [
+          {
+            referenceCategory: 'OTHER',
+            referenceType: 'motrix-fnos:architecture',
+            referenceLocator: artifact.architecture,
+          },
+          {
+            referenceCategory: 'OTHER',
+            referenceType: 'motrix-fnos:dependency-manifest',
+            referenceLocator: sidecarDependencyManifest,
+          },
+        ],
+      },
     ],
+    relationships: [{ spdxElementId: packageId, relationshipType: 'CONTAINS', relatedSpdxElement: sidecarId }],
   };
 }
 
@@ -40,6 +68,11 @@ export function sha256File(filePath) {
 }
 
 export function writeFpkSboms({ version, outputDir }) {
+  const sidecarDir = path.join(process.cwd(), 'assets', 'aria2');
+  const dependencyManifestPath = path.join(sidecarDir, `aria2-next-${sidecarVersion}-dependencies.env`);
+  if (!existsSync(dependencyManifestPath)) {
+    throw new Error(`缺少 Aria2 native 依赖材料：${dependencyManifestPath}`);
+  }
   const artifacts = readdirSync(outputDir)
     .filter((file) => file.startsWith(`motrix_${version}_`) && file.endsWith('.fpk'))
     .map((name) => ({
@@ -54,8 +87,16 @@ export function writeFpkSboms({ version, outputDir }) {
   }
 
   for (const artifact of artifacts) {
+    const sidecarName = `aria2-next-${artifact.architecture}-unknown-linux-gnu`;
+    const sidecarPath = path.join(sidecarDir, sidecarName);
+    if (!existsSync(sidecarPath)) {
+      throw new Error(`缺少 ${artifact.architecture} Aria2 sidecar：${sidecarPath}`);
+    }
     const sbomPath = path.join(outputDir, `${artifact.name}.spdx.json`);
-    writeFileSync(sbomPath, `${JSON.stringify(createSpdxDocument({ version, artifact }), null, 2)}\n`);
+    writeFileSync(
+      sbomPath,
+      `${JSON.stringify(createSpdxDocument({ version, artifact, sidecar: { sha256: sha256File(sidecarPath) } }), null, 2)}\n`,
+    );
   }
   return artifacts.map((artifact) => `${artifact.name}.spdx.json`);
 }

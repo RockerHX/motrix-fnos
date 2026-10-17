@@ -25,7 +25,7 @@ test("sidecar starts, reports version, downloads, pauses, and resumes", { skip: 
   const harness = await createHarness();
   try {
     const version = await harness.waitForRpc("aria2.getVersion");
-    assert.equal(version.result?.version, candidateDirectory ? "2.8.6" : "2.5.5");
+    assert.equal(version.result?.version, "2.8.6");
 
     const download = await harness.rpc("aria2.addUri", [
       [harness.fixtureUrl("small.bin")],
@@ -528,7 +528,10 @@ async function createHarness(extraArgs = [], start = true) {
         "--disable-ipv6=true",
         `--listen-port=${this.btPort}`,
         "--console-log-level=warn",
-        ...(candidateDirectory ? [`--state-dir=${stateDirectory}`, "--bt-port-mapping=false", "--bt-transport=tcp", "--summary-interval=0"] : []),
+        `--state-dir=${stateDirectory}`,
+        "--bt-port-mapping=false",
+        "--bt-transport=tcp",
+        "--summary-interval=0",
       ];
       this.child = spawn(binary, [
         ...defaults.filter((value) => !args.some((override) => override.split("=")[0] === value.split("=")[0])),
@@ -621,10 +624,11 @@ async function waitForStatus(harness, gid, expected) {
 async function resolveBinary() {
   binaryPromise ??= (async () => {
     assert.ok(candidates[process.arch], `unsupported architecture: ${process.arch}`);
-    if (!candidateDirectory) return path.resolve("assets", "aria2", `aria2-next-${process.arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`);
     const candidate = candidates[process.arch];
-    const binary = path.resolve(candidateDirectory, candidate.name);
-    assert.equal(sha256(await readFile(binary)), candidate.hash, "candidate SHA-256 mismatch; refusing to execute");
+    const binary = candidateDirectory
+      ? path.resolve(candidateDirectory, candidate.name)
+      : path.resolve("assets", "aria2", `aria2-next-${process.arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`);
+    assert.equal(sha256(await readFile(binary)), candidate.hash, "sidecar SHA-256 mismatch; refusing to execute");
     return binary;
   })();
   return binaryPromise;
