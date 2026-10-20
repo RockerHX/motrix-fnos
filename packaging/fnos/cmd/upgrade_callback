@@ -5,13 +5,19 @@ set -eu
 prepare_runtime_dirs
 export_runtime_env
 generation_file="${APP_DEST}/bin/engine-generation"
-[ -r "${generation_file}" ] || exit 1
+[ -r "${generation_file}" ] || fail_engine_upgrade "升级迁移失败：缺少引擎代际声明，请恢复原版本和升级前备份。"
 generation=$(sed -n '1{s/[[:space:]]//g;p;}' "${generation_file}")
-[ "${generation}" = native-v2 ] || exit 0
+case "${generation}" in
+  legacy-v1) exit 0 ;;
+  native-v2) : ;;
+  *) fail_engine_upgrade "升级迁移失败：引擎代际未知，请恢复原版本和升级前备份。" ;;
+esac
 if ! ensure_uninstall_processes_stopped; then
-  log_msg "升级迁移失败：服务或引擎仍在运行"
-  exit 1
+  fail_engine_upgrade "升级迁移失败：服务或引擎仍在运行，请先停止应用后重试。"
 fi
-require_file "${CMD_DIR}/upgrade-checker" "独立升级迁移工具"
-MOTRIX_FNOS_APP_DATA_DIR="${APP_DATA_DIR}" MOTRIX_FNOS_ARIA2_PATH="${ARIA2_BIN}" \
-  "${CMD_DIR}/upgrade-checker" engine-upgrade-migrate
+if [ ! -f "${CMD_DIR}/upgrade-checker" ] || [ ! -x "${CMD_DIR}/upgrade-checker" ]; then
+  fail_engine_upgrade "升级迁移工具不可用，请恢复原版本和升级前备份。"
+fi
+if ! "${CMD_DIR}/upgrade-checker" engine-upgrade-migrate; then
+  fail_engine_upgrade "升级迁移未完成，已保留原数据和已有备份。请停止应用后重试；需要回滚时同时恢复原版本和升级前完整备份。"
+fi

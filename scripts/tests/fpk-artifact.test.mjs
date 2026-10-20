@@ -116,7 +116,10 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assert.match(upgradeCallback, /engine-upgrade-migrate/);
   assert.match(upgradeInit, /native-v2/);
   assert.match(upgradeCallback, /native-v2/);
-  assertExecutable(path.join(packageRoot, 'cmd/upgrade-checker'));
+  const upgradeChecker = path.join(packageRoot, 'cmd/upgrade-checker');
+  assertExecutable(upgradeChecker);
+  assert.match(execFileSync('file', [upgradeChecker], { encoding: 'utf8' }), machine);
+  assert.equal(readFileSync(upgradeChecker).equals(readFileSync(serverBinary)), true, '独立检查器必须与包内新 server 一致');
 
   const uiConfig = JSON.parse(readFileSync(path.join(appRoot, 'ui/config'), 'utf8'));
   assert.equal(uiConfig['.url']?.['motrix.Application']?.port, '17080');

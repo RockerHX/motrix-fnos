@@ -558,6 +558,15 @@ reconcile_startup_orphans() {
   reconcile_startup_aria2_orphan
 }
 
+fail_engine_upgrade() {
+  log_msg "$1" || true
+  printf '%s\n' "$1" >&2
+  if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
+    printf '%s\n' "$1" > "${TRIM_TEMP_LOGFILE}" || true
+  fi
+  exit 1
+}
+
 require_file() {
   path="$1"
   name="$2"
