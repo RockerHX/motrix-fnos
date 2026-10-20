@@ -27,7 +27,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Notify};
-use tokio::time::timeout;
+use tokio::time::{timeout, Instant};
 use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -1485,6 +1485,35 @@ async fn authorized_save_dir_replaces_stale_cached_default_after_authorization_c
         .expect_err("an unrelated unauthorized directory must still be rejected");
     assert_eq!(unauthorized.code, -32602);
     assert_eq!(unauthorized.message, "保存目录不在飞牛已授权目录列表中");
+}
+
+#[tokio::test]
+async fn websocket_shutdown_closes_idle_connections_and_returns_their_quota() {
+    let state = test_state().await;
+    let root = state.runtime.app_data_dir.clone();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = super::super::jsonrpc_router(state.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let mut socket = connect_websocket(addr).await;
+    state.request_shutdown("测试 WebSocket 退出");
+    assert_websocket_closed(&mut socket).await;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while state.jsonrpc_websocket_connections.available_permits() != 64 {
+        assert!(
+            Instant::now() < deadline,
+            "closed socket must release its quota"
+        );
+        tokio::task::yield_now().await;
+    }
+    drop(socket);
+    server.abort();
+    let _ = server.await;
+    state.core.database.pool.close().await;
+    drop(state);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 async fn test_state() -> Arc<HttpAppState> {

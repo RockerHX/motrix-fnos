@@ -202,6 +202,64 @@ async fn authenticated_events_app(state: Arc<HttpAppState>) -> (Router, String) 
     (app, token)
 }
 
+#[tokio::test]
+async fn sse_shutdown_closes_notified_lagged_and_late_subscribers() {
+    for scenario in ["notified", "lagged", "late"] {
+        let root = temp_dir("events-shutdown");
+        let state = bootstrap_http_app_state(&ServerRuntimeConfig {
+            database_path: root.join("motrix-fnos.sqlite"),
+            accessible_paths_path: root.join("accessible-paths.json"),
+            app_data_dir: root.clone(),
+            http_addr: "127.0.0.1:0".parse().unwrap(),
+            jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            aria2_path: None,
+            trusted_proxy_ips: Vec::new(),
+        })
+        .await
+        .unwrap();
+        let (app, token) = authenticated_events_app(state.clone()).await;
+        if scenario == "late" {
+            state.request_shutdown("订阅前已退出");
+        }
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/events")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut body = response.into_body();
+        if scenario != "late" {
+            next_sse_frame(&mut body).await;
+            next_sse_frame(&mut body).await;
+            state.request_shutdown("测试 SSE 退出");
+            if scenario == "lagged" {
+                for _ in 0..100 {
+                    broadcast_tasks_snapshot(&state).unwrap();
+                }
+            } else {
+                assert!(next_sse_frame(&mut body)
+                    .await
+                    .contains("event: runtime.exiting"));
+            }
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), body.frame())
+                .await
+                .expect("SSE should close after the exit notification")
+                .is_none()
+        );
+        state.core.database.pool.close().await;
+        drop(body);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 async fn next_sse_frame(body: &mut Body) -> String {
     let frame = body
         .frame()
