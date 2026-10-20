@@ -112,7 +112,7 @@ function stageServerBinary(target) {
   chmodSync(destination, 0o755);
   copyFileSync(source, path.join(packagingRoot, 'cmd', 'upgrade-checker'));
   chmodSync(path.join(packagingRoot, 'cmd', 'upgrade-checker'), 0o755);
-  writeFileSync(path.join(packagingRoot, 'app', 'bin', 'engine-generation'), 'legacy-v1\n');
+  writeFileSync(path.join(packagingRoot, 'app', 'bin', 'engine-generation'), 'native-v2\n');
 }
 
 function syncUiIcons() {

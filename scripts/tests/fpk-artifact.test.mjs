@@ -65,6 +65,9 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
     'cmd/start',
     'cmd/stop',
     'cmd/status',
+    'cmd/upgrade_init',
+    'cmd/upgrade_callback',
+    'cmd/upgrade-checker',
   ]) {
     assertRegularFile(packageRoot, relativePath);
   }
@@ -90,6 +93,7 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   for (const relativePath of [
     'bin/motrix-fnos-server',
     'bin/aria2-next',
+    'bin/engine-generation',
     'config/resource',
     'config/privilege',
     'ui/config',
@@ -104,6 +108,15 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assertExecutable(aria2Binary);
   assert.match(execFileSync('file', [serverBinary], { encoding: 'utf8' }), machine);
   assert.match(execFileSync('file', [aria2Binary], { encoding: 'utf8' }), machine);
+  assert.equal(readFileSync(path.join(appRoot, 'bin/engine-generation'), 'utf8').trim(), 'native-v2');
+
+  const upgradeInit = readFileSync(path.join(packageRoot, 'cmd/upgrade_init'), 'utf8');
+  const upgradeCallback = readFileSync(path.join(packageRoot, 'cmd/upgrade_callback'), 'utf8');
+  assert.match(upgradeInit, /engine-upgrade-check/);
+  assert.match(upgradeCallback, /engine-upgrade-migrate/);
+  assert.match(upgradeInit, /native-v2/);
+  assert.match(upgradeCallback, /native-v2/);
+  assertExecutable(path.join(packageRoot, 'cmd/upgrade-checker'));
 
   const uiConfig = JSON.parse(readFileSync(path.join(appRoot, 'ui/config'), 'utf8'));
   assert.equal(uiConfig['.url']?.['motrix.Application']?.port, '17080');
