@@ -524,7 +524,7 @@ async function createHarness(extraArgs = [], start = true) {
         "--enable-dht6=false",
         "--bt-enable-lpd=false",
         "--enable-peer-exchange=false",
-        "--bt-interface=127.0.0.1",
+        "--interface=127.0.0.1",
         "--disable-ipv6=true",
         `--listen-port=${this.btPort}`,
         "--console-log-level=warn",

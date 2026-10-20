@@ -24,6 +24,17 @@ export function evaluateAuditReports(reports) {
 }
 
 export function parsePnpmAuditReport(report) {
+  const advisories = report?.advisories;
+  if (advisories && typeof advisories === 'object') {
+    const findings = Object.entries(advisories).map(([id, advisory]) => ({
+      tool: 'pnpm',
+      severity: normalizeSeverity(advisory?.severity),
+      id: advisory?.github_advisory_id ?? id,
+      package: advisory?.module_name,
+    }));
+    if (findings.length > 0) return findings;
+  }
+
   const vulnerabilities = report?.metadata?.vulnerabilities;
   if (!vulnerabilities || typeof vulnerabilities !== 'object') {
     return [];
