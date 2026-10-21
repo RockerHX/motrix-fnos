@@ -16,6 +16,8 @@ fn native_process(ignore_interrupt: bool) -> (PathBuf, Mutex<Option<ManagedAria2
 import pathlib, signal, sys, time
 root = pathlib.Path(sys.argv[1])
 def stop(*args):
+    if (root / 'checkpoint-delay').exists():
+        time.sleep(float((root / 'checkpoint-delay').read_text()))
     (root / 'checkpoint').write_bytes(b'committed')
     sys.exit(0)
 signal.signal(signal.SIGINT, signal.SIG_IGN if sys.argv[2] == 'ignore' else stop)
@@ -76,6 +78,52 @@ fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success
     child.kill().unwrap();
     assert!(child.wait_for_exit(Duration::from_secs(2)).unwrap());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn native_stop_waits_for_slow_checkpoint_within_the_daily_budget() {
+    let (root, process) = native_process(false);
+    std::fs::write(root.join("checkpoint-delay"), "0.2").unwrap();
+    let started = std::time::Instant::now();
+    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(200));
+    assert_eq!(
+        std::fs::read(root.join("checkpoint")).unwrap(),
+        b"committed"
+    );
+    assert!(process.lock().unwrap().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
+    use std::os::unix::fs::PermissionsExt;
+    for readonly in [false, true] {
+        if readonly && unsafe { libc::geteuid() } == 0 {
+            eprintln!(
+                "root bypasses directory write permissions; readonly checkpoint case skipped"
+            );
+            continue;
+        }
+        let (root, process) = native_process(false);
+        std::fs::write(root.join("previous-state"), b"preserved").unwrap();
+        if readonly {
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        } else {
+            std::fs::create_dir(root.join("checkpoint")).unwrap();
+        }
+        let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.unwrap_err().contains("异常退出"));
+        assert_eq!(
+            std::fs::read(root.join("previous-state")).unwrap(),
+            b"preserved"
+        );
+        assert!(process.lock().unwrap().is_some());
+        stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), false).unwrap();
+        assert!(process.lock().unwrap().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[tokio::test]

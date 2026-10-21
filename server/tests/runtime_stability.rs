@@ -1,5 +1,9 @@
 #![cfg(unix)]
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[path = "runtime_stability/resources.rs"]
+mod resources;
+
 use motrix_fnos_server::app::{bootstrap_http_app_state, ServerRuntimeConfig};
 use motrix_fnos_server::database::tasks::upsert_download_task;
 use motrix_fnos_server::settings::service::save_json_rpc_token;
@@ -148,6 +152,11 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
         let before = fs::read(&runtime.database_path).unwrap();
         let wal = runtime.database_path.with_extension("sqlite-wal");
         let before_wal = fs::read(&wal).unwrap_or_default();
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if round == 0 {
+            resources::check_connection_churn(server.0.id(), &base, runtime.jsonrpc_addr, &token)
+                .await;
+        }
         let mut sse = client
             .get(format!("{base}/api/events"))
             .bearer_auth(&token)

@@ -773,6 +773,79 @@ async fn batch_snapshot_failure_rolls_back_every_task_and_file_list() {
     std::fs::remove_file(path).unwrap();
 }
 
+#[tokio::test]
+async fn snapshot_io_failures_preserve_the_previous_transaction_and_allow_retry() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    for readonly in [false, true] {
+        let root = std::env::temp_dir().join(format!(
+            "motrix-snapshot-io-{}-{}-{readonly}",
+            std::process::id(),
+            now_ms()
+        ));
+        let database = connect_database(root.join("motrix-fnos.sqlite"))
+            .await
+            .unwrap();
+        let mut tasks = vec![native_snapshot_task(1), native_snapshot_task(2)];
+        persist_download_task_states(&database.pool, &tasks)
+            .await
+            .unwrap();
+        let previous = list_download_tasks(&database.pool).await.unwrap();
+        let path = database.path.clone();
+        database.pool.close().await;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&path)
+                    .read_only(readonly),
+            )
+            .await
+            .unwrap();
+        if !readonly {
+            let pages: i64 = sqlx::query_scalar("PRAGMA page_count")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            sqlx::query(&format!("PRAGMA max_page_count = {pages}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        for task in &mut tasks {
+            task.completed_length = 90;
+            task.files[0].completed_length = 90;
+        }
+        tasks[1].files[0].name = "large snapshot ".repeat(16_384);
+        let error = persist_download_task_states(&pool, &tasks)
+            .await
+            .unwrap_err();
+        assert!(
+            error.contains(if readonly { "readonly" } else { "full" }),
+            "{error}"
+        );
+        assert_eq!(list_download_tasks(&pool).await.unwrap(), previous);
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("PRAGMA quick_check")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            "ok"
+        );
+        pool.close().await;
+        let database = connect_database(path).await.unwrap();
+        tasks[1].files[0].name = "file.bin".to_string();
+        persist_download_task_states(&database.pool, &tasks)
+            .await
+            .unwrap();
+        let recovered = list_download_tasks(&database.pool).await.unwrap();
+        assert!(recovered
+            .iter()
+            .all(|task| task.completed_length == 90 && task.files[0].completed_length == 90));
+        database.pool.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 fn now_ms() -> u128 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
