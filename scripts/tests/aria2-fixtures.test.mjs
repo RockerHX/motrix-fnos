@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,20 +10,29 @@ import test from "node:test";
 import { promisify } from "node:util";
 import { bencode, createHttpFixture, createProxyFixture, createUdpFixture, httpPayloads } from "../extended/aria2-fixtures.mjs";
 
-test("candidate mode rejects a missing Linux candidate or unsupported host instead of silently skipping", async (t) => {
+test("candidate mode rejects missing or tampered native binaries and unsupported hosts", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "motrix-aria2-candidate-guard-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const env = { ...process.env, MOTRIX_ARIA2_CANDIDATE_DIR: directory };
   // A nested test runner needs its own isolation rather than its parent's IPC context.
   delete env.NODE_TEST_CONTEXT;
-  await assert.rejects(() => promisify(execFile)(process.execPath, ["--test", "--test-name-pattern=^sidecar starts", "scripts/extended/aria2-sidecar.test.mjs"], {
+  await assert.rejects(() => promisify(execFile)(process.execPath, ["--test", "--test-name-pattern=^290-14 concurrent", "scripts/extended/aria2-sidecar.test.mjs"], {
     env,
     timeout: 15_000,
   }), (error) => {
     assert.equal(error.code, 1);
-    assert.match(`${error.stdout} ${error.stderr}`, process.platform === "linux" ? /ENOENT|unsupported architecture/ : /requires Linux/);
+    assert.match(`${error.stdout} ${error.stderr}`, /ENOENT|unsupported candidate platform/);
     return true;
   });
+  if (["linux", "darwin"].includes(process.platform) && ["x64", "arm64"].includes(process.arch)) {
+    const platform = process.platform === "darwin" ? "macos" : "linux";
+    const arch = process.arch === "x64" ? "x86_64" : platform === "macos" ? "arm64" : "aarch64";
+    await writeFile(path.join(directory, `aria2-next-2.8.6-${platform}-${arch}`), "not a verified executable");
+    await assert.rejects(() => promisify(execFile)(process.execPath, ["--test", "--test-name-pattern=^290-14 concurrent", "scripts/extended/aria2-sidecar.test.mjs"], { env, timeout: 15_000 }), (error) => {
+      assert.match(`${error.stdout} ${error.stderr}`, /SHA-256 mismatch; refusing to execute/);
+      return true;
+    });
+  }
 });
 
 test("HTTP fixture preserves resource identity and serves exact byte ranges", async (t) => {

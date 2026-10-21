@@ -9,16 +9,20 @@ import { request } from "node:http";
 import test from "node:test";
 import { promisify } from "node:util";
 import { sha256 } from "../lib/script-utils.mjs";
-import { createHttpFixture, createPeerGateway, createProxyFixture, createTorrent, createUdpFixture, httpPayloads } from "./aria2-fixtures.mjs";
+import { createHttpFixture, createPeerGateway, createProxyFixture, createTorrent, createUdpFixture, httpPayloads, listen } from "./aria2-fixtures.mjs";
 
 const requiresLinux = process.platform !== "linux";
 const candidateDirectory = process.env.MOTRIX_ARIA2_CANDIDATE_DIR;
-const candidateOnly = { skip: !candidateDirectory, timeout: 90_000 };
+const candidateOnly = { skip: !candidateDirectory || requiresLinux, timeout: 90_000 };
+const nativeCandidateOnly = { skip: !candidateDirectory, timeout: 90_000 };
 const candidates = {
-  x64: { name: "aria2-next-2.8.6-linux-x86_64", hash: "51a053d0b4d63a33425ed757a4acbc2a5d479bbd811b82d9a68c7d7f7fe9020c" },
-  arm64: { name: "aria2-next-2.8.6-linux-aarch64", hash: "c72d3bc670aa3ede1ba1964109397c388b3b6bd85ca5d269370b87652e9694ad" },
+  "linux-x64": { name: "aria2-next-2.8.6-linux-x86_64", hash: "51a053d0b4d63a33425ed757a4acbc2a5d479bbd811b82d9a68c7d7f7fe9020c" },
+  "linux-arm64": { name: "aria2-next-2.8.6-linux-aarch64", hash: "c72d3bc670aa3ede1ba1964109397c388b3b6bd85ca5d269370b87652e9694ad" },
+  "darwin-x64": { name: "aria2-next-2.8.6-macos-x86_64", hash: "933fb85f42adb6acd56e0e728b5d561908669dcdcb5e13459ec5c0195a960e95" },
+  "darwin-arm64": { name: "aria2-next-2.8.6-macos-arm64", hash: "6767bc6e79e22dbc491fe7bbcd36daca9dc0fb3b28abca7b9a9cfb8e6e67ece5" },
 };
-if (candidateDirectory && requiresLinux) throw new Error("290-02 candidate validation requires Linux; a skipped macOS run is not evidence");
+const candidate = candidates[`${process.platform}-${process.arch}`];
+if (candidateDirectory && !candidate) throw new Error(`unsupported candidate platform: ${process.platform}-${process.arch}`);
 let binaryPromise;
 
 test("sidecar starts, reports version, downloads, pauses, and resumes", { skip: requiresLinux }, async () => {
@@ -113,7 +117,7 @@ test("290-02 candidate has usable Linux symbols and writes as the service UID", 
   const stateFiles = await readdir(harness.stateDirectory, { recursive: true });
   assert.ok(stateFiles.length > 0, "the candidate must persist native state inside state-dir");
   for (const file of stateFiles) assert.equal((await stat(path.join(harness.stateDirectory, file))).uid, process.getuid());
-  t.diagnostic(JSON.stringify({ platform: process.platform, arch: process.arch, kernel: os.release(), uid: process.getuid(), binarySha256: candidates[process.arch].hash, libraries: libraries.stdout.trim() }));
+  t.diagnostic(JSON.stringify({ platform: process.platform, arch: process.arch, kernel: os.release(), uid: process.getuid(), binarySha256: candidate.hash, libraries: libraries.stdout.trim() }));
 });
 
 test("290-02 HTTP retains GID, path and committed bytes across a paused restart; remove/readd creates a copy", candidateOnly, async (t) => {
@@ -480,7 +484,80 @@ test("290-02 an unwritable state directory cannot report a successful download",
   t.diagnostic(JSON.stringify({ rpcReady: ready, output: harness.output }));
 });
 
-async function createHarness(extraArgs = [], start = true) {
+test("290-14 concurrent HTTP tasks with the same output preserve both payloads", nativeCandidateOnly, async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const first = await addPartialHttp(harness, "shared.bin");
+  const before = (await harness.rpc("aria2.tellStatus", [first])).result;
+  const { result: second } = await harness.rpc("aria2.addUri", [[harness.fixtureUrl("small.bin")], {
+    out: "shared.bin", pause: "false", media: "file", "allow-overwrite": "false",
+  }]);
+  const completed = await waitForTask(harness, second, (task) => task.status === "complete");
+  assert.notEqual(completed.files[0].path, before.files[0].path, "unfinished tasks must not share an output file");
+  assert.equal(sha256(await readFile(completed.files[0].path)), sha256(httpPayloads["small.bin"]));
+  await harness.rpc("aria2.changeOption", [first, { "max-download-limit": "0" }]);
+  await waitForStatus(harness, first, "complete");
+  assert.equal(sha256(await readFile(before.files[0].path)), sha256(httpPayloads["resume.bin"]));
+  assert.equal(sha256(await readFile(completed.files[0].path)), sha256(httpPayloads["small.bin"]));
+  t.diagnostic(JSON.stringify({ platform: process.platform, arch: process.arch, binarySha256: candidate.hash, paths: [path.basename(before.files[0].path), path.basename(completed.files[0].path)] }));
+});
+
+test("290-14 a server ignoring Range cannot overwrite an existing unrelated file", nativeCandidateOnly, async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const original = Buffer.alloc(32 * 1024, 73);
+  const existing = path.join(harness.directory, "existing.bin");
+  await writeFile(existing, original);
+  let requests = 0;
+  const server = await listen(createServer((request, response) => {
+    requests++;
+    response.writeHead(200, { "content-length": httpPayloads["small.bin"].length });
+    response.end(request.method === "HEAD" ? undefined : httpPayloads["small.bin"]);
+  }));
+  t.after(() => server.close());
+  const { result: gid } = await harness.rpc("aria2.addUri", [[`http://127.0.0.1:${server.port}/no-range`], {
+    out: "existing.bin", pause: "false", media: "file", continue: "true",
+    "allow-overwrite": "false", "stream-max-connections": "1", "max-tries": "1",
+  }]);
+  const task = await retry(async () => {
+    const value = (await harness.rpc("aria2.tellStatus", [gid])).result;
+    assert.ok(["error", "complete"].includes(value.status), JSON.stringify(value));
+    return value;
+  }, 25_000);
+  assert.ok(requests > 0, "the engine must contact the no-Range fixture");
+  assert.equal(sha256(await readFile(existing)), sha256(original), "continue must not destroy an unrelated existing file");
+  if (task.status === "complete") {
+    assert.notEqual(task.files[0].path, existing);
+    assert.equal(sha256(await readFile(task.files[0].path)), sha256(httpPayloads["small.bin"]));
+  }
+  t.diagnostic(JSON.stringify({ status: task.status, error: task.errorMessage, requests }));
+});
+
+for (const locale of ["C", process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8"]) {
+  test(`290-14 Chinese BT paths retain names and bytes under ${locale}`, nativeCandidateOnly, async (t) => {
+    const env = { LANG: locale, LC_ALL: locale };
+    const torrent = createTorrent({}, 20_000, ["中文目录", "文件 一.bin", "文件二.bin"]);
+    const seed = await createHarness([], true, env);
+    t.after(() => seed.close());
+    const { endpoint } = await startSeed(seed, torrent);
+    const harness = await createHarness([], true, env);
+    t.after(() => harness.close());
+    const { result: gid } = await harness.rpc("aria2.addTorrent", [torrent.bytes.toString("base64"), [], {
+      pause: "false", "seed-time": "0",
+    }]);
+    await waitForStatus(harness, gid, "active");
+    await harness.rpc("aria2.addBtPeers", [gid, [endpoint]]);
+    const task = await waitForTask(harness, gid, (value) => value.status === "complete");
+    for (const [index, file] of torrent.files.entries()) {
+      const expected = path.join(harness.directory, file.path);
+      assert.equal(task.files[index].path, expected);
+      assert.equal(sha256(await readFile(expected)), sha256(file.contents));
+    }
+    t.diagnostic(JSON.stringify({ platform: process.platform, locale, files: task.files.map((file) => path.relative(harness.directory, file.path)) }));
+  });
+}
+
+async function createHarness(extraArgs = [], start = true, env = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "motrix-aria2-test-"));
   const directory = path.join(root, "downloads");
   const stateDirectory = path.join(root, "state");
@@ -536,7 +613,7 @@ async function createHarness(extraArgs = [], start = true) {
       this.child = spawn(binary, [
         ...defaults.filter((value) => !args.some((override) => override.split("=")[0] === value.split("=")[0])),
         ...args,
-      ], { stdio: ["ignore", "pipe", "pipe"], cwd: root });
+      ], { stdio: ["ignore", "pipe", "pipe"], cwd: root, env: { ...process.env, ...env } });
       const capture = (chunk) => { this.output = (this.output + chunk.toString()).slice(-8_192); };
       this.child.stdout.on("data", capture);
       this.child.stderr.on("data", capture);
@@ -623,8 +700,7 @@ async function waitForStatus(harness, gid, expected) {
 
 async function resolveBinary() {
   binaryPromise ??= (async () => {
-    assert.ok(candidates[process.arch], `unsupported architecture: ${process.arch}`);
-    const candidate = candidates[process.arch];
+    assert.ok(candidate, `unsupported candidate platform: ${process.platform}-${process.arch}`);
     const binary = candidateDirectory
       ? path.resolve(candidateDirectory, candidate.name)
       : path.resolve("assets", "aria2", `aria2-next-${process.arch === "arm64" ? "aarch64" : "x86_64"}-unknown-linux-gnu`);

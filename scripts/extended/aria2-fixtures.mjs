@@ -94,10 +94,10 @@ export function bencode(value) {
   ]);
 }
 
-export function createTorrent(extra = {}, firstSize = 20_000) {
+export function createTorrent(extra = {}, firstSize = 20_000, names = ["bt-fixture", "first.bin", "second.bin"]) {
   const files = [
-    { path: "bt-fixture/first.bin", contents: Buffer.from(Array.from({ length: firstSize }, (_, index) => index % 251)) },
-    { path: "bt-fixture/second.bin", contents: Buffer.alloc(50_000, 31) },
+    { path: `${names[0]}/${names[1]}`, contents: Buffer.from(Array.from({ length: firstSize }, (_, index) => index % 251)) },
+    { path: `${names[0]}/${names[2]}`, contents: Buffer.alloc(50_000, 31) },
   ];
   const payload = Buffer.concat(files.map((file) => file.contents));
   const pieces = [];
@@ -106,7 +106,7 @@ export function createTorrent(extra = {}, firstSize = 20_000) {
   }
   const info = {
     files: files.map((file) => ({ length: file.contents.length, path: [file.path.split("/")[1]] })),
-    name: "bt-fixture",
+    name: names[0],
     "piece length": 16_384,
     pieces: Buffer.concat(pieces),
   };
