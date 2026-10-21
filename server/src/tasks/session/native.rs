@@ -173,8 +173,16 @@ fn validate_native_task(
             let status_relative = Path::new(&file.path)
                 .strip_prefix(expected_dir)
                 .map_err(|_| invalid())?;
+            let length = file.length.parse::<u64>().map_err(|_| invalid())?;
+            // HTTP 在首次响应期间可能只报告总长度，文件长度要到恢复后才补齐。
+            let initialized_http_length = task.source_type == DownloadTaskSourceType::Url
+                && task.files.len() == 1
+                && files.len() == 1
+                && saved.length == 0
+                && length == status.total_length.parse::<u64>().map_err(|_| invalid())?
+                && (task.total_length == 0 || task.total_length == length);
             if saved_relative != status_relative
-                || saved.length != file.length.parse::<u64>().map_err(|_| invalid())?
+                || (saved.length != length && !initialized_http_length)
                 || saved.selected != (file.selected == "true")
             {
                 return Err(invalid());

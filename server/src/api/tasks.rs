@@ -594,6 +594,9 @@ fn classify_aria2_ready_error(error: String) -> ApiError {
 }
 
 fn classify_task_error(error: String) -> ApiError {
+    if error.contains("task_pause_unconfirmed") {
+        return ApiError::service_unavailable("task_pause_unconfirmed", error);
+    }
     for code in [
         "task_connections_invalid",
         "aria2_option_conflict",

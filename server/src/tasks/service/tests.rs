@@ -1190,6 +1190,118 @@ async fn pause_and_resume_record_completed_operation_states() {
 }
 
 #[tokio::test]
+async fn native_unconfirmed_pause_returns_before_http_timeout_without_resuming_or_deleting() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = requests.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut config = test_config(listener.local_addr().unwrap().port(), "secret");
+    config.state_dir = Some("/private/native-state".to_string());
+    let app = Router::new().route(
+        "/jsonrpc",
+        post(move |Json(body): Json<Value>| {
+            observed.lock().unwrap().push(body["method"].clone());
+            async move {
+                Json(if body["method"] == "aria2.pause" {
+                    json!({"result": "gid-1"})
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    json!({"result": {"gid": "gid-1", "status": "active", "totalLength": "100",
+                    "completedLength": "40", "downloadSpeed": "0", "files": []}})
+                })
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = temp_dir("native-unconfirmed-pause");
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("file.zip");
+    std::fs::write(&file, b"partial download").unwrap();
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        root.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let started = std::time::Instant::now();
+    let error = fixture
+        .service()
+        .pause_download_task(&config, 1)
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(15));
+    assert!(error.contains("task_pause_unconfirmed"), "{error}");
+    assert!(error.contains("停止并重启应用"));
+    let calls = requests.lock().unwrap();
+    assert_eq!(calls[0], "aria2.pause");
+    assert!(calls[1..].iter().all(|method| method == "aria2.tellStatus"));
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Active
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Failed
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"partial download");
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(&fixture.app_data_dir).unwrap();
+}
+
+#[tokio::test]
+async fn native_delete_pause_rejection_preserves_active_task_without_manual_review_or_staging() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut config = test_config(listener.local_addr().unwrap().port(), "secret");
+    config.state_dir = Some("/private/native-state".to_string());
+    let app = Router::new().route("/jsonrpc", post(|Json(body): Json<Value>| async move {
+        if body["method"] == "aria2.tellStatus" {
+            (axum::http::StatusCode::OK, Json(json!({"result": {"gid": "gid-1", "status": "active",
+                "totalLength": "100", "completedLength": "40", "downloadSpeed": "0", "files": []}})))
+        } else {
+            (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": {"code": 1, "message": "cannot be paused now"}})))
+        }
+    }));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = temp_dir("native-rejected-delete");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        root.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let file = PathBuf::from(task.file_path.as_ref().unwrap());
+    std::fs::write(&file, b"partial download").unwrap();
+    let fixture = ServiceFixture::new(vec![task], false);
+    let error = fixture
+        .service()
+        .delete_download_task(&config, 1, true)
+        .await
+        .unwrap_err();
+    assert!(error.contains("task_pause_unconfirmed"), "{error}");
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Active
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Failed
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].phase,
+        "aria2_pause_unconfirmed"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"partial download");
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(&fixture.app_data_dir).unwrap();
+}
+
+#[tokio::test]
 async fn pause_persist_failure_restores_the_original_task_state() {
     let save_dir = temp_dir("service-pause-persist-failure");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");

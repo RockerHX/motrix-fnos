@@ -278,6 +278,49 @@ async fn native_restore_rejects_changed_file_selection_before_updating_any_task(
 }
 
 #[tokio::test]
+async fn native_restore_initializes_only_unknown_single_http_file_length() {
+    let mock = MockAria2Server::spawn("").await;
+    for (source_type, length, total_length, accepted) in [
+        (DownloadTaskSourceType::Url, 0, 0, true),
+        (DownloadTaskSourceType::Url, 0, 1024, true),
+        (DownloadTaskSourceType::Url, 0, 2048, false),
+        (DownloadTaskSourceType::Url, 512, 1024, false),
+        (DownloadTaskSourceType::Torrent, 0, 1024, false),
+        (DownloadTaskSourceType::Magnet, 0, 1024, false),
+    ] {
+        let mut task = proxy_task(None);
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        task.gid = Some("gid-session".to_string());
+        task.source_type = source_type;
+        task.total_length = total_length;
+        task.files = vec![crate::tasks::DownloadTaskFile {
+            index: 1,
+            path: "/downloads/archive.zip".to_string(),
+            name: "archive.zip".to_string(),
+            length,
+            completed_length: 512,
+            selected: true,
+        }];
+        let tasks = TaskMemoryState::new(vec![task.clone()]);
+        let result = sync_session_tasks_from_aria2(
+            &tasks,
+            &Aria2RpcClient::new(),
+            &native_config(mock.addr.port()),
+            Path::new("/private"),
+            None,
+        )
+        .await;
+        assert_eq!(result.is_ok(), accepted, "{task:?}: {result:?}");
+        if accepted {
+            assert_eq!(result.unwrap()[0].files[0].length, 1024);
+        } else {
+            assert_eq!(tasks.list().unwrap(), vec![task]);
+        }
+    }
+    mock.abort();
+}
+
+#[tokio::test]
 async fn native_or_unknown_tasks_never_readd_a_missing_gid() {
     let mock = MockAria2Server::spawn("").await;
     for generation in [

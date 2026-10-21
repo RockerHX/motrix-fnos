@@ -36,7 +36,7 @@ test('2.9.0 发布说明固定包含旧任务限制与完整回滚步骤，提�
     const body = '### 新增\n\n- 升级下载引擎。';
     writeFileSync(path.join(repoRoot, 'CHANGELOG.md'), `# Changelog\n\n## 2.9.0 - 2026-10-21\n\n${body}\n`);
     const output = execFileSync(process.execPath, [scriptPath, '2.9.0'], { cwd: repoRoot, encoding: 'utf8' });
-    for (const text of ['不支持继续或恢复', '旧任务记录仅供查看', '整个应用私有数据目录', '不要依赖安装器自动回退', 'SHA256SUMS.txt', '不能只换引擎', '新版新增任务不能由旧快照继续']) {
+    for (const text of ['不支持继续或恢复', '旧任务记录仅供查看', '整个应用私有数据目录', '不要依赖安装器自动回退', 'SHA256SUMS.txt', '不能只换引擎', '新版新增任务不能由旧快照继续', 'Content-Range', '拒绝删除下载内容', '最近未提交的进度可能回退', 'SOCKS5', 'Header 不会传递']) {
       assert.ok(output.includes(text), text);
     }
     assert.match(output, /https:\/\/github.com\/RockerHX\/motrix-fnos\/releases\/tag\/v1\.9\.8/);

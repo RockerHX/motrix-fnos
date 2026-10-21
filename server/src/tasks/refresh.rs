@@ -45,6 +45,7 @@ pub async fn refresh_tasks_from_aria2(
                                 .to_string(),
                         ),
                     });
+                    continue;
                 } else if is_pending_magnet_metadata_task(&candidate) {
                     updates.push(TaskRefreshUpdate::Status {
                         gid: gid.clone(),
@@ -105,6 +106,7 @@ pub async fn refresh_tasks_from_aria2(
                                 .to_string(),
                         ),
                     });
+                    continue;
                 } else if is_pending_magnet_metadata_task(&candidate) {
                     updates.push(TaskRefreshUpdate::Status {
                         gid,
@@ -216,8 +218,10 @@ pub(crate) async fn read_task_status_after_pause(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Aria2TaskStatus, String> {
-    const MAX_ATTEMPTS: usize = 61;
+    const MAX_ATTEMPTS: usize = 21;
     const RETRY_INTERVAL_MS: u64 = 500;
+    // 留出管理入口 30 秒总预算中的操作持久化时间，RPC 等待也计入确认期限。
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
 
     let mut previous_completed = None;
     let mut latest_status = None;
@@ -225,7 +229,19 @@ pub(crate) async fn read_task_status_after_pause(
 
     // Aria2 接受 pause 后仍可能短暂写入缓存；需要状态已暂停且连续两次进度不变，才能把最终进度持久化。
     for attempt in 0..MAX_ATTEMPTS {
-        let status = tell_status(client, config, gid, debug_logs).await?;
+        let status =
+            match tokio::time::timeout_at(deadline, tell_status(client, config, gid, debug_logs))
+                .await
+            {
+                Ok(result) => result.map_err(|error| {
+                    if config.state_dir.is_some() {
+                        format!("task_pause_unconfirmed：无法确认暂停状态：{error}；已保留原任务和文件，请停止并重启应用后核对")
+                    } else {
+                        error
+                    }
+                })?,
+                Err(_) => break,
+            };
         let completed = parse_aria2_u64(&status.completed_length);
         let is_settled = pause_status_is_settled(&status, previous_completed);
         previous_completed = Some(completed);
@@ -241,8 +257,10 @@ pub(crate) async fn read_task_status_after_pause(
         }
     }
 
-    let status =
-        latest_status.ok_or_else(|| "暂停后同步 Aria2 任务状态失败：未获取到状态".to_string())?;
+    let status = latest_status.ok_or_else(|| {
+        "task_pause_unconfirmed：暂停确认超时，未获取到状态；已保留原任务和文件，请停止并重启应用后核对"
+            .to_string()
+    })?;
     if status.gid.as_deref() != Some(gid) && config.state_dir.is_some() {
         return Err("task_resume_state_invalid：暂停状态的 GID 不一致".to_string());
     }
@@ -263,7 +281,7 @@ pub(super) fn ensure_pause_status_settled(
     }
 
     Err(format!(
-        "暂停后 Aria2 状态在等待期限内仍未稳定，GID {}，当前状态 {}",
+        "task_pause_unconfirmed：暂停后 Aria2 状态在等待期限内仍未稳定，GID {}，当前状态 {}；已保留原任务和文件，请停止并重启应用后核对",
         gid, status.status
     ))
 }

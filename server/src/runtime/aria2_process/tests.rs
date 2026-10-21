@@ -385,16 +385,15 @@ async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadli
     let root = temp_dir("generation-probe");
     std::fs::create_dir_all(&root).unwrap();
     let binary = root.join("engine");
-    for (version, expected) in [
-        ("2.5.5", Some(EngineGeneration::LegacyV1)),
-        ("2.8.6", Some(EngineGeneration::NativeV2)),
-        ("99.0.0", None),
+    for (header, expected) in [
+        ("aria2 version 2.5.5", Some(EngineGeneration::LegacyV1)),
+        ("aria2 version 2.8.6", Some(EngineGeneration::NativeV2)),
+        ("Aria2 Next version 2.8.6", Some(EngineGeneration::NativeV2)),
+        ("Aria2 Next version 2.8.7", None),
+        ("Aria2 Next version 3.0.8", None),
+        ("aria2 version 99.0.0", None),
     ] {
-        std::fs::write(
-            &binary,
-            format!("#!/bin/sh\nprintf 'aria2 version {version}\\n'\n"),
-        )
-        .unwrap();
+        std::fs::write(&binary, format!("#!/bin/sh\nprintf '{header}\\n'\n")).unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
         let result = inspect_engine_generation(&binary).await;
         match expected {

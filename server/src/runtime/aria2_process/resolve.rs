@@ -20,7 +20,7 @@ pub(crate) async fn inspect_engine_generation(binary: &Path) -> Result<EngineGen
     // 只认可已验证的固定发布；不按版本号大小推断状态兼容性。
     match String::from_utf8_lossy(&output.stdout).lines().next() {
         Some("aria2 version 2.5.5") => Ok(EngineGeneration::LegacyV1),
-        Some("aria2 version 2.8.6") => Ok(EngineGeneration::NativeV2),
+        Some("aria2 version 2.8.6" | "Aria2 Next version 2.8.6") => Ok(EngineGeneration::NativeV2),
         _ => Err("Aria2 引擎不属于已验证的兼容代际，拒绝加载任务状态".to_string()),
     }
 }

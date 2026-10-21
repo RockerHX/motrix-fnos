@@ -69,7 +69,9 @@ impl<'a> TaskService<'a> {
         {
             Ok(task) => task,
             Err(error) => {
-                let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
+                if config.state_dir.is_none() {
+                    let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
+                }
                 return Err(self
                     .rollback_task_operation_state(snapshot, &mut operation, "sync_failed", error)
                     .await);

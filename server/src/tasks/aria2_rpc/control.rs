@@ -52,6 +52,13 @@ pub async fn pause_task_with_request_id(
         debug_logs,
     )
     .await
+    .map_err(|error| {
+        if config.state_dir.is_some() {
+            format!("task_pause_unconfirmed：{error}；未确认引擎停止写入，已保留原任务和文件，请停止并重启应用后核对")
+        } else {
+            error
+        }
+    })
 }
 
 pub async fn unpause_task(

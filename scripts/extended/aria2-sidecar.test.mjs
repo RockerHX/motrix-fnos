@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -9,7 +10,7 @@ import { request } from "node:http";
 import test from "node:test";
 import { promisify } from "node:util";
 import { sha256 } from "../lib/script-utils.mjs";
-import { createHttpFixture, createPeerGateway, createProxyFixture, createTorrent, createUdpFixture, httpPayloads, listen } from "./aria2-fixtures.mjs";
+import { bencode, createHttpFixture, createPeerGateway, createProxyFixture, createTorrent, createUdpFixture, httpPayloads, listen } from "./aria2-fixtures.mjs";
 
 const requiresLinux = process.platform !== "linux";
 const candidateDirectory = process.env.MOTRIX_ARIA2_CANDIDATE_DIR;
@@ -120,7 +121,7 @@ test("290-02 candidate has usable Linux symbols and writes as the service UID", 
   t.diagnostic(JSON.stringify({ platform: process.platform, arch: process.arch, kernel: os.release(), uid: process.getuid(), binarySha256: candidate.hash, libraries: libraries.stdout.trim() }));
 });
 
-test("290-02 HTTP retains GID, path and committed bytes across a paused restart; remove/readd creates a copy", candidateOnly, async (t) => {
+test("290-02 HTTP retains GID, path and committed bytes across a paused restart; remove/readd creates a copy", nativeCandidateOnly, async (t) => {
   const harness = await createHarness();
   t.after(() => harness.close());
   const gid = await addPartialHttp(harness, "resume.bin");
@@ -158,7 +159,7 @@ test("290-02 HTTP retains GID, path and committed bytes across a paused restart;
   t.diagnostic(JSON.stringify({ gid, committedBytes: paused.completedLength, sha256: sha256(httpPayloads["resume.bin"]), replacementName: path.basename(replacement.files[0].path) }));
 });
 
-test("290-02 SIGKILL recovery loads the same HTTP task paused and completes with the correct hash", candidateOnly, async (t) => {
+test("290-02 SIGKILL recovery loads the same HTTP task paused and completes with the correct hash", nativeCandidateOnly, async (t) => {
   const harness = await createHarness();
   t.after(() => harness.close());
   const gid = await addPartialHttp(harness, "crash.bin");
@@ -193,7 +194,7 @@ test("290-02 SIGKILL recovery loads the same HTTP task paused and completes with
   t.diagnostic(JSON.stringify({ gid, committedCheckpoint: checkpoint, beforeKillBytes: before.completedLength, recoveredBytes: restored.completedLength }));
 });
 
-test("290-02 magnet keeps full metadata and selection offline before and after confirmation", candidateOnly, async (t) => {
+test("290-02 magnet keeps full metadata and selection offline before and after confirmation", nativeCandidateOnly, async (t) => {
   const torrent = createTorrent();
   const seed = await createHarness();
   t.after(() => seed.close());
@@ -245,7 +246,7 @@ test("290-02 magnet keeps full metadata and selection offline before and after c
   t.diagnostic(JSON.stringify({ gid, offlineMetadata: true, selected: selectedOffline.files.map((file) => file.selected), selectedSha256: sha256(torrent.files[0].contents) }));
 });
 
-test("290-02 uploaded torrent survives an offline paused restart with original bytes and file selection", candidateOnly, async (t) => {
+test("290-02 uploaded torrent survives an offline paused restart with original bytes and file selection", nativeCandidateOnly, async (t) => {
   const torrent = createTorrent();
   const harness = await createHarness();
   t.after(() => harness.close());
@@ -531,6 +532,185 @@ test("290-14 a server ignoring Range cannot overwrite an existing unrelated file
     assert.equal(sha256(await readFile(task.files[0].path)), sha256(httpPayloads["small.bin"]));
   }
   t.diagnostic(JSON.stringify({ status: task.status, error: task.errorMessage, requests }));
+});
+
+test("290-14 inconsistent Content-Range never reports truncated completion and remains safely stoppable", nativeCandidateOnly, async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const payload = httpPayloads["large.bin"];
+  const ranges = [];
+  const server = await listen(createServer((request, response) => {
+    ranges.push(request.headers.range ?? null);
+    response.writeHead(206, {
+      "content-length": payload.length,
+      "content-range": `bytes 0-${payload.length / 2 - 1}/${payload.length / 2}`,
+      "accept-ranges": "bytes",
+    });
+    response.end(request.method === "HEAD" ? undefined : payload);
+  }));
+  t.after(() => server.close());
+  const { result: gid } = await harness.rpc("aria2.addUri", [[`http://127.0.0.1:${server.port}/bad-range`], {
+    pause: "false", media: "file", "max-tries": "1", "stream-max-connections": "4",
+  }]);
+  let task;
+  const deadline = Date.now() + 5_000;
+  do {
+    task = (await harness.rpc("aria2.tellStatus", [gid])).result;
+    if (["error", "complete"].includes(task.status)) break;
+    await delay(100);
+  } while (Date.now() < deadline);
+  assert.ok(ranges.length > 0);
+  if (task.status === "complete") {
+    assert.equal(sha256(await readFile(task.files[0].path)), sha256(payload), "completion must represent the full fixture payload");
+    assert.equal(Number(task.completedLength), payload.length);
+  } else if (task.status === "active") {
+    // 2.8.6 may stall on this malformed source; safety/recovery passing does not close that liveness defect.
+    assert.ok(Number(task.completedLength) < Number(task.totalLength), JSON.stringify(task));
+    await harness.rpc("aria2.pause", [gid]);
+    await waitForStatus(harness, gid, "paused");
+    const file = task.files[0].path;
+    const before = sha256(await readFile(file));
+    await saveAndRestart(harness);
+    const restored = await waitForTask(harness, gid, (value) => value.status === "paused");
+    assert.equal(restored.files[0].path, file);
+    assert.equal(sha256(await readFile(file)), before);
+    await assertStaysPaused(harness, gid);
+  } else {
+    assert.equal(task.status, "error", JSON.stringify(task));
+  }
+  t.diagnostic(JSON.stringify({ status: task.status, error: task.errorMessage, completedLength: task.completedLength,
+    totalLength: task.totalLength, knownLimitation: task.status === "active" ? "malformed Content-Range did not promptly fail; verified pause/save/restart only" : null, ranges }));
+});
+
+test("290-14 malformed source forced shutdown preserves GID, bytes and paused recovery", nativeCandidateOnly, async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const payload = httpPayloads["large.bin"];
+  const source = await listen(createServer((request, response) => {
+    response.writeHead(206, { "content-length": payload.length,
+      "content-range": `bytes 0-${payload.length / 2 - 1}/${payload.length / 2}` });
+    response.end(request.method === "HEAD" ? undefined : payload);
+  }));
+  t.after(() => source.close());
+  const { result: gid } = await harness.rpc("aria2.addUri", [[`http://127.0.0.1:${source.port}/bad-range`], {
+    pause: "false", media: "file", "max-tries": "1", "stream-max-connections": "4",
+  }]);
+  await retry(() => assert.match(harness.output, /response body exceeds its declared byte range/));
+  const before = (await harness.rpc("aria2.tellStatus", [gid])).result;
+  assert.notEqual(before.status, "complete");
+  const file = before.files[0].path;
+  await harness.rpc("aria2.pause", [gid]);
+  await harness.rpc("aria2.saveSession");
+  const started = Date.now();
+  const stopped = await harness.stopSidecar();
+  assert.ok(Date.now() - started < 6_000, "owned process termination must be bounded");
+  const savedBytes = await readFile(file);
+  assert.ok(savedBytes.length > 0);
+  assert.deepEqual(savedBytes, payload.subarray(0, savedBytes.length));
+  await harness.startSidecar();
+  await harness.waitForRpc("aria2.getVersion");
+  const restored = await waitForTask(harness, gid, (task) => task.status === "paused");
+  assert.equal(restored.gid, gid);
+  assert.equal(restored.files[0].path, file);
+  assert.deepEqual(await readFile(file), savedBytes);
+  assert.ok(Number(restored.completedLength) <= Number(before.completedLength), "uncommitted bytes may roll back");
+  await assertStaysPaused(harness, gid);
+  t.diagnostic(JSON.stringify({ platform: process.platform, gid, forced: stopped.forced,
+    limitation: "upstream pause/normal exit failure remains open; forced shutdown is not a successful checkpoint",
+    beforeBytes: before.completedLength, recoveredBytes: restored.completedLength, fileSha256: sha256(savedBytes) }));
+});
+
+test("290-14 HTTP redirects keep Authorization and Cookie within the original origin", nativeCandidateOnly, async (t) => {
+  const requests = [];
+  const destinationHeaders = [];
+  const destination = await listen(createServer((request, response) => {
+    destinationHeaders.push(request.headers);
+    const match = request.headers.range?.match(/^bytes=(\d+)-(\d*)$/);
+    const payload = httpPayloads["resume.bin"];
+    const start = match ? Number(match[1]) : 0;
+    const end = match?.[2] ? Math.min(Number(match[2]), payload.length - 1) : payload.length - 1;
+    response.writeHead(match ? 206 : 200, { "content-length": end - start + 1, "accept-ranges": "bytes",
+      ...(match ? { "content-range": `bytes ${start}-${end}/${payload.length}` } : {}) });
+    response.end(request.method === "HEAD" ? undefined : payload.subarray(start, end + 1));
+  }));
+  t.after(() => destination.close());
+  const origin = await listen(createServer((request, response) => {
+    requests.push({ url: request.url, authorization: request.headers.authorization, cookie: request.headers.cookie });
+    response.writeHead(302, { location: request.url === "/same" ? "/cross" : `http://127.0.0.1:${destination.port}/payload` }).end();
+  }));
+  t.after(() => origin.close());
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const { result: gid } = await harness.rpc("aria2.addUri", [[`http://127.0.0.1:${origin.port}/same`], {
+    pause: "false", media: "file", "stream-max-connections": "4",
+    header: ["Authorization: Bearer fixture-secret", "Cookie: fixture=secret"],
+  }]);
+  await waitForStatus(harness, gid, "complete");
+  for (const url of ["/same", "/cross"]) {
+    assert.ok(requests.some((entry) => entry.url === url && entry.authorization === "Bearer fixture-secret" && entry.cookie === "fixture=secret"));
+  }
+  assert.ok(destinationHeaders.length > 1, "exercise redirected range workers as well as the initial transfer");
+  for (const headers of destinationHeaders) {
+    assert.equal(headers.authorization, undefined);
+    assert.equal(headers.cookie, undefined);
+  }
+  const task = (await harness.rpc("aria2.tellStatus", [gid])).result;
+  assert.equal(sha256(await readFile(task.files[0].path)), sha256(httpPayloads["resume.bin"]));
+});
+
+test("290-14 BT task headers cannot leak to tracker or web-seed origins", nativeCandidateOnly, async (t) => {
+  const base = createTorrent();
+  const target = await createHttpFixture(Object.fromEntries(base.files.map((file) => [file.path, file.contents])));
+  t.after(() => target.close());
+  const tracker = await createHttpFixture();
+  t.after(() => tracker.close());
+  const torrent = createTorrent({ announce: `http://127.0.0.1:${tracker.port}/announce`,
+    "url-list": [`http://127.0.0.1:${target.port}/`] });
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const { result: gid } = await harness.rpc("aria2.addTorrent", [torrent.bytes.toString("base64"), [], {
+    pause: "false", "seed-time": "0", header: ["Authorization: Bearer fixture-secret", "Cookie: fixture=secret"],
+  }]);
+  await waitForStatus(harness, gid, "complete");
+  assert.ok(tracker.requests.some((entry) => entry.url.startsWith("/announce")));
+  assert.ok(target.requests.some((entry) => entry.url === `/${base.files[0].path}`));
+  for (const { headers } of [...tracker.requests, ...target.requests]) {
+    assert.equal(headers.authorization, undefined);
+    assert.equal(headers.cookie, undefined);
+  }
+  for (const file of base.files) assert.deepEqual(await readFile(path.join(harness.directory, file.path)), file.contents);
+});
+
+test("290-14 BT metadata cannot write outside its download directory", nativeCandidateOnly, async (t) => {
+  const harness = await createHarness();
+  t.after(() => harness.close());
+  const sentinel = path.join(harness.root, "outside.bin");
+  await writeFile(sentinel, "must remain unchanged");
+  const payload = Buffer.from("path fixture");
+  const source = await listen(createServer((request, response) => response.end(payload)));
+  t.after(() => source.close());
+  for (const { name, components } of [
+    { name: "bt-fixture", components: ["..", "..", "outside.bin"] },
+    { name: "..", components: ["outside.bin"] },
+    { name: "bt-fixture", components: [sentinel] },
+    { name: "bt-fixture", components: ["..\\..\\outside.bin"] },
+  ]) {
+    const bytes = bencode({ "url-list": [`http://127.0.0.1:${source.port}/`], info: {
+      name, files: [{ length: payload.length, path: components }],
+      "piece length": 16_384, pieces: createHash("sha1").update(payload).digest(),
+    } });
+    const { result: gid } = await harness.rpc("aria2.addTorrent", [bytes.toString("base64"), [], { pause: "false", "seed-time": "0" }]);
+    await waitForStatus(harness, gid, "complete");
+    const task = (await harness.rpc("aria2.tellStatus", [gid])).result;
+    for (const file of task.files) {
+      const relative = path.relative(harness.directory, file.path);
+      assert.ok(relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative), file.path);
+      assert.ok((await stat(file.path)).isFile());
+      assert.deepEqual(await readFile(file.path), payload);
+    }
+    assert.equal(await readFile(sentinel, "utf8"), "must remain unchanged");
+    await harness.rpc("aria2.removeDownloadResult", [gid]);
+  }
 });
 
 for (const locale of ["C", process.platform === "darwin" ? "en_US.UTF-8" : "C.UTF-8"]) {

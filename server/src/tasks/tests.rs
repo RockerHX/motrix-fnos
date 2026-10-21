@@ -892,6 +892,65 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
 }
 
 #[tokio::test]
+async fn native_refresh_never_readds_a_missing_gid_from_status_or_rpc_error() {
+    for rpc_error in [false, true] {
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed = requests.clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = Aria2Config {
+            rpc_port: listener.local_addr().unwrap().port(),
+            state_dir: Some("/private/native-state".to_string()),
+            ..test_config()
+        };
+        let app = Router::new().route("/jsonrpc", post(move |Json(body): Json<Value>| {
+            observed.lock().unwrap().push(body["method"].clone());
+            async move {
+                Json(if rpc_error {
+                    json!({"error": {"code": 1, "message": "GID abc123 is not found"}})
+                } else {
+                    json!({"result": {"gid": "abc123", "status": "error", "totalLength": "100",
+                        "completedLength": "40", "downloadSpeed": "0", "errorMessage": "No URI available"}})
+                })
+            }
+        }));
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let root = PathBuf::from(temp_download_dir("native-missing-gid"));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("file.zip");
+        fs::write(&file, b"original partial file").unwrap();
+        fs::write(
+            root.join("accessible-paths.json"),
+            json!({"paths": [root]}).to_string(),
+        )
+        .unwrap();
+        let mut task = sample_task(Some(file.display().to_string()), root.display().to_string());
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        let tasks = TaskMemoryState::new(vec![task]);
+        let result = refresh_tasks_from_aria2(
+            &tasks,
+            &root,
+            &root.join("accessible-paths.json"),
+            &Aria2RpcClient::new(),
+            &config,
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(*requests.lock().unwrap(), vec![json!("aria2.tellStatus")]);
+        assert_eq!(result[0].gid.as_deref(), Some("abc123"));
+        assert_eq!(result[0].status, DownloadTaskStatus::Error);
+        assert!(result[0]
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("task_resume_state_invalid"));
+        assert_eq!(fs::read(&file).unwrap(), b"original partial file");
+        server.abort();
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
 async fn refresh_tasks_from_aria2_does_not_readd_a_revoked_task() {
     let mock = MockStaleAria2Server::spawn().await;
     let app_data_dir = PathBuf::from(temp_download_dir("refresh-revoked-task"));

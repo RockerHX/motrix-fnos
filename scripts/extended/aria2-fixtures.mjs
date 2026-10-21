@@ -36,7 +36,7 @@ export async function listen(server) {
 export async function createHttpFixture(files = httpPayloads, peers = Buffer.alloc(0)) {
   const requests = [];
   const server = createHttpServer((request, response) => {
-    requests.push({ url: request.url, range: request.headers.range, remotePort: request.socket.remotePort });
+    requests.push({ url: request.url, range: request.headers.range, remotePort: request.socket.remotePort, headers: request.headers });
     if (request.url.startsWith("/announce")) {
       response.end(bencode({ interval: 1, peers }));
       return;

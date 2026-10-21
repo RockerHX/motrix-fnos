@@ -78,6 +78,16 @@ impl<'a> TaskService<'a> {
                     if self.has_unknown_aria2_outcome(&operation) {
                         return Err(error);
                     }
+                    if error.contains("task_pause_unconfirmed") {
+                        return Err(self
+                            .rollback_task_operation_state(
+                                snapshot,
+                                &mut operation,
+                                "aria2_pause_unconfirmed",
+                                error,
+                            )
+                            .await);
+                    }
                     return Err(self
                         .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                         .await);
