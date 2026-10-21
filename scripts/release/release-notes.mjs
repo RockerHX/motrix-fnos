@@ -19,6 +19,22 @@ try {
     console.log(section.body);
   } else {
     console.log(section.section);
+    if (version === '2.9.0') {
+      console.log(`
+## 升级前必读
+
+Motrix 2.9.0 使用 Aria2 Next 2.8.6，不支持继续或恢复 2.9.0 以下版本创建的任务。请先在旧版完成所有下载，包括暂停、失败、等待选择文件以及回收站中需要继续的任务。升级后旧任务记录仅供查看；下载文件、管理密码、授权、设置和 RPC Token 保留。
+
+升级前请停止应用并确认 server 与引擎已退出，备份整个应用私有数据目录（含 SQLite、session、原生状态和种子备份），记录旧包版本、架构及备份校验和；下载内容保持原位。升级失败时请保留原数据，并查看安装提示；不要依赖安装器自动回退。
+
+## 需要回滚时
+
+1. 停止新版并确认 server 与引擎已退出，另存新版新增任务状态及下载文件归属。
+2. 下载与设备架构匹配的 [Motrix v1.9.8 稳定恢复包](https://github.com/RockerHX/motrix-fnos/releases/tag/v1.9.8)，按该 Release 的 SHA256SUMS.txt 核对 FPK。
+3. 配套恢复升级前的整个应用私有数据目录并安装原版本；原实例不是 v1.9.8 时须使用与备份匹配的原版本包，不能只换引擎或让旧引擎加载新 session。
+4. 启动旧版后核对任务、密码、授权、设置、RPC Token 和下载文件。新版新增任务不能由旧快照继续；没有升级前完整备份时，先保留现有数据，不要反复切换版本。
+`);
+    }
   }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
