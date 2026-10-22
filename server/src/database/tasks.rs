@@ -489,7 +489,9 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
 }
 
 pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
-    let max_id: Option<i64> = sqlx::query_scalar("SELECT MAX(id) FROM download_tasks")
+    let max_id: Option<i64> = sqlx::query_scalar(
+        "SELECT MAX(id) FROM (SELECT id FROM download_tasks UNION ALL SELECT task_id AS id FROM task_operations)",
+    )
         .fetch_one(pool)
         .await
         .map_err(|error| format!("读取最大任务 ID 失败：{}", error))?;

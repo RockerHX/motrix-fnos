@@ -87,6 +87,8 @@ impl TaskOperationStatus {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskOperationContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_generation: Option<crate::config::aria2::EngineGeneration>,
     pub old_gid: Option<String>,
     pub new_gid: Option<String>,
     #[serde(default)]
@@ -125,6 +127,18 @@ pub struct TaskOperation {
 }
 
 impl TaskOperation {
+    pub fn engine_generation(&self) -> crate::config::aria2::EngineGeneration {
+        self.context
+            .engine_generation
+            .or_else(|| {
+                self.context
+                    .task_snapshot
+                    .as_ref()
+                    .map(|task| task.engine_generation)
+            })
+            .unwrap_or(crate::config::aria2::EngineGeneration::LegacyV1)
+    }
+
     pub fn new(
         task_id: u64,
         operation_type: TaskOperationType,

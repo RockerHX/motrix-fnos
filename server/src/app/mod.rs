@@ -49,7 +49,6 @@ pub const JSONRPC_WEBSOCKET_CONNECTION_LIMIT: usize = 64;
 const RUNTIME_EVENT_BUFFER: usize = 32;
 
 pub mod compatibility;
-mod engine_upgrade;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerRuntimeConfig {
@@ -529,8 +528,11 @@ pub async fn bootstrap_http_app_state(
         Err(_) if runtime.aria2_path.is_none() => crate::config::aria2::EngineGeneration::LegacyV1,
         Err(_) => crate::config::aria2::EngineGeneration::Unknown,
     };
-    let mut compatibility =
-        engine_upgrade::startup_compatibility(&runtime.app_data_dir, generation).await;
+    let mut compatibility = if generation == crate::config::aria2::EngineGeneration::Unknown {
+        compatibility::AppCompatibility::restricted(generation, "engine_unknown")
+    } else {
+        compatibility::AppCompatibility::normal(generation)
+    };
     let database = if compatibility.mode == "restricted" && runtime.database_path.exists() {
         crate::database::open_existing_database(runtime.database_path.clone()).await?
     } else {
@@ -546,6 +548,9 @@ pub async fn bootstrap_http_app_state(
             Vec::new()
         }
     };
+    if generation == crate::config::aria2::EngineGeneration::NativeV2 {
+        restored_tasks.retain(|task| task.engine_generation == generation);
+    }
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
     let fallback_download_dir = default_download_dir(&accessible_paths, &runtime.app_data_dir)
         .display()
@@ -800,10 +805,6 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
         [command] if command == "initialize-web-auth" => initialize_web_auth().await,
         [command] if command == "reset-web-auth" => reset_web_auth().await,
         [command] if command == "database-check" => database_check().await,
-        [command] if command == "engine-upgrade-check" || command == "engine-upgrade-migrate" => {
-            let runtime = ServerRuntimeConfig::from_env()?;
-            engine_upgrade::run_upgrade(&runtime.app_data_dir, command == "engine-upgrade-migrate").await
-        }
         [command, output] if command == "database-backup" => database_backup(output).await,
         [command, before] if command == "database-cleanup-history" => {
             database_cleanup_history(before, false).await
@@ -814,7 +815,7 @@ pub async fn run_cli(args: &[String]) -> Result<(), String> {
             database_cleanup_history(before, true).await
         }
         _ => Err(
-            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|engine-upgrade-check|engine-upgrade-migrate|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
+            "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]".to_string(),
         ),
     }
 }

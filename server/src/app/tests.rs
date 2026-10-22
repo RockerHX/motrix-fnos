@@ -1132,7 +1132,7 @@ async fn run_cli_rejects_unknown_commands() {
         .expect_err("unknown command should fail");
     assert_eq!(
         error,
-        "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|engine-upgrade-check|engine-upgrade-migrate|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
+        "用法：motrix-fnos-server [initialize-web-auth|reset-web-auth|database-check|database-backup <output>|database-cleanup-history <before_timestamp_ms> [--apply]]"
     );
 }
 

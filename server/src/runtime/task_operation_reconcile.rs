@@ -37,6 +37,9 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
     let operations = list_unfinished_task_operations(&state.core.database.pool)
         .await?
         .into_iter()
+        .filter(|operation| {
+            operation.engine_generation() == state.aria2_config().engine_generation()
+        })
         .filter(|operation| !operation.is_file_cleanup_pending())
         .collect::<Vec<_>>();
     if operations.is_empty() {

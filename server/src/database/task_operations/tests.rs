@@ -16,6 +16,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                 .await
                 .expect("database should connect");
             let context = TaskOperationContext {
+                engine_generation: None,
                 old_gid: Some("old-gid".to_string()),
                 new_gid: None,
                 aria2_request: None,
@@ -44,6 +45,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
             operation.update_phase(
                 "aria2_created",
                 TaskOperationContext {
+                    engine_generation: None,
                     old_gid: Some("old-gid".to_string()),
                     new_gid: Some("new-gid".to_string()),
                     aria2_request: None,
@@ -86,6 +88,7 @@ fn task_operation_context_serialization_preserves_recovery_fields() {
     task.files_deleted = true;
     task.selected_file_indexes = vec![1, 3, 5];
     let context = TaskOperationContext {
+        engine_generation: None,
         task_snapshot: Some(task.clone()),
         ..TaskOperationContext::default()
     };

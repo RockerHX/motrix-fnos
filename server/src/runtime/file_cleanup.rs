@@ -78,6 +78,9 @@ async fn has_pending_file_cleanup(state: &HttpAppState) -> Result<bool, String> 
     Ok(list_unfinished_task_operations(&state.core.database.pool)
         .await?
         .into_iter()
+        .filter(|operation| {
+            operation.engine_generation() == state.aria2_config().engine_generation()
+        })
         .any(|operation| operation.is_file_cleanup_pending()))
 }
 
@@ -90,6 +93,9 @@ pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), St
         let operations = list_unfinished_task_operations(&state.core.database.pool).await?;
         let pending = operations
             .into_iter()
+            .filter(|operation| {
+                operation.engine_generation() == state.aria2_config().engine_generation()
+            })
             .filter(|operation| operation.is_file_cleanup_pending())
             .filter(|operation| !attempted.contains(&operation.id))
             .collect::<Vec<_>>();

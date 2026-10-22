@@ -39,7 +39,7 @@ test('2.0.0 发布说明固定包含旧任务限制与完整回滚步骤，提�
     assert.ok(output.includes('Motrix 2.0.0 使用 Aria2 Next 2.8.6'));
     assert.ok(output.includes('2.0.0 以下版本创建的任务'));
     assert.ok(!output.includes('2.9.0'));
-    for (const text of ['不支持继续或恢复', '旧任务记录仅供查看', '整个应用私有数据目录', '不要依赖安装器自动回退', 'SHA256SUMS.txt', '不能只换引擎', '新版新增任务不能由旧快照继续', 'Content-Range', '拒绝删除下载内容', '最近未提交的进度可能回退', 'SOCKS5', 'Header 不会传递']) {
+    for (const text of ['不支持继续或恢复', '任务列表重新开始', '不导入或显示旧任务', '不自动备份或迁移', '整个应用私有数据目录', '不要依赖安装器自动回退', 'SHA256SUMS.txt', '不能只换引擎', '新版新增任务不能由旧快照继续', 'Content-Range', '拒绝删除下载内容', '最近未提交的进度可能回退', 'SOCKS5', 'Header 不会传递']) {
       assert.ok(output.includes(text), text);
     }
     assert.match(output, /https:\/\/github.com\/RockerHX\/motrix-fnos\/releases\/tag\/v1\.9\.8/);

@@ -45,7 +45,10 @@ impl<'a> TaskService<'a> {
                 task_id,
                 TaskOperationType::Create,
                 "prepared",
-                task_operation_context(None, critical_paths),
+                TaskOperationContext {
+                    engine_generation: Some(config.engine_generation()),
+                    ..task_operation_context(None, critical_paths)
+                },
             )
             .await?;
         let task = if prepared.source_type == DownloadTaskSourceType::Magnet {
@@ -162,7 +165,10 @@ impl<'a> TaskService<'a> {
                 task_id,
                 TaskOperationType::Create,
                 "prepared",
-                task_operation_context(None, vec![prepared.save_dir.clone()]),
+                TaskOperationContext {
+                    engine_generation: Some(config.engine_generation()),
+                    ..task_operation_context(None, vec![prepared.save_dir.clone()])
+                },
             )
             .await?;
         let metadata_path =

@@ -137,7 +137,7 @@ Vitest 使用 jsdom，覆盖：
 | fnOS 开放 API | B/M | `fnos/tests.rs`、`api/storage/tests.rs` 的 Unix Socket mock | 协议解析和失败回退可自动化；真实 fnOS socket、Token 注入和权限目录必须实机 |
 | FPK 静态产物 | A | `scripts/tests/fpk-*`、`verify:fpk`、双架构构建 | 包内容、架构、入口、权限和运行残留已有自动化 |
 | FPK 生命周期脚本 | B | 4 组 Shell 测试 | 进程归属、信号升级、孤儿回收、就绪有模拟测试；真实 fnOS 生命周期语义仍需设备验证 |
-| FPK 安装/升级/回滚/卸载 | M/B | `server/tests/engine_upgrade_cli.rs`、`scripts/tests/fpk-upgrade-lifecycle.test.mjs` 与 Shell 场景 | 迁移、拒绝升级、备份完整性、中断重试和回滚已有隔离测试；真实应用中心顺序与失败状态仍待验收 |
+| FPK 安装/升级/回滚/卸载 | M/B | `server/tests/engine_upgrade.rs`、`scripts/tests/fpk-upgrade-lifecycle.test.mjs` 与 Shell 场景 | 不加载旧任务和旧操作、保留文件与设置、新代任务恢复、升级脚本重复执行和进程停服检查已有隔离测试；真实应用中心顺序与失败状态仍待验收，回滚前须手动备份 |
 | 前端业务组件 | B | jsdom spec 文件 | 组件级覆盖广；`TaskActionsContainer`、`TaskFileConfirmCoordinator`、`MainWindowDialogs` 等组合组件缺直接 spec |
 | 前端 service/adapters | B/G | 多数通过 store 测试间接覆盖 | `services/aria2.ts`、`backend.ts`、`storage.ts`、`aboutService.ts`、`debugLogService.ts` 缺少直接请求契约测试；部分是薄包装，优先级中等 |
 | 响应式布局与 WebView | B/M | jsdom/mobile composable 测试、Playwright 桌面/移动 viewport | 真实浏览器 viewport 已自动化；FN Connect/App WebView、文件选择和视觉验收仍需设备 |

@@ -37,6 +37,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
 zip = { version = "=7.2.0", default-features = false }
 
+[profile.release]
+strip = true
+
 [profile.dev]
 debug = "line-tables-only"
 

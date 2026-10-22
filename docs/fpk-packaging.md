@@ -390,14 +390,16 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 
 ### 升级前备份与回滚
 
-2.0.0 使用 `native-v2`，不支持继续或恢复旧代任务。升级前须在旧版完成需要继续的下载（含暂停、失败、待确认及回收站任务）；旧版已完成/回收站历史保留只读，用户文件不自动删除。未完成任务、未决操作或无法确认状态时拒绝升级。绕过升级流程也会进入受限管理，不能把“管理服务就绪”当成下载可用。
+2.0.0 使用 `native-v2`，不导入、展示、继续或恢复旧代任务，升级后任务列表重新开始。升级向导和发布说明提醒用户先在旧版完成需要保留进度的下载；旧任务不阻止升级。密码、设置、授权和 RPC Token 沿用，旧任务记录、session、恢复状态及用户下载文件保留原处。
 
-升级脚本使用新包独立 `cmd/upgrade-checker`，要求 server/sidecar 已停止；迁移先完整备份，再隔离旧状态，最后写 `engine/native-v2/migration-complete.json`。新 session 为 `$TRIM_PKGVAR/engine/native-v2/session/aria2.session`，原生状态为 `$TRIM_PKGVAR/engine/native-v2/state/`；旧 `aria2/aria2.session` 不导入新引擎。原生状态不是日志，不进入日志清理或诊断 ZIP。
+FPK 不携带 `cmd/upgrade-checker` 或其他 server 副本，升级脚本只确认 server/sidecar 已停止。应用启动时执行常规 schema 更新，只加载当前代际任务和操作；不自动备份、归档或迁移旧任务状态，也不要求迁移完成标记。新 session 为 `$TRIM_PKGVAR/engine/native-v2/session/aria2.session`，原生状态为 `$TRIM_PKGVAR/engine/native-v2/state/`；旧 `aria2/aria2.session` 不导入新引擎。
+
+平台依据：2026-10-22 重新查证官方[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)：升级前后分别调用 `upgrade_init`、`upgrade_callback`，脚本应可重复执行。停服失败关闭、无 checker 重复升级、旧文件与设置保留由本仓库 Shell/Rust 测试验证；向导展示及实际升级顺序仍需 fnOS 实机验收。
 
 - 实机升级前先停止应用，再备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。
 - 记录升级前的任务数量、下载设置、授权目录、Aria2 session 校验值和 JSON-RPC Token“是否已配置”，不要把 Token 原文写入验证记录。
 - 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；启用局域网入口后还需从真实 RFC1918 客户端确认 `17082/jsonrpc`，并验证回环、公网、IPv6 来源被拒绝。
-- 向导实际顺序、检查器可用性、拒绝后的包/服务状态和完整备份回滚仍需按下方实机矩阵及[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)验证；平台失败后是否自动回退尚未确认。查证依据：[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)，实现见 `cmd/upgrade_init`、`cmd/upgrade_callback` 和 `server/src/app/engine_upgrade.rs`。
+- 向导实际顺序、停服检查、升级后的新任务列表和手工备份回滚仍需按下方实机矩阵及[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)验证；平台失败后是否自动回退尚未确认。查证依据：[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)，实现见 `cmd/upgrade_init`、`cmd/upgrade_callback`。
 - 回滚需要先停止新版，成套恢复旧 FPK 和升级前完整私有数据备份，并将 Lucky 后端恢复为旧版对应地址；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
 
 ### 验证结论分级

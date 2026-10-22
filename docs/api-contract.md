@@ -203,6 +203,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `AppCompatibility` 返回 `engineGeneration`（`legacy-v1` / `native-v2` / `unknown`）、`mode`（`normal` / `restricted`）、`reasonCode`、`unfinishedTaskCount`、`unresolvedOperationCount` 和脱敏 `message`。受限管理保留登录、读取、诊断和停服，拒绝下载写操作与引擎启动；HTTP 返回 `409 engine_upgrade_required`，外部 RPC 创建返回 `-32005`。`ready=true` 只代表管理服务就绪，不代表允许下载。
 
+2.0.0 不导入或展示旧代任务，旧代任务和操作不触发受限管理；当前引擎无法确认或当前任务状态不可读取时仍拒绝下载。密码、设置、授权、RPC Token 和下载文件保留；新引擎不加载旧 session 或执行旧操作。
+
 `AppUpdateCheck` 示例：
 
 ```json

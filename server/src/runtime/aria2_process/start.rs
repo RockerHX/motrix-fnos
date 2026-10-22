@@ -485,9 +485,10 @@ fn validate_task_generations(
 async fn validate_native_operations(state: &HttpAppState) -> Result<(), String> {
     let operations = list_unfinished_task_operations(&state.core.database.pool).await?;
     if operations.iter().any(|operation| {
-        operation.status == crate::tasks::TaskOperationStatus::ManualReview
-            || operation.phase == "aria2_outcome_unknown"
-            || operation.phase == "file_staging_in_progress"
+        operation.engine_generation() == EngineGeneration::NativeV2
+            && (operation.status == crate::tasks::TaskOperationStatus::ManualReview
+                || operation.phase == "aria2_outcome_unknown"
+                || operation.phase == "file_staging_in_progress")
     }) {
         return Err(
             "task_outcome_unknown：未完成操作的副作用尚未确认，已保留任务与文件".to_string(),

@@ -422,6 +422,7 @@ fn operation(
         operation_type,
         phase,
         TaskOperationContext {
+            engine_generation: None,
             old_gid: old_gid.map(str::to_string),
             new_gid: new_gid.map(str::to_string),
             aria2_request: None,

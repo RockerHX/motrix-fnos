@@ -3,23 +3,6 @@ set -eu
 
 . "$(dirname -- "$0")/common.sh"
 prepare_runtime_dirs
-export_runtime_env
-generation_file="${APP_DEST}/bin/engine-generation"
-if [ ! -r "${generation_file}" ]; then
-  fail_engine_upgrade "升级检查失败：缺少引擎代际声明，请重新获取完整安装包。"
-fi
-generation=$(sed -n '1{s/[[:space:]]//g;p;}' "${generation_file}")
-case "${generation}" in
-  legacy-v1) exit 0 ;;
-  native-v2) : ;;
-  *) fail_engine_upgrade "升级检查失败：引擎代际未知，请重新获取匹配的安装包。" ;;
-esac
 if ! ensure_uninstall_processes_stopped; then
-  fail_engine_upgrade "升级检查失败：服务或引擎仍在运行，请先停止应用后重试。"
-fi
-if [ ! -f "${CMD_DIR}/upgrade-checker" ] || [ ! -x "${CMD_DIR}/upgrade-checker" ]; then
-  fail_engine_upgrade "升级检查工具不可用，请重新获取完整安装包。"
-fi
-if ! "${CMD_DIR}/upgrade-checker" engine-upgrade-check; then
-  fail_engine_upgrade "升级检查未通过，已保留原数据。请使用原版本处理未完成任务并备份后重试；无法确认状态时请导出诊断。"
+  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。"
 fi

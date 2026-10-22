@@ -567,6 +567,7 @@ pub(super) fn task_operation_context(
     critical_paths: Vec<String>,
 ) -> TaskOperationContext {
     TaskOperationContext {
+        engine_generation: task_snapshot.as_ref().map(|task| task.engine_generation),
         old_gid: task_snapshot.as_ref().and_then(|task| task.gid.clone()),
         new_gid: None,
         aria2_request: None,
