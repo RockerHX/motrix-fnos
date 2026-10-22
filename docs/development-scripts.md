@@ -2,7 +2,7 @@
 
 ## 作用与维护规则
 
-本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。完整测试流程可查看[交互式测试 H5](testing-flow.html)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
+本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。测试覆盖与自动化边界见[测试评估](testing-evaluation.md)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
 
 固定规则：
 
@@ -119,6 +119,20 @@ rtk pnpm run test:e2e
 rtk pnpm run test:aria2
 rtk pnpm run test:filesystem
 ```
+
+`test:aria2` 也支持通过 `MOTRIX_ARIA2_CANDIDATE_DIR` 指定隔离的固定候选目录，覆盖原 GID 续传、离线 metadata、BT 全局代理和状态故障，不替换内置资产。候选模式按 Linux/macOS 宿主及 CPU 架构核验匹配的固定 hash；Linux 运行库、服务 UID 和代理专属用例仍仅在 Linux 执行。默认跳过或 macOS 通过不算 Linux 验收通过。固定候选的文件保护、中文 BT 和原身份恢复组合，以及真实 Rust 管理 handler → 引擎 RPC 安全专项可单独运行：
+
+```bash
+rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate node --test \
+  --test-name-pattern='290-14|290-02 (HTTP retains|SIGKILL recovery|magnet keeps|uploaded torrent)' \
+  scripts/extended/aria2-sidecar.test.mjs
+rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate \
+  cargo test --manifest-path server/Cargo.toml --test native_engine_safety -- --ignored --nocapture
+```
+
+目录中须放置宿主对应的 `aria2-next-2.8.6-<平台>-<架构>`，文件名和固定 hash 由测试入口校验。Node.js 24+；Rust 专项需要测试工具链。Linux 全候选矩阵还需要 `ldd`、GNU `readelf` 和匹配的运行库，并以非 root 用户执行权限测试。使用专用临时目录及回环 fixture，文件系统隔离不能替代完整代理泄漏检查。
+
+2.8.6 的异常 Content-Range 普通暂停用例保留已知失败，不能把组合命令记为全部通过；有界退出、文件保全和 Rust 专项须独立通过，新失败单独排查。后续真机范围及已知限制见 [引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)。
 
 ### `pnpm run audit:deps`
 

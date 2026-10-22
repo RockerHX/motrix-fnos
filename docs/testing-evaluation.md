@@ -1,10 +1,10 @@
 # 自动化测试完整评估
 
-完整执行顺序可直接打开[交互式测试流程 H5](testing-flow.html)，查看命令、耗时和自动化/人工边界。
+本文记录测试覆盖与自动化/人工边界，执行命令见[开发命令说明](development-scripts.md)。
 
-> 评估日期：2026-10-03
+> 更新日期：2026-10-22（原评估日期：2026-10-03）
 >
-> 评估基线：分层测试实现提交 `1337f60`、`060bcd3`、`3de3934`、`2ee1703`
+> 业务源码基线：`42c8eaf`；固定 Aria2 Next 2.8.6；本次根据提交和现有验证结果更新覆盖说明，补跑浏览器与文档检查，未重复完整源码验证。
 >
 > 目标：先盘点功能，再盘点测试，最后判断自动化测试缺口；本次实现已补齐高价值扩展测试层。
 
@@ -19,7 +19,7 @@
 
 本次实现已经补齐三类高价值自动化：
 
-1. Playwright 独立 E2E：桌面和移动 Chromium 共 8 项冒烟测试。
+1. Playwright 独立 E2E：桌面和移动 Chromium 冒烟，覆盖登录、操作与实时状态；浏览器测试不代表真实引擎或 fnOS 已通过。
 2. Linux 真实 Aria2 Next sidecar：本地 HTTP fixture、RPC、下载、暂停/继续、session 恢复和异常退出。
 3. 文件系统故障矩阵：文件暂存、回滚、清理 worker、删除、恢复和重新下载调用链。
 
@@ -29,21 +29,19 @@
 
 ## 验证基线
 
-本次实际执行了 `rtk pnpm run verify`：
+截至 `42c8eaf` 的最近一次完整源码验证为 `RUSTFLAGS=-Dwarnings pnpm run verify`，记录如下；固定引擎安全专项对应 `e08d5a4`，后续提交只纠正发布目标版本：
 
-| 阶段 | 结果 |
-| --- | ---: |
-| 构建与发布脚本 | 66 项通过 |
-| FPK 进程身份、孤儿进程、停止卸载、就绪脚本 | 4 组通过 |
-| Rust 测试 | 540 项通过，5 个测试目标 |
-| Rust 编译（warnings as errors） | 通过 |
-| 前端单元测试 | 98 个文件、459 项通过 |
-| Vue 类型检查与生产构建 | 通过 |
-| Playwright E2E | 8 项通过（桌面/移动 Chromium） |
-| 文件系统故障与任务调用链 | 38 项通过 |
-| Aria2 sidecar | macOS 跳过，Linux CI 执行真实二进制 |
+| 阶段 | 已有结果与边界 |
+| --- | --- |
+| Rust / 前端 / 脚本 | 分别 617 / 465 / 91 项通过；Rust 另有 1 项固定候选测试默认 ignored，已单独执行通过 |
+| Shell、严格编译、类型检查与构建 | 完整源码验证通过；不等于 FPK 或实机验收 |
+| 浏览器冒烟 | 本次桌面/移动 Chromium 共 14 项通过，覆盖登录、创建、JWT 失效、SSE 重连及实时进度；API 由 fixture 模拟，不连接真实 Rust server 或引擎 |
+| 原生引擎安全与恢复组合 | macOS ARM64：12 通过、1 个异常 Content-Range 普通暂停失败；安全强停/文件保全通过，上游缺陷未修复 |
+| 真实 Rust 管理 handler → 引擎 RPC → 异常 HTTP 源 | 固定候选专项单独通过；未走 TCP 管理 listener、浏览器或 SSE |
+| 双架构候选 FPK | 已构建、解包并核对 SBOM、校验和及实际引擎字节；当前非正式发布产物 |
+| Linux / fnOS | ARM64 早期隔离引擎核心场景已有结果；新增 Linux 安全场景、真实应用安装/升级/回滚及 x86 实测仍待补 |
 
-此前同一工作区执行 `rtk pnpm run build:fpk`，双架构 FPK（x86_64、ARM64）构建和 `verify:fpk` 解包验收也通过。`pnpm run verify` 本身不构建或解包 FPK；这是 `build:fpk` 额外完成的层级。
+普通 `verify` 不包含浏览器、全部真实引擎组合或 FPK 解包；不能由其通过推导这些检查通过。必要补验、已知限制及延期范围见[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)，不再要求将长时压测或完整网络抓包作为本次门槛。
 
 ## 功能清单
 
@@ -55,15 +53,15 @@
 | URL 下载 | 单 URL、文件名和输出路径校验、保存目录授权、暂停/继续、限速和连接数 |
 | 批量下载 | 逐 URL 创建、部分成功、部分失败、批量代理预检 |
 | BT 下载 | multipart 上传、任务专属目录、metadata 保存、暂停、恢复、重新下载 |
-| 磁力下载 | metadata 解析、跟随 GID、文件确认、选择文件、确认前禁止继续、metadata 缺失恢复 |
+| 磁力下载 | 同 GID metadata 解析、文件确认、原生完整 metadata 与选择恢复、确认前不写用户目录、缺失状态明确报错 |
 | 任务管理 | 列表、状态筛选、详情、文件上下文、错误状态、SSE 快照、任务监控 |
 | 回收站 | 删除、保留文件、删除文件、永久删除记录、恢复、清空、部分失败和操作对账 |
-| 任务代理 | 应用代理、兼容任务私密代理、任务开关、运行时切换、恢复/重下载继承、敏感信息脱敏 |
+| 下载代理 | HTTP 任务代理及兼容私密覆盖、BT 全局代理、运行时切换、失败阻断、脱敏；HTTP/SOCKS4 域名解析限制保留 |
 | 存储授权 | fnOS 共享目录刷新、快照持久化、路径显示转换、授权撤销、目录安全校验 |
 | JSON-RPC | HTTP、WebSocket、OPTIONS、Token 隔离、`aria2.addUri`、`getVersion`、`getGlobalOption`、multicall |
-| SSE | 初始快照、任务快照、退出事件、JWT 失效、断线重连、连接代际和 revision 基线 |
-| 设置 | 默认目录、语言、并发、连接数、分片、超时、重试、下载代理、JSON-RPC Token、LAN RPC 开关和轮换 |
-| 诊断与日志 | 调试日志列表/清理、Aria2 日志模式、日志轮转、日志占用、存储占用、诊断 ZIP、敏感信息脱敏 |
+| SSE | 引擎兼容与任务快照、退出事件、JWT 失效、断线重连、连接代际和 revision 基线 |
+| 设置 | 默认目录、语言、并发、单一 HTTP 连接上限、超时、重试、下载代理、JSON-RPC Token、LAN RPC 开关和轮换 |
+| 诊断与日志 | 调试日志列表/清理、Aria2 日志模式、日志轮转、日志占用、session/metadata/原生状态占用、诊断 ZIP、敏感信息脱敏 |
 | 数据库 | schema 迁移、任务/设置/历史/错误/操作记录、备份、完整性检查、历史清理 CLI |
 | FPK 交付 | manifest、权限、端口、图标、生命周期脚本、双架构 server/sidecar、产物命名、空运行数据目录 |
 | Web UI | 鉴权门禁、任务列表和分类、创建/操作弹窗、设置、诊断、帮助、关于、扩展占位、桌面/移动布局 |
@@ -73,36 +71,19 @@
 
 ### Rust 后端
 
-Rust 共有 49 个测试模块文件，另有 2 个 `server/tests/` 外部集成测试文件。当前测试按领域分布如下：
-
-| 领域 | 测试数 |
-| --- | ---: |
-| API（管理、鉴权、任务、设置、存储、JSON-RPC、SSE、诊断） | 140 |
-| 任务与任务服务 | 166 |
-| Runtime 生命周期、监控、关闭、文件清理、进程对账 | 65 |
-| 数据库与迁移 | 29 |
-| Aria2 配置、RPC、日志模式 | 24 |
-| 认证服务、JWT、密码、限速 | 22 |
-| 存储与共享目录 | 20 |
-| App 启动编排 | 23 |
-| 调试日志 | 11 |
-| fnOS API 客户端 | 10 |
-| 诊断 | 10 |
-| 设置 | 11 |
-| 状态与其他集成目标 | 9 |
-| 合计 | 540 |
+Rust 领域测试与 `server/tests/` 集成测试覆盖 API、任务、原生恢复、代际迁移、代理、文件清理和生命周期；最新执行总数见上方验证基线。
 
 代表性测试文件包括：
 
-- [`server/src/api/tasks/tests.rs`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/server/src/api/tasks/tests.rs)：任务 HTTP 入口和授权边界。
-- [`server/src/api/jsonrpc/tests.rs`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/server/src/api/jsonrpc/tests.rs)：HTTP/WebSocket、多入口 Token、multicall、连接资源和 LAN 权限。
-- [`server/src/tasks/service/tests.rs`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/server/src/tasks/service/tests.rs)：创建、控制、代理、恢复、重下载、回滚和对账。
-- [`server/src/runtime/lifecycle/tests.rs`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/server/src/runtime/lifecycle/tests.rs)：生命周期转换、取消代际和资源收敛。
-- [`server/tests/idle_file_stability.rs`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/server/tests/idle_file_stability.rs)：只读请求和空闲监控不产生运行态文件变化。
+- [`server/src/api/tasks/tests.rs`](../server/src/api/tasks/tests.rs)：任务 HTTP 入口和授权边界。
+- [`server/src/api/jsonrpc/tests.rs`](../server/src/api/jsonrpc/tests.rs)：HTTP/WebSocket、多入口 Token、multicall、连接资源和 LAN 权限。
+- [`server/src/tasks/service/tests.rs`](../server/src/tasks/service/tests.rs)：创建、控制、代理、恢复、重下载、回滚和对账。
+- [`server/src/runtime/lifecycle/tests.rs`](../server/src/runtime/lifecycle/tests.rs)：生命周期转换、取消代际和资源收敛。
+- [`server/tests/idle_file_stability.rs`](../server/tests/idle_file_stability.rs)：只读请求和空闲监控不产生运行态文件变化。
 
 ### 前端
 
-Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
+Vitest 使用 jsdom，覆盖：
 
 - 认证组件、认证 service、认证 store、跨标签页通信。
 - HTTP 错误和认证代际、SSE 解析和重连。
@@ -112,14 +93,14 @@ Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
 
 测试文件示例：
 
-- [`src/features/tasks/stores/taskStore.spec.ts`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/src/features/tasks/stores/taskStore.spec.ts)
-- [`src/features/auth/stores/authStore.spec.ts`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/src/features/auth/stores/authStore.spec.ts)
-- [`src/services/runtimeEvents.spec.ts`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/src/services/runtimeEvents.spec.ts)
-- [`src/views/MainWindow.spec.ts`](/Users/rockerhx/Desktop/GitHub/motrix-fnos/src/views/MainWindow.spec.ts)
+- [`src/features/tasks/stores/taskStore.spec.ts`](../src/features/tasks/stores/taskStore.spec.ts)
+- [`src/features/auth/stores/authStore.spec.ts`](../src/features/auth/stores/authStore.spec.ts)
+- [`src/services/runtimeEvents.spec.ts`](../src/services/runtimeEvents.spec.ts)
+- [`src/views/MainWindow.spec.ts`](../src/views/MainWindow.spec.ts)
 
 ### 脚本、FPK 与构建
 
-`scripts/tests/` 有 21 个 Node 测试文件、66 项测试，覆盖：
+`scripts/tests/` 的 Node 测试覆盖：
 
 - 版本、CHANGELOG、发布准备、SBOM、动作 SHA 固定和依赖审计。
 - FPK 身份、产物、构建预检和静态架构约束。
@@ -141,12 +122,12 @@ Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
 
 | 功能域 | 当前状态 | 已有证据 | 评估结论 |
 | --- | --- | --- | --- |
-| Web 管理鉴权 | A | Rust API/auth tests、AuthGate specs、Playwright E2E | 初始化、JWT、限速、并发哈希、旧 token 失效和真实浏览器 setup 链路均有回归 |
+| Web 管理鉴权 | A | Rust API/auth tests、AuthGate specs、Playwright E2E | 安装初始化、本机重置、JWT、限速、并发哈希、旧 token 失效和浏览器登录链路均有回归；安装向导本身待 fnOS 验收 |
 | 应用信息与就绪 | B | `api/app/tests.rs`、`api/tests.rs` | payload 和就绪状态有测试；更新检查的真实 HTTP handler/网络失败注入不足 |
-| Aria2 生命周期 | A/B | `runtime/*/tests.rs`、`app/tests.rs`、`scripts/extended/aria2-sidecar.test.mjs` | 编排和真实 sidecar 基础矩阵已有；BT/磁力、公网网络和长期资源压力仍需扩展 |
-| URL、批量、BT、磁力任务 | B | `api/tasks/tests.rs`、`tasks/service/tests.rs`、`tasks/tests.rs` | API 和业务编排覆盖强；真实引擎、真实网络、BT/磁力 metadata 仍缺端到端验证 |
-| 任务控制、回收站、恢复、重下载 | A | `tasks/service/tests.rs`、`tasks/files/tests.rs`、`task_operation_reconcile/tests.rs`、`test:filesystem` | 正常链路、失败回滚、清理重试、目标冲突和调用链均有自动化；跨进程崩溃仍由发布验收补充 |
-| 任务代理 | A/B | `settings/proxy/tests.rs`、API/任务 service tests、前端 proxy specs | 代理来源、继承、轮换、脱敏覆盖较完整；缺真实 Aria2 连接切换验证 |
+| Aria2 生命周期 | A/B | `runtime/*/tests.rs`、`app/tests.rs`、`scripts/extended/aria2-sidecar.test.mjs` | 已补原生 HTTP/BT 恢复、有界退出、长连接排空、连接资源与存储故障回归；真实 Linux/设备边界另行记录 |
+| URL、批量、BT、磁力任务 | B | `api/tasks/tests.rs`、`tasks/service/tests.rs`、`tasks/tests.rs` | 已有真实引擎 HTTP/BT、离线 metadata 和文件选择 fixture；浏览器到真实引擎的完整 fnOS 链路仍待验收 |
+| 任务控制、回收站、恢复、重下载 | A | `tasks/service/tests.rs`、`tasks/files/tests.rs`、`task_operation_reconcile/tests.rs`、`test:filesystem` | 原 GID 保留、显式从零恢复、异步清理、回滚和对账已有自动化；真实 fnOS 重启及崩溃边界仍需验收 |
+| 任务代理 | A/B | `settings/proxy/tests.rs`、API/任务 service tests、前端 proxy specs | HTTP 兼容绑定、BT 总代理、受控 peer/tracker/web-seed、切换与错误代理阻断已有回归；完整网络泄漏检查未完成 |
 | 路径授权与撤权 | A/B | `storage/*/tests.rs`、API tasks tests、任务 service tests | 路径包含、撤权前置检查和私有 metadata 有测试；fnOS 真实授权撤销和 OS 权限差异只能实机确认 |
 | SQLite、迁移、CLI | A | `database/*/tests.rs`、`server/tests/database_cli.rs` | 迁移、完整性、备份和历史清理已有自动化 |
 | JSON-RPC HTTP/WS/multicall | A/B | `api/jsonrpc/tests.rs`、`api/tests.rs` | 协议、Token 隔离、消息大小、连接上限和 LAN 权限已有测试；真实外部客户端兼容矩阵未自动化 |
@@ -156,8 +137,8 @@ Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
 | fnOS 开放 API | B/M | `fnos/tests.rs`、`api/storage/tests.rs` 的 Unix Socket mock | 协议解析和失败回退可自动化；真实 fnOS socket、Token 注入和权限目录必须实机 |
 | FPK 静态产物 | A | `scripts/tests/fpk-*`、`verify:fpk`、双架构构建 | 包内容、架构、入口、权限和运行残留已有自动化 |
 | FPK 生命周期脚本 | B | 4 组 Shell 测试 | 进程归属、信号升级、孤儿回收、就绪有模拟测试；真实 fnOS 生命周期语义仍需设备验证 |
-| FPK 安装/升级/回滚/卸载 | M/B | `docs/installation-regression-test-plan.md`，部分 Shell 场景 | 已有详细人工计划，静态和脚本部分可自动化；真实应用中心、错误架构、升级失败和回滚仍需 fnOS |
-| 前端业务组件 | B | 98 个 jsdom spec 文件 | 组件级覆盖广；`TaskActionsContainer`、`TaskFileConfirmCoordinator`、`MainWindowDialogs` 等组合组件缺直接 spec |
+| FPK 安装/升级/回滚/卸载 | M/B | `server/tests/engine_upgrade_cli.rs`、`scripts/tests/fpk-upgrade-lifecycle.test.mjs` 与 Shell 场景 | 迁移、拒绝升级、备份完整性、中断重试和回滚已有隔离测试；真实应用中心顺序与失败状态仍待验收 |
+| 前端业务组件 | B | jsdom spec 文件 | 组件级覆盖广；`TaskActionsContainer`、`TaskFileConfirmCoordinator`、`MainWindowDialogs` 等组合组件缺直接 spec |
 | 前端 service/adapters | B/G | 多数通过 store 测试间接覆盖 | `services/aria2.ts`、`backend.ts`、`storage.ts`、`aboutService.ts`、`debugLogService.ts` 缺少直接请求契约测试；部分是薄包装，优先级中等 |
 | 响应式布局与 WebView | B/M | jsdom/mobile composable 测试、Playwright 桌面/移动 viewport | 真实浏览器 viewport 已自动化；FN Connect/App WebView、文件选择和视觉验收仍需设备 |
 | 发布与依赖审计 | A/B | scripts tests、独立 weekly audit workflow | 脚本和锁文件流程可自动化；依赖审计不是每次 verify 的步骤，而是独立定时任务 |
@@ -187,7 +168,7 @@ Vitest 使用 jsdom，当前有 98 个 spec 文件、459 项测试，覆盖：
 - 本地 `verify` 是完整源码门禁，GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动运行；每周定时或手动 dispatch 运行 `verify:extended`。
 - `verify` 不包含 FPK 构建和解包；`build:fpk` 才串联完整源码验证、双架构构建和 `verify:fpk`。发布 workflow 按当前架构决策只构建新产物，不重复源码验证，因此需要保证发布前已有同一提交的 verify 证据。
 - 当前仍没有真实 fnOS 测试和代码覆盖率门槛。测试数量很高，但不能据此推导功能覆盖率百分比；真实设备验收和覆盖率应继续单独管理。
-- `docs/installation-regression-test-plan.md` 已经把主要实机用例列全，下一步重点是把其中可在临时目录、mock fnOS 或本地 sidecar 完成的部分拆回自动化脚本。
+- 本次只执行 [引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级) 中的关键实机与 Linux 补验；已有自动化不重复转为手工测试，延期项目不记为通过。
 
 ## 评估结论
 

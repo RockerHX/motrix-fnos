@@ -169,6 +169,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | `GET` | `/api/app/info` | `AppInfo` |
 | `GET` | `/api/app/ping` | `BackendPing` |
 | `GET` | `/api/app/ready` | `AppReadiness` |
+| `GET` | `/api/app/compatibility` | `AppCompatibility`（需管理 JWT） |
 | `GET` | `/api/app/update-check` | `AppUpdateCheck` |
 
 `AppInfo` 示例：
@@ -199,6 +200,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `/api/app/ready` 仅用于 Rust 服务生命周期探测，无需管理 JWT。
 - 只有管理与 JSON-RPC listener 已绑定、启动门禁已经完成且服务未进入退出状态时返回 `200 OK`；其他状态返回 `503 Service Unavailable` 和 `app_not_ready`。
 - SQLite 初始化仍是 listener 标记就绪前的启动门禁，但 ready 请求本身只读取内存状态，不获取数据库连接、不执行 SQL、不写日志。
+
+`AppCompatibility` 返回 `engineGeneration`（`legacy-v1` / `native-v2` / `unknown`）、`mode`（`normal` / `restricted`）、`reasonCode`、`unfinishedTaskCount`、`unresolvedOperationCount` 和脱敏 `message`。受限管理保留登录、读取、诊断和停服，拒绝下载写操作与引擎启动；HTTP 返回 `409 engine_upgrade_required`，外部 RPC 创建返回 `-32005`。`ready=true` 只代表管理服务就绪，不代表允许下载。
 
 `AppUpdateCheck` 示例：
 
@@ -261,7 +264,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | `POST` | `/api/tasks/:id/pause` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/resume` | - | `DownloadTask` |
 | `POST` | `/api/tasks/:id/redownload` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
-| `POST` | `/api/tasks/:id/restore` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
+| `POST` | `/api/tasks/:id/restore` | 可选 `TaskRestoreRequest` | `DownloadTask` |
 | `PUT` | `/api/tasks/:id/proxy` | `UpdateTaskProxyRequest` | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
 | `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
@@ -272,19 +275,20 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 普通 `GET /api/tasks` 和 WebUI 普通刷新只返回内存任务快照，不启动 Aria2 或执行无变化完整持久化；活动任务由后台监控或明确任务操作刷新，不新增独立同步 API。
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
-- `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；恢复成功后任务进入暂停状态，不会立即占用下载带宽。
-- 任何会写入用户下载目标或暂存/删除用户文件的继续、恢复、重新下载、磁链确认、stale GID 重建及 `deleteFiles=true` 操作，均按任务保存目录、专属目录和文件归属重新检查当前授权；授权已撤销时返回 `403 Forbidden`（`save_dir_not_authorized`），不得唤醒后写入、重建目录或暂存/删除用户文件。待确认磁链的 metadata 只写应用私有目录；确认文件以创建真实下载任务时仍须检查用户目录授权。
+- `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；未完成任务恢复为暂停，已完成历史恢复为完成，均不会立即下载或做种。
+- 原生任务暂停或删除前无法确认引擎停止写入时返回 `503 Service Unavailable`、`task_pause_unconfirmed`；暂停确认含 RPC 等待共用 10 秒预算，失败时保留原任务、GID 和文件，不标记已暂停、不暂存或删除内容、不自动继续下载，提示停止并重启应用后核对。强制终止引擎不等于原生状态已成功提交，最近进度可能回退。
+- 任何会写入用户下载目标或暂存/删除用户文件的继续、恢复、重新下载、磁链确认、stale GID 重建及 `deleteFiles=true` 操作，均按任务保存目录、专属目录和文件归属重新检查当前授权；授权已撤销时返回 `403 Forbidden`（`save_dir_not_authorized`），不得唤醒后写入、重建目录或暂存/删除用户文件。待确认磁链的 metadata 只写应用私有目录；确认文件并设置实际下载目录时仍须检查用户目录授权。
 - 成功刷新共享目录授权后，服务端会尝试暂停正在运行且目标已撤权的任务；暂停后的同步或持久化失败时保持 Aria2 暂停并留下待对账操作，不发送补偿性 `unpause`。暂停结果无法确认时也不恢复下载。
 - `POST /api/tasks/:id/redownload` 只允许重新下载 `complete` 任务。服务端先按原来源创建暂停任务并持久化，再暂存旧文件；新任务恢复成功后才清理暂存文件。任一步失败会恢复旧任务和原文件。URL 使用 `addUri`，种子和已确认磁链使用保存的源 metadata 调用 `addTorrent`。
-- 恢复与重新下载可省略请求体；省略或请求体中不提供 `useProxy` 时继承原任务的完整代理绑定。显式改变开关时改用应用代理配置来源；显式值与原值相同则保留旧兼容绑定。
+- HTTP 恢复与重新下载可省略请求体；省略 `useProxy` 时继承原代理绑定，改变开关时使用应用代理配置，相同值保留旧兼容绑定。BT 请求不得包含 `useProxy`（含 `false` / `null`），统一使用 BT 总代理。
 - 恢复与重新下载必须在创建目录、提交 GID 或暂存旧文件前确认所继承或覆盖的代理可用。校验或应用失败时保持原任务、文件和回收站状态，不得回退为直连。
 - 同一任务已有重新下载操作时，重复请求返回 `409 Conflict`，错误码为 `task_operation_conflict`。
-- 恢复保留本地文件的任务时复用原保存目录和控制文件续传；删除过本地文件的任务重建为从头下载的暂停任务。
-- URL 任务使用原 URL 恢复；种子和已确认磁链优先使用应用私有目录保存的源种子 metadata。磁链缺少 metadata 时重新解析并再次要求确认文件；旧种子 metadata 已丢失时返回 `400 Bad Request` 并保持回收站状态。
-- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作只清理 Motrix 数据库记录，不删除用户下载文件。
+- 原生未完成任务保留文件恢复时复用原 ID/GID、路径、session 和原生状态，不重新创建下载。内容已删除时须显式提交 `restartFromZero=true`，否则返回 `409 task_restart_confirmation_required`；确认后创建从零开始的暂停尝试。文件未删除却要求从零恢复返回 `400 task_restore_options_invalid`。
+- 原生 GID/恢复状态无效或完整 metadata 缺失时返回 `409 task_resume_state_invalid` / `task_metadata_missing`，保留文件和回收站记录，不另建 GID 接管半成品。清理未完成时恢复和永久删除返回 `409 file_cleanup_pending`。旧代任务只读，写操作返回 `409 task_engine_incompatible`。
+- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，不删除用户下载文件。
 - 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
-- 磁力链接会先由 Aria2 下载 metadata；metadata 完成后任务会跟随到真实 BT GID，状态保持 `paused`，并设置 `confirmationRequired=true`。前端必须展示 `files` 让用户确认后再调用 `/api/tasks/:id/confirm` 开始真实下载。
-- 磁力链接任务会在用户授权的父保存目录下创建任务专属子目录，并启用 Aria2 `bt-save-metadata=true`；解析出的 hash 命名 `.torrent` 会和下载产物、`.aria2` 控制文件一起放在该目录。该 `.torrent` 仅作为磁链解析过程产物用于可见性 / 排障，不替代 Aria2 session 机制。
+- 磁链在应用私有目录解析 metadata，全程保持同一 GID；引擎 `bittorrent.fileSelectionState=awaiting` 时任务暂停并设置 `confirmationRequired=true`。前端展示 `files`，确认文件后才开始写入用户下载目录。
+- 磁链确认时在已授权父目录下设置任务专属目录；完整 metadata 和文件选择随原生状态持久化，不依赖导出 `.torrent`、`.aria2` 控制文件或后继 GID。
 - 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。
 
 `TaskFileContextResponse`：
@@ -341,21 +345,23 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `sourceType` 可选值为 `url` / `magnet`；种子文件通过 `/api/tasks/torrent` 上传，不在 JSON 请求中传 `torrent`。省略时兼容旧请求并按 `url` 处理。
 - `startMode` 可选值为 `now` / `paused`，省略时按 `now` 处理。
 - `category` 是 Motrix 任务标签，默认 `默认`；它不改变保存目录，也不影响侧栏状态分类。
-- `advancedOptions.connections` 映射 Aria2 `split` 与 `max-connection-per-server`；`advancedOptions.downloadLimitKb` 映射单任务下载限速。
-- `advancedOptions.useProxy` 是可选布尔值，缺失时服务端按 `false` 处理。值为 `true` 时任务绑定当前应用代理配置；配置不存在时返回 `400 proxy_not_configured`，并且不创建任务、目录或 Aria2 GID。
+- `advancedOptions.connections` 为 `1..=64` 的整数，原生引擎映射 `stream-max-connections`；`advancedOptions.downloadLimitKb` 映射单任务下载限速。
+- HTTP 的 `advancedOptions.useProxy` 是可选布尔值，缺失按 `false`；BT 禁止任务级代理字段，即使为 `false` / `null` 也返回 `400 bt_task_proxy_unsupported`。HTTP 请求中该值为 `true` 时绑定当前应用代理配置；配置不存在时返回 `400 proxy_not_configured`，并且不创建任务、目录或 Aria2 GID。
 - 旧 `advancedOptions.proxy` 继续兼容：未同时提供 `useProxy` 时，非空原始值作为该任务的私密兼容覆盖并映射 `all-proxy`。同时提供 `useProxy` 与非空 `advancedOptions.proxy` 时返回 `400 proxy_conflict`。
 - `saveDir` 必须是 `/api/storage/accessible-paths` 返回的授权目录本身或其子目录；为空或未授权路径会返回 `400 Bad Request`。缺失子目录会在 Aria2 创建任务前由服务端创建。
-- 当 `sourceType=magnet` 时，请求中的 `saveDir` 表示授权父目录；成功创建后返回的 `DownloadTask.saveDir` 是后端创建的任务专属子目录。
+- 当 `sourceType=magnet` 时，请求中的 `saveDir` 表示授权父目录；解析阶段仍保留该父目录，确认时才切换到任务专属子目录；解析用目录位于应用私有数据区。
 - BT 任务返回的 `ownedTaskDir` 是后端创建并持久化的外层任务目录；它独立于会随种子 metadata 更新的 `fileName`，仅用于任务恢复和安全删除。普通 URL 任务为 `null`。
 - `aria2Options` 为兼容字段；Web UI 不直接使用该字段，外部调用或 `/jsonrpc` 兼容入口可传入受支持的 Aria2 参数。
-- `aria2Options["all-proxy"]` 遵循与旧 `advancedOptions.proxy` 相同的私密兼容规则；同时提供 `useProxy` 与非空原始代理字段时返回 `400 proxy_conflict`。两个旧原始字段同时存在时沿用既有白名单选项优先级，但只持久化最终生效值。
-- 后端只透传白名单内的 Aria2 选项，并会覆盖 `dir` / `out`，确保保存目录和文件名仍由 Motrix 校验。
+- `aria2Options["all-proxy"]` 遵循与旧 `advancedOptions.proxy` 相同的私密兼容规则；同时提供 `useProxy` 与非空原始代理字段时返回 `400 proxy_conflict`。两个非空原始代理字段同时存在时返回 `400 proxy_conflict`。BT 不接受这些字段或 `bt-proxy` 等任务级代理选项。
+- 后端只透传白名单选项并覆盖 `dir` / `out`。新旧连接参数混用、废弃参数、服务管理参数分别返回 `400 aria2_option_conflict` / `aria2_option_unsupported` / `aria2_option_forbidden`；具体选项规则见第 6 节。
 
 `DownloadTask`：
 
 ```json
 {
   "id": 1,
+  "engineGeneration": "native-v2",
+  "readOnly": false,
   "url": "https://example.com/file.zip",
   "sourceType": "url",
   "fileName": "file.zip",
@@ -371,6 +377,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "errorMessage": null,
   "filePath": "/vol1/downloads/file.zip",
   "useProxy": false,
+  "filesDeleted": false,
+  "cleanupState": "none",
+  "metadataState": "none",
   "confirmationRequired": false,
   "files": [],
   "createdAt": 1760000000000,
@@ -394,9 +403,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 约定：
 
 - `category` 是任务标签，默认 `默认`。
-- `useProxy` 只表示任务的持久化代理意图；响应不返回代理来源、配置 revision、代理 URL 或兼容覆盖值。
+- `useProxy` 只表示 HTTP 任务的持久化代理意图，新建 BT 为 `false`，BT 是否使用代理以全局开关为准；响应不返回代理来源、配置 revision、代理 URL 或兼容覆盖值。
 - `confirmationRequired` 表示任务需要用户确认文件后才能继续下载。
-- `files` 来自 Aria2 `tellStatus` 的运行时文件列表，不写入 SQLite；应用重启后通过 Aria2 session 同步重新填充。
+- `files` 来自引擎文件列表，SQLite 保存 `selectedFileIndexes` 等恢复事实；重启后从 session/native metadata 恢复文件列表和选择，不依赖在线节点重新获取完整 metadata。公开响应不暴露私有 metadata 路径。
+- HTTP API 与 SSE 使用同一公开任务结构，增加 `engineGeneration`、`readOnly`、`filesDeleted`、`cleanupState`（`none` / `pending` / `failed`）和 `metadataState`（`none` / `resolving` / `awaiting` / `ready` / `error`）。
 - `DownloadTaskFile.index` 使用 Aria2 原生 one-based 文件索引，前端不得重排后再提交。
 
 `CreateBatchDownloadTasksRequest`：
@@ -433,10 +443,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 - `torrent`：种子文件，大小不得超过 10 MiB。
 - `request`：JSON 字符串，字段为 `saveDir`、`startMode`、`category`、`advancedOptions`。
-- `request.advancedOptions.useProxy` 与 JSON 创建接口语义一致；缺失按 `false`。种子创建、磁链 metadata GID 与确认后的最终 BT GID 必须使用同一代理绑定。
+- 种子请求不接受 `advancedOptions.useProxy` / `proxy`，统一使用设置页的 BT 总代理。
 - `request.saveDir` 表示用户授权的父保存目录；服务端会按种子任务名创建专属子目录，并将 Aria2 下载目录设为该子目录。
 - 成功后返回创建出的 `DownloadTask`；`url` 存为 `torrent:<原始文件名>`，`saveDir` 为任务专属子目录。
-- 服务端保留 Aria2 原生上传元数据落盘行为；任务专属子目录内可能出现 hash 命名 `.torrent` 文件，用于保持 Aria2 session 恢复语义，不再额外保存同名 `.torrent` 副本。
+- 服务端将上传的原始种子备份到应用私有目录；原生状态保留完整 metadata 和文件选择，不在用户下载目录额外导出种子。
 
 `ConfirmTaskFilesRequest`：
 
@@ -451,8 +461,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `selectedFileIndexes` 不能为空；后端会过滤非正数、去重并排序。
 - 后端将选择结果映射为 Aria2 `changeOption(gid, { "select-file": "1,3,5" })`，随后调用 `aria2.unpause` 开始真实 BT 下载。
 - 成功后返回更新后的 `DownloadTask`，其中 `confirmationRequired=false`，任务进入下载中状态。
-- 本接口只负责确认文件并开始下载；磁链解析出的 `.torrent` 元数据由创建磁链任务时的 `bt-save-metadata` 选项触发保存。
-- 服务端在 `unpause` 前对账任务持久化代理意图；代理无法解析或应用时保持暂停并返回结构化错误，不得直连。
+- 原生磁链确认在同一 GID 上设置目录和文件选择，再继续；重复确认返回 `409 task_already_confirmed`，无效选择返回 `400 task_file_selection_invalid`，不创建替代任务。
+- 服务端在 `unpause` 前核对 BT 总代理；代理无法解析或应用时保持暂停并返回结构化错误，不得直连。
 
 `UpdateTaskProxyRequest`：
 
@@ -462,7 +472,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 }
 ```
 
-`TaskProxyOverrideRequest`：
+`TaskProxyOverrideRequest`（HTTP 重新下载）：
 
 ```json
 {
@@ -470,7 +480,15 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 }
 ```
 
-任务代理切换约定：
+`TaskRestoreRequest` 可同时包含 HTTP 的可选 `useProxy` 与 `restartFromZero`（默认 `false`）；BT 仅允许后者。例如内容已删除后确认从头下载：
+
+```json
+{
+  "restartFromZero": true
+}
+```
+
+任务代理切换约定（仅 HTTP，BT 返回 `400 bt_task_proxy_unsupported`）：
 
 - 活动或已暂停且仍有有效 GID 的任务通过受控 `aria2.changeOption` 更新 `all-proxy`；运行中切换可能短暂重建连接，但不删除文件、不更换 Motrix 任务 ID。
 - Aria2 已停止时只保存任务意图，不为切换操作启动引擎。完成和回收站任务也只保存供将来继承的状态。
@@ -482,7 +500,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 - SQLite schema v4 为 `download_tasks` 增加 `use_proxy INTEGER NOT NULL DEFAULT 0` 与 `proxy_source TEXT NOT NULL DEFAULT 'profile'`。升级前任务统一迁移为关闭，其他任务字段保持不变，重复启动不得重复迁移。
 - 私密表 `task_proxy_overrides(task_id, proxy_url, updated_at)` 只保存旧接口的任务专属代理，`task_id` 为主键并随任务永久删除清理。普通任务读写不得把 `proxy_url` 复制到公开字段、操作记录或日志。
-- SQLite 任务意图是长期事实；Aria2 session 只用于恢复。启动、继续、stale GID 重建、磁链跟随 GID 和空闲重启都必须在 unpause 前按 SQLite 对账 `all-proxy`，失败时保持暂停或进入可诊断错误状态。
+- SQLite 任务意图是长期事实；Aria2 session 只用于恢复。HTTP 启动、继续和空闲重启都必须在 unpause 前按 SQLite 对账 `all-proxy`；BT 在网络活动前核对全局 `bt-proxy`，失败时保持暂停或进入可诊断错误状态。
 
 ### 4.5 设置
 
@@ -504,9 +522,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `GET /api/settings` 在没有已保存配置时，会从 `/api/storage/accessible-paths` 对应授权目录中选择默认下载目录：优先选择包含 `/data` 或以 `data` 结尾的目录，其次选择第一个授权目录；授权目录为空时才回退到 server 应用数据目录。
 - `PUT /api/settings` 的 `defaultDownloadDir` 必须来自已授权目录；授权目录为空时只允许使用 server 应用数据目录。未授权目录返回 `400 Bad Request`，错误码为 `settings_save_failed`。
 - `maxConcurrentDownloads` 默认值为 `5`，服务端规范化范围为 `1..=128`；`0` 会规范化为 `1`，超过 `128` 会规范化为 `128`。该限制由服务端执行，前端范围只是输入提示。
-- 下载调优字段 `maxConnectionPerServer`、`split`、`minSplitSize`、`connectTimeout` 和 `maxTries` 分别默认 `1`、`5`、`20M`、`60` 秒和 `5` 次；数值范围依次为 `1..=64`、`1..=64`、`1..=300` 和 `1..=10`，`minSplitSize` 只接受 `1M`、`5M`、`10M`、`20M`，非法值回退为稳定默认值。
+- 下载调优统一为 `httpMaxConnections`（默认 `1`，整数 `1..=64`）、`connectTimeout`（默认 `60` 秒，规范化为 `1..=300`）和 `maxTries`（默认 `5`，规范化为 `1..=10`）。非法 HTTP 连接上限返回 `400 settings_connections_invalid`。
 - 调优字段保存后会与限速和并发一起通过 `aria2.changeGlobalOption` 应用；Aria2 未运行时不会因设置操作启动，并会在下一次受控启动、session 恢复前应用已保存的规范化配置。旧客户端省略这些新增字段时按上述默认值保存。
-- `split` 和 `minSplitSize` 只作为新建任务的全局默认值，不回写已有任务；已有任务的高级 Aria2 选项仍优先。
+- 旧设置 `split` / `maxConnectionPerServer` 归并到 `httpMaxConnections`，按各自默认值与范围规范化后取较小值；响应只返回新字段。新旧字段混用返回 `400 settings_option_conflict`，提交已废弃的 `minSplitSize` 返回 `400 settings_option_unsupported`。
 - `PUT /api/settings` 保存成功后不会因为 Aria2 未运行或即时应用失败而回滚配置；响应中的可选 `runtimeApply` 为 `applied`（已即时应用）、`deferred`（Aria2 未就绪或生命周期正在切换，将在下次受控启动时生效）或 `failed`（已尝试即时应用但 Aria2 拒绝/调用失败）。旧客户端可以忽略该字段。
 - `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
 - `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
@@ -519,7 +537,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 代理 URL trim 后最长 2048 字节，使用结构化 URL 解析；只接受 `http`、`https`、`socks4`、`socks5`，要求合法 host 和 port，拒绝 query、fragment 与控制字符。允许 userinfo，但规范化不得改变凭据大小写或含义。
 - 保存相同的规范化 URL 是无变化操作：不增加 revision、不调用 Aria2、不触发任务重连。并发保存按数据库事务串行化 revision。
 - 替换配置本身成功后，不启动已停止的 Aria2。已运行且来源为应用配置的启用任务分别进入 `appliedTaskIds`、`deferredTaskIds` 或脱敏的 `failed`；部分即时应用失败不回滚已保存配置，后续在恢复、继续或显式操作时重新对账。
-- 仍有 `useProxy=true` 且来源为应用配置的任务时，包含完成和回收站任务，清除配置返回 `409 proxy_in_use`。兼容私密覆盖任务不构成引用。成功清除返回 `204 No Content`。
+- BT 总代理开启，或仍有 `useProxy=true` 且来源为应用配置的 HTTP 任务时，包含完成和回收站任务，清除配置返回 `409 proxy_in_use`。兼容私密覆盖任务不构成引用。成功清除返回 `204 No Content`。
+- `PUT /api/settings/proxy` 接受可选 `proxyUrl` 与 `btUseProxy`，至少提供一个字段；省略的字段保留原值。BT 总开关默认关闭，仅支持 HTTP/SOCKS4/SOCKS5；无地址或使用 HTTPS 分别返回 `400 bt_proxy_not_configured` / `bt_proxy_protocol_unsupported`。
+- BT 开关或共享地址变更先暂停受影响任务，再保存并核对全局 `bt-proxy`；暂停未确认则不保存，保存后应用失败则保留目标配置并返回 `btRuntimeApply=blocked`，禁止相关 BT 继续；引擎停止时为 `deferred`，核对成功为 `applied`。只在核对成功后恢复原先活动的任务，不激活原已暂停/回收站任务。
 - 代理设置加载或保存失败使用内部错误码 `proxy_load_failed`、`proxy_save_failed`；任何错误响应、日志和调试记录都不得包含代理原文或凭据。
 
 `AppConfig`：
@@ -528,9 +548,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "defaultDownloadDir": "/vol1/downloads",
   "maxConcurrentDownloads": 5,
-  "maxConnectionPerServer": 1,
-  "split": 5,
-  "minSplitSize": "20M",
+  "httpMaxConnections": 1,
   "connectTimeout": 60,
   "maxTries": 5,
   "downloadLimit": 0,
@@ -545,9 +563,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "defaultDownloadDir": "/vol1/downloads",
   "maxConcurrentDownloads": 128,
-  "maxConnectionPerServer": 6,
-  "split": 7,
-  "minSplitSize": "5M",
+  "httpMaxConnections": 6,
   "connectTimeout": 90,
   "maxTries": 8,
   "downloadLimit": 0,
@@ -620,17 +636,20 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 {
   "configured": true,
   "maskedProxyUrl": "http://***:***@proxy.example.com:7890",
-  "revision": 4
+  "revision": 4,
+  "btUseProxy": false,
+  "btRuntimeApply": "deferred"
 }
 ```
 
-未配置时 `configured=false`、`maskedProxyUrl=null`、`revision=0`。用户名和密码统一掩码，响应不得包含 query、fragment 或可还原凭据的信息。
+未配置时 `configured=false`、`maskedProxyUrl=null`、`revision=0`、`btUseProxy=false`、`btRuntimeApply=deferred`。用户名和密码统一掩码，响应不得包含 query、fragment 或可还原凭据的信息。
 
 `UpdateDownloadProxyRequest`：
 
 ```json
 {
-  "proxyUrl": "http://user:password@proxy.example.com:7890"
+  "proxyUrl": "http://user:password@proxy.example.com:7890",
+  "btUseProxy": true
 }
 ```
 
@@ -641,7 +660,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "status": {
     "configured": true,
     "maskedProxyUrl": "http://***:***@proxy.example.com:7890",
-    "revision": 4
+    "revision": 4,
+    "btUseProxy": true,
+    "btRuntimeApply": "applied"
   },
   "appliedTaskIds": [1],
   "deferredTaskIds": [2],
@@ -819,7 +840,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 登录诊断包文件名固定为 `motrix-fnos-login-diagnostic.zip`，只包含 `summary.json`、`logs/auth-debug.jsonl` 和存在时的 `logs/lifecycle.log(.1-.3)`；它用于登录页排障，不需要先登录，也不包含完整诊断包中的 server/Aria2 日志。
 - `DELETE /api/debug-logs` 仅清空应用内调试记录，不会释放 Aria2、server 或 lifecycle 文件日志空间。
 
-`GET /api/diagnostics/storage` 返回应用数据所在文件系统的空间和应用私有临时文件占用，不返回任何绝对路径：
+`GET /api/diagnostics/storage` 返回应用数据所在文件系统的空间及私有 session、metadata 和原生状态占用，不返回任何绝对路径：
 
 ```json
 {
@@ -831,6 +852,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "magnetMetadata": {
     "totalBytes": 8192,
     "fileCount": 2
+  },
+  "nativeState": {
+    "totalBytes": 16384,
+    "fileCount": 3
   }
 }
 ```
@@ -838,7 +863,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 约定：
 
 - 接口要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
-- `disk` 使用应用数据目录所在文件系统的总空间和可用空间；`aria2SessionBytes` 只统计固定的 `aria2/aria2.session`；`magnetMetadata` 递归统计应用私有 `magnet-metadata` 目录中的普通文件。
+- `disk` 使用应用数据目录所在文件系统的总空间和可用空间；`aria2SessionBytes` 合计旧 `aria2/aria2.session` 和新 `engine/native-v2/session/aria2.session`；`magnetMetadata` 合计私有 `magnet-metadata` 与 `task-metadata` 普通文件；`nativeState` 统计 `engine/native-v2/state` 的原生状态文件（含 WAL）。这些恢复信息只统计占用，不作为可清理临时文件或导出内容。
 - 缺失的 session 或 metadata 目录返回零值。符号链接、非普通文件和非普通目录不会被跟随或计入；不会扫描用户下载目录。
 - 读取应用数据目录或文件系统空间失败时返回 `500 diagnostics_storage_usage_failed`，响应不包含服务端绝对路径。
 
@@ -891,11 +916,13 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 约定：
 
 - 格式使用标准 SSE。
-- 连接建立后立即推送一次 `tasks.snapshot`。
+- 连接建立后依次推送 `app.compatibility` 和 `tasks.snapshot`；广播丢帧后也用这两份完整快照恢复基线。
 - 可见任务列表发生变化时推送 `tasks.snapshot`。
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
 - JWT 失效时连接终止；重新订阅未携带有效 JWT 时返回 `401 Unauthorized`，不会发送任务快照。
+
+`app.compatibility` 的数据结构与 `/api/app/compatibility` 返回的 `AppCompatibility` 相同，用于同步引擎代际和受限管理状态。
 
 `tasks.snapshot`：
 
@@ -942,7 +969,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `lanJsonRpcToken` 由 `/api/settings/lan-jsonrpc` 首次启用时生成，或通过 `/api/settings/lan-jsonrpc/token` 轮换；它只在 `17082` 有效，公网 Token 只在 `17081` 有效。
 - 两类 Token 在服务启动时加载到内存，设置成功后同步更新；所有鉴权方法都使用常量时间比较，请求过程中不得读取 SQLite。
 - `aria2.addUri` 的第一个参数必须是 `"token:<jsonRpcToken>"`；token 缺失、错误或未配置会返回 JSON-RPC error。
-- `aria2.addUri` 选项中的旧 `all-proxy` 继续生效，其最终值只进入任务私密覆盖记录；任务响应、SSE 和日志仅暴露 `useProxy=true`。没有 `all-proxy` 的外部创建按 `useProxy=false` 保存。代理值校验失败返回 JSON-RPC `-32602`，不得创建 GID 或任务记录。
+- HTTP `aria2.addUri` 选项中的旧 `all-proxy` 继续生效，其最终值只进入任务私密覆盖记录；任务响应、SSE 和日志仅暴露 `useProxy=true`。没有 `all-proxy` 的外部创建按 `useProxy=false` 保存。代理值校验失败返回 JSON-RPC `-32602`，不得创建 GID 或任务记录。
 - `aria2.getGlobalOption` 同样要求第一个参数为 `"token:<jsonRpcToken>"`；目录与 Token 在服务启动时加载到内存，并在管理设置保存成功后同步更新，因此重复查询不会读取 SQLite、授权目录文件或唤醒 Aria2。应用数据根目录不会作为外部下载目录返回；没有可用授权目录时 `dir` 为 `""`，发送端应按未指定目录处理。
 - fnOS 在服务运行期间调整授权目录时，外部发送端可能短暂携带上一次查询到的旧默认目录；`aria2.addUri` 仅在该值确实等于服务端曾返回的缓存默认目录时改用当前授权默认目录并刷新缓存。其他未授权目录仍返回 `-32602`。
 - `aria2.getVersion` 保持匿名可用；HTTP、WebSocket 和 `system.multicall` 在已停止时使用相同的只读兼容结果，在正在停止时使用相同的 `-32004` 错误。
@@ -961,8 +988,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
     {
       "dir": "/vol1/downloads",
       "out": "file.zip",
-      "split": "8",
-      "max-connection-per-server": "8"
+      "stream-max-connections": "8"
     }
   ]
 }
@@ -973,10 +999,11 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `dir` 必须是 `/api/storage/accessible-paths` 返回的授权目录本身或其子目录；未传 `dir` 时使用后端默认下载目录，并同样要求该目录已授权。
 - 为兼容会删除 Unix 路径首个 `/` 的第三方发送页，JSON-RPC 仅在请求值不含空组件、`.`、`..` 或反斜杠，且补回一个 `/` 后仍位于授权目录本身或其子目录时接受该值。server 逐级拒绝符号链接或同名文件，并在 Aria2 创建任务前创建缺失子目录。
 - `out` 会映射为 Motrix 任务文件名。
-- 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端会创建任务专属子目录，启用 metadata 暂停和 `bt-save-metadata`，待解析完成后仍通过 Web UI 的文件确认流程开始真实下载。
+- 当 URL 为 `magnet:?` 时，`dir` 表示授权父目录；后端在私有目录解析 metadata 并保持同一 GID，用户在 Web UI 确认文件后才设置任务专属子目录并开始实际下载。BT 任务级代理选项返回 `-32602`，须使用设置页总开关。
 - 远程入口只支持 HTTP / HTTPS URL 和 `magnet:?`，不支持上传种子文件；种子文件使用 Web UI 或 `/api/tasks/torrent`。
-- 只透传常用下载加速与请求参数；未知选项、空值、对象值会被忽略。
-- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`。
+- HTTP 连接统一用 `stream-max-connections`（`1..=64`），兼容旧 `split` / `max-connection-per-server` 并取较小值，新旧混用拒绝。`min-split-size`、`bt-save-metadata`、`dht-file-path` 等废弃选项及 `rpc-*`、`state-dir`、session、日志等服务管理选项明确返回 `-32602`；其他非白名单选项按既有规则忽略。
+- 普通 HTTP/HTTPS URL 始终下载原文件，不自动进入 HLS/DASH 媒体处理；只允许 `media=file`。
+- 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`；兼容门禁禁止下载时返回 `-32005`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
 - 局域网入口关闭时所有新请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。配置关闭或收紧来源范围后，已有 WebSocket 连接也会被策略关闭；它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
 - 回环和局域网 JSON-RPC WebSocket 共享 64 个连接配额；达到上限的新握手返回 `503 Service Unavailable`。连接连续 5 分钟没有文本或二进制业务消息会关闭，Ping/Pong 不延长该期限；发送响应超过 10 秒也关闭连接并释放配额。
