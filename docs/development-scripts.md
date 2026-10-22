@@ -13,6 +13,7 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
+- 功能开发使用独立分支，准备测试时合入 `develop`，通过测试和发布验收后再合入 `main`。2.0.0 使用 `feature/2.0.0`；正式发布只从验收后的 `main` 发起。
 - 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，每周定时和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
 
 ## 命令速查

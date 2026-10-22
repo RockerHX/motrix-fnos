@@ -445,7 +445,7 @@ appcenter-cli list
 
 ## GitHub Actions 自动发版流程
 
-当前默认发版入口是 `Release FPK` workflow。正常路径只需要人工输入一次版本号：
+功能分支先合入 `develop` 完成测试和发布验收，通过后再合入 `main`。当前默认发版入口是 `Release FPK` workflow，从验收后的 `main` 发起；正常路径只需要人工输入一次版本号：
 
 ```text
 Actions -> Release FPK -> Run workflow -> 输入 x.y.z
