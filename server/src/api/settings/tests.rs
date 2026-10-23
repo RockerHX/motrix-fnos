@@ -701,3 +701,68 @@ async fn cleanup_test_state(state: &Arc<HttpAppState>, runtime: ServerRuntimeCon
     state.core.database.pool.close().await;
     let _ = std::fs::remove_dir_all(runtime.app_data_dir);
 }
+
+#[tokio::test]
+async fn native_proxy_clear_ignores_hidden_legacy_but_keeps_completed_and_removed_references() {
+    use crate::database::tasks::upsert_download_task;
+    let (mut state, runtime) = lan_test_state("native-clear-reference").await;
+    Arc::get_mut(&mut state)
+        .unwrap()
+        .base_aria2_config
+        .state_dir = Some(runtime.app_data_dir.join("state").display().to_string());
+    let pool = &state.core.database.pool;
+    let mut task: DownloadTask = serde_json::from_value(json!({
+        "id": 1, "engineGeneration": "legacy-v1", "url": "https://example.com/file", "sourceType": "url",
+        "status": "active", "gid": "old-gid", "fileName": "file", "saveDir": runtime.app_data_dir,
+        "category": "默认", "totalLength": 100, "completedLength": 10, "downloadSpeed": 0,
+        "confirmationRequired": false, "files": [], "createdAt": 1, "updatedAt": 1
+    })).unwrap();
+    task.use_proxy = true;
+    task.proxy_binding = TaskProxyBinding::profile(None);
+    upsert_download_task(pool, &task).await.unwrap();
+    crate::database::settings::replace_download_proxy_config(
+        pool,
+        Some("http://proxy.example:7890/".into()),
+        Some(false),
+        BtRuntimeApplyStatus::Deferred,
+        1,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        clear_download_proxy(State(state.clone())).await.unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    for status in [DownloadTaskStatus::Complete, DownloadTaskStatus::Removed] {
+        crate::database::settings::replace_download_proxy_config(
+            pool,
+            Some("http://proxy.example:7890/".into()),
+            None,
+            BtRuntimeApplyStatus::Deferred,
+            2,
+        )
+        .await
+        .unwrap();
+        task.id = 2;
+        task.engine_generation = EngineGeneration::NativeV2;
+        task.status = status;
+        task.proxy_binding = TaskProxyBinding::profile(None);
+        upsert_download_task(pool, &task).await.unwrap();
+        assert_eq!(
+            clear_download_proxy(State(state.clone()))
+                .await
+                .unwrap_err()
+                .status(),
+            StatusCode::CONFLICT
+        );
+        task.proxy_binding = TaskProxyBinding::override_url("http://private.example:7890/".into());
+        upsert_download_task(pool, &task).await.unwrap();
+        assert_eq!(
+            clear_download_proxy(State(state.clone())).await.unwrap(),
+            StatusCode::NO_CONTENT
+        );
+    }
+    let old_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM download_tasks WHERE engine_generation = 'legacy-v1' AND use_proxy = 1").fetch_one(pool).await.unwrap();
+    assert_eq!(old_count, 1);
+    cleanup_test_state(&state, runtime).await;
+}

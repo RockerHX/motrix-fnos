@@ -1,7 +1,7 @@
 use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::database::settings::{
-    delete_download_proxy_config_if_unused, get_download_proxy_config,
+    delete_download_proxy_config_for_engine_if_unused, get_download_proxy_config,
     replace_download_proxy_config, BtRuntimeApplyStatus, DeleteDownloadProxyConfigResult,
     StoredDownloadProxyConfig,
 };
@@ -288,8 +288,18 @@ pub async fn delete_download_proxy(
     update_lock: &Mutex<()>,
     debug_logs: &DebugLogStore,
 ) -> Result<(), DownloadProxyServiceError> {
+    delete_download_proxy_for_engine(pool, tasks, update_lock, debug_logs, None).await
+}
+
+pub(crate) async fn delete_download_proxy_for_engine(
+    pool: &SqlitePool,
+    tasks: &TaskMemoryState,
+    update_lock: &Mutex<()>,
+    debug_logs: &DebugLogStore,
+    generation: Option<crate::config::aria2::EngineGeneration>,
+) -> Result<(), DownloadProxyServiceError> {
     let _update_guard = update_lock.lock().await;
-    match delete_download_proxy_config_if_unused(pool)
+    match delete_download_proxy_config_for_engine_if_unused(pool, generation)
         .await
         .map_err(DownloadProxyServiceError::Save)?
     {
@@ -299,7 +309,8 @@ pub async fn delete_download_proxy(
     tasks
         .with_tasks_mut(|tasks| {
             for task in tasks {
-                if task.source_type == crate::tasks::DownloadTaskSourceType::Url
+                if generation.is_none_or(|generation| task.engine_generation == generation)
+                    && task.source_type == crate::tasks::DownloadTaskSourceType::Url
                     && task.proxy_binding.source() == TaskProxySource::Profile
                 {
                     task.proxy_binding = TaskProxyBinding::profile(None);

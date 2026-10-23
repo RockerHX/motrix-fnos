@@ -156,6 +156,13 @@ pub async fn set_download_proxy_runtime_apply_status(
 pub async fn delete_download_proxy_config_if_unused(
     pool: &SqlitePool,
 ) -> Result<DeleteDownloadProxyConfigResult, String> {
+    delete_download_proxy_config_for_engine_if_unused(pool, None).await
+}
+
+pub(crate) async fn delete_download_proxy_config_for_engine_if_unused(
+    pool: &SqlitePool,
+    generation: Option<crate::config::aria2::EngineGeneration>,
+) -> Result<DeleteDownloadProxyConfigResult, String> {
     let mut transaction = pool
         .begin()
         .await
@@ -172,8 +179,10 @@ pub async fn delete_download_proxy_config_if_unused(
         })
         .transpose()?;
     let http_in_use: i64 = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM download_tasks WHERE source_type = 'url' AND use_proxy = 1 AND proxy_source = 'profile')",
+        "SELECT EXISTS(SELECT 1 FROM download_tasks WHERE source_type = 'url' AND use_proxy = 1 AND proxy_source = 'profile' AND (? IS NULL OR engine_generation = ?))",
     )
+    .bind(generation.map(|generation| generation.as_storage_value()))
+    .bind(generation.map(|generation| generation.as_storage_value()))
     .fetch_one(&mut *transaction)
     .await
     .map_err(|error| format!("检查下载代理引用失败：{}", error))?;

@@ -3,7 +3,7 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::settings::proxy::{
-    delete_download_proxy, load_download_proxy_status, update_download_proxy,
+    delete_download_proxy_for_engine, load_download_proxy_status, update_download_proxy,
     DownloadProxyMutationResponse, DownloadProxyServiceContext, DownloadProxyServiceError,
     DownloadProxyStatus,
 };
@@ -148,11 +148,12 @@ async fn put_download_proxy(
 async fn clear_download_proxy(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<StatusCode, ApiError> {
-    delete_download_proxy(
+    delete_download_proxy_for_engine(
         &state.core.database.pool,
         &state.core.download_tasks,
         &state.download_proxy_update_lock,
         &state.core.debug_logs,
+        Some(state.aria2_config().engine_generation()),
     )
     .await
     .map(|()| StatusCode::NO_CONTENT)
