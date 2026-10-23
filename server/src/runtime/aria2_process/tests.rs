@@ -137,6 +137,64 @@ fn stop_process_succeeds_when_no_process_running() {
     assert_eq!(status.message, "Aria2 进程已停止");
 }
 
+#[cfg(unix)]
+#[test]
+fn start_process_sets_utf8_path_encoding() {
+    use std::os::unix::fs::PermissionsExt;
+
+    const PROBE_ENV: &str = "MOTRIX_TEST_ENGINE_LOCALE_PROBE";
+    if std::env::var_os(PROBE_ENV).is_none() {
+        for lang in [None, Some("C"), Some("en_US.utf8")] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "runtime::aria2_process::tests::start_process_sets_utf8_path_encoding",
+                ])
+                .env(PROBE_ENV, "1")
+                .env("LC_ALL", "C")
+                .env_remove("LC_CTYPE")
+                .env_remove("LANG");
+            if let Some(lang) = lang {
+                command.env("LANG", lang);
+            }
+            let output = command.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "LANG={lang:?}: {stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        return;
+    }
+
+    let root = temp_dir("engine-locale");
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("fake-aria2");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nprintf '%s' \"${LANG-}\" > \"${0%/*}/engine-lang\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime = sample_runtime(Some(binary));
+    let mut config = sample_config();
+    config.rpc_port = 0;
+    let process = Mutex::new(None);
+    start_process(&process, &runtime, &config, &DebugLogStore::default()).unwrap();
+    let mut child = process.into_inner().unwrap().unwrap();
+    let exited = child.wait_for_exit(Duration::from_secs(3)).unwrap();
+    if !exited {
+        child.kill().unwrap();
+        assert!(child.wait_for_exit(Duration::from_secs(3)).unwrap());
+    }
+    let lang = std::fs::read_to_string(root.join("engine-lang"));
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(exited, "locale probe should exit within the deadline");
+    assert_eq!(lang.unwrap(), "C.UTF-8");
+}
+
 #[tokio::test]
 async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

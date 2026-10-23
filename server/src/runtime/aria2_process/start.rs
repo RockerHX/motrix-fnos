@@ -89,6 +89,8 @@ fn start_process_with_log_level(
     let resolved = resolve_aria2_binary(runtime, config)?;
     let child = Command::new(&resolved.path)
         .args(&args)
+        // libtorrent 仅按 LANG 的 .UTF-8 后缀识别编码，否则 Linux 中文路径可能被转换成点号。
+        .env("LANG", "C.UTF-8")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
