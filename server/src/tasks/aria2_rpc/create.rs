@@ -186,6 +186,7 @@ pub(crate) fn build_add_uri_request_with_id(
             options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
         }
         apply_default_bt_trackers(&mut options);
+        apply_default_bt_seed_behavior(&mut options);
     } else {
         apply_start_mode_option(&mut options, task.start_mode);
     }

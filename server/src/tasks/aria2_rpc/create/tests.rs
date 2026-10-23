@@ -206,6 +206,16 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
         .expect("bt-tracker should be string")
         .contains("tracker.opentrackr.org"));
     assert!(request["params"][1].get("out").is_none());
+    assert_eq!(request["params"][1]["seed-time"], "0");
+    let mut config = test_config();
+    config.state_dir = Some("/private/native-state".to_string());
+    let native = build_add_uri_request_with_id(&config, &task, "native-magnet");
+    assert_eq!(native["params"][1]["seed-time"], "0");
+    let mut task = task;
+    task.aria2_options
+        .insert("seed-time".to_string(), serde_json::json!("10"));
+    let explicit = build_add_uri_request_with_id(&config, &task, "explicit-seeding");
+    assert_eq!(explicit["params"][1]["seed-time"], "10");
 }
 
 #[test]
