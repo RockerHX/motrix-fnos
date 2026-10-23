@@ -203,7 +203,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `AppCompatibility` 返回 `engineGeneration`（`legacy-v1` / `native-v2` / `unknown`）、`mode`（`normal` / `restricted`）、`reasonCode`、`unfinishedTaskCount`、`unresolvedOperationCount` 和脱敏 `message`。受限管理保留登录、读取、诊断和停服，拒绝下载写操作与引擎启动；HTTP 返回 `409 engine_upgrade_required`，外部 RPC 创建返回 `-32005`。`ready=true` 只代表管理服务就绪，不代表允许下载。
 
-2.0.0 不导入或展示旧代任务，旧代任务和操作不触发受限管理；当前引擎无法确认或当前任务状态不可读取时仍拒绝下载。密码、设置、授权、RPC Token 和下载文件保留；新引擎不加载旧 session 或执行旧操作。
+2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [FPK 升级说明](fpk-packaging.md#升级前备份与回滚)。
 
 `AppUpdateCheck` 示例：
 
@@ -286,7 +286,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 恢复与重新下载必须在创建目录、提交 GID 或暂存旧文件前确认所继承或覆盖的代理可用。校验或应用失败时保持原任务、文件和回收站状态，不得回退为直连。
 - 同一任务已有重新下载操作时，重复请求返回 `409 Conflict`，错误码为 `task_operation_conflict`。
 - 原生未完成任务保留文件恢复时复用原 ID/GID、路径、session 和原生状态，不重新创建下载。内容已删除时须显式提交 `restartFromZero=true`，否则返回 `409 task_restart_confirmation_required`；确认后创建从零开始的暂停尝试。文件未删除却要求从零恢复返回 `400 task_restore_options_invalid`。
-- 原生 GID/恢复状态无效或完整 metadata 缺失时返回 `409 task_resume_state_invalid` / `task_metadata_missing`，保留文件和回收站记录，不另建 GID 接管半成品。清理未完成时恢复和永久删除返回 `409 file_cleanup_pending`。旧代任务只读，写操作返回 `409 task_engine_incompatible`。
+- 原生 GID/恢复状态无效或完整 metadata 缺失时返回 `409 task_resume_state_invalid` / `task_metadata_missing`，保留文件和回收站记录，不另建 GID 接管半成品。清理未完成时恢复和永久删除返回 `409 file_cleanup_pending`。旧代任务不在新版内存任务集中，旧 ID 按不存在处理，不能据此承诺统一返回 `409 task_engine_incompatible`。
+- 旧 ID 与任意不存在的 ID 使用相同响应：继续、文件确认和未提交代理覆盖的重新下载返回 `400 task_operation_failed`；暂停在引擎就绪后同样返回 `400 task_operation_failed`（启动失败可先返回引擎错误）。移入回收站、恢复、永久删除、任务代理及文件上下文查询返回 `404 task_not_found`。重新下载显式提交 `useProxy` 时会先查任务，缺失也返回 `404 task_not_found`。这些响应以认证、请求格式和运行状态等前置检查通过为前提；`task_engine_incompatible` 保留给实际加载任务的代际不匹配校验。
 - `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，不删除用户下载文件。
 - 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
 - 磁链在应用私有目录解析 metadata，全程保持同一 GID；引擎 `bittorrent.fileSelectionState=awaiting` 时任务暂停并设置 `confirmationRequired=true`。前端展示 `files`，确认文件后才开始写入用户下载目录。

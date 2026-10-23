@@ -346,9 +346,9 @@ rtk packaging/fnos/cmd/stop
 - 启动失败：先看 `lifecycle.log`，再看 `server.log`；两者都只保留有限数量的历史文件。
 - Web UI 打不开：先看 `cmd/status` 和浏览器请求地址。桌面入口应打开 `http://<设备>:<service_port>/?v=<version>`；同时确认 staged `app/ui/config` 不含 `gatewayPrefix` 或 `gatewaySocket`，Rust server 的同一端口能返回根 HTML 与 `/api/app/ping`。
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志；需要区分应用内调试记录、Rust `server.log`、`lifecycle.log` 与 Aria2 原生文件日志。
-- 同一 `motrix` 身份升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
+- 同一 `motrix` 身份升级后同代任务或密码、设置意外丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
 - 从旧 `motrix.fnos` 安装切换后看不到原数据：这是应用身份变化的预期结果，不属于普通升级；新应用不会自动读取旧身份的 `TRIM_PKGVAR`
-- 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”
+- 卸载后重装仍有任务：同代引擎默认保留数据；2.0.0 不展示旧代任务，但保留旧记录和文件。如需清理应用私有数据，卸载时开启“同时删除 Motrix 应用数据”，该操作不删除外部下载目录
 
 ### 无需 SSH 的日志排障
 
@@ -396,11 +396,11 @@ FPK 不携带 `cmd/upgrade-checker` 或其他 server 副本，升级脚本只确
 
 平台依据：2026-10-22 重新查证官方[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)：升级前后分别调用 `upgrade_init`、`upgrade_callback`，脚本应可重复执行。停服失败关闭、无 checker 重复升级、旧文件与设置保留由本仓库 Shell/Rust 测试验证；向导展示及实际升级顺序仍需 fnOS 实机验收。
 
-- 实机升级前先停止应用，再备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。
+- 实机升级前先确认 server 和 sidecar 均已停止，再完整备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录，包含一致的 SQLite、旧 session、原生状态和种子备份；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。外部下载目录须另行保护，私有数据备份不能还原升级后被改动的下载文件。
 - 记录升级前的任务数量、下载设置、授权目录、Aria2 session 校验值和 JSON-RPC Token“是否已配置”，不要把 Token 原文写入验证记录。
 - 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；启用局域网入口后还需从真实 RFC1918 客户端确认 `17082/jsonrpc`，并验证回环、公网、IPv6 来源被拒绝。
 - 向导实际顺序、停服检查、升级后的新任务列表和手工备份回滚仍需按下方实机矩阵及[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)验证；平台失败后是否自动回退尚未确认。查证依据：[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)，实现见 `cmd/upgrade_init`、`cmd/upgrade_callback`。
-- 回滚需要先停止新版，成套恢复旧 FPK 和升级前完整私有数据备份，并将 Lucky 后端恢复为旧版对应地址；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
+- 回滚需要先停止新版，成套恢复对应旧 FPK 和升级前停服取得的一致完整私有数据备份，并将 Lucky 后端恢复为旧版对应地址；缺少对应备份时不承诺无损回退，不得让旧版直接读取新版更新后的 SQLite 或引擎状态；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
 
 ### 验证结论分级
 
