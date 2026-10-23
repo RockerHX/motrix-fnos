@@ -37,7 +37,7 @@ desktop_applaunchname =
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
-正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。ARM 包的 `os_min_version` 下调为 `1.2.0302`，以兼容尚未升级到 `1.2.0401` 的 ARM 设备；x86 包仍要求 `1.2.0401`。安装器会拒绝低于对应最低版本的 fnOS。`1.2.0302` 对开放 API、飞牛 App WebView 和 IPv6 管理入口的实际支持仍需在目标设备上验收，正式包只在实机确认后承诺对应能力。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。ARM 和 x86 包的 `os_min_version` 均为 `1.2.0401`，与 `scripts/build/build-fpk.mjs`、manifest 模板、产物测试及已有双架构候选包一致。安装器会拒绝低于该最低版本的 fnOS；不承诺支持 `1.2.0302`。开放 API、飞牛 App WebView 和 IPv6 管理入口仍需在目标设备上验收。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
 
 构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
 
