@@ -440,6 +440,13 @@ root = pathlib.Path(__file__).parent
 with (root / 'starts').open('a') as file: file.write('started\n')
 port = int(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-listen-port=')))
 bt_proxy = ''
+conf = next((arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--conf-path=')), None)
+if (root / 'expected-proxy').exists():
+    assert conf is not None and '--no-conf=true' not in sys.argv
+    config = pathlib.Path(conf)
+    assert config.stat().st_mode & 0o777 == 0o600
+    bt_proxy = config.read_text().strip().split('=', 1)[1]
+    assert bt_proxy == (root / 'expected-proxy').read_text()
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         global bt_proxy
@@ -484,9 +491,14 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
         };
         let state = bootstrap_http_app_state(&runtime).await.unwrap();
         if scenario.starts_with("bt-proxy") {
+            std::fs::write(
+                root.join("expected-proxy"),
+                "socks5://test-user:test-secret@proxy.example:1080",
+            )
+            .unwrap();
             crate::database::settings::replace_download_proxy_config(
                 &state.core.database.pool,
-                Some("socks5://proxy.example:1080".to_string()),
+                Some("socks5://test-user:test-secret@proxy.example:1080".to_string()),
                 Some(true),
                 crate::database::settings::BtRuntimeApplyStatus::Deferred,
                 1,
@@ -554,10 +566,22 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                 .unwrap()
                 .lines()
                 .count(),
-            1
+            if reject_proxy { 2 } else { 1 }
         );
+        if scenario.starts_with("bt-proxy") {
+            assert_eq!(
+                std::fs::read_dir(root.join("engine/native-v2/startup"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+        if reject_proxy {
+            assert!(!process_status(&state.aria2_process).unwrap().running);
+        }
         let args: Vec<String> =
             serde_json::from_slice(&std::fs::read(root.join("launch-args.json")).unwrap()).unwrap();
+        assert!(!args.iter().any(|arg| arg.contains("test-secret")));
         assert!(args.iter().any(|arg| arg == "--pause=true"));
         assert!(args.iter().any(|arg| arg
             == &format!(

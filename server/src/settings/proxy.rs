@@ -364,7 +364,7 @@ pub fn normalize_proxy_url(value: &str) -> Result<String, DownloadProxyServiceEr
     Ok(parsed.to_string())
 }
 
-fn resolve_bt_proxy_url(
+pub(crate) fn resolve_bt_proxy_url(
     proxy_url: Option<&str>,
     bt_use_proxy: bool,
 ) -> Result<Option<String>, DownloadProxyServiceError> {

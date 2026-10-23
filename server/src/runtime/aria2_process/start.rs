@@ -1,3 +1,6 @@
+mod startup_config;
+use startup_config::StartupConfig;
+
 use super::resolve::{inspect_engine_generation, resolve_aria2_binary};
 use super::status::process_status;
 use super::stop::{stop_process, stop_process_with_timeout_inner};
@@ -29,7 +32,14 @@ pub fn start_process(
     config: &Aria2Config,
     debug_logs: &DebugLogStore,
 ) -> Result<Aria2ProcessStatus, String> {
-    start_process_with_log_level(process, runtime, config, debug_logs, Aria2LogLevel::Warn)
+    start_process_with_log_level(
+        process,
+        runtime,
+        config,
+        debug_logs,
+        Aria2LogLevel::Warn,
+        None,
+    )
 }
 
 fn start_process_with_log_level(
@@ -38,6 +48,7 @@ fn start_process_with_log_level(
     config: &Aria2Config,
     debug_logs: &DebugLogStore,
     log_level: Aria2LogLevel,
+    startup_config: Option<&StartupConfig>,
 ) -> Result<Aria2ProcessStatus, String> {
     let mut guard = process.lock().map_err(|_| {
         debug_logs.error("aria2", "无法写入 Aria2 进程状态");
@@ -70,7 +81,10 @@ fn start_process_with_log_level(
         return Err(error);
     }
 
-    let args = process_args_with_log_level(config, log_level);
+    let mut args = process_args_with_log_level(config, log_level);
+    if let Some(startup_config) = startup_config {
+        startup_config.apply_args(&mut args);
+    }
     log_start_summary(debug_logs, config, &args);
     let resolved = resolve_aria2_binary(runtime, config)?;
     let child = Command::new(&resolved.path)
@@ -174,6 +188,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
     }
 
     let mut started_process = false;
+    let mut startup_config = None;
     if !process.running {
         state
             .core
@@ -206,6 +221,34 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                 state,
                 "已启用的 BT 总代理要求使用已验证的 NativeV2 引擎".to_string(),
             ));
+        }
+        let bt_proxy = crate::settings::proxy::resolve_bt_proxy_url(
+            proxy_config
+                .as_ref()
+                .and_then(|proxy| proxy.proxy_url.as_deref()),
+            proxy_config
+                .as_ref()
+                .is_some_and(|proxy| proxy.bt_use_proxy),
+        );
+        let bt_proxy = match bt_proxy {
+            Ok(proxy) => proxy,
+            Err(_) => {
+                let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
+                    &state.core.database.pool,
+                    crate::database::settings::BtRuntimeApplyStatus::Blocked,
+                )
+                .await;
+                return Err(lifecycle_error(
+                    state,
+                    "BT 全局代理配置无效，拒绝启动引擎".to_string(),
+                ));
+            }
+        };
+        if let Some(proxy) = bt_proxy {
+            startup_config = Some(
+                StartupConfig::new(&state.runtime.app_data_dir, &proxy)
+                    .map_err(|error| lifecycle_error(state, error))?,
+            );
         }
         if generation == EngineGeneration::NativeV2 {
             validate_native_metadata_refs(
@@ -257,6 +300,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             &config,
             &state.core.debug_logs,
             log_level,
+            startup_config.as_ref(),
         ) {
             Ok(status) => status,
             Err(error) => {
@@ -310,6 +354,13 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
     )
     .await
     {
+        if started_process {
+            stop_process(&state.aria2_process, &state.core.debug_logs)
+                .map_err(|stop_error| lifecycle_error(state, stop_error))?;
+            state
+                .clear_aria2_runtime()
+                .map_err(|error| lifecycle_error(state, error))?;
+        }
         let status = match process_status(&state.aria2_process) {
             Ok(status) => status,
             Err(status_error) => return Err(lifecycle_error(state, status_error)),
@@ -332,6 +383,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         }
         return Err(lifecycle_error(state, error));
     }
+    drop(startup_config);
     if config.state_dir.is_some() {
         let body = serde_json::json!({
             "jsonrpc": "2.0", "id": "motrix-fnos-restore-pause-all", "method": "aria2.forcePauseAll",
@@ -407,6 +459,13 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             .await
             .map_err(|error| lifecycle_error(state, error))?;
             if applied == crate::database::settings::BtRuntimeApplyStatus::Blocked {
+                if started_process {
+                    stop_process(&state.aria2_process, &state.core.debug_logs)
+                        .map_err(|error| lifecycle_error(state, error))?;
+                    state
+                        .clear_aria2_runtime()
+                        .map_err(|error| lifecycle_error(state, error))?;
+                }
                 return Err(lifecycle_error(
                     state,
                     "BT 全局代理配置无效、应用或核验失败，恢复任务保持暂停".to_string(),
