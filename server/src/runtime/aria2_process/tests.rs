@@ -497,6 +497,7 @@ root = pathlib.Path(__file__).parent
 (root / 'launch-args.json').write_text(json.dumps(sys.argv[1:]))
 with (root / 'starts').open('a') as file: file.write('started\n')
 port = int(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-listen-port=')))
+secret = next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-secret='))
 bt_proxy = ''
 conf = next((arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--conf-path=')), None)
 if (root / 'expected-proxy').exists():
@@ -509,6 +510,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         global bt_proxy
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if not body.get('params') or body['params'][0] != f'token:{secret}':
+            self.send_error(401, 'Unauthorized')
+            return
         method = body['method']
         with (root / 'calls').open('a') as file: file.write(method + '\n')
         if method == 'aria2.getVersion': result = {'version': '2.8.6'}
@@ -548,6 +552,7 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
             trusted_proxy_ips: Vec::new(),
         };
         let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        let process_guard = NativeStartupProcessGuard(&state);
         if scenario.starts_with("bt-proxy") {
             std::fs::write(
                 root.join("expected-proxy"),
@@ -587,6 +592,18 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                     root.join("engine/native-v2/session/aria2.session").to_str()
                 );
             }
+        }
+        if unknown_gid {
+            let response = reqwest::Client::new()
+                .post(state.aria2_config().rpc_url())
+                .json(&json!({
+                    "jsonrpc": "2.0", "id": "unrelated-client", "method": "aria2.tellWaiting",
+                    "params": ["token:unrelated-client", 0, 1000],
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
         }
         let calls = std::fs::read_to_string(root.join("calls")).unwrap();
         assert!(calls.contains("aria2.forcePauseAll"));
@@ -648,8 +665,19 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
             )));
         stop_process(&state.aria2_process, &state.core.debug_logs).unwrap();
         state.clear_aria2_runtime().unwrap();
+        drop(process_guard);
         state.core.database.pool.close().await;
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+struct NativeStartupProcessGuard<'a>(&'a crate::app::HttpAppState);
+
+impl Drop for NativeStartupProcessGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = stop_process(&self.0.aria2_process, &self.0.core.debug_logs) {
+            eprintln!("清理模拟引擎失败：{error}");
+        }
     }
 }
 
