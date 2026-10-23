@@ -159,6 +159,21 @@ impl<'a> TaskService<'a> {
                 .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                 .await);
         }
+        if native
+            && delete_files
+            && task_before_delete.source_type == DownloadTaskSourceType::Magnet
+            && !task_before_delete.confirmation_required
+            && !task_before_delete.files.is_empty()
+        {
+            if let Err(error) = self
+                .recreation_torrent_metadata(config, &task_before_delete)
+                .await
+            {
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
+                    .await);
+            }
+        }
         let mut staged = if delete_files {
             if let Err(error) = self.prepare_existing_task_destination(&task_before_delete) {
                 return Err(self

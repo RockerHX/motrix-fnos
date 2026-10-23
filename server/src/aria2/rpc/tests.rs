@@ -324,3 +324,35 @@ fn test_config(port: u16) -> Aria2Config {
         log_path: None,
     }
 }
+
+#[tokio::test]
+async fn native_http_400_preserves_rpc_error_without_treating_unknown_failures_as_absent() {
+    for (body, remote) in [
+        (
+            json!({"error":{"code":1,"message":"GID missing is not found"}}),
+            true,
+        ),
+        (json!({"result":"unexpected"}), false),
+        (json!({"message":"bad input"}), false),
+    ] {
+        let (port, handle) = spawn_router(Router::new().route(
+            "/jsonrpc",
+            post(move || {
+                let body = body.clone();
+                async move { (StatusCode::BAD_REQUEST, Json(body)) }
+            }),
+        ))
+        .await;
+        let mut config = test_config(port);
+        config.state_dir = Some("/private/state".to_string());
+        let error = match Aria2RpcClient::new()
+            .request::<Value>(&config, &json!({}))
+            .await
+        {
+            Ok(response) => response.into_result().unwrap_err(),
+            Err(error) => error,
+        };
+        assert_eq!(matches!(error, Aria2RpcError::Remote(_)), remote);
+        handle.abort();
+    }
+}

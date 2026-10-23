@@ -534,6 +534,14 @@ fn mark_task_redownloaded_resets_completed_task_progress() {
     task.total_length = 100;
     task.completed_length = 100;
     task.download_speed = 0;
+    task.files = vec![DownloadTaskFile {
+        index: 1,
+        path: "/downloads/file.zip".into(),
+        name: "file.zip".into(),
+        length: 100,
+        completed_length: 100,
+        selected: true,
+    }];
     let tasks = TaskMemoryState::new(vec![task]);
 
     let task = mark_task_redownloaded(&tasks, 1, "new-gid".to_string())
@@ -544,6 +552,7 @@ fn mark_task_redownloaded_resets_completed_task_progress() {
     assert!(!task.confirmation_required);
     assert_eq!(task.total_length, 0);
     assert_eq!(task.completed_length, 0);
+    assert_eq!(task.files[0].completed_length, 0);
     assert_eq!(task.download_speed, 0);
     assert!(task.error_code.is_none());
     assert!(task.error_message.is_none());

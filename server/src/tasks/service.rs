@@ -36,6 +36,7 @@ mod control;
 mod create;
 mod delete;
 mod magnet;
+mod native_metadata;
 mod proxy;
 mod query;
 mod restore;

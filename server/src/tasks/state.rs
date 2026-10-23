@@ -449,6 +449,9 @@ pub fn mark_task_redownloaded(
         task.status = DownloadTaskStatus::Pending;
         task.total_length = 0;
         task.completed_length = 0;
+        for file in &mut task.files {
+            file.completed_length = 0;
+        }
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;

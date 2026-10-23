@@ -103,7 +103,10 @@ impl<'a> TaskService<'a> {
                             .map(|(gid, dir)| (gid, Some(dir)))?
                     }
                     DownloadTaskSourceType::Magnet => {
-                        match read_saved_torrent_metadata(&task_to_restore) {
+                        match self
+                            .recreation_torrent_metadata(config, &task_to_restore)
+                            .await
+                        {
                             Ok(data) => self
                                 .restore_bt_task_with_data(
                                     config,
@@ -232,6 +235,13 @@ impl<'a> TaskService<'a> {
         let task_dir = task_download_dir(task).to_string();
         self.prepare_task_destination(task)?;
         let mut prepared = restored_task_options(task, task_dir);
+        if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+            && task.files_deleted
+        {
+            prepared
+                .aria2_options
+                .insert("check-integrity".to_string(), serde_json::json!("true"));
+        }
         if !task.selected_file_indexes.is_empty() {
             prepared.aria2_options.insert(
                 "select-file".to_string(),

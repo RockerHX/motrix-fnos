@@ -68,6 +68,14 @@ impl Aria2RpcClient {
             .map_err(classify_transport_error)?;
         let status = response.status();
         if !status.is_success() {
+            // Next 2.8.6 用 HTTP 400 承载 JSON-RPC 错误，清理后查询旧 GID 也走此路径。
+            if status == reqwest::StatusCode::BAD_REQUEST && config.state_dir.is_some() {
+                if let Ok(body) = response.json::<Aria2RpcResponse<T>>().await {
+                    if body.error.is_some() {
+                        return Ok(body);
+                    }
+                }
+            }
             return Err(Aria2RpcError::HttpStatus(status));
         }
 

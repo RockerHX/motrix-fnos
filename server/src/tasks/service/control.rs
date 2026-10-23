@@ -536,12 +536,13 @@ impl<'a> TaskService<'a> {
         validate_task_files(&snapshot)?;
         let torrent_data = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => Some(
-                read_saved_torrent_metadata(&snapshot)
+                self.recreation_torrent_metadata(config, &snapshot)
+                    .await
                     .map_err(|error| format!("重新下载前无法读取源 metadata：{}", error))?,
             ),
             DownloadTaskSourceType::Url => None,
         };
-        let prepared = crate::tasks::PreparedDownloadTask {
+        let mut prepared = crate::tasks::PreparedDownloadTask {
             url: snapshot.url.clone(),
             file_name: snapshot.file_name.clone(),
             output_file_name: Some(snapshot.file_name.clone()),
@@ -555,6 +556,26 @@ impl<'a> TaskService<'a> {
             use_proxy: resolved_proxy.use_proxy,
             proxy_binding: resolved_proxy.binding.clone(),
         };
+        if snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+            && snapshot.source_type != DownloadTaskSourceType::Url
+        {
+            prepared
+                .aria2_options
+                .insert("check-integrity".to_string(), serde_json::json!("true"));
+        }
+        if snapshot.source_type != DownloadTaskSourceType::Url
+            && !snapshot.selected_file_indexes.is_empty()
+        {
+            prepared.aria2_options.insert(
+                "select-file".to_string(),
+                serde_json::json!(snapshot
+                    .selected_file_indexes
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")),
+            );
+        }
         let mut operation = self
             .begin_task_operation(
                 task_id,

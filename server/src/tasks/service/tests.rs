@@ -2774,6 +2774,89 @@ async fn redownload_torrent_uses_add_torrent_and_preserves_metadata_source() {
 }
 
 #[tokio::test]
+async fn native_magnet_redownload_checks_identity_and_files_before_replacing_payload() {
+    for mismatch in ["hash", "path", "length", "index", "none"] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let captured = calls.clone();
+        let hash = "a".repeat(40);
+        let expected_hash = hash.clone();
+        let mock = MockAria2Server::spawn_with_router(Router::new().route("/jsonrpc", post(move |Json(request): Json<Value>| {
+            let captured = captured.clone(); let hash = expected_hash.clone();
+            async move {
+                let method=request["method"].as_str().unwrap().to_string(); captured.lock().unwrap().push(method.clone());
+                Json(match method.as_str() {
+                    "aria2.inspectTorrent" => json!({"result":{"infoHashV1":if mismatch=="hash" {"b".repeat(40)} else {hash},"files":[{"index":if mismatch=="index" {"2"} else {"1"},"path":if mismatch=="path" {"other.bin"} else {"payload.bin"},"length":if mismatch=="length" {"999"} else {"11"}}]}}),
+                    "aria2.addTorrent" => {
+                        let options = request["params"].as_array().unwrap().last().unwrap();
+                        assert_eq!(options["check-integrity"], "true");
+                        assert_eq!(options["select-file"], "1");
+                        json!({"error":{"code":1,"message":"injected creation failure"}})
+                    },
+                    _ => panic!("unexpected method: {method}"),
+                })
+            }
+        }))).await;
+        let directory = temp_dir("native-redownload-inspection");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("payload.bin"), b"old payload").unwrap();
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Complete,
+            "old-gid",
+            directory.display().to_string(),
+        );
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        task.source_type = DownloadTaskSourceType::Magnet;
+        task.url = format!("magnet:?xt=urn:btih:{hash}");
+        task.file_name = "fixture".to_string();
+        task.owned_task_dir = Some(task.save_dir.clone());
+        task.file_path = Some(directory.join("payload.bin").display().to_string());
+        task.files = vec![crate::tasks::DownloadTaskFile {
+            index: 1,
+            path: task.file_path.clone().unwrap(),
+            name: "payload.bin".to_string(),
+            length: 11,
+            completed_length: 11,
+            selected: true,
+        }];
+        task.selected_file_indexes = vec![1];
+        let fixture = ServiceFixture::new(vec![task.clone()], false);
+        save_restore_torrent_metadata(&fixture.app_data_dir, 1, b"private metadata").unwrap();
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(
+            fixture
+                .app_data_dir
+                .join("engine/native-v2/state")
+                .display()
+                .to_string(),
+        );
+        let error = fixture
+            .service()
+            .redownload_download_task(&config, 1, None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            std::fs::read(directory.join("payload.bin")).unwrap(),
+            b"old payload"
+        );
+        assert_eq!(fixture.tasks.list().unwrap(), vec![task]);
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .contains(&"aria2.addTorrent".to_string()),
+            mismatch == "none"
+        );
+        if mismatch == "none" {
+            assert!(error.contains("injected creation failure"));
+        } else {
+            assert!(error.contains("task_metadata_missing"));
+        }
+        mock.abort();
+    }
+}
+
+#[tokio::test]
 async fn task_lifecycle_regression_preserves_operation_boundaries() {
     let save_dir = temp_dir("lifecycle-regression");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
