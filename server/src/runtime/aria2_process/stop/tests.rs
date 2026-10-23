@@ -1,10 +1,35 @@
 use super::*;
 use crate::config::aria2::Aria2BinarySource;
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-fn native_process(ignore_interrupt: bool) -> (PathBuf, Mutex<Option<ManagedAria2Process>>) {
+struct NativeProcessStderr(std::fs::File);
+
+impl Drop for NativeProcessStderr {
+    fn drop(&mut self) {
+        let mut output = String::new();
+        // 通过 Rust 测试捕获输出，断言失败时仍保留子进程诊断。
+        match self
+            .0
+            .rewind()
+            .and_then(|_| self.0.read_to_string(&mut output))
+        {
+            Ok(0) => {}
+            Ok(_) => eprintln!("模拟引擎标准错误：\n{output}"),
+            Err(error) => eprintln!("读取模拟引擎标准错误失败：{error}"),
+        }
+    }
+}
+
+fn native_process(
+    ignore_interrupt: bool,
+) -> (
+    PathBuf,
+    Mutex<Option<ManagedAria2Process>>,
+    NativeProcessStderr,
+) {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let root = std::env::temp_dir().join(format!(
         "motrix-native-exit-{}-{}",
@@ -12,6 +37,7 @@ fn native_process(ignore_interrupt: bool) -> (PathBuf, Mutex<Option<ManagedAria2
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&root).unwrap();
+    let stderr = NativeProcessStderr(std::fs::File::create_new(root.join("stderr")).unwrap());
     let script = r#"
 import pathlib, signal, sys, time
 root = pathlib.Path(sys.argv[1])
@@ -30,6 +56,7 @@ while True:
         .arg(script)
         .arg(&root)
         .arg(if ignore_interrupt { "ignore" } else { "save" })
+        .stderr(stderr.0.try_clone().unwrap())
         .spawn()
         .unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -46,12 +73,13 @@ while True:
             child,
             Aria2BinarySource::ExternalPath,
         ))),
+        stderr,
     )
 }
 
 #[test]
 fn native_stop_waits_for_checkpoint_and_normal_exit_before_reporting_success() {
-    let (root, process) = native_process(false);
+    let (root, process, _stderr) = native_process(false);
     let status =
         stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
     assert!(!status.running);
@@ -65,7 +93,7 @@ fn native_stop_waits_for_checkpoint_and_normal_exit_before_reporting_success() {
 
 #[test]
 fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success() {
-    let (root, process) = native_process(true);
+    let (root, process, _stderr) = native_process(true);
     let started = std::time::Instant::now();
     let error = stop_process_with_timeout_inner(&process, None, Duration::from_millis(80), true)
         .unwrap_err();
@@ -82,7 +110,7 @@ fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success
 
 #[test]
 fn native_stop_waits_for_slow_checkpoint_within_the_daily_budget() {
-    let (root, process) = native_process(false);
+    let (root, process, _stderr) = native_process(false);
     std::fs::write(root.join("checkpoint-delay"), "0.2").unwrap();
     let started = std::time::Instant::now();
     stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
@@ -105,7 +133,7 @@ fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
             );
             continue;
         }
-        let (root, process) = native_process(false);
+        let (root, process, _stderr) = native_process(false);
         std::fs::write(root.join("previous-state"), b"preserved").unwrap();
         if readonly {
             std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
@@ -129,7 +157,7 @@ fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
 #[tokio::test]
 async fn native_idle_stop_keeps_confirmation_paused_and_removed_task_identities() {
     use axum::{routing::post, Json, Router};
-    let (root, process) = native_process(false);
+    let (root, process, _stderr) = native_process(false);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let router = Router::new().route(
@@ -226,7 +254,7 @@ async fn native_shutdown_requires_pause_before_session_and_checkpoint() {
     use serde_json::{json, Value};
     use std::sync::{atomic::AtomicBool, Arc};
     for fail_pause in [false, true] {
-        let (root, process) = native_process(false);
+        let (root, process, _stderr) = native_process(false);
         let calls = Arc::new(Mutex::new(Vec::<String>::new()));
         let paused = Arc::new(AtomicBool::new(false));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
