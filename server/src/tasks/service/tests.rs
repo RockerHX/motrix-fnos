@@ -1034,6 +1034,73 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
 }
 
 #[tokio::test]
+async fn resume_native_url_task_accepts_absolute_output_and_auto_renamed_file() {
+    for file_name in ["archive.zip", "archive.1.zip"] {
+        let save_dir = temp_dir("resume-native-output");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        let path = save_dir.join(file_name).display().to_string();
+        let mock = ResumeProxyMockAria2Server::spawn_with_output_option(
+            false,
+            Some(path.clone()),
+            save_dir.display().to_string(),
+            path,
+        )
+        .await;
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Paused,
+            "gid-1",
+            mock.save_dir.clone(),
+        );
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        let fixture = ServiceFixture::new(vec![task], false);
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(
+            fixture
+                .app_data_dir
+                .join("native-state")
+                .display()
+                .to_string(),
+        );
+        let resumed = fixture
+            .service()
+            .resume_download_task(&config, 1)
+            .await
+            .expect("native absolute output should resume with original GID");
+        assert_eq!(resumed.gid.as_deref(), Some("gid-1"));
+        assert!(mock.methods().contains(&"aria2.unpause".to_string()));
+        mock.abort();
+    }
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_a_symlink_output() {
+    let mock = ResumeProxyMockAria2Server::spawn(false).await;
+    let external = temp_dir("resume-symlink-target");
+    std::fs::write(&external, b"user content").unwrap();
+    std::os::unix::fs::symlink(
+        &external,
+        std::path::Path::new(&mock.save_dir).join("archive.zip"),
+    )
+    .unwrap();
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        mock.save_dir.clone(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+    assert!(fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .is_err());
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(std::fs::read(&external).unwrap(), b"user content");
+    mock.abort();
+}
+
+#[tokio::test]
 async fn resume_url_task_rejects_when_aria2_output_cannot_be_confirmed() {
     let mock = ResumeProxyMockAria2Server::spawn_without_confirmed_output().await;
     let task = sample_task(
@@ -3884,6 +3951,16 @@ impl ResumeProxyMockAria2Server {
             .and_then(|path| path.rsplit('/').next())
             .unwrap_or("archive.zip")
             .to_string();
+        Self::spawn_with_output_option(fail_change_option, output_path, save_dir, output_file_name)
+            .await
+    }
+
+    async fn spawn_with_output_option(
+        fail_change_option: bool,
+        output_path: Option<String>,
+        save_dir: String,
+        output_file_name: String,
+    ) -> Self {
         let confirmed_output = output_path.is_some();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();

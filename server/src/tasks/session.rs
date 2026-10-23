@@ -71,8 +71,11 @@ pub(crate) async fn validate_url_task_output_before_resume(
         Some(serde_json::Value::String(value)) => Some(value.as_str()),
         Some(_) => return Err("恢复任务前无法确认 Aria2 输出文件名".to_string()),
     };
-    validate_url_output_file_name(configured_out)
-        .map_err(|_| "恢复任务前无法确认 Aria2 输出文件名".to_string())?;
+    let configured_out = validated_url_output_name(
+        configured_out,
+        &expected_dir,
+        config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2,
+    )?;
 
     let files = status
         .files
@@ -82,6 +85,14 @@ pub(crate) async fn validate_url_task_output_before_resume(
     for file in files {
         let normalized_path = file.path.replace('\\', "/");
         let path = Path::new(&normalized_path);
+        if path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+            || std::fs::symlink_metadata(path)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err("恢复任务前无法确认 Aria2 实际输出路径".to_string());
+        }
         let parent = path
             .parent()
             .and_then(Path::to_str)
@@ -102,6 +113,40 @@ pub(crate) async fn validate_url_task_output_before_resume(
     }
 
     Ok(())
+}
+
+fn validated_url_output_name<'a>(
+    output: Option<&'a str>,
+    expected_dir: &str,
+    native: bool,
+) -> Result<Option<&'a str>, String> {
+    let error = || "恢复任务前无法确认 Aria2 输出文件名".to_string();
+    let Some(output) = output else {
+        return Ok(None);
+    };
+    let path = Path::new(output);
+    let name = if native && path.is_absolute() {
+        if output.contains(['\\', '\0'])
+            || path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+            || path
+                .parent()
+                .and_then(Path::to_str)
+                .map(normalize_path_for_match)
+                .as_deref()
+                != Some(expected_dir)
+        {
+            return Err(error());
+        }
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(error)?
+    } else {
+        output
+    };
+    validate_url_output_file_name(Some(name)).map_err(|_| error())?;
+    Ok(Some(name))
 }
 
 pub async fn sync_session_tasks_from_aria2(

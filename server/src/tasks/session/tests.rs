@@ -454,3 +454,24 @@ async fn mock_aria2_rpc(
         other => json!({ "error": { "message": format!("unexpected method: {other}") } }),
     })
 }
+
+#[test]
+fn native_output_path_must_resolve_to_a_file_in_the_expected_directory() {
+    for output in ["file.bin", "/downloads/file.bin", "/downloads/file.1.bin"] {
+        assert!(validated_url_output_name(Some(output), "/downloads", true).is_ok());
+    }
+    for output in [
+        "/elsewhere/file.bin",
+        "/downloads/../file.bin",
+        "/downloads/sub/file.bin",
+        "../file.bin",
+        "/downloads/file\\name",
+        "/downloads/file\0name",
+    ] {
+        assert!(
+            validated_url_output_name(Some(output), "/downloads", true).is_err(),
+            "{output:?}"
+        );
+    }
+    assert!(validated_url_output_name(Some("/downloads/file.bin"), "/downloads", false).is_err());
+}
