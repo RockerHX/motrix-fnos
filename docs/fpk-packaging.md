@@ -329,6 +329,8 @@ rtk packaging/fnos/cmd/stop
 
 `/api/app/ready` 表示 Rust 管理与 JSON-RPC listener 已绑定、启动门禁已完成且服务未进入退出状态。SQLite 初始化仍由启动门禁保证，但每次 ready 请求不再执行实时数据库查询。
 
+IPv6 管理监听器在绑定前启用 `SO_REUSEADDR`，允许旧连接处于 `TIME_WAIT` 时立即重新监听；仍在运行的监听器占用同一端口时继续拒绝启动。查证依据：2026-10-23 ARM fnOS 日志中，server 于 15:20:30 停止且 Aria2 未运行，随后两次启用均因 `[::]:17080` 返回 `Address already in use` 失败，15:22:30 再次启用成功；本地真实 IPv6 连接回归已复现未设置地址复用时关闭后无法立即重绑的行为。修复后的 fnOS 快速启停效果仍须按下表验收。
+
 常看位置：
 
 - Rust 业务日志：`packaging/fnos/app/data/logs/server.log`，单文件上限 10 MiB，保留当前文件和最多 3 个轮转文件（`.1`～`.3`）。
@@ -422,6 +424,7 @@ FPK 不携带 `cmd/upgrade-checker` 或其他 server 副本，升级脚本只确
 | 安装 | 安装匹配架构的 `.fpk` | 应用中心安装成功 | 安装界面报错、`TRIM_TEMP_LOGFILE`、应用中心任务日志 |
 | 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`lifecycle.log`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
+| 快速重新启用（ARM / x86，待验收） | 建立 IPv6 管理连接，停用后立即启用；分别在 Aria2 运行和未运行时重复 | 无 `[::]:17080` 绑定失败，就绪接口返回 HTTP 200 | `lifecycle.log`、旧连接的 `TIME_WAIT` 状态；真实进程仍占用端口时应继续拒绝启动 |
 | BT 中文路径（ARM / x86，待验收） | 在全新目录创建中文名称的种子及磁链任务，暂停继续、重启恢复，再勾选删除文件 | 实际落盘路径与任务记录及 RPC 一致；只有一个任务顶层目录；后台清理完成后无任务内容残留 | 引擎进程 `LANG=C.UTF-8`、多层中文名称、非 ASCII 保存目录；种子自带根目录属于正常嵌套；已有异常点号目录另行保全 |
 | 配置变更 | 在“应用设置”修改其他应用配置并保存 | 不触碰官方 API 授权快照 | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
 | 开放 API（x86） | 在正式 `motrix` 身份的 fnOS `1.2.0401+` 管理员宿主中授权目录、刷新、创建任务、验证语义路径和完成任务文件操作 | 授权结果以官方查询为准；语义路径和宿主文件操作不改变后端授权边界 | fnOS 版本、FPK SHA-256、普通用户拒绝、授权撤销、空目录、Token/Socket 不可用、独立浏览器降级和升级后数据保留 |

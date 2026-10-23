@@ -601,6 +601,37 @@ async fn non_conflict_lan_jsonrpc_bind_error_still_releases_other_ports() {
 }
 
 #[tokio::test]
+async fn ipv6_management_listener_rebinds_after_closing_an_accepted_connection() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let listener = bind_ipv6_management_listener(0).expect("IPv6 listener should bind");
+        let port = listener.local_addr().unwrap().port();
+        assert!(
+            bind_ipv6_management_listener(port).is_err(),
+            "a running listener must retain exclusive ownership of its port"
+        );
+
+        let mut client = tokio::net::TcpStream::connect((Ipv6Addr::LOCALHOST, port))
+            .await
+            .expect("IPv6 client should connect");
+        let (mut connection, _) = listener.accept().await.unwrap();
+        // 服务端先关闭连接，使旧连接进入 TIME_WAIT，覆盖应用停用后立即启用的场景。
+        connection.shutdown().await.unwrap();
+        assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
+        drop(client);
+        drop(connection);
+        drop(listener);
+
+        let listener = bind_ipv6_management_listener(port)
+            .expect("IPv6 management port should rebind without waiting for TIME_WAIT to expire");
+        assert_eq!(listener.local_addr().unwrap().port(), port);
+    })
+    .await
+    .expect("IPv6 close and rebind should finish within the deadline");
+}
+
+#[tokio::test]
 async fn wildcard_management_listener_serves_ipv4_and_ipv6() {
     let runtime = listener_runtime(
         "0.0.0.0:0".parse().expect("address should parse"),

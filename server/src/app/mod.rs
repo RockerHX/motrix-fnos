@@ -1028,6 +1028,10 @@ fn bind_ipv6_management_listener(port: u16) -> Result<TcpListener, String> {
     let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
     let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
         .map_err(|error| format!("创建 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
+    // 允许停用后立即重新监听，避免旧连接的 TIME_WAIT 阻止再次启用。
+    socket
+        .set_reuse_address(true)
+        .map_err(|error| format!("设置 IPv6 管理监听地址复用失败：{}（{}）", addr, error))?;
     socket
         .set_only_v6(true)
         .map_err(|error| format!("设置 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
