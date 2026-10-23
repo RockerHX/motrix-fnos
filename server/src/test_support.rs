@@ -1,8 +1,24 @@
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::fmt::MakeWriter;
 
 use crate::auth::{AuthError, AuthService, AuthState};
+
+pub(crate) fn legacy_version_only_engine(app_data_dir: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::create_dir_all(app_data_dir).expect("fixture directory should create");
+    let binary = app_data_dir.join("legacy-version-only-engine");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\n[ \"$#\" -eq 1 ] && [ \"$1\" = \"--version\" ] || exit 1\nprintf 'aria2 version 2.5.5\\n'\n",
+    )
+    .expect("engine identity fixture should write");
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700))
+        .expect("engine identity fixture should be executable");
+    binary
+}
 
 pub(crate) trait AuthServiceTestExt {
     async fn setup(&self, password: &str) -> Result<AuthState, AuthError>;

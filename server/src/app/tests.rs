@@ -160,7 +160,9 @@ fn bootstrap_http_app_state_restores_database_state() {
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 lan_jsonrpc_addr: DEFAULT_LAN_JSONRPC_ADDR.parse().expect("addr should parse"),
-                aria2_path: None,
+                aria2_path: Some(crate::test_support::legacy_version_only_engine(
+                    &app_data_dir,
+                )),
                 trusted_proxy_ips: Vec::new(),
             };
 
@@ -277,6 +279,9 @@ async fn bootstrap_reconciles_prepared_operation_without_starting_aria2() {
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         ..runtime
     };
     let database = connect_database(runtime.database_path.clone())
@@ -324,6 +329,9 @@ async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2(
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         ..runtime
     };
     let database = connect_database(runtime.database_path.clone())
@@ -351,6 +359,10 @@ async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2(
         .expect("manual review should survive restart");
 
     assert!(state.aria2_runtime_snapshot().is_none());
+    assert_eq!(
+        state.core.download_tasks.list().expect("tasks should list")[0].id,
+        task.id
+    );
     let unfinished = list_unfinished_task_operations(&state.core.database.pool)
         .await
         .expect("unfinished operations should list");

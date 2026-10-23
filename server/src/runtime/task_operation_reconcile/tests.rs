@@ -355,7 +355,9 @@ async fn deferred_proxy_operation_reconciles_without_starting_aria2() {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
     let state = bootstrap_http_app_state(&runtime)
