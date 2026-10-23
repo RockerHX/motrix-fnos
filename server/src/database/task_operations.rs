@@ -52,6 +52,60 @@ pub async fn list_unfinished_task_operations(
     rows.into_iter().map(row_to_task_operation).collect()
 }
 
+pub(crate) async fn list_unfinished_task_operations_for_engine(
+    pool: &SqlitePool,
+    generation: crate::config::aria2::EngineGeneration,
+) -> Result<Vec<TaskOperation>, String> {
+    use crate::config::aria2::EngineGeneration;
+    if generation != EngineGeneration::NativeV2 {
+        return list_unfinished_task_operations(pool).await;
+    }
+    let rows = sqlx::query(
+        "SELECT task_operations.*, download_tasks.engine_generation AS owner_generation
+         FROM task_operations LEFT JOIN download_tasks ON download_tasks.id = task_operations.task_id
+         WHERE task_operations.status NOT IN ('completed', 'failed')
+         AND (download_tasks.engine_generation IS NULL OR download_tasks.engine_generation != 'legacy-v1')
+         ORDER BY task_operations.created_at, task_operations.id",
+    ).fetch_all(pool).await.map_err(|error| format!("读取未完成任务操作失败：{error}"))?;
+    let mut operations = Vec::new();
+    for row in rows {
+        let owner: Option<String> = get(&row, "owner_generation")?;
+        let context: serde_json::Value =
+            serde_json::from_str(&get::<String>(&row, "context_json")?)
+                .map_err(|error| format!("读取任务操作上下文失败：{error}"))?;
+        let hints = [
+            context.get("engineGeneration"),
+            context
+                .get("taskSnapshot")
+                .and_then(|snapshot| snapshot.get("engineGeneration")),
+        ];
+        let mut identified = owner.as_deref();
+        for hint in hints.into_iter().flatten() {
+            let hint = hint.as_str().ok_or("任务操作代际无法核对")?;
+            if identified.is_some_and(|known| known != hint) {
+                return Err("任务操作代际冲突，已保留状态".to_string());
+            }
+            identified = Some(hint);
+        }
+        match identified {
+            Some("legacy-v1") => continue,
+            Some("native-v2") | None => {}
+            _ => return Err("任务操作归属无法核对，已保留状态".to_string()),
+        }
+        let mut operation = row_to_task_operation(row)?;
+        if identified.is_none() {
+            // 旧契约允许无任务行、无代际字段的合法上下文；损坏记录必须先通过完整解码。
+            if operation.engine_generation() == EngineGeneration::LegacyV1 {
+                continue;
+            }
+            return Err("任务操作归属无法核对，已保留状态".to_string());
+        }
+        operation.context.engine_generation = Some(EngineGeneration::NativeV2);
+        operations.push(operation);
+    }
+    Ok(operations)
+}
+
 pub(crate) async fn insert_task_operation_in_transaction(
     transaction: &mut Transaction<'_, Sqlite>,
     operation: &TaskOperation,

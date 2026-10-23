@@ -1,7 +1,9 @@
 use super::ensure_aria2_ready;
 use crate::app::HttpAppState;
 use crate::config::aria2::EngineGeneration;
-use crate::database::task_operations::{list_unfinished_task_operations, update_task_operation};
+use crate::database::task_operations::{
+    list_unfinished_task_operations_for_engine, update_task_operation,
+};
 use crate::database::tasks::{
     delete_download_task_record_with_operation, persist_download_task_state_with_operation,
 };
@@ -34,14 +36,15 @@ enum ReconcileAction {
 
 pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Result<(), String> {
     state.ensure_download_available()?;
-    let operations = list_unfinished_task_operations(&state.core.database.pool)
-        .await?
-        .into_iter()
-        .filter(|operation| {
-            operation.engine_generation() == state.aria2_config().engine_generation()
-        })
-        .filter(|operation| !operation.is_file_cleanup_pending())
-        .collect::<Vec<_>>();
+    let operations = list_unfinished_task_operations_for_engine(
+        &state.core.database.pool,
+        state.aria2_config().engine_generation(),
+    )
+    .await?
+    .into_iter()
+    .filter(|operation| operation.engine_generation() == state.aria2_config().engine_generation())
+    .filter(|operation| !operation.is_file_cleanup_pending())
+    .collect::<Vec<_>>();
     if operations.is_empty() {
         return Ok(());
     }

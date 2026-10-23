@@ -4,7 +4,7 @@ use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     backup_database, check_integrity, connect_database,
     maintenance::cleanup_history,
-    tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
+    tasks::{list_download_tasks_for_engine, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
 use crate::fnos::FnosApiClient;
@@ -538,7 +538,8 @@ pub async fn bootstrap_http_app_state(
     } else {
         connect_database(runtime.database_path.clone()).await?
     };
-    let mut restored_tasks = match list_download_tasks(&database.pool).await {
+    let mut restored_tasks = match list_download_tasks_for_engine(&database.pool, generation).await
+    {
         Ok(tasks) => tasks,
         Err(_) if compatibility.mode == "restricted" => Vec::new(),
         Err(error) => {
@@ -548,9 +549,6 @@ pub async fn bootstrap_http_app_state(
             Vec::new()
         }
     };
-    if generation == crate::config::aria2::EngineGeneration::NativeV2 {
-        restored_tasks.retain(|task| task.engine_generation == generation);
-    }
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
     let fallback_download_dir = default_download_dir(&accessible_paths, &runtime.app_data_dir)
         .display()

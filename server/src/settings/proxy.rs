@@ -201,7 +201,7 @@ pub async fn update_download_proxy(
     if bt_proxy_changed && phase == Aria2LifecyclePhase::Ready {
         let config = context.aria2_config.as_ref().expect("ready config checked");
         runtime_apply = apply_bt_proxy_config(
-            &SqliteTaskRepository::new(context.pool),
+            &SqliteTaskRepository::for_engine(context.pool, config.engine_generation()),
             context.aria2_rpc,
             config,
             Some(&replaced.config),

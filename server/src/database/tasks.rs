@@ -222,7 +222,7 @@ pub(crate) async fn validate_native_metadata_refs(
     root: &Path,
     tasks: &[DownloadTask],
 ) -> Result<(), String> {
-    let rows = sqlx::query("SELECT task_id, engine_generation, gid, kind, private_path, size_bytes, checksum FROM task_metadata_refs")
+    let rows = sqlx::query("SELECT task_id, engine_generation, gid, kind, private_path, size_bytes, checksum FROM task_metadata_refs WHERE NOT EXISTS (SELECT 1 FROM download_tasks WHERE id = task_id AND engine_generation = 'legacy-v1')")
         .fetch_all(pool).await.map_err(|error| format!("读取私有 metadata 引用失败：{error}"))?;
     let references = rows
         .into_iter()
@@ -405,6 +405,24 @@ pub async fn persist_download_task_states(
 }
 
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
+    read_download_tasks(pool, false).await
+}
+
+pub(crate) async fn list_download_tasks_for_engine(
+    pool: &SqlitePool,
+    generation: crate::config::aria2::EngineGeneration,
+) -> Result<Vec<DownloadTask>, String> {
+    read_download_tasks(
+        pool,
+        generation == crate::config::aria2::EngineGeneration::NativeV2,
+    )
+    .await
+}
+
+async fn read_download_tasks(
+    pool: &SqlitePool,
+    isolate_legacy: bool,
+) -> Result<Vec<DownloadTask>, String> {
     let has_generation: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pragma_table_info('download_tasks') WHERE name = 'engine_generation')")
         .fetch_one(pool).await.map_err(|_| "无法读取任务代际字段")?;
     let profile_proxy_url = get_download_proxy_config(pool)
@@ -436,6 +454,11 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
             )
             .replace("removed_from_status", "NULL AS removed_from_status")
     };
+    let query = if isolate_legacy {
+        format!("SELECT * FROM ({query}) WHERE engine_generation != 'legacy-v1' OR engine_generation IS NULL")
+    } else {
+        query
+    };
     let rows = sqlx::query(&query)
         .fetch_all(pool)
         .await
@@ -445,10 +468,21 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
         .into_iter()
         .map(|row| row_to_task(row, profile_proxy_url.as_deref()))
         .collect::<Result<Vec<_>, _>>()?;
+    if isolate_legacy
+        && tasks
+            .iter()
+            .any(|task| task.engine_generation != crate::config::aria2::EngineGeneration::NativeV2)
+    {
+        return Err("任务代际无法核对，已保留状态".to_string());
+    }
     if !has_generation {
         return Ok(tasks);
     }
-    let files = sqlx::query("SELECT task_id, file_index, path, name, length, completed_length, selected FROM task_file_snapshots ORDER BY task_id, file_index")
+    let files = sqlx::query(if isolate_legacy {
+        "SELECT task_id, file_index, path, name, length, completed_length, selected FROM task_file_snapshots WHERE NOT EXISTS (SELECT 1 FROM download_tasks WHERE id = task_id AND engine_generation = 'legacy-v1') ORDER BY task_id, file_index"
+    } else {
+        "SELECT task_id, file_index, path, name, length, completed_length, selected FROM task_file_snapshots ORDER BY task_id, file_index"
+    })
         .fetch_all(pool)
         .await
         .map_err(|error| format!("读取任务文件快照失败：{error}"))?;
@@ -484,6 +518,9 @@ pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>,
                 file.path = root.join(relative).display().to_string();
             }
         }
+    }
+    if isolate_legacy && !by_task.is_empty() {
+        return Err("任务文件快照归属无法核对，已保留状态".to_string());
     }
     Ok(tasks)
 }

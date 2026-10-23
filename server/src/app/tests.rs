@@ -1283,3 +1283,87 @@ fn now_ms() -> u128 {
         .expect("system time should be valid")
         .as_millis()
 }
+
+#[tokio::test]
+async fn native_bootstrap_ignores_damaged_legacy_rows_but_preserves_data_and_ids() {
+    use std::os::unix::fs::PermissionsExt;
+    for damaged in ["task", "operation"] {
+        let mut runtime = listener_runtime(
+            "127.0.0.1:0".parse().unwrap(),
+            "127.0.0.1:0".parse().unwrap(),
+        );
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        upsert_download_task(&database.pool, &sample_task())
+            .await
+            .unwrap();
+        let operation = TaskOperation::with_id(
+            "legacy-damaged",
+            7,
+            TaskOperationType::Delete,
+            "file_cleanup_pending",
+            TaskOperationContext::default(),
+        );
+        begin_task_operation(&database.pool, &operation)
+            .await
+            .unwrap();
+        if damaged == "task" {
+            sqlx::query("UPDATE download_tasks SET selected_file_indexes = 'broken'")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (7, -1, 'old', 'old', -1, -1, 1, 1)").execute(&database.pool).await.unwrap();
+        } else {
+            sqlx::query("UPDATE task_operations SET context_json = 'broken'")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+        }
+        save_json_rpc_token(&database.pool, "keep-rpc-token")
+            .await
+            .unwrap();
+        let auth = AuthService::new(database.pool.clone());
+        auth.setup("preserved management password").await.unwrap();
+        database.pool.close().await;
+        let binary = runtime.app_data_dir.join("version-only-engine");
+        std::fs::write(&binary, "#!/bin/sh\nprintf 'aria2 version 2.8.6\\n'\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        runtime.aria2_path = Some(binary);
+        std::fs::write(runtime.app_data_dir.join("user-file"), b"keep payload").unwrap();
+        let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        assert!(
+            state.ensure_download_available().is_ok(),
+            "legacy damage must not block native startup"
+        );
+        assert!(state.core.download_tasks.list().unwrap().is_empty());
+        assert_eq!(state.core.next_task_id.load(Ordering::SeqCst), 8);
+        assert_eq!(
+            load_json_rpc_token(&state.core.database.pool)
+                .await
+                .unwrap(),
+            "keep-rpc-token"
+        );
+        assert!(AuthService::new(state.core.database.pool.clone())
+            .verify_password("preserved management password")
+            .await
+            .is_ok());
+        assert_eq!(
+            std::fs::read(runtime.app_data_dir.join("user-file")).unwrap(),
+            b"keep payload"
+        );
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_operations")
+            .fetch_one(&state.core.database.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            max_download_task_id(&state.core.database.pool)
+                .await
+                .unwrap(),
+            7
+        );
+        state.core.database.pool.close().await;
+        std::fs::remove_dir_all(runtime.app_data_dir).unwrap();
+    }
+}

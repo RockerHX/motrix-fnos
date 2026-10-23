@@ -110,11 +110,13 @@ async fn list_tasks(
         let tasks = service
             .list_removed_download_tasks()
             .map_err(classify_task_error)?;
-        let operations = crate::database::task_operations::list_unfinished_task_operations(
-            &state.core.database.pool,
-        )
-        .await
-        .map_err(classify_task_error)?;
+        let operations =
+            crate::database::task_operations::list_unfinished_task_operations_for_engine(
+                &state.core.database.pool,
+                state.aria2_config().engine_generation(),
+            )
+            .await
+            .map_err(classify_task_error)?;
         return Ok(Json(
             tasks
                 .into_iter()
@@ -424,11 +426,13 @@ async fn delete_task(
         .map_err(classify_task_error)?;
     let mut response = context.finish(task)?;
     if query.delete_files.unwrap_or(false) {
-        let operations = crate::database::task_operations::list_unfinished_task_operations(
-            &state.core.database.pool,
-        )
-        .await
-        .map_err(classify_task_error)?;
+        let operations =
+            crate::database::task_operations::list_unfinished_task_operations_for_engine(
+                &state.core.database.pool,
+                state.aria2_config().engine_generation(),
+            )
+            .await
+            .map_err(classify_task_error)?;
         if operations
             .iter()
             .any(|operation| operation.task_id == task_id && operation.is_file_cleanup_pending())

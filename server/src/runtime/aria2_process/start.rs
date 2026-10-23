@@ -12,7 +12,7 @@ use crate::aria2::{
     select_rpc_port_with_saved_runtime, summarize_args, Aria2LogLevel, SavedAria2Runtime,
 };
 use crate::config::aria2::{Aria2BinarySource, Aria2Config, EngineGeneration};
-use crate::database::task_operations::list_unfinished_task_operations;
+use crate::database::task_operations::list_unfinished_task_operations_for_engine;
 use crate::database::tasks::{persist_download_task_states, validate_native_metadata_refs};
 use crate::debug_logs::{emit_file_log, DebugLogLevel, DebugLogStore};
 use crate::runtime::Aria2Lease;
@@ -451,7 +451,10 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                     .await
                     .map_err(|error| lifecycle_error(state, error))?;
             let applied = crate::settings::proxy::apply_bt_proxy_config(
-                &crate::tasks::repository::SqliteTaskRepository::new(&state.core.database.pool),
+                &crate::tasks::repository::SqliteTaskRepository::for_engine(
+                    &state.core.database.pool,
+                    state.aria2_config().engine_generation(),
+                ),
                 &state.aria2_rpc,
                 &config,
                 proxy.as_ref(),
@@ -542,7 +545,11 @@ fn validate_task_generations(
 }
 
 async fn validate_native_operations(state: &HttpAppState) -> Result<(), String> {
-    let operations = list_unfinished_task_operations(&state.core.database.pool).await?;
+    let operations = list_unfinished_task_operations_for_engine(
+        &state.core.database.pool,
+        state.aria2_config().engine_generation(),
+    )
+    .await?;
     if operations.iter().any(|operation| {
         operation.engine_generation() == EngineGeneration::NativeV2
             && (operation.status == crate::tasks::TaskOperationStatus::ManualReview

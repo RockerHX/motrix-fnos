@@ -331,3 +331,106 @@ async fn unknown_operation_status_is_an_error_instead_of_zero_operations() {
     database.pool.close().await;
     std::fs::remove_file(path).unwrap();
 }
+
+#[tokio::test]
+async fn native_operation_reader_filters_proven_legacy_before_decoding_and_fails_closed() {
+    use crate::config::aria2::EngineGeneration;
+    use crate::database::tasks::upsert_download_task;
+    let path =
+        std::env::temp_dir().join(format!("motrix-operation-generation-{}.sqlite", now_ms()));
+    let database = connect_database(path.clone()).await.unwrap();
+    let pool = &database.pool;
+    upsert_download_task(pool, &sample_task(1)).await.unwrap();
+    begin_task_operation(
+        pool,
+        &TaskOperation::with_id(
+            "generation-op",
+            1,
+            TaskOperationType::Delete,
+            "file_cleanup_pending",
+            TaskOperationContext::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE task_operations SET context_json = 'broken'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(list_unfinished_task_operations(pool).await.is_err());
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for owner in ["native-v2", "unknown"] {
+        sqlx::query("UPDATE download_tasks SET engine_generation = ?")
+            .bind(owner)
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(
+            list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+                .await
+                .is_err()
+        );
+    }
+    sqlx::query("DELETE FROM download_tasks")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .is_err()
+    );
+    for (context, accepted) in [
+        (r#"{}"#, true),
+        (r#"{"criticalPaths":"damaged"}"#, false),
+        (r#"{"engineGeneration":"unknown"}"#, false),
+        (
+            r#"{"engineGeneration":"legacy-v1","taskSnapshot":"damaged old snapshot"}"#,
+            true,
+        ),
+        (
+            r#"{"engineGeneration":"legacy-v1","taskSnapshot":{"engineGeneration":"native-v2"}}"#,
+            false,
+        ),
+        (r#"{"engineGeneration":"native-v2"}"#, true),
+    ] {
+        sqlx::query("UPDATE task_operations SET context_json = ?")
+            .bind(context)
+            .execute(pool)
+            .await
+            .unwrap();
+        let result =
+            list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2).await;
+        assert_eq!(result.is_ok(), accepted, "context {context}: {result:?}");
+        if accepted {
+            assert_eq!(
+                result.unwrap().len(),
+                usize::from(context.contains("native-v2"))
+            );
+        }
+    }
+    upsert_download_task(pool, &{
+        let mut task = sample_task(1);
+        task.engine_generation = EngineGeneration::NativeV2;
+        task
+    })
+    .await
+    .unwrap();
+    sqlx::query("UPDATE task_operations SET context_json = ?")
+        .bind(r#"{"engineGeneration":"legacy-v1"}"#)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .is_err()
+    );
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}

@@ -94,7 +94,10 @@ pub fn lan_jsonrpc_router(state: Arc<HttpAppState>) -> Router {
 
 pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
     TaskService::new(TaskServiceDependencies {
-        repository: Box::new(SqliteTaskRepository::new(&state.core.database.pool)),
+        repository: Box::new(SqliteTaskRepository::for_engine(
+            &state.core.database.pool,
+            state.aria2_config().engine_generation(),
+        )),
         download_tasks: &state.core.download_tasks,
         next_task_id: &state.core.next_task_id,
         app_data_dir: &state.core.app_data_dir,

@@ -852,3 +852,70 @@ fn now_ms() -> u128 {
         .expect("system time should be valid")
         .as_millis()
 }
+
+#[tokio::test]
+async fn native_reader_filters_legacy_before_decoding_and_rejects_unattributed_snapshots() {
+    use crate::config::aria2::EngineGeneration;
+    let path = std::env::temp_dir().join(format!("motrix-generation-reader-{}.sqlite", now_ms()));
+    let database = connect_database(path.clone()).await.unwrap();
+    let pool = &database.pool;
+    let task = sample_task();
+    upsert_download_task(pool, &task).await.unwrap();
+    sqlx::query("UPDATE download_tasks SET selected_file_indexes = 'broken'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(list_download_tasks(pool).await.is_err());
+    assert!(
+        list_download_tasks_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for generation in ["native-v2", "unknown"] {
+        sqlx::query("UPDATE download_tasks SET engine_generation = ?")
+            .bind(generation)
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(
+            list_download_tasks_for_engine(pool, EngineGeneration::NativeV2)
+                .await
+                .is_err()
+        );
+    }
+    sqlx::query("UPDATE download_tasks SET engine_generation = 'legacy-v1'")
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (?, -1, 'old', 'old', -1, -1, 1, 1)").bind(task.id as i64).execute(pool).await.unwrap();
+    assert!(
+        list_download_tasks_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    sqlx::query("DELETE FROM download_tasks")
+        .execute(pool)
+        .await
+        .unwrap();
+    // 外键通常清理关联快照；关闭约束模拟无法确定归属的历史损坏数据。
+    let mut connection = pool.acquire().await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (999, -1, 'orphan', 'orphan', -1, -1, 1, 1)").execute(&mut *connection).await.unwrap();
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    drop(connection);
+    assert!(
+        list_download_tasks_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .is_err()
+    );
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}

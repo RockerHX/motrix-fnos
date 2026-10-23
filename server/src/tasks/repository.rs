@@ -3,7 +3,8 @@ use crate::database::settings::{
     StoredDownloadProxyConfig,
 };
 use crate::database::task_operations::{
-    begin_task_operation, list_unfinished_task_operations, update_task_operation,
+    begin_task_operation, list_unfinished_task_operations,
+    list_unfinished_task_operations_for_engine, update_task_operation,
 };
 use crate::database::tasks::{
     delete_download_task_record_with_operation, persist_download_task_state,
@@ -41,11 +42,25 @@ pub trait TaskRepository: Send + Sync {
 #[derive(Clone, Copy)]
 pub struct SqliteTaskRepository<'a> {
     pool: &'a SqlitePool,
+    generation: Option<crate::config::aria2::EngineGeneration>,
 }
 
 impl<'a> SqliteTaskRepository<'a> {
     pub fn new(pool: &'a SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            generation: None,
+        }
+    }
+
+    pub(crate) fn for_engine(
+        pool: &'a SqlitePool,
+        generation: crate::config::aria2::EngineGeneration,
+    ) -> Self {
+        Self {
+            pool,
+            generation: Some(generation),
+        }
     }
 }
 
@@ -91,7 +106,12 @@ impl TaskRepository for SqliteTaskRepository<'_> {
     }
 
     async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String> {
-        list_unfinished_task_operations(self.pool).await
+        match self.generation {
+            Some(generation) => {
+                list_unfinished_task_operations_for_engine(self.pool, generation).await
+            }
+            None => list_unfinished_task_operations(self.pool).await,
+        }
     }
 
     async fn delete_task_record_with_operation(
