@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "motrix-fnos-server"
-version = "1.9.8"
+version = "2.0.0"
 dependencies = [
  "argon2",
  "async-stream",
