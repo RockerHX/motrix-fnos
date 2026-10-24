@@ -18,7 +18,9 @@ pub use logging::{
     ARIA2_DETAILED_LOG_LEVEL, ARIA2_LOG_LEVEL, ARIA2_LOG_MAX_BYTES, ARIA2_LOG_MAX_FILES,
     ARIA2_LOG_MAX_SIZE_MIB,
 };
-pub use options::{apply_global_options, global_options_from_values, Aria2GlobalOptions};
+pub use options::{
+    apply_bt_proxy, apply_global_options, global_options_from_values, Aria2GlobalOptions,
+};
 pub use ports::{
     rpc_port_candidates, rpc_ports_exhausted_message, select_available_rpc_port,
     select_rpc_port_with_saved_runtime,

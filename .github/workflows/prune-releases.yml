@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   prune:
-    name: Keep Latest Two Releases
+    name: Keep Latest Two Releases and Recovery Release
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -42,6 +42,8 @@ jobs:
 
           readonly confirm_text="DELETE OLD RELEASES AND TAGS"
           readonly version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+$'
+          # v1.9.8 carries the legacy 2.5.5 engine and both recovery FPKs.
+          readonly keep_recovery="v1.9.8"
 
           if [[ "${DRY_RUN}" != "true" && "${CONFIRMATION}" != "${confirm_text}" ]]; then
             echo "正式删除必须在 confirmation 中输入：${confirm_text}" >&2
@@ -75,6 +77,9 @@ jobs:
 
           readonly keep_latest="${all_versions[0]}"
           readonly keep_previous="${all_versions[1]}"
+          mapfile -t keep_versions < <(
+            printf '%s\n' "${keep_latest}" "${keep_previous}" "${keep_recovery}" | sort -urV
+          )
 
           contains_version() {
             local expected="$1"
@@ -88,7 +93,7 @@ jobs:
             return 1
           }
 
-          for protected_version in "${keep_latest}" "${keep_previous}"; do
+          for protected_version in "${keep_versions[@]}"; do
             if ! contains_version "${protected_version}" "${release_tags[@]}"; then
               echo "受保护版本 ${protected_version} 缺少 GitHub Release，拒绝清理。" >&2
               exit 1
@@ -101,14 +106,14 @@ jobs:
 
           old_releases=()
           for tag in "${release_tags[@]}"; do
-            if [[ "${tag}" != "${keep_latest}" && "${tag}" != "${keep_previous}" ]]; then
+            if ! contains_version "${tag}" "${keep_versions[@]}"; then
               old_releases+=("${tag}")
             fi
           done
 
           old_tags=()
           for tag in "${remote_tags[@]}"; do
-            if [[ "${tag}" != "${keep_latest}" && "${tag}" != "${keep_previous}" ]]; then
+            if ! contains_version "${tag}" "${keep_versions[@]}"; then
               old_tags+=("${tag}")
             fi
           done
@@ -116,7 +121,7 @@ jobs:
           {
             echo "## Release 清理计划"
             echo
-            echo "- 保留：\`${keep_latest}\`、\`${keep_previous}\`"
+            printf -- '- 保留：`%s`\n' "${keep_versions[@]}"
             echo "- 删除 Release：${#old_releases[@]} 个"
             echo "- 删除 tag：${#old_tags[@]} 个"
             echo "- 模式：$([[ "${DRY_RUN}" == "true" ]] && echo '仅预览' || echo '正式删除')"
@@ -164,7 +169,7 @@ jobs:
               | sort -urV
           )
 
-          expected_versions=("${keep_latest}" "${keep_previous}")
+          expected_versions=("${keep_versions[@]}")
           if [[ "${remaining_releases[*]}" != "${expected_versions[*]}" ]]; then
             echo "清理后 Release 列表不符合预期：${remaining_releases[*]}" >&2
             exit 1
@@ -174,4 +179,4 @@ jobs:
             exit 1
           fi
 
-          echo "清理完成，仅保留 ${keep_latest} 和 ${keep_previous} 的 Release 与 tag。"
+          echo "清理完成，保留最新两个版本及恢复版本：${keep_versions[*]}。"

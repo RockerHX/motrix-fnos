@@ -11,6 +11,7 @@ import TaskBulkDeleteConfirmDialog from "../features/tasks/components/TaskBulkDe
 import TaskEmptyState from "../features/tasks/components/TaskEmptyState.vue";
 import TaskFileConfirmCoordinator from "../features/tasks/components/TaskFileConfirmCoordinator.vue";
 import TaskTable from "../features/tasks/components/TaskTable.vue";
+import TaskCompatibilityNotice from "../features/tasks/components/TaskCompatibilityNotice.vue";
 import { useTaskBulkActions } from "../features/tasks/composables/useTaskBulkActions";
 import { useTaskCategoryView } from "../features/tasks/composables/useTaskCategoryView";
 import { useTaskPagination } from "../features/tasks/composables/useTaskPagination";
@@ -79,6 +80,7 @@ const toolbar = useTaskToolbar({
   activeCategory,
   visibleTasks: pagination.pagedTasks,
   clearTrashTasks: removedTasks,
+  isDownloadBlocked: computed(() => taskStore.isDownloadBlocked),
   isRuntimeExiting: computed(() => taskStore.isRuntimeExiting),
   isBulkOperating: isToolbarBulkOperating,
   isTaskOperating: taskStore.isTaskOperating,
@@ -162,6 +164,7 @@ async function logout() {
     @select-category="selectCategory"
   >
     <div class="main-content">
+      <TaskCompatibilityNotice />
       <div
         v-if="activeCategory === 'all'"
         class="task-status-filter"
@@ -189,7 +192,7 @@ async function logout() {
             :title="t(emptyState.titleKey)"
             :description="t(emptyState.descriptionKey)"
             :show-create-action="emptyState.showCreateAction"
-            :disable-create-action="taskStore.isRuntimeExiting"
+            :disable-create-action="taskStore.isRuntimeExiting || taskStore.isDownloadBlocked"
             :show-settings-action="emptyState.showSettingsAction"
             @create="dialogs.openCreateDialog"
             @open-settings="dialogs.openSettings"
@@ -212,7 +215,7 @@ async function logout() {
     <template #overlay>
       <Transition name="app-floating-add">
         <button
-          v-if="isMobileLayout && showFloatingAdd"
+          v-if="isMobileLayout && showFloatingAdd && !taskStore.isDownloadBlocked"
           type="button"
           class="floating-add"
           :title="t('empty.create')"

@@ -110,6 +110,8 @@ function stageServerBinary(target) {
   mkdirSync(destinationDir, { recursive: true });
   copyFileSync(source, destination);
   chmodSync(destination, 0o755);
+  rmSync(path.join(packagingRoot, 'cmd', 'upgrade-checker'), { force: true });
+  rmSync(path.join(destinationDir, 'engine-generation'), { force: true });
 }
 
 function syncUiIcons() {
@@ -176,6 +178,7 @@ function preflightStageDir(dir, platform, servicePort) {
     'cmd/uninstall_callback',
     'wizard',
     'wizard/install',
+    'wizard/upgrade',
     'wizard/uninstall',
     'MotrixFNOS.sc',
   ];
@@ -187,6 +190,7 @@ function preflightStageDir(dir, platform, servicePort) {
   }
 
   validateJsonFile(path.join(dir, 'wizard', 'install'), '安装向导');
+  validateJsonFile(path.join(dir, 'wizard', 'upgrade'), '升级向导');
   validateJsonFile(path.join(dir, 'wizard', 'uninstall'), '卸载向导');
   try {
     validateFpkRuntimeDataEntries(readdirSync(path.join(dir, 'app', 'data')));

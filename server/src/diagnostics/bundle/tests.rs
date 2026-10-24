@@ -31,6 +31,14 @@ fn diagnostic_bundle_contains_only_whitelisted_redacted_logs() {
     write_file(&root.join("aria2/aria2.1.log"), "spdlog history\n");
     write_file(&root.join("aria2/aria2.log.1"), "legacy history\n");
     write_file(&root.join("motrix-fnos.sqlite"), "database-must-not-export");
+    for path in [
+        "engine/native-v2/state/checkpoint.db",
+        "engine/native-v2/state/checkpoint.db-wal",
+        "engine/native-v2/session/aria2.session",
+        "task-metadata/task-1/source.torrent",
+    ] {
+        write_file(&root.join(path), "native-private-must-not-export");
+    }
     let logs = vec![debug_log("token=debug-secret")];
 
     let entries = unzip(
@@ -68,6 +76,7 @@ fn diagnostic_bundle_contains_only_whitelisted_redacted_logs() {
         "aria2-secret",
         "debug-secret",
         "database-must-not-export",
+        "native-private-must-not-export",
     ] {
         assert!(!contents.contains(secret), "secret leaked: {secret}");
     }

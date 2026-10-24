@@ -17,6 +17,7 @@ fn test_config(path: Option<&str>) -> Aria2Config {
         rpc_port: 6800,
         rpc_secret: String::new(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }
@@ -90,6 +91,7 @@ fn process_args_include_session_paths_when_configured() {
     assert!(args.contains(&"--force-save=true".to_string()));
     assert!(args.contains(&"--input-file=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
     assert!(args.contains(&"--save-session=/tmp/motrix-fnos/aria2/aria2.session".to_string()));
+    assert!(!args.iter().any(|arg| arg.starts_with("--state-dir=")));
     assert!(args.contains(&"--dht-file-path=/tmp/motrix-fnos/aria2/dht.dat".to_string()));
     assert!(args.contains(&"--log=/tmp/motrix-fnos/aria2/aria2.log".to_string()));
 
@@ -143,7 +145,7 @@ fn rpc_port_candidates_use_primary_then_fallback_range() {
 
 #[test]
 fn global_options_clamp_concurrency_to_shared_limit() {
-    let options = global_options_from_values(999, 0, 0, 1, 5, "20M", 60, 5);
+    let options = global_options_from_values(999, 0, 0, 1, 60, 5);
 
     assert_eq!(
         options.max_concurrent_downloads,

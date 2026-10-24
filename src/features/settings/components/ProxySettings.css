@@ -31,6 +31,21 @@
   width: 100%;
 }
 
+.proxy-settings-bt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--app-color-border-subtle);
+  border-bottom: 1px solid var(--app-color-border-subtle);
+}
+
+.proxy-settings-bt h4 {
+  margin: 0 0 4px;
+  color: var(--app-text-strong);
+}
+
 .proxy-settings-failures {
   display: grid;
   gap: 4px;
@@ -54,5 +69,10 @@
   .proxy-settings-heading > :deep(.n-text) {
     max-width: none;
     text-align: left;
+  }
+
+  .proxy-settings-bt {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

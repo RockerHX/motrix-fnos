@@ -72,6 +72,16 @@ describe("TaskCardHeader", () => {
     expect(indicator.get('[data-icon-name="proxy"]').attributes("data-icon-name")).toBe("proxy");
     expect(wrapper.text()).not.toContain("http://");
   });
+
+  it("does not show a task proxy icon for BT tasks", () => {
+    const wrapper = mount(TaskCardHeader, {
+      props: {
+        task: createTask({ sourceType: "torrent", useProxy: true }),
+      },
+    });
+
+    expect(wrapper.find(".task-proxy-indicator").exists()).toBe(false);
+  });
 });
 
 function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {

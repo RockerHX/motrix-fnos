@@ -9,6 +9,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         let gid = task_gid(self.download_tasks, task_id)?;
@@ -68,7 +69,9 @@ impl<'a> TaskService<'a> {
         {
             Ok(task) => task,
             Err(error) => {
-                let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
+                if config.state_dir.is_none() {
+                    let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
+                }
                 return Err(self
                     .rollback_task_operation_state(snapshot, &mut operation, "sync_failed", error)
                     .await);
@@ -103,6 +106,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
         let _guard = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if !matches!(
@@ -282,6 +286,8 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
         if task_before_resume.confirmation_required {
@@ -289,6 +295,9 @@ impl<'a> TaskService<'a> {
         }
         self.validate_task_authorization(&task_before_resume)?;
         let gid = task_gid(self.download_tasks, task_id)?;
+        if task_before_resume.source_type != DownloadTaskSourceType::Url {
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         let mut operation = self
             .begin_task_operation(
                 task_id,
@@ -297,7 +306,6 @@ impl<'a> TaskService<'a> {
                 task_operation_context(Some(task_before_resume.clone()), Vec::new()),
             )
             .await?;
-        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let mut runtime_task = task_before_resume.clone();
         runtime_task.proxy_binding = match self.resolve_existing_task_proxy(&runtime_task).await {
             Ok(binding) => binding,
@@ -507,8 +515,16 @@ impl<'a> TaskService<'a> {
         use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(config, task_id)?;
+        let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.source_type != DownloadTaskSourceType::Url {
+            if use_proxy_override.is_some() {
+                return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+            }
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         if snapshot.status != DownloadTaskStatus::Complete {
             return Err("只有已完成任务可以重新下载".to_string());
         }
@@ -520,12 +536,13 @@ impl<'a> TaskService<'a> {
         validate_task_files(&snapshot)?;
         let torrent_data = match snapshot.source_type {
             DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet => Some(
-                read_saved_torrent_metadata(&snapshot)
+                self.recreation_torrent_metadata(config, &snapshot)
+                    .await
                     .map_err(|error| format!("重新下载前无法读取源 metadata：{}", error))?,
             ),
             DownloadTaskSourceType::Url => None,
         };
-        let prepared = crate::tasks::PreparedDownloadTask {
+        let mut prepared = crate::tasks::PreparedDownloadTask {
             url: snapshot.url.clone(),
             file_name: snapshot.file_name.clone(),
             output_file_name: Some(snapshot.file_name.clone()),
@@ -539,6 +556,26 @@ impl<'a> TaskService<'a> {
             use_proxy: resolved_proxy.use_proxy,
             proxy_binding: resolved_proxy.binding.clone(),
         };
+        if snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+            && snapshot.source_type != DownloadTaskSourceType::Url
+        {
+            prepared
+                .aria2_options
+                .insert("check-integrity".to_string(), serde_json::json!("true"));
+        }
+        if snapshot.source_type != DownloadTaskSourceType::Url
+            && !snapshot.selected_file_indexes.is_empty()
+        {
+            prepared.aria2_options.insert(
+                "select-file".to_string(),
+                serde_json::json!(snapshot
+                    .selected_file_indexes
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")),
+            );
+        }
         let mut operation = self
             .begin_task_operation(
                 task_id,

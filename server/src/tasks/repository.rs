@@ -1,6 +1,10 @@
-use crate::database::settings::{get_download_proxy_config, StoredDownloadProxyConfig};
+use crate::database::settings::{
+    get_download_proxy_config, set_download_proxy_runtime_apply_status, BtRuntimeApplyStatus,
+    StoredDownloadProxyConfig,
+};
 use crate::database::task_operations::{
-    begin_task_operation, list_unfinished_task_operations, update_task_operation,
+    begin_task_operation, list_unfinished_task_operations,
+    list_unfinished_task_operations_for_engine, update_task_operation,
 };
 use crate::database::tasks::{
     delete_download_task_record_with_operation, persist_download_task_state,
@@ -13,6 +17,10 @@ use sqlx::SqlitePool;
 #[async_trait]
 pub trait TaskRepository: Send + Sync {
     async fn get_download_proxy_config(&self) -> Result<Option<StoredDownloadProxyConfig>, String>;
+    async fn set_bt_proxy_runtime_apply_status(
+        &self,
+        status: BtRuntimeApplyStatus,
+    ) -> Result<(), String>;
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String>;
     async fn persist_task_state(&self, task: &DownloadTask) -> Result<(), String>;
     async fn persist_task_states(&self, tasks: &[DownloadTask]) -> Result<(), String>;
@@ -34,11 +42,25 @@ pub trait TaskRepository: Send + Sync {
 #[derive(Clone, Copy)]
 pub struct SqliteTaskRepository<'a> {
     pool: &'a SqlitePool,
+    generation: Option<crate::config::aria2::EngineGeneration>,
 }
 
 impl<'a> SqliteTaskRepository<'a> {
     pub fn new(pool: &'a SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            generation: None,
+        }
+    }
+
+    pub(crate) fn for_engine(
+        pool: &'a SqlitePool,
+        generation: crate::config::aria2::EngineGeneration,
+    ) -> Self {
+        Self {
+            pool,
+            generation: Some(generation),
+        }
     }
 }
 
@@ -46,6 +68,13 @@ impl<'a> SqliteTaskRepository<'a> {
 impl TaskRepository for SqliteTaskRepository<'_> {
     async fn get_download_proxy_config(&self) -> Result<Option<StoredDownloadProxyConfig>, String> {
         get_download_proxy_config(self.pool).await
+    }
+
+    async fn set_bt_proxy_runtime_apply_status(
+        &self,
+        status: BtRuntimeApplyStatus,
+    ) -> Result<(), String> {
+        set_download_proxy_runtime_apply_status(self.pool, status).await
     }
 
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String> {
@@ -77,7 +106,12 @@ impl TaskRepository for SqliteTaskRepository<'_> {
     }
 
     async fn list_unfinished_operations(&self) -> Result<Vec<TaskOperation>, String> {
-        list_unfinished_task_operations(self.pool).await
+        match self.generation {
+            Some(generation) => {
+                list_unfinished_task_operations_for_engine(self.pool, generation).await
+            }
+            None => list_unfinished_task_operations(self.pool).await,
+        }
     }
 
     async fn delete_task_record_with_operation(

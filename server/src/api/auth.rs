@@ -86,7 +86,10 @@ pub(crate) async fn management_auth(
 ) -> Response {
     let context = request.extensions().get::<RequestContext>().cloned();
     match authorize_management_request(&state, request.headers(), context.as_ref()).await {
-        Ok(()) => next.run(request).await,
+        Ok(()) => match super::ensure_compatible_management_request(&state, &request) {
+            Ok(()) => next.run(request).await,
+            Err(error) => error.into_response(),
+        },
         Err(error) => error.into_response(),
     }
 }

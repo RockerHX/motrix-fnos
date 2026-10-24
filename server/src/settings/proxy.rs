@@ -1,11 +1,14 @@
 use crate::aria2::Aria2RpcClient;
 use crate::config::aria2::Aria2Config;
 use crate::database::settings::{
-    delete_download_proxy_config_if_unused, get_download_proxy_config,
-    replace_download_proxy_config, DeleteDownloadProxyConfigResult, StoredDownloadProxyConfig,
+    delete_download_proxy_config_for_engine_if_unused, get_download_proxy_config,
+    replace_download_proxy_config, BtRuntimeApplyStatus, DeleteDownloadProxyConfigResult,
+    StoredDownloadProxyConfig,
 };
 use crate::debug_logs::DebugLogStore;
 use crate::runtime::{Aria2LifecycleCoordinator, Aria2LifecyclePhase};
+use crate::tasks::repository::{SqliteTaskRepository, TaskRepository};
+use crate::tasks::service::TaskService;
 use crate::tasks::{
     change_task_options, DownloadTaskStatus, TaskMemoryState, TaskProxyBinding, TaskProxySource,
 };
@@ -25,6 +28,8 @@ pub struct DownloadProxyStatus {
     pub configured: bool,
     pub masked_proxy_url: Option<String>,
     pub revision: u64,
+    pub bt_use_proxy: bool,
+    pub bt_runtime_apply: BtRuntimeApplyStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -47,6 +52,9 @@ pub struct DownloadProxyMutationResponse {
 #[derive(Debug)]
 pub enum DownloadProxyServiceError {
     InvalidUrl(&'static str),
+    BtProxyNotConfigured,
+    BtProxyProtocolUnsupported,
+    BtProxyEngineUnsupported,
     InUse,
     Load(String),
     Save(String),
@@ -61,6 +69,7 @@ pub struct DownloadProxyServiceContext<'a> {
     pub aria2_config: Option<Aria2Config>,
     pub debug_logs: &'a DebugLogStore,
     pub update_lock: &'a Mutex<()>,
+    pub task_service: Option<&'a TaskService<'a>>,
 }
 
 pub async fn load_download_proxy_status(
@@ -78,15 +87,107 @@ pub async fn load_download_proxy_status(
 
 pub async fn update_download_proxy(
     context: DownloadProxyServiceContext<'_>,
-    proxy_url: &str,
+    proxy_url: Option<&str>,
+    bt_use_proxy: Option<bool>,
 ) -> Result<DownloadProxyMutationResponse, DownloadProxyServiceError> {
-    let normalized = normalize_proxy_url(proxy_url)?;
+    let normalized = proxy_url.map(normalize_proxy_url).transpose()?;
     let _update_guard = context.update_lock.lock().await;
-    let replaced =
-        replace_download_proxy_config(context.pool, normalized.clone(), current_timestamp_ms())
-            .await
-            .map_err(DownloadProxyServiceError::Save)?;
-    let status = status_from_stored(&replaced.config)?;
+    let current = get_download_proxy_config(context.pool)
+        .await
+        .map_err(DownloadProxyServiceError::Load)?;
+    let current_proxy = current.as_ref().and_then(|config| config.proxy_url.clone());
+    let current_bt_use_proxy = current.as_ref().is_some_and(|config| config.bt_use_proxy);
+    let target_proxy = normalized.clone().or(current_proxy.clone());
+    let target_bt_use_proxy = bt_use_proxy.unwrap_or(current_bt_use_proxy);
+    resolve_bt_proxy_url(target_proxy.as_deref(), target_bt_use_proxy)?;
+
+    let proxy_changed = current_proxy != target_proxy;
+    let bt_configuration_changed = current_bt_use_proxy != target_bt_use_proxy;
+    let bt_proxy_changed = (current_bt_use_proxy || target_bt_use_proxy)
+        && (proxy_changed || bt_configuration_changed);
+    let phase = context
+        .aria2_lifecycle
+        .snapshot()
+        .map_err(DownloadProxyServiceError::State)?
+        .phase;
+    if target_bt_use_proxy
+        && phase == Aria2LifecyclePhase::Ready
+        && context.aria2_config.as_ref().is_some_and(|config| {
+            config.engine_generation() != crate::config::aria2::EngineGeneration::NativeV2
+        })
+    {
+        return Err(DownloadProxyServiceError::BtProxyEngineUnsupported);
+    }
+    let mut previously_active_bt = Vec::new();
+    let mut runtime_activity = None;
+    let mut runtime_apply = if phase == Aria2LifecyclePhase::Ready {
+        current
+            .as_ref()
+            .map_or(BtRuntimeApplyStatus::Applied, |config| {
+                config.bt_runtime_apply
+            })
+    } else {
+        BtRuntimeApplyStatus::Deferred
+    };
+
+    if bt_proxy_changed {
+        match phase {
+            Aria2LifecyclePhase::Stopped => runtime_apply = BtRuntimeApplyStatus::Deferred,
+            Aria2LifecyclePhase::Ready => {
+                runtime_activity = Some(
+                    context
+                        .aria2_lifecycle
+                        .acquire_activity()
+                        .map_err(DownloadProxyServiceError::State)?,
+                );
+                if context
+                    .aria2_lifecycle
+                    .snapshot()
+                    .map_err(DownloadProxyServiceError::State)?
+                    .phase
+                    != Aria2LifecyclePhase::Ready
+                {
+                    return Err(DownloadProxyServiceError::State(
+                        "Aria2 正在切换运行状态，请稍后重试".to_string(),
+                    ));
+                }
+                let config = context.aria2_config.as_ref().ok_or_else(|| {
+                    DownloadProxyServiceError::State("缺少 Aria2 运行配置".to_string())
+                })?;
+                let service = context.task_service.ok_or_else(|| {
+                    DownloadProxyServiceError::State("BT 代理切换缺少任务服务".to_string())
+                })?;
+                previously_active_bt = service
+                    .pause_active_bt_tasks_for_proxy_change(config)
+                    .await
+                    .map_err(DownloadProxyServiceError::State)?;
+                runtime_apply = BtRuntimeApplyStatus::Deferred;
+            }
+            Aria2LifecyclePhase::Faulted => {
+                return Err(DownloadProxyServiceError::State(
+                    "Aria2 运行状态异常，无法安全切换 BT 代理".to_string(),
+                ));
+            }
+            Aria2LifecyclePhase::Starting
+            | Aria2LifecyclePhase::Quiescing
+            | Aria2LifecyclePhase::Stopping => {
+                return Err(DownloadProxyServiceError::State(
+                    "Aria2 正在切换运行状态，请稍后重试".to_string(),
+                ));
+            }
+        }
+    }
+
+    let replaced = replace_download_proxy_config(
+        context.pool,
+        normalized,
+        bt_use_proxy,
+        runtime_apply,
+        current_timestamp_ms(),
+    )
+    .await
+    .map_err(DownloadProxyServiceError::Save)?;
+    let mut status = status_from_stored(&replaced.config)?;
     if !replaced.changed {
         return Ok(DownloadProxyMutationResponse {
             status,
@@ -96,32 +197,88 @@ pub async fn update_download_proxy(
         });
     }
 
-    let candidates = context
-        .tasks
-        .with_tasks_mut(|tasks| {
-            let mut candidates = Vec::new();
-            for task in tasks {
-                if task.proxy_binding.source() != TaskProxySource::Profile {
-                    continue;
-                }
-                task.proxy_binding = TaskProxyBinding::profile(Some(normalized.clone()));
-                if task.use_proxy {
-                    candidates.push(ProxyApplyCandidate {
-                        task_id: task.id,
-                        gid: task.gid.clone(),
-                        status: task.status.clone(),
-                    });
-                }
-            }
-            candidates
-        })
-        .map_err(DownloadProxyServiceError::State)?;
+    let mut bt_blocked = false;
+    if bt_proxy_changed && phase == Aria2LifecyclePhase::Ready {
+        let config = context.aria2_config.as_ref().expect("ready config checked");
+        runtime_apply = apply_bt_proxy_config(
+            &SqliteTaskRepository::for_engine(context.pool, config.engine_generation()),
+            context.aria2_rpc,
+            config,
+            Some(&replaced.config),
+        )
+        .await
+        .map_err(DownloadProxyServiceError::Save)?;
+        bt_blocked = runtime_apply == BtRuntimeApplyStatus::Blocked;
+        if bt_blocked {
+            context.debug_logs.error(
+                "settings.proxy",
+                "BT 全局代理应用或核验失败，BT 任务保持暂停",
+            );
+        }
+        status.bt_runtime_apply = runtime_apply;
+    }
 
-    let mut response = apply_proxy_to_candidates(&context, &normalized, candidates).await;
-    response.status = status;
+    let candidates = if proxy_changed {
+        context
+            .tasks
+            .with_tasks_mut(|tasks| {
+                let mut candidates = Vec::new();
+                for task in tasks {
+                    if task.source_type != crate::tasks::DownloadTaskSourceType::Url
+                        || task.proxy_binding.source() != TaskProxySource::Profile
+                    {
+                        continue;
+                    }
+                    task.proxy_binding = TaskProxyBinding::profile(target_proxy.clone());
+                    if task.use_proxy {
+                        candidates.push(ProxyApplyCandidate {
+                            task_id: task.id,
+                            gid: task.gid.clone(),
+                            status: task.status.clone(),
+                        });
+                    }
+                }
+                candidates
+            })
+            .map_err(DownloadProxyServiceError::State)?
+    } else {
+        Vec::new()
+    };
+    let mut response = if let Some(target_proxy) = target_proxy.as_deref() {
+        apply_proxy_to_candidates(&context, target_proxy, candidates).await
+    } else {
+        DownloadProxyMutationResponse {
+            status: status.clone(),
+            applied_task_ids: Vec::new(),
+            deferred_task_ids: Vec::new(),
+            failed: Vec::new(),
+        }
+    };
+    response.status = status.clone();
     context
         .debug_logs
         .info("settings.proxy", "下载代理配置已更新");
+    drop(runtime_activity);
+    drop(_update_guard);
+    if !bt_blocked {
+        if let (Some(service), Some(config)) = (context.task_service, context.aria2_config.as_ref())
+        {
+            for task_id in previously_active_bt {
+                if let Err(error) = service.resume_download_task(config, task_id).await {
+                    response.failed.push(DownloadProxyApplyFailure {
+                        task_id,
+                        code: "bt_task_resume_failed".to_string(),
+                        message: "代理已应用，但任务未能恢复；可手动继续".to_string(),
+                    });
+                    context.debug_logs.warn(
+                        "settings.proxy",
+                        format!("BT 代理切换后恢复任务失败，任务 ID {}：{}", task_id, error),
+                    );
+                }
+            }
+            response.failed.sort_by_key(|failure| failure.task_id);
+        }
+    }
     Ok(response)
 }
 
@@ -131,8 +288,18 @@ pub async fn delete_download_proxy(
     update_lock: &Mutex<()>,
     debug_logs: &DebugLogStore,
 ) -> Result<(), DownloadProxyServiceError> {
+    delete_download_proxy_for_engine(pool, tasks, update_lock, debug_logs, None).await
+}
+
+pub(crate) async fn delete_download_proxy_for_engine(
+    pool: &SqlitePool,
+    tasks: &TaskMemoryState,
+    update_lock: &Mutex<()>,
+    debug_logs: &DebugLogStore,
+    generation: Option<crate::config::aria2::EngineGeneration>,
+) -> Result<(), DownloadProxyServiceError> {
     let _update_guard = update_lock.lock().await;
-    match delete_download_proxy_config_if_unused(pool)
+    match delete_download_proxy_config_for_engine_if_unused(pool, generation)
         .await
         .map_err(DownloadProxyServiceError::Save)?
     {
@@ -142,7 +309,10 @@ pub async fn delete_download_proxy(
     tasks
         .with_tasks_mut(|tasks| {
             for task in tasks {
-                if task.proxy_binding.source() == TaskProxySource::Profile {
+                if generation.is_none_or(|generation| task.engine_generation == generation)
+                    && task.source_type == crate::tasks::DownloadTaskSourceType::Url
+                    && task.proxy_binding.source() == TaskProxySource::Profile
+                {
                     task.proxy_binding = TaskProxyBinding::profile(None);
                 }
             }
@@ -205,15 +375,60 @@ pub fn normalize_proxy_url(value: &str) -> Result<String, DownloadProxyServiceEr
     Ok(parsed.to_string())
 }
 
+pub(crate) fn resolve_bt_proxy_url(
+    proxy_url: Option<&str>,
+    bt_use_proxy: bool,
+) -> Result<Option<String>, DownloadProxyServiceError> {
+    if !bt_use_proxy {
+        return Ok(None);
+    }
+    let proxy_url =
+        normalize_proxy_url(proxy_url.ok_or(DownloadProxyServiceError::BtProxyNotConfigured)?)?;
+    if proxy_url.starts_with("https://") {
+        return Err(DownloadProxyServiceError::BtProxyProtocolUnsupported);
+    }
+    Ok(Some(proxy_url))
+}
+
+pub(crate) async fn apply_bt_proxy_config(
+    repository: &dyn TaskRepository,
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    proxy: Option<&StoredDownloadProxyConfig>,
+) -> Result<BtRuntimeApplyStatus, String> {
+    let applied = match resolve_bt_proxy_url(
+        proxy.and_then(|proxy| proxy.proxy_url.as_deref()),
+        proxy.is_some_and(|proxy| proxy.bt_use_proxy),
+    ) {
+        Ok(target) => crate::aria2::apply_bt_proxy(client, config, target.as_deref())
+            .await
+            .is_ok(),
+        Err(_) => false,
+    };
+    let status = if applied {
+        BtRuntimeApplyStatus::Applied
+    } else {
+        BtRuntimeApplyStatus::Blocked
+    };
+    repository.set_bt_proxy_runtime_apply_status(status).await?;
+    Ok(status)
+}
+
 fn status_from_stored(
     config: &StoredDownloadProxyConfig,
 ) -> Result<DownloadProxyStatus, DownloadProxyServiceError> {
-    let normalized = normalize_proxy_url(&config.proxy_url)
+    let normalized = config
+        .proxy_url
+        .as_deref()
+        .map(normalize_proxy_url)
+        .transpose()
         .map_err(|_| DownloadProxyServiceError::Load("已保存的下载代理配置无效".to_string()))?;
     Ok(DownloadProxyStatus {
-        configured: true,
-        masked_proxy_url: Some(mask_proxy_url(&normalized)?),
+        configured: normalized.is_some(),
+        masked_proxy_url: normalized.as_deref().map(mask_proxy_url).transpose()?,
         revision: config.revision,
+        bt_use_proxy: config.bt_use_proxy,
+        bt_runtime_apply: config.bt_runtime_apply,
     })
 }
 
@@ -246,6 +461,8 @@ fn unconfigured_status() -> DownloadProxyStatus {
         configured: false,
         masked_proxy_url: None,
         revision: 0,
+        bt_use_proxy: false,
+        bt_runtime_apply: BtRuntimeApplyStatus::Deferred,
     }
 }
 

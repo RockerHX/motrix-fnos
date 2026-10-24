@@ -19,64 +19,70 @@ pub(crate) async fn run_shutdown_cleanup_until(
     state: &Arc<HttpAppState>,
     deadline: Instant,
 ) -> bool {
+    if state.ensure_download_available().is_err() {
+        return run_shutdown_stage(state, deadline, "停止受限管理引擎", async {
+            super::aria2_process::stop_aria2_after_shutdown(state, deadline)
+                .await
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })
+        .await
+            == Some(true);
+    }
     state
         .core
         .debug_logs
         .info("runtime.exit", "开始执行统一退出流程");
-
-    // 顺序不可互换：先同步最新进度，再暂停并持久化未完成任务，随后保存 session，最后才停止 Aria2；各阶段失败均按最后已知状态降级继续退出。
-    if !run_shutdown_stage(
+    let mut succeeded = true;
+    // 失败仍尝试有界收尾，但总结果不能把保存失败当成成功。
+    let Some(result) = run_shutdown_stage(
         state,
         deadline,
         "同步任务状态",
         sync_tasks_before_exit(state),
     )
     .await
-    {
+    else {
         return false;
-    }
-    if !run_shutdown_stage(
+    };
+    succeeded &= result;
+    let Some(result) = run_shutdown_stage(
         state,
         deadline,
         "暂停并持久化未完成任务",
         pause_unfinished_tasks_before_exit(state),
     )
     .await
-    {
+    else {
         return false;
-    }
-    if !run_shutdown_stage(
+    };
+    succeeded &= result;
+    let Some(result) = run_shutdown_stage(
         state,
         deadline,
         "保存 Aria2 session",
         save_aria2_session_before_exit(state),
     )
     .await
-    {
+    else {
         return false;
-    }
-
-    // 只有确认 Aria2 已停止后才能清除运行态；失败时保留 PID/端口/secret，供下次启动识别并定向清理。
-    run_shutdown_stage(state, deadline, "停止 Aria2", async {
-        match super::aria2_process::stop_aria2_after_shutdown(state, deadline).await {
-            Ok(status) => {
+    };
+    succeeded &= result;
+    let stopped = run_shutdown_stage(state, deadline, "停止 Aria2", async {
+        super::aria2_process::stop_aria2_after_shutdown(state, deadline)
+            .await
+            .map(|status| {
                 state.core.debug_logs.info(
                     "runtime.exit",
                     format!("退出流程已停止 Aria2：{}", status.message),
-                );
-            }
-            Err(error) => {
-                state.core.debug_logs.warn(
-                    "runtime.exit",
-                    format!(
-                        "退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{}",
-                        error
-                    ),
-                );
-            }
-        }
+                )
+            })
+            .map_err(|error| {
+                format!("退出流程停止 Aria2 失败，将保留运行态记录供下次启动清理：{error}")
+            })
     })
-    .await
+    .await;
+    succeeded && stopped == Some(true)
 }
 
 async fn run_shutdown_stage<F>(
@@ -84,33 +90,30 @@ async fn run_shutdown_stage<F>(
     deadline: Instant,
     stage: &str,
     operation: F,
-) -> bool
+) -> Option<bool>
 where
-    F: std::future::Future<Output = ()>,
+    F: std::future::Future<Output = Result<(), String>>,
 {
     match timeout_at(deadline, operation).await {
-        Ok(()) => true,
+        Ok(Ok(())) => Some(true),
+        Ok(Err(error)) => {
+            state.core.debug_logs.warn("runtime.exit", error);
+            Some(false)
+        }
         Err(_) => {
             state.core.debug_logs.warn(
                 "runtime.exit",
-                format!("退出总预算耗尽，未完成阶段：{}", stage),
+                format!("退出总预算耗尽，未完成阶段：{stage}"),
             );
-            false
+            None
         }
     }
 }
 
-async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) {
+async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String> {
     if state.aria2_runtime_snapshot().is_none() {
-        persist_last_known_tasks(
-            state,
-            "退出前未发现 Aria2 运行态，已保存应用内最后任务快照",
-            "退出前保存最后已知任务状态失败",
-        )
-        .await;
-        return;
+        return persist_last_known_tasks(state).await;
     }
-
     let config = state.aria2_config();
     match refresh_tasks_from_aria2(
         &state.core.download_tasks,
@@ -122,168 +125,91 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) {
     )
     .await
     {
-        Ok(tasks) => {
-            if let Err(error) =
-                persist_download_task_states(&state.core.database.pool, &tasks).await
-            {
-                state.core.debug_logs.error(
-                    "runtime.exit",
-                    format!("退出前保存最新任务状态失败：{}", error),
-                );
-            } else {
-                state.core.debug_logs.info(
-                    "runtime.exit",
-                    format!("退出前已同步并保存 {} 个任务状态", tasks.len()),
-                );
-            }
-        }
+        Ok(tasks) => persist_compatible_tasks(state, &tasks).await,
         Err(error) => {
-            state.core.debug_logs.warn(
-                "runtime.exit",
-                format!("退出前同步 Aria2 状态失败，将保存应用内最后状态：{}", error),
-            );
-            persist_last_known_tasks(
-                state,
-                "退出前已回退保存应用内最后任务快照",
-                "退出前保存最后已知任务状态失败",
-            )
-            .await;
+            persist_last_known_tasks(state).await?;
+            Err(format!(
+                "退出前同步 Aria2 状态失败，已保存最后快照：{error}"
+            ))
         }
     }
 }
 
-async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) {
-    let candidates = match list_tasks(&state.core.download_tasks) {
-        Ok(tasks) => tasks
-            .into_iter()
-            .filter(should_pause_task_on_exit)
-            .filter_map(|task| task.gid.map(|gid| (task.id, gid)))
-            .collect::<Vec<_>>(),
-        Err(error) => {
-            state.core.debug_logs.error(
-                "runtime.exit",
-                format!("退出前读取待暂停任务失败：{}", error),
-            );
-            return;
-        }
-    };
-
-    if candidates.is_empty() {
-        state
-            .core
-            .debug_logs
-            .info("runtime.exit", "退出前没有可通过 RPC 暂停的未完成任务");
-    }
-
+async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String> {
+    let tasks = list_tasks(&state.core.download_tasks)?;
     let config = state.aria2_config();
     let has_runtime = state.aria2_runtime_snapshot().is_some();
-    let mut rpc_paused_count = 0;
-    for (task_id, gid) in &candidates {
-        if !has_runtime {
-            break;
+    let native = config.state_dir.is_some();
+    let mut errors = Vec::new();
+    if has_runtime && native {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0", "id": "motrix-fnos-exit-pause-all", "method": "aria2.forcePauseAll",
+            "params": [format!("token:{}", config.rpc_secret)],
+        });
+        let paused = state
+            .aria2_rpc
+            .request::<serde_json::Value>(&config, &body)
+            .await
+            .and_then(|response| response.into_result())
+            .map_err(|error| format!("退出前暂停所有引擎活动失败，保留最后状态：{error}"))?;
+        if paused != "OK" {
+            return Err("退出前无法确认引擎已暂停，保留最后状态".to_string());
         }
-
-        match pause_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await {
-            Ok(_) => rpc_paused_count += 1,
-            Err(error) => state.core.debug_logs.warn(
-                "runtime.exit",
-                format!(
-                    "退出前 RPC 暂停任务失败，仍会把任务保存为暂停态，ID {}，GID {}：{}",
-                    task_id, gid, error
-                ),
-            ),
-        }
-    }
-
-    let paused_tasks = match mark_unfinished_tasks_paused(&state.core.download_tasks) {
-        Ok(tasks) => tasks,
-        Err(error) => {
-            state.core.debug_logs.error(
-                "runtime.exit",
-                format!("退出前标记未完成任务暂停失败：{}", error),
-            );
-            return;
-        }
-    };
-
-    let tasks = match list_tasks(&state.core.download_tasks) {
-        Ok(tasks) => tasks,
-        Err(error) => {
-            state.core.debug_logs.error(
-                "runtime.exit",
-                format!("退出前读取暂停后任务状态失败：{}", error),
-            );
-            return;
-        }
-    };
-
-    if let Err(error) = persist_download_task_states(&state.core.database.pool, &tasks).await {
-        state.core.debug_logs.error(
-            "runtime.exit",
-            format!("退出前保存暂停任务状态失败：{}", error),
-        );
-        return;
-    }
-
-    state.core.debug_logs.info(
-        "runtime.exit",
-        format!(
-            "退出前已保存 {} 个未完成任务为暂停态，RPC 成功暂停 {} 个",
-            paused_tasks.len(),
-            rpc_paused_count
-        ),
-    );
-
-    if !paused_tasks.is_empty() {
-        let _ = super::task_monitor::broadcast_tasks_snapshot(state);
-    }
-}
-
-async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) {
-    if state.aria2_runtime_snapshot().is_none() {
-        state.core.debug_logs.info(
-            "runtime.exit",
-            "退出前未发现 Aria2 运行态，跳过 session 保存",
-        );
-        return;
-    }
-
-    let config = state.aria2_config();
-    match save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs)).await {
-        Ok(()) => state
-            .core
-            .debug_logs
-            .info("runtime.exit", "退出前已请求 Aria2 保存 session"),
-        Err(error) => state.core.debug_logs.warn(
-            "runtime.exit",
-            format!("退出前保存 Aria2 session 失败，继续退出：{}", error),
-        ),
-    }
-}
-
-async fn persist_last_known_tasks(
-    state: &Arc<HttpAppState>,
-    success_message: &str,
-    failure_prefix: &str,
-) {
-    match list_tasks(&state.core.download_tasks) {
-        Ok(tasks) => {
-            if let Err(error) =
-                persist_download_task_states(&state.core.database.pool, &tasks).await
-            {
-                state
-                    .core
-                    .debug_logs
-                    .error("runtime.exit", format!("{}：{}", failure_prefix, error));
-            } else {
-                state.core.debug_logs.info("runtime.exit", success_message);
+    } else if has_runtime {
+        for task in tasks.iter().filter(|task| should_pause_task_on_exit(task)) {
+            if let Some(gid) = task.gid.as_deref() {
+                if let Err(error) =
+                    pause_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await
+                {
+                    errors.push(format!(
+                        "退出前 RPC 暂停任务失败，仍会把任务保存为暂停态，ID {}：{error}",
+                        task.id
+                    ));
+                }
             }
         }
-        Err(error) => state
-            .core
-            .debug_logs
-            .error("runtime.exit", format!("退出前读取任务快照失败：{}", error)),
     }
+    mark_unfinished_tasks_paused(&state.core.download_tasks)?;
+    persist_last_known_tasks(state).await?;
+    let _ = super::task_monitor::broadcast_tasks_snapshot(state);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("；"))
+    }
+}
+
+async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) -> Result<(), String> {
+    if state.aria2_runtime_snapshot().is_none() {
+        return Ok(());
+    }
+    save_session(
+        &state.aria2_rpc,
+        &state.aria2_config(),
+        Some(&state.core.debug_logs),
+    )
+    .await
+    .map_err(|error| format!("退出前保存 Aria2 session 失败，继续退出：{error}"))
+}
+
+async fn persist_last_known_tasks(state: &Arc<HttpAppState>) -> Result<(), String> {
+    let tasks = list_tasks(&state.core.download_tasks)?;
+    persist_compatible_tasks(state, &tasks).await
+}
+
+async fn persist_compatible_tasks(
+    state: &Arc<HttpAppState>,
+    tasks: &[crate::tasks::DownloadTask],
+) -> Result<(), String> {
+    let generation = state.aria2_config().engine_generation();
+    let compatible = tasks
+        .iter()
+        .filter(|task| task.engine_generation == generation)
+        .cloned()
+        .collect::<Vec<_>>();
+    persist_download_task_states(&state.core.database.pool, &compatible)
+        .await
+        .map_err(|error| format!("退出前保存最后已知任务状态失败：{error}"))
 }
 
 #[cfg(test)]

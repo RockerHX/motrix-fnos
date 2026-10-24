@@ -2,7 +2,7 @@
 
 ## 作用与维护规则
 
-本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。完整测试流程可查看[交互式测试 H5](testing-flow.html)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
+本文档说明 `package.json` 中公开的 `pnpm run` 命令，包括用途、前置条件、文件副作用和使用注意事项。测试覆盖与自动化边界见[测试评估](testing-evaluation.md)；FPK 的目录结构、端口约束、产物检查和实机流程仍以 [FPK 打包说明](fpk-packaging.md) 为准。
 
 固定规则：
 
@@ -13,7 +13,8 @@
 - `package.json` 的 `scripts` 是命令清单的唯一事实来源；新增、删除或改变命令行为时同步更新本文档。
 - 生成物、stage、FPK、交叉编译二进制和本地缓存不应提交。
 - 执行会写文件或删除文件的命令前先检查工作区；版本、发布和清理命令尤其如此。
-- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，nightly 和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
+- 功能开发使用独立分支，准备测试时合入 `develop`，通过测试和发布验收后再合入 `main`。2.0.0 使用 `feature/2.0.0`；正式发布只从验收后的 `main` 发起。
+- 代码提交前使用 `pnpm run verify:pre-commit` 做快速静态检查，分支 `git push` 前由 Git hook 执行一次完整 `pnpm run verify`；GitHub `Verify` 在 PR/push 执行快速门禁，每周定时和手动 dispatch 执行扩展验证，依赖审计由独立的每周 workflow 执行。
 
 ## 命令速查
 
@@ -108,9 +109,9 @@ Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型�
 
 ### 扩展验证命令
 
-`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于 nightly、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。
+`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于每周定时回归、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。每周定时安排在北京时间周日 02:17（UTC 周六 18:17），GitHub 调度可能延迟。
 
-浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；nightly 和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；文件系统故障测试使用临时目录，是完整 Rust 测试中相关用例的定向重跑，无需 NAS 或浏览器。
+浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；每周定时和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；测试预建 session 文件并等待 RPC 就绪，启动失败保留引擎输出。文件系统故障测试使用临时目录，是完整 Rust 测试中相关用例的定向重跑，无需 NAS 或浏览器。
 
 单独运行某个扩展测试时使用：
 
@@ -119,6 +120,20 @@ rtk pnpm run test:e2e
 rtk pnpm run test:aria2
 rtk pnpm run test:filesystem
 ```
+
+`test:aria2` 也支持通过 `MOTRIX_ARIA2_CANDIDATE_DIR` 指定隔离的固定候选目录，覆盖原 GID 续传、离线 metadata、BT 全局代理和状态故障，不替换内置资产。候选模式按 Linux/macOS 宿主及 CPU 架构核验匹配的固定 hash；Linux 运行库、服务 UID 和代理专属用例仍仅在 Linux 执行。默认跳过或 macOS 通过不算 Linux 验收通过。固定候选的文件保护、中文 BT 和原身份恢复组合，以及真实 Rust 管理 handler → 引擎 RPC 安全专项可单独运行：
+
+```bash
+rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate node --test \
+  --test-name-pattern='290-14|290-02 (HTTP retains|SIGKILL recovery|magnet keeps|uploaded torrent)' \
+  scripts/extended/aria2-sidecar.test.mjs
+rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate \
+  cargo test --manifest-path server/Cargo.toml --test native_engine_safety -- --ignored --nocapture
+```
+
+目录中须放置宿主对应的 `aria2-next-2.8.6-<平台>-<架构>`，文件名和固定 hash 由测试入口校验。Node.js 24+；Rust 专项需要测试工具链。Linux 全候选矩阵还需要 `ldd`、GNU `readelf` 和匹配的运行库，并以非 root 用户执行权限测试。使用专用临时目录及回环 fixture，文件系统隔离不能替代完整代理泄漏检查。
+
+2.8.6 的异常 Content-Range 普通暂停用例保留已知失败，不能把组合命令记为全部通过；有界退出、文件保全和 Rust 专项须独立通过，新失败单独排查。后续真机范围及已知限制见 [引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)。
 
 ### `pnpm run audit:deps`
 
@@ -252,7 +267,7 @@ git config core.hooksPath .githooks
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 或删除远端引用时跳过源码验证。
 
-因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，nightly 或手动触发时运行扩展验证。
+因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，每周定时或手动触发时运行扩展验证。
 
 ## FPK 构建与资产命令
 

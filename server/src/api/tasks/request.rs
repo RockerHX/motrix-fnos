@@ -71,11 +71,17 @@ pub(super) struct UpdateTaskProxyRequest {
     pub(super) enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TaskProxyOverrideRequest {
+    pub(super) use_proxy: Option<bool>,
+    pub(super) proxy_field_present: bool,
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct TaskProxyOverrideRequest {
+pub(super) struct TaskRestoreOptions {
     #[serde(default)]
-    pub(super) use_proxy: Option<bool>,
+    pub(super) restart_from_zero: bool,
 }
 
 pub(super) fn parse_task_proxy_override_body(
@@ -84,9 +90,36 @@ pub(super) fn parse_task_proxy_override_body(
     if body.is_empty() {
         return Ok(None);
     }
-    serde_json::from_slice(body).map(Some).map_err(|error| {
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|error| {
         ApiError::bad_request("invalid_json", format!("请求体 JSON 无效：{}", error))
-    })
+    })?;
+    let Some(object) = value.as_object() else {
+        return Err(ApiError::bad_request(
+            "invalid_json",
+            "请求体 JSON 必须是对象",
+        ));
+    };
+    let Some(value) = object.get("useProxy") else {
+        return Ok(Some(TaskProxyOverrideRequest {
+            use_proxy: None,
+            proxy_field_present: false,
+        }));
+    };
+    if value.is_null() {
+        return Ok(Some(TaskProxyOverrideRequest {
+            use_proxy: None,
+            proxy_field_present: true,
+        }));
+    }
+    value
+        .as_bool()
+        .map(|enabled| {
+            Some(TaskProxyOverrideRequest {
+                use_proxy: Some(enabled),
+                proxy_field_present: true,
+            })
+        })
+        .ok_or_else(|| ApiError::bad_request("invalid_json", "useProxy 必须是布尔值"))
 }
 
 pub(super) enum ListTasksFilter {

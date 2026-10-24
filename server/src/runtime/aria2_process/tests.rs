@@ -1,4 +1,7 @@
-use super::resolve::{platform_binary_name, repo_debug_binary_path, resolve_aria2_binary_with};
+use super::resolve::{
+    inspect_engine_generation, platform_binary_name, repo_debug_binary_path,
+    resolve_aria2_binary_with,
+};
 use super::start::wait_for_rpc_ready;
 use super::*;
 use crate::app::{
@@ -13,7 +16,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 #[test]
@@ -134,6 +137,64 @@ fn stop_process_succeeds_when_no_process_running() {
     assert_eq!(status.message, "Aria2 进程已停止");
 }
 
+#[cfg(unix)]
+#[test]
+fn start_process_sets_utf8_path_encoding() {
+    use std::os::unix::fs::PermissionsExt;
+
+    const PROBE_ENV: &str = "MOTRIX_TEST_ENGINE_LOCALE_PROBE";
+    if std::env::var_os(PROBE_ENV).is_none() {
+        for lang in [None, Some("C"), Some("en_US.utf8")] {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "runtime::aria2_process::tests::start_process_sets_utf8_path_encoding",
+                ])
+                .env(PROBE_ENV, "1")
+                .env("LC_ALL", "C")
+                .env_remove("LC_CTYPE")
+                .env_remove("LANG");
+            if let Some(lang) = lang {
+                command.env("LANG", lang);
+            }
+            let output = command.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("1 passed"),
+                "LANG={lang:?}: {stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        return;
+    }
+
+    let root = temp_dir("engine-locale");
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("fake-aria2");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nprintf '%s' \"${LANG-}\" > \"${0%/*}/engine-lang\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime = sample_runtime(Some(binary));
+    let mut config = sample_config();
+    config.rpc_port = 0;
+    let process = Mutex::new(None);
+    start_process(&process, &runtime, &config, &DebugLogStore::default()).unwrap();
+    let mut child = process.into_inner().unwrap().unwrap();
+    let exited = child.wait_for_exit(Duration::from_secs(3)).unwrap();
+    if !exited {
+        child.kill().unwrap();
+        assert!(child.wait_for_exit(Duration::from_secs(3)).unwrap());
+    }
+    let lang = std::fs::read_to_string(root.join("engine-lang"));
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(exited, "locale probe should exit within the deadline");
+    assert_eq!(lang.unwrap(), "C.UTF-8");
+}
+
 #[tokio::test]
 async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -172,6 +233,7 @@ async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
 #[cfg(unix)]
 #[tokio::test]
 async fn concurrent_start_requests_apply_saved_download_config_once() {
+    let _process_start_guard = process_start_test_guard().await;
     let temp_dir = temp_dir("concurrent-start");
     std::fs::create_dir_all(&temp_dir).expect("test directory should create");
     let aria2_path = temp_dir.join("fake-aria2");
@@ -182,6 +244,10 @@ import json
 import pathlib
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+if "--version" in sys.argv:
+    print("aria2 version 2.5.5")
+    sys.exit(0)
 
 root = pathlib.Path(__file__).parent
 process_count = root / "process-count.txt"
@@ -248,9 +314,7 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         AppConfig {
             default_download_dir: default_download_dir.clone(),
             max_concurrent_downloads: 9,
-            max_connection_per_server: 6,
-            split: 7,
-            min_split_size: "5M".to_string(),
+            http_max_connections: 6,
             connect_timeout: 90,
             max_tries: 8,
             download_limit: 1024,
@@ -287,7 +351,9 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
     }
 
     let stop_result = stop_process(&state.aria2_process, &state.core.debug_logs);
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 
     let process_count = std::fs::read_to_string(temp_dir.join("process-count.txt"))
         .expect("process count should be recorded");
@@ -325,8 +391,7 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
         global_options["params"][1]["max-connection-per-server"],
         "6"
     );
-    assert_eq!(global_options["params"][1]["split"], "7");
-    assert_eq!(global_options["params"][1]["min-split-size"], "5M");
+    assert_eq!(global_options["params"][1]["split"], "6");
     assert_eq!(global_options["params"][1]["connect-timeout"], "90");
     assert_eq!(global_options["params"][1]["max-tries"], "8");
 }
@@ -371,6 +436,258 @@ async fn start_failure_keeps_stopped_runtime_state() {
     let _ = std::fs::remove_dir_all(temp_dir);
 }
 
+#[tokio::test]
+async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadline() {
+    use crate::config::aria2::EngineGeneration;
+    use std::os::unix::fs::PermissionsExt;
+    let root = temp_dir("generation-probe");
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("engine");
+    for (header, expected) in [
+        ("aria2 version 2.5.5", Some(EngineGeneration::LegacyV1)),
+        ("aria2 version 2.8.6", Some(EngineGeneration::NativeV2)),
+        ("Aria2 Next version 2.8.6", Some(EngineGeneration::NativeV2)),
+        ("Aria2 Next version 2.8.7", None),
+        ("Aria2 Next version 3.0.8", None),
+        ("aria2 version 99.0.0", None),
+    ] {
+        std::fs::write(&binary, format!("#!/bin/sh\nprintf '{header}\\n'\n")).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let result = inspect_engine_generation(&binary).await;
+        match expected {
+            Some(generation) => assert_eq!(result.unwrap(), generation),
+            None => assert!(result.is_err()),
+        }
+    }
+    std::fs::write(&binary, "#!/bin/sh\nexit 1\n").unwrap();
+    assert!(inspect_engine_generation(&binary).await.is_err());
+    // exec 保持单个子进程，超时后不会遗留 shell 的后代进程。
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nexec python3 -c 'import time; time.sleep(30)'\n",
+    )
+    .unwrap();
+    let started = std::time::Instant::now();
+    assert!(inspect_engine_generation(&binary)
+        .await
+        .unwrap_err()
+        .contains("超时"));
+    assert!(started.elapsed() < Duration::from_secs(4));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restore() {
+    let _process_start_guard = process_start_test_guard().await;
+    use std::os::unix::fs::PermissionsExt;
+    for scenario in ["empty", "unknown", "bt-proxy", "bt-proxy-rejected"] {
+        let unknown_gid = scenario == "unknown";
+        let reject_proxy = scenario == "bt-proxy-rejected";
+        let root = temp_dir(&format!("native-{scenario}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("fake-native");
+        let script = r#"#!/usr/bin/env python3
+import json, pathlib, signal, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+if '--version' in sys.argv:
+    print('aria2 version 2.8.6')
+    sys.exit(0)
+signal.signal(signal.SIGINT, lambda *args: sys.exit(0))
+root = pathlib.Path(__file__).parent
+(root / 'launch-args.json').write_text(json.dumps(sys.argv[1:]))
+with (root / 'starts').open('a') as file: file.write('started\n')
+port = int(next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-listen-port=')))
+secret = next(arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--rpc-secret='))
+bt_proxy = ''
+conf = next((arg.split('=', 1)[1] for arg in sys.argv if arg.startswith('--conf-path=')), None)
+if (root / 'expected-proxy').exists():
+    assert conf is not None and '--no-conf=true' not in sys.argv
+    config = pathlib.Path(conf)
+    assert config.stat().st_mode & 0o777 == 0o600
+    bt_proxy = config.read_text().strip().split('=', 1)[1]
+    assert bt_proxy == (root / 'expected-proxy').read_text()
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        global bt_proxy
+        body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        if not body.get('params') or body['params'][0] != f'token:{secret}':
+            self.send_error(401, 'Unauthorized')
+            return
+        method = body['method']
+        with (root / 'calls').open('a') as file: file.write(method + '\n')
+        if method == 'aria2.getVersion': result = {'version': '2.8.6'}
+        elif method == 'aria2.changeGlobalOption' and 'bt-proxy' in body['params'][-1]:
+            bt_proxy = body['params'][-1]['bt-proxy']
+            result = 'OK'
+        elif method == 'aria2.getGlobalOption':
+            result = {'bt-proxy': '' if (root / 'reject-proxy').exists() else bt_proxy}
+        elif method == 'aria2.tellWaiting' and (root / 'unknown').exists():
+            result = [{'gid': 'untracked-gid', 'status': 'paused', 'totalLength': '0', 'completedLength': '0', 'downloadSpeed': '0'}]
+        elif method.startswith('aria2.tell'): result = []
+        else: result = 'OK'
+        response = json.dumps({'jsonrpc': '2.0', 'id': body['id'], 'result': result}).encode()
+        self.send_response(200)
+        self.send_header('Content-Length', str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+    def log_message(self, *args): pass
+HTTPServer(('127.0.0.1', port), Handler).serve_forever()
+"#;
+        std::fs::write(&binary, script).unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        if unknown_gid {
+            std::fs::write(root.join("unknown"), b"unknown").unwrap();
+        }
+        if reject_proxy {
+            std::fs::write(root.join("reject-proxy"), b"reject").unwrap();
+        }
+        let runtime = ServerRuntimeConfig {
+            database_path: root.join("motrix-fnos.sqlite"),
+            accessible_paths_path: root.join("accessible-paths.json"),
+            app_data_dir: root.clone(),
+            http_addr: DEFAULT_HTTP_ADDR.parse().unwrap(),
+            jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().unwrap(),
+            lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            aria2_path: Some(binary),
+            trusted_proxy_ips: Vec::new(),
+        };
+        let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        let process_guard = NativeStartupProcessGuard(&state);
+        if scenario.starts_with("bt-proxy") {
+            std::fs::write(
+                root.join("expected-proxy"),
+                "socks5://test-user:test-secret@proxy.example:1080",
+            )
+            .unwrap();
+            crate::database::settings::replace_download_proxy_config(
+                &state.core.database.pool,
+                Some("socks5://test-user:test-secret@proxy.example:1080".to_string()),
+                Some(true),
+                crate::database::settings::BtRuntimeApplyStatus::Deferred,
+                1,
+            )
+            .await
+            .unwrap();
+        }
+        for _ in 0..2 {
+            let result = ensure_aria2_ready(&state).await;
+            if unknown_gid || reject_proxy {
+                assert!(result.err().unwrap().contains(if unknown_gid {
+                    "task_resume_state_invalid"
+                } else {
+                    "BT 全局代理"
+                }));
+                assert_eq!(
+                    state.aria2_lifecycle.snapshot().unwrap().phase,
+                    crate::runtime::Aria2LifecyclePhase::Faulted
+                );
+            } else {
+                let ready = result.unwrap();
+                assert_eq!(
+                    ready.engine_generation(),
+                    crate::config::aria2::EngineGeneration::NativeV2
+                );
+                assert_eq!(
+                    ready.session_path.as_deref(),
+                    root.join("engine/native-v2/session/aria2.session").to_str()
+                );
+            }
+        }
+        if unknown_gid {
+            let response = reqwest::Client::new()
+                .post(state.aria2_config().rpc_url())
+                .json(&json!({
+                    "jsonrpc": "2.0", "id": "unrelated-client", "method": "aria2.tellWaiting",
+                    "params": ["token:unrelated-client", 0, 1000],
+                }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+        }
+        let calls = std::fs::read_to_string(root.join("calls")).unwrap();
+        assert!(calls.contains("aria2.forcePauseAll"));
+        assert!(calls.contains("aria2.getGlobalOption"));
+        if scenario.starts_with("bt-proxy") {
+            let proxy =
+                crate::database::settings::get_download_proxy_config(&state.core.database.pool)
+                    .await
+                    .unwrap()
+                    .unwrap();
+            assert_eq!(
+                proxy.bt_runtime_apply,
+                if reject_proxy {
+                    crate::database::settings::BtRuntimeApplyStatus::Blocked
+                } else {
+                    crate::database::settings::BtRuntimeApplyStatus::Applied
+                }
+            );
+        }
+        assert!(!calls.contains("aria2.add"));
+        assert!(!calls.contains("aria2.unpause"));
+        assert_eq!(
+            calls
+                .lines()
+                .filter(|line| *line == "aria2.tellWaiting")
+                .count(),
+            if unknown_gid {
+                2
+            } else {
+                usize::from(!reject_proxy)
+            }
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("starts"))
+                .unwrap()
+                .lines()
+                .count(),
+            if reject_proxy { 2 } else { 1 }
+        );
+        if scenario.starts_with("bt-proxy") {
+            assert_eq!(
+                std::fs::read_dir(root.join("engine/native-v2/startup"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+        if reject_proxy {
+            assert!(!process_status(&state.aria2_process).unwrap().running);
+        }
+        let args: Vec<String> =
+            serde_json::from_slice(&std::fs::read(root.join("launch-args.json")).unwrap()).unwrap();
+        assert!(!args.iter().any(|arg| arg.contains("test-secret")));
+        assert!(args.iter().any(|arg| arg == "--pause=true"));
+        assert!(args.iter().any(|arg| arg
+            == &format!(
+                "--state-dir={}",
+                root.join("engine/native-v2/state").display()
+            )));
+        stop_process(&state.aria2_process, &state.core.debug_logs).unwrap();
+        state.clear_aria2_runtime().unwrap();
+        drop(process_guard);
+        state.core.database.pool.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+struct NativeStartupProcessGuard<'a>(&'a crate::app::HttpAppState);
+
+impl Drop for NativeStartupProcessGuard<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = stop_process(&self.0.aria2_process, &self.0.core.debug_logs) {
+            eprintln!("清理模拟引擎失败：{error}");
+        }
+    }
+}
+
+async fn process_start_test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await
+}
+
 async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {
     Json(json!({
         "jsonrpc": "2.0",
@@ -403,6 +720,7 @@ fn sample_config() -> Aria2Config {
         rpc_port: 6800,
         rpc_secret: "secret".to_string(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }

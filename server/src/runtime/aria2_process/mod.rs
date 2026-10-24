@@ -16,3 +16,4 @@ pub use types::{Aria2ProcessStatus, ManagedAria2Process, ResolvedAria2Binary};
 
 #[cfg(test)]
 mod tests;
+pub(crate) use resolve::inspect_engine_generation;

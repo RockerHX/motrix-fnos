@@ -87,9 +87,10 @@ pub fn store_created_task(
     next_id: &AtomicU64,
     prepared: PreparedDownloadTask,
     gid: String,
+    engine_generation: crate::config::aria2::EngineGeneration,
 ) -> Result<DownloadTask, String> {
     let task_id = next_id.fetch_add(1, Ordering::Relaxed);
-    store_created_task_with_id(tasks, task_id, prepared, gid)
+    store_created_task_with_id(tasks, task_id, prepared, gid, engine_generation)
 }
 
 pub fn store_created_task_with_id(
@@ -97,6 +98,7 @@ pub fn store_created_task_with_id(
     task_id: u64,
     prepared: PreparedDownloadTask,
     gid: String,
+    engine_generation: crate::config::aria2::EngineGeneration,
 ) -> Result<DownloadTask, String> {
     let file_path = if prepared.source_type == DownloadTaskSourceType::Magnet {
         None
@@ -112,6 +114,7 @@ pub fn store_created_task_with_id(
     let now = current_timestamp_ms();
     let task = DownloadTask {
         id: task_id,
+        engine_generation,
         source_type: prepared.source_type,
         file_name: prepared.file_name,
         save_dir: prepared.save_dir.clone(),
@@ -121,6 +124,7 @@ pub fn store_created_task_with_id(
         url: prepared.url,
         gid: Some(gid),
         status,
+        removed_from_status: None,
         total_length: 0,
         completed_length: 0,
         download_speed: 0,
@@ -288,6 +292,7 @@ pub fn mark_task_files_confirmed(
         task.error_code = None;
         task.error_message = None;
         task.metadata_torrent_path = Some(metadata_torrent_path);
+        task.use_proxy = false;
         task.proxy_binding = proxy_binding;
         task.files_deleted = false;
         task.selected_file_indexes = selected_indexes.to_vec();
@@ -324,6 +329,9 @@ pub fn mark_task_removed(
         if delete_files {
             delete_task_file(task)?;
         }
+        if task.status != DownloadTaskStatus::Removed {
+            task.removed_from_status = Some(task.status.clone());
+        }
         task.status = DownloadTaskStatus::Removed;
         task.files_deleted = delete_files;
         task.selected_file_indexes = task
@@ -342,18 +350,24 @@ pub fn mark_task_removed(
 pub fn mark_task_restored(
     tasks: &TaskMemoryState,
     task_id: u64,
-    gid: String,
+    gid: Option<String>,
 ) -> Result<DownloadTask, String> {
     update_task(tasks, task_id, |task| {
         if task.status != DownloadTaskStatus::Removed {
             return Err("只有回收站任务可以恢复".to_string());
         }
-        task.gid = Some(gid);
-        task.status = DownloadTaskStatus::Paused;
+        task.gid = gid;
+        task.status = if !task.files_deleted
+            && task.removed_from_status == Some(DownloadTaskStatus::Complete)
+        {
+            DownloadTaskStatus::Complete
+        } else {
+            DownloadTaskStatus::Paused
+        };
+        task.removed_from_status = None;
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;
-        task.confirmation_required = false;
         if task.files_deleted {
             task.total_length = 0;
             task.completed_length = 0;
@@ -378,6 +392,7 @@ pub fn mark_magnet_task_reparsing(
         }
         task.gid = Some(gid);
         task.save_dir = base_save_dir;
+        task.removed_from_status = None;
         task.owned_task_dir = None;
         task.status = DownloadTaskStatus::Pending;
         task.total_length = 0;
@@ -434,6 +449,9 @@ pub fn mark_task_redownloaded(
         task.status = DownloadTaskStatus::Pending;
         task.total_length = 0;
         task.completed_length = 0;
+        for file in &mut task.files {
+            file.completed_length = 0;
+        }
         task.download_speed = 0;
         task.error_code = None;
         task.error_message = None;

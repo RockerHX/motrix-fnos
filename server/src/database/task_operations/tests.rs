@@ -16,6 +16,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
                 .await
                 .expect("database should connect");
             let context = TaskOperationContext {
+                engine_generation: None,
                 old_gid: Some("old-gid".to_string()),
                 new_gid: None,
                 aria2_request: None,
@@ -44,6 +45,7 @@ fn task_operation_repository_tracks_lifecycle_and_unfinished_records() {
             operation.update_phase(
                 "aria2_created",
                 TaskOperationContext {
+                    engine_generation: None,
                     old_gid: Some("old-gid".to_string()),
                     new_gid: Some("new-gid".to_string()),
                     aria2_request: None,
@@ -86,6 +88,7 @@ fn task_operation_context_serialization_preserves_recovery_fields() {
     task.files_deleted = true;
     task.selected_file_indexes = vec![1, 3, 5];
     let context = TaskOperationContext {
+        engine_generation: None,
         task_snapshot: Some(task.clone()),
         ..TaskOperationContext::default()
     };
@@ -274,6 +277,8 @@ fn task_and_operation_roll_back_together_when_task_history_fails() {
 fn sample_task(id: u64) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: format!("https://example.com/{id}.zip"),
         source_type: DownloadTaskSourceType::Url,
         file_name: format!("{id}.zip"),
@@ -305,4 +310,127 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be valid")
         .as_millis()
+}
+
+#[tokio::test]
+async fn unknown_operation_status_is_an_error_instead_of_zero_operations() {
+    let path = std::env::temp_dir().join(format!("motrix-unknown-operation-{}.sqlite", now_ms()));
+    let database = crate::database::connect_database(path.clone())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO task_operations (id, task_id, operation_type, phase, context_json, status, created_at, updated_at) VALUES ('unknown-op', 1, 'create', 'unknown-phase', '{}', 'unknown-status', 1, 1)")
+        .execute(&database.pool).await.unwrap();
+    assert!(list_unfinished_task_operations(&database.pool)
+        .await
+        .is_err());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_operations")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn native_operation_reader_filters_proven_legacy_before_decoding_and_fails_closed() {
+    use crate::config::aria2::EngineGeneration;
+    use crate::database::tasks::upsert_download_task;
+    let path =
+        std::env::temp_dir().join(format!("motrix-operation-generation-{}.sqlite", now_ms()));
+    let database = connect_database(path.clone()).await.unwrap();
+    let pool = &database.pool;
+    upsert_download_task(pool, &sample_task(1)).await.unwrap();
+    begin_task_operation(
+        pool,
+        &TaskOperation::with_id(
+            "generation-op",
+            1,
+            TaskOperationType::Delete,
+            "file_cleanup_pending",
+            TaskOperationContext::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    sqlx::query("UPDATE task_operations SET context_json = 'broken'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(list_unfinished_task_operations(pool).await.is_err());
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for owner in ["native-v2", "unknown"] {
+        sqlx::query("UPDATE download_tasks SET engine_generation = ?")
+            .bind(owner)
+            .execute(pool)
+            .await
+            .unwrap();
+        assert!(
+            list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+                .await
+                .is_err()
+        );
+    }
+    sqlx::query("DELETE FROM download_tasks")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .is_err()
+    );
+    for (context, accepted) in [
+        (r#"{}"#, true),
+        (r#"{"criticalPaths":"damaged"}"#, false),
+        (r#"{"engineGeneration":"unknown"}"#, false),
+        (
+            r#"{"engineGeneration":"legacy-v1","taskSnapshot":"damaged old snapshot"}"#,
+            true,
+        ),
+        (
+            r#"{"engineGeneration":"legacy-v1","taskSnapshot":{"engineGeneration":"native-v2"}}"#,
+            false,
+        ),
+        (r#"{"engineGeneration":"native-v2"}"#, true),
+    ] {
+        sqlx::query("UPDATE task_operations SET context_json = ?")
+            .bind(context)
+            .execute(pool)
+            .await
+            .unwrap();
+        let result =
+            list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2).await;
+        assert_eq!(result.is_ok(), accepted, "context {context}: {result:?}");
+        if accepted {
+            assert_eq!(
+                result.unwrap().len(),
+                usize::from(context.contains("native-v2"))
+            );
+        }
+    }
+    upsert_download_task(pool, &{
+        let mut task = sample_task(1);
+        task.engine_generation = EngineGeneration::NativeV2;
+        task
+    })
+    .await
+    .unwrap();
+    sqlx::query("UPDATE task_operations SET context_json = ?")
+        .bind(r#"{"engineGeneration":"legacy-v1"}"#)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        list_unfinished_task_operations_for_engine(pool, EngineGeneration::NativeV2)
+            .await
+            .is_err()
+    );
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
 }

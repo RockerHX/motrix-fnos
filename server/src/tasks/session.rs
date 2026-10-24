@@ -18,6 +18,9 @@ use super::{
 use std::collections::BTreeSet;
 use std::path::Path;
 
+mod native;
+pub(crate) use native::reconcile_native_task;
+
 pub(crate) async fn validate_url_task_output_before_resume(
     client: &Aria2RpcClient,
     config: &Aria2Config,
@@ -68,8 +71,11 @@ pub(crate) async fn validate_url_task_output_before_resume(
         Some(serde_json::Value::String(value)) => Some(value.as_str()),
         Some(_) => return Err("恢复任务前无法确认 Aria2 输出文件名".to_string()),
     };
-    validate_url_output_file_name(configured_out)
-        .map_err(|_| "恢复任务前无法确认 Aria2 输出文件名".to_string())?;
+    let configured_out = validated_url_output_name(
+        configured_out,
+        &expected_dir,
+        config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2,
+    )?;
 
     let files = status
         .files
@@ -79,6 +85,14 @@ pub(crate) async fn validate_url_task_output_before_resume(
     for file in files {
         let normalized_path = file.path.replace('\\', "/");
         let path = Path::new(&normalized_path);
+        if path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+            || std::fs::symlink_metadata(path)
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err("恢复任务前无法确认 Aria2 实际输出路径".to_string());
+        }
         let parent = path
             .parent()
             .and_then(Path::to_str)
@@ -101,13 +115,51 @@ pub(crate) async fn validate_url_task_output_before_resume(
     Ok(())
 }
 
+fn validated_url_output_name<'a>(
+    output: Option<&'a str>,
+    expected_dir: &str,
+    native: bool,
+) -> Result<Option<&'a str>, String> {
+    let error = || "恢复任务前无法确认 Aria2 输出文件名".to_string();
+    let Some(output) = output else {
+        return Ok(None);
+    };
+    let path = Path::new(output);
+    let name = if native && path.is_absolute() {
+        if output.contains(['\\', '\0'])
+            || path
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))
+            || path
+                .parent()
+                .and_then(Path::to_str)
+                .map(normalize_path_for_match)
+                .as_deref()
+                != Some(expected_dir)
+        {
+            return Err(error());
+        }
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(error)?
+    } else {
+        output
+    };
+    validate_url_output_file_name(Some(name)).map_err(|_| error())?;
+    Ok(Some(name))
+}
+
 pub async fn sync_session_tasks_from_aria2(
     tasks: &TaskMemoryState,
     client: &Aria2RpcClient,
     config: &Aria2Config,
+    app_data_dir: &Path,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<Vec<DownloadTask>, String> {
     let session_tasks = list_current_aria2_tasks(client, config, debug_logs).await?;
+    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
+        return native::sync_native_session(tasks, &session_tasks, app_data_dir);
+    }
     if session_tasks.is_empty() {
         log_info(debug_logs, "tasks.restore", "Aria2 session 未加载任何任务");
         return crate::tasks::list_tasks(tasks);
@@ -171,6 +223,9 @@ pub async fn reconcile_session_task_proxies(
     let candidates = crate::tasks::list_tasks(tasks)?
         .into_iter()
         .filter(|task| {
+            if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
+                return task.engine_generation == config.engine_generation();
+            }
             !matches!(
                 task.status,
                 DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
@@ -190,7 +245,11 @@ pub async fn reconcile_session_task_proxies(
         match reconcile_task_proxy_option(client, config, &task, None, debug_logs).await {
             Ok(true) => applied += 1,
             Ok(false) => unchanged += 1,
-            Err(error) if crate::tasks::is_stale_aria2_gid_error(&error.to_string()) => {
+            Err(error)
+                if crate::tasks::is_stale_aria2_gid_error(&error.to_string())
+                    && config.engine_generation()
+                        != crate::config::aria2::EngineGeneration::NativeV2 =>
+            {
                 stale += 1;
             }
             Err(error) => {
@@ -220,6 +279,9 @@ pub async fn reconcile_task_proxy_option(
     gid_override: Option<&str>,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<bool, Aria2TaskOptionError> {
+    if task.source_type != DownloadTaskSourceType::Url {
+        return Ok(false);
+    }
     let gid = gid_override
         .or(task.gid.as_deref())
         .filter(|gid| !gid.trim().is_empty())
@@ -323,13 +385,32 @@ async fn tell_many_tasks(
     config: &Aria2Config,
     method: &str,
 ) -> Result<Vec<Aria2TaskStatus>, String> {
-    let request_body = build_tell_many_request(config, method);
-    client
-        .request::<Vec<Aria2TaskStatus>>(config, &request_body)
-        .await
-        .and_then(|response| response.into_optional_result())
-        .map(|tasks| tasks.unwrap_or_default())
-        .map_err(|error| format!("读取 Aria2 session 任务失败：{}", error))
+    let mut request_body = build_tell_many_request(config, method);
+    let mut tasks = Vec::new();
+    let mut seen = BTreeSet::new();
+    loop {
+        let page = client
+            .request::<Vec<Aria2TaskStatus>>(config, &request_body)
+            .await
+            .and_then(|response| response.into_result())
+            .map_err(|error| format!("读取 Aria2 session 任务失败：{error}"))?;
+        for task in &page {
+            if let Some(gid) = &task.gid {
+                if !seen.insert(gid.clone()) {
+                    return Err("Aria2 session 分页返回重复 GID".to_string());
+                }
+            }
+        }
+        let count = page.len();
+        tasks.extend(page);
+        if method == "aria2.tellActive" || count < 1000 {
+            break;
+        }
+        let params = request_body["params"].as_array_mut().unwrap();
+        let offset_index = params.len() - 3;
+        params[offset_index] = serde_json::json!(tasks.len());
+    }
+    Ok(tasks)
 }
 
 pub(crate) fn find_matching_sqlite_task(
@@ -464,6 +545,14 @@ pub(crate) async fn readd_download_task(
     accessible_paths_path: &Path,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<String, String> {
+    if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1
+        || config.engine_generation() != crate::config::aria2::EngineGeneration::LegacyV1
+    {
+        return Err(
+            "task_resume_state_invalid：无法确认原 GID 的恢复状态，已保留文件，拒绝自动重建"
+                .to_string(),
+        );
+    }
     let accessible_paths = validate_readd_task_authorization(task, accessible_paths_path)?;
     log_info(
         debug_logs,
@@ -493,6 +582,7 @@ pub(crate) async fn readd_download_task(
         )
         .map_err(|error| format!("准备任务保存目录失败：{error:?}"))?;
     }
+    let use_proxy = task.source_type == DownloadTaskSourceType::Url && task.use_proxy;
     let prepared = PreparedDownloadTask {
         url: task.url.clone(),
         file_name: task.file_name.clone(),
@@ -504,8 +594,12 @@ pub(crate) async fn readd_download_task(
         start_mode: DownloadTaskStartMode::Now,
         advanced_options: CreateTaskAdvancedOptions::default(),
         aria2_options: serde_json::Map::new(),
-        use_proxy: task.use_proxy,
-        proxy_binding: task.proxy_binding.clone(),
+        use_proxy,
+        proxy_binding: if use_proxy {
+            task.proxy_binding.clone()
+        } else {
+            crate::tasks::TaskProxyBinding::profile(None)
+        },
     };
     match task.source_type {
         DownloadTaskSourceType::Url => {

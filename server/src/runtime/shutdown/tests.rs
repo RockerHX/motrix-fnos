@@ -87,7 +87,22 @@ async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
     state.aria2_process.clear_poison();
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
+    mock.abort();
+}
+
+#[tokio::test]
+async fn shutdown_does_not_report_success_when_session_save_fails() {
+    let mock = MockAria2Server::spawn().await;
+    let state = ready_state(&mock).await;
+    mock.fail_session();
+    state.request_shutdown("测试保存失败");
+    assert!(
+        !run_shutdown_cleanup_until(&state, tokio::time::Instant::now() + Duration::from_secs(2))
+            .await
+    );
     mock.abort();
 }
 
@@ -119,7 +134,9 @@ async fn shutdown_cleanup_stops_at_shared_deadline_when_aria2_rpc_hangs() {
 
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     mock.abort();
 }
 
@@ -172,7 +189,9 @@ async fn manual_stop_preserves_runtime_when_session_save_fails() {
         .is_some());
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     mock.abort();
 }
 
@@ -210,7 +229,9 @@ async fn manual_stop_rejects_bt_seeding_activity() {
         .is_some());
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     mock.abort();
 }
 
@@ -276,7 +297,9 @@ async fn auto_stop_preserves_runtime_when_session_save_fails() {
         .is_some());
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     mock.abort();
 }
 
@@ -338,13 +361,17 @@ async fn auto_stop_preserves_runtime_when_task_state_persist_fails() {
         .is_some());
     crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test cleanup should stop the child process");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     mock.abort();
 }
 
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

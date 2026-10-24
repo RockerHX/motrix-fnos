@@ -52,6 +52,13 @@ pub async fn pause_task_with_request_id(
         debug_logs,
     )
     .await
+    .map_err(|error| {
+        if config.state_dir.is_some() {
+            format!("task_pause_unconfirmed：{error}；未确认引擎停止写入，已保留原任务和文件，请停止并重启应用后核对")
+        } else {
+            error
+        }
+    })
 }
 
 pub async fn unpause_task(
@@ -232,8 +239,28 @@ pub async fn remove_task_with_request_id(
                 debug_logs,
             )
             .await
+            .map(|_| gid.to_string())
         }
     }
+}
+
+pub(crate) async fn remove_task_result(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    request_id: Option<&str>,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<String, String> {
+    send_gid_control_request(
+        client,
+        config,
+        gid,
+        "aria2.removeDownloadResult",
+        request_id.unwrap_or("motrix-fnos-remove-result"),
+        "删除任务结果",
+        debug_logs,
+    )
+    .await
 }
 
 pub(crate) fn is_aria2_outcome_unknown_error(error: &str) -> bool {
@@ -261,9 +288,20 @@ pub(crate) async fn send_gid_control_request(
         .await
         .and_then(|response| response.into_result())
     {
-        Ok(result_gid) if !result_gid.trim().is_empty() => result_gid,
+        Ok(result_gid)
+            if !result_gid.trim().is_empty()
+                && (config.engine_generation()
+                    != crate::config::aria2::EngineGeneration::NativeV2
+                    || result_gid == gid
+                    || (method == "aria2.removeDownloadResult" && result_gid == "OK")) =>
+        {
+            result_gid
+        }
         Ok(_) => {
-            let error = format!("{}失败：响应缺少 GID", action_label);
+            let error = format!(
+                "{}失败：Aria2 RPC 结果未知，响应 GID 不一致或缺失",
+                action_label
+            );
             log_error(debug_logs, module, format!("GID {} {}", gid, error));
             return Err(error);
         }

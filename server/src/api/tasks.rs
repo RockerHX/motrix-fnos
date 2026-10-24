@@ -110,14 +110,44 @@ async fn list_tasks(
         let tasks = service
             .list_removed_download_tasks()
             .map_err(classify_task_error)?;
-        return Ok(Json(tasks.into_iter().map(Into::into).collect()));
+        let operations =
+            crate::database::task_operations::list_unfinished_task_operations_for_engine(
+                &state.core.database.pool,
+                state.aria2_config().engine_generation(),
+            )
+            .await
+            .map_err(classify_task_error)?;
+        return Ok(Json(
+            tasks
+                .into_iter()
+                .map(|task| {
+                    let mut public = state.public_task(task);
+                    if let Some(operation) = operations.iter().find(|operation| {
+                        operation.task_id == public.id && operation.is_file_cleanup_pending()
+                    }) {
+                        public.cleanup_state = if operation.error_message.is_some() {
+                            "failed"
+                        } else {
+                            "pending"
+                        }
+                        .to_string();
+                    }
+                    public
+                })
+                .collect(),
+        ));
     }
 
     // 退出期间只读取最后已知配置，不能为了列表查询重新启动已经进入清理流程的 Aria2。
     let tasks = service
         .list_download_task_snapshot()
         .map_err(classify_task_error)?;
-    Ok(Json(tasks.into_iter().map(Into::into).collect()))
+    Ok(Json(
+        tasks
+            .into_iter()
+            .map(|task| state.public_task(task))
+            .collect(),
+    ))
 }
 
 async fn create_task(
@@ -126,7 +156,11 @@ async fn create_task(
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     validate_create_preconditions(&state, payload.save_dir.as_deref())?;
     build_task_service(&state)
-        .validate_create_task_proxy(&payload.advanced_options, &payload.aria2_options)
+        .validate_create_task_proxy(
+            payload.source_type,
+            &payload.advanced_options,
+            &payload.aria2_options,
+        )
         .await
         .map_err(classify_task_error)?;
     let context =
@@ -168,7 +202,11 @@ async fn create_batch_tasks(
         ));
     }
     if let Err(error) = build_task_service(&state)
-        .validate_create_task_proxy(&payload.advanced_options, &serde_json::Map::new())
+        .validate_create_task_proxy(
+            DownloadTaskSourceType::Url,
+            &payload.advanced_options,
+            &serde_json::Map::new(),
+        )
         .await
     {
         if !is_proxy_request_error(&error) {
@@ -236,7 +274,11 @@ async fn create_torrent_task(
     let upload = parse_torrent_multipart(multipart, &state).await?;
     validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
     build_task_service(&state)
-        .validate_create_task_proxy(&upload.request.advanced_options, &serde_json::Map::new())
+        .validate_create_task_proxy(
+            DownloadTaskSourceType::Torrent,
+            &upload.request.advanced_options,
+            &serde_json::Map::new(),
+        )
         .await
         .map_err(classify_task_error)?;
     let context =
@@ -320,7 +362,11 @@ async fn redownload_task(
     Path(task_id): Path<u64>,
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
+    let request = parse_task_proxy_override_body(&body)?;
+    let (use_proxy, proxy_field_present) = request.map_or((None, false), |request| {
+        (request.use_proxy, request.proxy_field_present)
+    });
+    reject_bt_task_proxy_override(&state, task_id, proxy_field_present)?;
     let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
     let task = context
         .service
@@ -335,11 +381,29 @@ async fn restore_task(
     Path(task_id): Path<u64>,
     body: Bytes,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let use_proxy = parse_task_proxy_override_body(&body)?.and_then(|payload| payload.use_proxy);
-    let context = TaskMutationContext::prepare_for_task(&state, task_id).await?;
+    let request = parse_task_proxy_override_body(&body)?;
+    let (use_proxy, proxy_field_present) = request.map_or((None, false), |request| {
+        (request.use_proxy, request.proxy_field_present)
+    });
+    reject_bt_task_proxy_override(&state, task_id, proxy_field_present)?;
+    let options: TaskRestoreOptions = if body.is_empty() {
+        TaskRestoreOptions::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|error| {
+            ApiError::bad_request("invalid_json", format!("恢复请求无效：{error}"))
+        })?
+    };
+    let context =
+        TaskMutationContext::prepare_for_recycle(&state, task_id, options.restart_from_zero)
+            .await?;
     let task = context
         .service
-        .restore_removed_task(&context.config, task_id, use_proxy)
+        .restore_removed_task(
+            &context.config,
+            task_id,
+            use_proxy,
+            options.restart_from_zero,
+        )
         .await
         .map_err(classify_task_error)?;
     context.finish(task)
@@ -350,11 +414,7 @@ async fn delete_task(
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let context = if query.delete_files.unwrap_or(false) {
-        TaskMutationContext::prepare_for_task(&state, task_id).await?
-    } else {
-        TaskMutationContext::prepare(&state).await?
-    };
+    let context = TaskMutationContext::prepare_for_recycle(&state, task_id, false).await?;
     let task = context
         .service
         .delete_download_task(
@@ -364,8 +424,21 @@ async fn delete_task(
         )
         .await
         .map_err(classify_task_error)?;
-    let response = context.finish(task)?;
+    let mut response = context.finish(task)?;
     if query.delete_files.unwrap_or(false) {
+        let operations =
+            crate::database::task_operations::list_unfinished_task_operations_for_engine(
+                &state.core.database.pool,
+                state.aria2_config().engine_generation(),
+            )
+            .await
+            .map_err(classify_task_error)?;
+        if operations
+            .iter()
+            .any(|operation| operation.task_id == task_id && operation.is_file_cleanup_pending())
+        {
+            response.0.cleanup_state = "pending".to_string();
+        }
         spawn_file_cleanup_worker(Arc::clone(&state)).await;
     }
     Ok(response)
@@ -377,7 +450,37 @@ async fn permanently_delete_task(
 ) -> Result<StatusCode, ApiError> {
     let service = build_task_service(&state);
     service
-        .permanently_delete_removed_task(task_id)
+        .ensure_file_cleanup_not_pending(task_id)
+        .await
+        .map_err(classify_task_error)?;
+    let task = service
+        .get_download_task(task_id)
+        .map_err(classify_task_error)?
+        .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
+    if task.status != crate::tasks::DownloadTaskStatus::Removed {
+        return Err(classify_task_error(
+            "只有已删除任务可以永久删除".to_string(),
+        ));
+    }
+    let has_gid = task
+        .gid
+        .as_deref()
+        .is_some_and(|gid| !gid.trim().is_empty());
+    let ready = if has_gid {
+        Some(
+            crate::runtime::ensure_aria2_ready(&state)
+                .await
+                .map_err(classify_aria2_ready_error)?,
+        )
+    } else {
+        None
+    };
+    let config = ready
+        .as_deref()
+        .cloned()
+        .unwrap_or_else(|| state.aria2_config());
+    service
+        .permanently_delete_removed_task(&config, task_id)
         .await
         .map_err(classify_task_error)?;
     Ok(StatusCode::NO_CONTENT)
@@ -391,6 +494,27 @@ fn validate_create_preconditions(
         .ensure_not_exiting()
         .map_err(classify_task_error)?;
     validate_authorized_save_dir(state, save_dir)
+}
+
+fn reject_bt_task_proxy_override(
+    state: &HttpAppState,
+    task_id: u64,
+    proxy_field_present: bool,
+) -> Result<(), ApiError> {
+    if !proxy_field_present {
+        return Ok(());
+    }
+    let task = build_task_service(state)
+        .get_download_task(task_id)
+        .map_err(classify_task_error)?
+        .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
+    if task.source_type != DownloadTaskSourceType::Url {
+        return Err(ApiError::bad_request(
+            "bt_task_proxy_unsupported",
+            "BT 任务不能提交任务级代理字段，请使用 BT 使用代理总开关",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn validate_authorized_save_dir(
@@ -474,6 +598,41 @@ fn classify_aria2_ready_error(error: String) -> ApiError {
 }
 
 fn classify_task_error(error: String) -> ApiError {
+    if error.contains("task_pause_unconfirmed") {
+        return ApiError::service_unavailable("task_pause_unconfirmed", error);
+    }
+    for code in [
+        "task_connections_invalid",
+        "aria2_option_conflict",
+        "aria2_option_unsupported",
+        "aria2_option_forbidden",
+    ] {
+        if error.starts_with(code) {
+            return ApiError::bad_request(code, error);
+        }
+    }
+    for code in [
+        "task_restart_confirmation_required",
+        "task_resume_state_invalid",
+        "task_metadata_missing",
+        "task_engine_incompatible",
+        "task_already_confirmed",
+    ] {
+        if error.contains(code) {
+            return ApiError::conflict(code, error);
+        }
+    }
+    if error.contains("task_restore_options_invalid") {
+        return ApiError::bad_request("task_restore_options_invalid", error);
+    }
+    if error.contains("请至少选择一个文件") || error.contains("选择的文件索引") {
+        return ApiError::bad_request("task_file_selection_invalid", error);
+    }
+    if error.contains("task_outcome_unknown")
+        || crate::tasks::is_aria2_outcome_unknown_error(&error)
+    {
+        return ApiError::service_unavailable("task_outcome_unknown", error);
+    }
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }
@@ -486,8 +645,14 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("file_cleanup_pending") {
         return ApiError::conflict("file_cleanup_pending", error);
     }
+    if error.contains("task_shared_resource_conflict") {
+        return ApiError::conflict("task_shared_resource_conflict", error);
+    }
     if error.contains("任务保存目录当前未获授权") {
         return ApiError::forbidden("save_dir_not_authorized", error);
+    }
+    if error.contains("BT 任务不支持任务级代理") {
+        return ApiError::bad_request("bt_task_proxy_unsupported", error);
     }
     if error.contains("代理选择冲突") {
         return ApiError::bad_request("proxy_conflict", error);
@@ -506,7 +671,6 @@ fn classify_task_error(error: String) -> ApiError {
     if error.contains("下载任务不存在")
         || error.contains("只有已完成任务可以重新下载")
         || error.contains("请先确认")
-        || error.contains("请至少选择")
         || error.contains("不需要确认")
         || error.contains("URL")
         || error.contains("文件名")
@@ -521,6 +685,12 @@ fn classify_task_error(error: String) -> ApiError {
 }
 
 fn classify_task_proxy_error(error: String) -> ApiError {
+    if error.contains("task_engine_incompatible") {
+        return ApiError::conflict("task_engine_incompatible", error);
+    }
+    if error.contains("BT 任务不支持任务级代理") {
+        return ApiError::bad_request("bt_task_proxy_unsupported", error);
+    }
     if error.contains("应用正在退出") {
         return ApiError::conflict("runtime_exiting", error);
     }

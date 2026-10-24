@@ -3,7 +3,7 @@ use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::settings::proxy::{
-    delete_download_proxy, load_download_proxy_status, update_download_proxy,
+    delete_download_proxy_for_engine, load_download_proxy_status, update_download_proxy,
     DownloadProxyMutationResponse, DownloadProxyServiceContext, DownloadProxyServiceError,
     DownloadProxyStatus,
 };
@@ -73,12 +73,6 @@ struct UpdateLanJsonRpcRequest {
     allow_shared_address_space: Option<bool>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateDownloadProxyRequest {
-    proxy_url: String,
-}
-
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LanJsonRpcMutationResponse {
@@ -110,17 +104,28 @@ async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
 async fn get_download_proxy(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<DownloadProxyStatus>, ApiError> {
-    load_download_proxy_status(&state.core.database.pool)
+    let mut status = load_download_proxy_status(&state.core.database.pool)
         .await
-        .map(Json)
-        .map_err(classify_download_proxy_error)
+        .map_err(classify_download_proxy_error)?;
+    if status.bt_runtime_apply != crate::database::settings::BtRuntimeApplyStatus::Blocked
+        && state
+            .aria2_lifecycle
+            .snapshot()
+            .map(|snapshot| snapshot.phase != crate::runtime::Aria2LifecyclePhase::Ready)
+            .unwrap_or(true)
+    {
+        status.bt_runtime_apply = crate::database::settings::BtRuntimeApplyStatus::Deferred;
+    }
+    Ok(Json(status))
 }
 
 async fn put_download_proxy(
     State(state): State<Arc<HttpAppState>>,
-    ApiJson(payload): ApiJson<UpdateDownloadProxyRequest>,
+    ApiJson(payload): ApiJson<serde_json::Value>,
 ) -> Result<Json<DownloadProxyMutationResponse>, ApiError> {
+    let (proxy_url, bt_use_proxy) = parse_download_proxy_update(payload)?;
     let aria2_config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
+    let task_service = crate::api::build_task_service(&state);
     update_download_proxy(
         DownloadProxyServiceContext {
             pool: &state.core.database.pool,
@@ -130,8 +135,10 @@ async fn put_download_proxy(
             aria2_config,
             debug_logs: &state.core.debug_logs,
             update_lock: &state.download_proxy_update_lock,
+            task_service: Some(&task_service),
         },
-        &payload.proxy_url,
+        proxy_url.as_deref(),
+        bt_use_proxy,
     )
     .await
     .map(Json)
@@ -141,11 +148,12 @@ async fn put_download_proxy(
 async fn clear_download_proxy(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<StatusCode, ApiError> {
-    delete_download_proxy(
+    delete_download_proxy_for_engine(
         &state.core.database.pool,
         &state.core.download_tasks,
         &state.download_proxy_update_lock,
         &state.core.debug_logs,
+        Some(state.aria2_config().engine_generation()),
     )
     .await
     .map(|()| StatusCode::NO_CONTENT)
@@ -154,8 +162,10 @@ async fn clear_download_proxy(
 
 async fn update_settings(
     State(state): State<Arc<HttpAppState>>,
-    ApiJson(payload): ApiJson<AppConfig>,
+    ApiJson(payload): ApiJson<serde_json::Value>,
 ) -> Result<Json<UpdateSettingsResponse>, ApiError> {
+    let payload = crate::settings::service::parse_app_config_request(payload)
+        .map_err(classify_settings_save_error)?;
     let accessible_paths = accessible_paths(&state)?;
     let default_download_dir =
         crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
@@ -315,6 +325,16 @@ fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
 }
 
 fn classify_settings_save_error(error: String) -> ApiError {
+    for code in [
+        "settings_connections_invalid",
+        "settings_option_conflict",
+        "settings_option_unsupported",
+        "settings_save_failed",
+    ] {
+        if error.starts_with(code) {
+            return ApiError::bad_request(code, error);
+        }
+    }
     if error.contains("默认下载目录") {
         return ApiError::bad_request("settings_save_failed", error);
     }
@@ -326,8 +346,24 @@ fn classify_download_proxy_error(error: DownloadProxyServiceError) -> ApiError {
         DownloadProxyServiceError::InvalidUrl(message) => {
             ApiError::bad_request("proxy_invalid_url", message)
         }
-        DownloadProxyServiceError::InUse => {
-            ApiError::conflict("proxy_in_use", "仍有任务使用应用代理配置，不能清除")
+        DownloadProxyServiceError::InUse => ApiError::conflict(
+            "proxy_in_use",
+            "BT 总代理或 HTTP 任务仍引用应用代理地址，不能清除",
+        ),
+        DownloadProxyServiceError::BtProxyNotConfigured => ApiError::bad_request(
+            "bt_proxy_not_configured",
+            "开启 BT 总代理前请先配置代理地址",
+        ),
+        DownloadProxyServiceError::BtProxyProtocolUnsupported => ApiError::bad_request(
+            "bt_proxy_protocol_unsupported",
+            "BT 总代理只支持 HTTP、SOCKS4 或 SOCKS5",
+        ),
+        DownloadProxyServiceError::BtProxyEngineUnsupported => ApiError::conflict(
+            "bt_proxy_engine_unsupported",
+            "BT 总代理需要使用已验证的 NativeV2 引擎",
+        ),
+        DownloadProxyServiceError::State(message) if message.contains("正在切换") => {
+            ApiError::conflict("proxy_runtime_transition", message)
         }
         DownloadProxyServiceError::Load(message) => {
             ApiError::internal("proxy_load_failed", message)
@@ -339,6 +375,48 @@ fn classify_download_proxy_error(error: DownloadProxyServiceError) -> ApiError {
             ApiError::internal("proxy_save_failed", message)
         }
     }
+}
+
+fn parse_download_proxy_update(
+    payload: serde_json::Value,
+) -> Result<(Option<String>, Option<bool>), ApiError> {
+    let Some(object) = payload.as_object() else {
+        return Err(ApiError::bad_request(
+            "proxy_update_invalid",
+            "代理设置请求必须是 JSON 对象",
+        ));
+    };
+    let has_proxy_url = object.contains_key("proxyUrl");
+    let has_bt_use_proxy = object.contains_key("btUseProxy");
+    if !has_proxy_url && !has_bt_use_proxy {
+        return Err(ApiError::bad_request(
+            "proxy_update_invalid",
+            "请至少提交 proxyUrl 或 btUseProxy",
+        ));
+    }
+    let proxy_url = if let Some(value) = object.get("proxyUrl") {
+        let Some(value) = value.as_str() else {
+            return Err(ApiError::bad_request(
+                "proxy_invalid_url",
+                "proxyUrl 必须是字符串；清除地址请使用 DELETE",
+            ));
+        };
+        Some(value.to_string())
+    } else {
+        None
+    };
+    let bt_use_proxy = if let Some(value) = object.get("btUseProxy") {
+        let Some(value) = value.as_bool() else {
+            return Err(ApiError::bad_request(
+                "bt_proxy_setting_invalid",
+                "btUseProxy 必须是布尔值",
+            ));
+        };
+        Some(value)
+    } else {
+        None
+    };
+    Ok((proxy_url, bt_use_proxy))
 }
 
 async fn apply_runtime_download_config(
@@ -375,9 +453,7 @@ async fn apply_runtime_download_config(
         config.max_concurrent_downloads,
         config.download_limit,
         config.upload_limit,
-        config.max_connection_per_server,
-        config.split,
-        &config.min_split_size,
+        config.http_max_connections,
         config.connect_timeout,
         config.max_tries,
     );

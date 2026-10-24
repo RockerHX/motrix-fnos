@@ -4,6 +4,35 @@ use std::env;
 pub const ARIA2_PATH_ENV: &str = "MOTRIX_FNOS_ARIA2_PATH";
 pub const ARIA2_SIDECAR_NAME: &str = "aria2-next";
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EngineGeneration {
+    #[serde(rename = "legacy-v1")]
+    LegacyV1,
+    #[serde(rename = "native-v2")]
+    NativeV2,
+    #[default]
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+impl EngineGeneration {
+    pub fn as_storage_value(self) -> &'static str {
+        match self {
+            Self::LegacyV1 => "legacy-v1",
+            Self::NativeV2 => "native-v2",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_storage_value(value: &str) -> Self {
+        match value {
+            "legacy-v1" => Self::LegacyV1,
+            "native-v2" => Self::NativeV2,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Aria2BinarySource {
@@ -22,6 +51,7 @@ pub struct Aria2Config {
     pub rpc_port: u16,
     pub rpc_secret: String,
     pub session_path: Option<String>,
+    pub state_dir: Option<String>,
     pub log_path: Option<String>,
 }
 
@@ -44,12 +74,21 @@ impl Aria2Config {
             rpc_port: 6800,
             rpc_secret: String::new(),
             session_path: None,
+            state_dir: None,
             log_path: None,
         }
     }
 
     pub fn rpc_url(&self) -> String {
         format!("http://{}:{}/jsonrpc", self.rpc_host, self.rpc_port)
+    }
+
+    pub fn engine_generation(&self) -> EngineGeneration {
+        if self.state_dir.is_some() {
+            EngineGeneration::NativeV2
+        } else {
+            EngineGeneration::LegacyV1
+        }
     }
 }
 

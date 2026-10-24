@@ -13,6 +13,7 @@ pub async fn refresh_tasks_from_aria2(
     let candidates: Vec<DownloadTask> = snapshot
         .iter()
         .filter(|task| should_refresh_task(task))
+        .filter(|task| task.engine_generation == config.engine_generation())
         .filter(|task| {
             task.gid
                 .as_deref()
@@ -36,9 +37,18 @@ pub async fn refresh_tasks_from_aria2(
         // session 恢复后旧 GID 可能已经失效：普通任务可按原配置重建，等待 metadata 的磁链任务则必须保留确认流程并报告错误。
         match tell_status(client, config, &gid, debug_logs).await {
             Ok(status) if is_stale_aria2_gid_status(&status) => {
-                if is_pending_magnet_metadata_task(&candidate) {
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
                     updates.push(TaskRefreshUpdate::Status {
-                        gid,
+                        gid: gid.clone(),
+                        status: task_status_error(
+                            "task_resume_state_invalid：原生任务 GID 已丢失，未自动重建"
+                                .to_string(),
+                        ),
+                    });
+                    continue;
+                } else if is_pending_magnet_metadata_task(&candidate) {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid: gid.clone(),
                         status: stale_magnet_metadata_status(app_data_dir, &candidate),
                     });
                     continue;
@@ -64,27 +74,40 @@ pub async fn refresh_tasks_from_aria2(
                 }
             }
             Ok(status) => {
-                match resolve_followed_metadata(
-                    client, config, &candidate, &gid, &status, debug_logs,
-                )
-                .await
-                {
-                    Some(Ok((followed_status, metadata_torrent_path))) => {
-                        updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
-                            old_gid: gid,
-                            status: followed_status,
-                            metadata_torrent_path,
-                        });
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
+                    updates.push(TaskRefreshUpdate::Status { gid, status });
+                } else {
+                    match resolve_followed_metadata(
+                        client, config, &candidate, &gid, &status, debug_logs,
+                    )
+                    .await
+                    {
+                        Some(Ok((followed_status, metadata_torrent_path))) => {
+                            updates.push(TaskRefreshUpdate::MagnetMetadataResolved {
+                                old_gid: gid,
+                                status: followed_status,
+                                metadata_torrent_path,
+                            });
+                        }
+                        Some(Err(error)) => updates.push(TaskRefreshUpdate::Status {
+                            gid,
+                            status: task_status_error(error),
+                        }),
+                        None => updates.push(TaskRefreshUpdate::Status { gid, status }),
                     }
-                    Some(Err(error)) => updates.push(TaskRefreshUpdate::Status {
-                        gid,
-                        status: task_status_error(error),
-                    }),
-                    None => updates.push(TaskRefreshUpdate::Status { gid, status }),
                 }
             }
             Err(error) if is_stale_aria2_gid_error(&error) => {
-                if is_pending_magnet_metadata_task(&candidate) {
+                if candidate.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
+                    updates.push(TaskRefreshUpdate::Status {
+                        gid: gid.clone(),
+                        status: task_status_error(
+                            "task_resume_state_invalid：原生任务 GID 已丢失，未自动重建"
+                                .to_string(),
+                        ),
+                    });
+                    continue;
+                } else if is_pending_magnet_metadata_task(&candidate) {
                     updates.push(TaskRefreshUpdate::Status {
                         gid,
                         status: stale_magnet_metadata_status(app_data_dir, &candidate),
@@ -123,10 +146,9 @@ pub async fn refresh_tasks_from_aria2(
         for update in &updates {
             match update {
                 TaskRefreshUpdate::Status { gid, status } => {
-                    for task in tasks
-                        .iter_mut()
-                        .filter(|task| task.gid.as_ref() == Some(gid))
-                    {
+                    for task in tasks.iter_mut().filter(|task| {
+                        task.gid.as_ref() == Some(gid) && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_aria2_status(task, status);
                     }
                 }
@@ -135,10 +157,11 @@ pub async fn refresh_tasks_from_aria2(
                     old_gid,
                     new_gid,
                 } => {
-                    if let Some(task) = tasks
-                        .iter_mut()
-                        .find(|task| task.id == *task_id && task.gid.as_ref() == Some(old_gid))
-                    {
+                    if let Some(task) = tasks.iter_mut().find(|task| {
+                        task.id == *task_id
+                            && task.gid.as_ref() == Some(old_gid)
+                            && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_readded_gid(task, new_gid);
                     }
                 }
@@ -147,10 +170,10 @@ pub async fn refresh_tasks_from_aria2(
                     status,
                     metadata_torrent_path,
                 } => {
-                    if let Some(task) = tasks
-                        .iter_mut()
-                        .find(|task| task.gid.as_ref() == Some(old_gid))
-                    {
+                    if let Some(task) = tasks.iter_mut().find(|task| {
+                        task.gid.as_ref() == Some(old_gid)
+                            && task.status != DownloadTaskStatus::Removed
+                    }) {
                         apply_magnet_metadata_confirmation(
                             task,
                             status,
@@ -185,8 +208,20 @@ pub async fn sync_task_progress_after_pause_by_gid(
     gid: &str,
     debug_logs: Option<&DebugLogStore>,
 ) -> Result<DownloadTask, String> {
-    const MAX_ATTEMPTS: usize = 61;
+    let status = read_task_status_after_pause(client, config, gid, debug_logs).await?;
+    apply_aria2_status_by_gid(tasks, gid, &status)
+}
+
+pub(crate) async fn read_task_status_after_pause(
+    client: &Aria2RpcClient,
+    config: &Aria2Config,
+    gid: &str,
+    debug_logs: Option<&DebugLogStore>,
+) -> Result<Aria2TaskStatus, String> {
+    const MAX_ATTEMPTS: usize = 21;
     const RETRY_INTERVAL_MS: u64 = 500;
+    // 留出管理入口 30 秒总预算中的操作持久化时间，RPC 等待也计入确认期限。
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
 
     let mut previous_completed = None;
     let mut latest_status = None;
@@ -194,7 +229,19 @@ pub async fn sync_task_progress_after_pause_by_gid(
 
     // Aria2 接受 pause 后仍可能短暂写入缓存；需要状态已暂停且连续两次进度不变，才能把最终进度持久化。
     for attempt in 0..MAX_ATTEMPTS {
-        let status = tell_status(client, config, gid, debug_logs).await?;
+        let status =
+            match tokio::time::timeout_at(deadline, tell_status(client, config, gid, debug_logs))
+                .await
+            {
+                Ok(result) => result.map_err(|error| {
+                    if config.state_dir.is_some() {
+                        format!("task_pause_unconfirmed：无法确认暂停状态：{error}；已保留原任务和文件，请停止并重启应用后核对")
+                    } else {
+                        error
+                    }
+                })?,
+                Err(_) => break,
+            };
         let completed = parse_aria2_u64(&status.completed_length);
         let is_settled = pause_status_is_settled(&status, previous_completed);
         previous_completed = Some(completed);
@@ -210,13 +257,18 @@ pub async fn sync_task_progress_after_pause_by_gid(
         }
     }
 
-    let status =
-        latest_status.ok_or_else(|| "暂停后同步 Aria2 任务状态失败：未获取到状态".to_string())?;
+    let status = latest_status.ok_or_else(|| {
+        "task_pause_unconfirmed：暂停确认超时，未获取到状态；已保留原任务和文件，请停止并重启应用后核对"
+            .to_string()
+    })?;
+    if status.gid.as_deref() != Some(gid) && config.state_dir.is_some() {
+        return Err("task_resume_state_invalid：暂停状态的 GID 不一致".to_string());
+    }
     if let Err(error) = ensure_pause_status_settled(gid, &status, settled) {
         log_info(debug_logs, "tasks.control", &error);
         return Err(error);
     }
-    apply_aria2_status_by_gid(tasks, gid, &status)
+    Ok(status)
 }
 
 pub(super) fn ensure_pause_status_settled(
@@ -229,7 +281,7 @@ pub(super) fn ensure_pause_status_settled(
     }
 
     Err(format!(
-        "暂停后 Aria2 状态在等待期限内仍未稳定，GID {}，当前状态 {}",
+        "task_pause_unconfirmed：暂停后 Aria2 状态在等待期限内仍未稳定，GID {}，当前状态 {}；已保留原任务和文件，请停止并重启应用后核对",
         gid, status.status
     ))
 }
@@ -290,7 +342,9 @@ pub fn is_stale_aria2_gid_error(message: &str) -> bool {
 }
 
 pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) -> bool {
-    if is_pending_magnet_metadata_task(task) {
+    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+        || is_pending_magnet_metadata_task(task)
+    {
         return false;
     }
     let normalized = message.to_ascii_lowercase();

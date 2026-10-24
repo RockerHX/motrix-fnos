@@ -78,6 +78,11 @@ const storageItems = computed<AppMetricItem[]>(() => {
       value: formatBytes(snapshot.magnetMetadata.totalBytes),
       detail: t("diagnostics.storage.files", { count: snapshot.magnetMetadata.fileCount }),
     },
+    {
+      label: t("diagnostics.storage.nativeState"),
+      value: formatBytes(snapshot.nativeState.totalBytes),
+      detail: t("diagnostics.storage.files", { count: snapshot.nativeState.fileCount }),
+    },
   ];
 });
 

@@ -48,7 +48,7 @@
     "@trimjs/web-app": "0.4.2",
     "naive-ui": "^2.44.1",
     "pinia": "^3.0.4",
-    "vue": "^3.5.41"
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

@@ -33,6 +33,25 @@ test('高危漏洞阻断审计', () => {
   assert.equal(result.findings.length, 2);
 });
 
+test('pnpm 漏洞报告保留公告 ID 和包名', () => {
+  const findings = parsePnpmAuditReport({
+    advisories: {
+      1241209: {
+        github_advisory_id: 'GHSA-68fv-2mgg-jv7q',
+        module_name: 'source-map-js',
+        severity: 'high',
+      },
+    },
+  });
+
+  assert.deepEqual(findings, [{
+    tool: 'pnpm',
+    severity: 'high',
+    id: 'GHSA-68fv-2mgg-jv7q',
+    package: 'source-map-js',
+  }]);
+});
+
 test('审计工具不可用时失败', () => {
   const result = evaluateAuditReports([{ tool: 'cargo-audit', status: 'unavailable', message: 'command not found' }]);
 

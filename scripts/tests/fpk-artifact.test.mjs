@@ -65,6 +65,9 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
     'cmd/start',
     'cmd/stop',
     'cmd/status',
+    'cmd/upgrade_init',
+    'cmd/upgrade_callback',
+    'wizard/upgrade',
   ]) {
     assertRegularFile(packageRoot, relativePath);
   }
@@ -104,6 +107,17 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   assertExecutable(aria2Binary);
   assert.match(execFileSync('file', [serverBinary], { encoding: 'utf8' }), machine);
   assert.match(execFileSync('file', [aria2Binary], { encoding: 'utf8' }), machine);
+  assert.equal(existsSync(path.join(appRoot, 'bin/engine-generation')), false);
+
+  const upgradeInit = readFileSync(path.join(packageRoot, 'cmd/upgrade_init'), 'utf8');
+  const upgradeCallback = readFileSync(path.join(packageRoot, 'cmd/upgrade_callback'), 'utf8');
+  for (const script of [upgradeInit, upgradeCallback]) {
+    assert.match(script, /ensure_uninstall_processes_stopped/);
+    assert.doesNotMatch(script, /upgrade-checker|engine-upgrade-/);
+  }
+  assert.equal(existsSync(path.join(packageRoot, 'cmd/upgrade-checker')), false);
+  const wizard = JSON.parse(readFileSync(path.join(packageRoot, 'wizard/upgrade'), 'utf8'));
+  assert.match(JSON.stringify(wizard), /不导入或继续 1.x 的任务/);
 
   const uiConfig = JSON.parse(readFileSync(path.join(appRoot, 'ui/config'), 'utf8'));
   assert.equal(uiConfig['.url']?.['motrix.Application']?.port, '17080');

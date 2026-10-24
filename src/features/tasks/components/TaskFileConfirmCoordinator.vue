@@ -17,6 +17,7 @@ const confirmationTask = computed(
   () =>
     tasks.value.find(
       (task) =>
+        !taskStore.isDownloadBlocked && !task.readOnly &&
         task.confirmationRequired &&
         task.files.length > 0 &&
         !dismissedTaskIds.value.includes(task.id),

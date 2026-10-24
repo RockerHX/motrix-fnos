@@ -60,6 +60,12 @@ fn restore_and_redownload_proxy_override_body_is_optional() {
             .use_proxy,
         Some(true)
     );
+    assert!(
+        parse_task_proxy_override_body(br#"{"useProxy":null}"#)
+            .expect("explicit null should parse")
+            .expect("JSON body should be present")
+            .proxy_field_present
+    );
     assert_eq!(
         parse_task_proxy_override_body(b"not-json")
             .expect_err("invalid JSON should be rejected")
@@ -246,7 +252,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
         StatusCode::BAD_REQUEST,
     )
     .await;
-    assert_eq!(error.code, "task_operation_failed");
+    assert_eq!(error.code, "task_file_selection_invalid");
     assert!(error.message.contains("至少选择一个文件"));
 
     let confirmed = response_json::<DownloadTask>(
@@ -458,7 +464,9 @@ async fn update_proxy_route_persists_without_starting_aria2() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -509,7 +517,9 @@ async fn update_proxy_route_applies_active_task_and_maps_rpc_failure() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -563,7 +573,9 @@ async fn update_proxy_route_rejects_runtime_transition() {
         .expect("task state should update");
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -685,7 +697,9 @@ async fn create_batch_route_returns_created_and_failed_items() {
     write_accessible_paths(&state, std::slice::from_ref(&save_dir));
     crate::database::settings::replace_download_proxy_config(
         &state.core.database.pool,
-        "http://127.0.0.1:7890/".to_string(),
+        Some("http://127.0.0.1:7890/".to_string()),
+        None,
+        crate::database::settings::BtRuntimeApplyStatus::Deferred,
         1,
     )
     .await
@@ -1137,7 +1151,7 @@ async fn list_tasks_hides_internal_recovery_fields() {
 
     assert!(task.get("proxyBinding").is_none());
     assert!(task.get("metadataTorrentPath").is_none());
-    assert!(task.get("filesDeleted").is_none());
+    assert_eq!(task["filesDeleted"], true);
     assert!(task.get("selectedFileIndexes").is_none());
 }
 
@@ -1491,7 +1505,9 @@ async fn test_state() -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -1538,7 +1554,9 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
     let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 }
 
 async fn response_json<T: DeserializeOwned>(response: Response, expected_status: StatusCode) -> T {
@@ -1616,6 +1634,8 @@ fn multipart_torrent_request(
 fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: format!("https://example.com/archive-{id}.zip"),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: format!("archive-{id}.zip"),
@@ -1746,6 +1766,7 @@ async fn mock_aria2_rpc(
                 "version": "1.37.0"
             }
         }),
+        "aria2.saveSession" => json!({ "result": "OK" }),
         "aria2.addUri" => {
             let options_index = if first_param_is_token(&params) { 2 } else { 1 };
             let options = params

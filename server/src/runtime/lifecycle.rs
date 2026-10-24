@@ -19,14 +19,17 @@ pub struct Aria2ActivitySnapshot {
     pub has_active_task: bool,
     pub has_metadata_activity: bool,
     pub has_bt_upload: bool,
+    pub has_verification_activity: bool,
     pub has_inflight_operation: bool,
     pub has_queued_request: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Aria2ActivitySignals {
+    pub has_engine_activity: bool,
     pub has_metadata_activity: bool,
     pub has_bt_upload: bool,
+    pub has_verification_activity: bool,
     pub has_inflight_operation: bool,
     pub has_queued_request: bool,
 }
@@ -36,14 +39,17 @@ impl Aria2ActivitySnapshot {
         self.has_active_task
             || self.has_metadata_activity
             || self.has_bt_upload
+            || self.has_verification_activity
             || self.has_inflight_operation
             || self.has_queued_request
     }
 
     pub fn from_tasks(tasks: &[DownloadTask], signals: Aria2ActivitySignals) -> Self {
         let mut activity = Self {
+            has_active_task: signals.has_engine_activity,
             has_metadata_activity: signals.has_metadata_activity,
             has_bt_upload: signals.has_bt_upload,
+            has_verification_activity: signals.has_verification_activity,
             has_inflight_operation: signals.has_inflight_operation,
             has_queued_request: signals.has_queued_request,
             ..Self::default()
@@ -63,7 +69,7 @@ impl Aria2ActivitySnapshot {
                 DownloadTaskStatus::Pending | DownloadTaskStatus::Active
             );
 
-            if is_active_status && has_gid {
+            if is_active_status && has_gid && !task.confirmation_required {
                 activity.has_active_task = true;
             }
 

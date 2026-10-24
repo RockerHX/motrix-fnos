@@ -81,6 +81,8 @@ describe("useTaskCreateForm", () => {
       configured: true,
       maskedProxyUrl: "http://127.0.0.1:7890",
       revision: 1,
+      btUseProxy: false,
+      btRuntimeApply: "deferred",
     });
   });
 
@@ -334,7 +336,6 @@ describe("useTaskCreateForm", () => {
         advancedOptions: {
           connections: null,
           downloadLimitKb: 0,
-          useProxy: true,
         },
       }),
     );
@@ -378,7 +379,6 @@ describe("useTaskCreateForm", () => {
       advancedOptions: {
         connections: null,
         downloadLimitKb: 0,
-        useProxy: true,
       },
     });
     expect(onClose).toHaveBeenCalledTimes(1);

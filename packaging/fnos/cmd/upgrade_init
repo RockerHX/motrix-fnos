@@ -1,5 +1,8 @@
 #!/bin/sh
 set -eu
 
-# 因 fnpack 1.2.1 会校验该文件存在而保留；当前无额外升级前置逻辑。
-exit 0
+. "$(dirname -- "$0")/common.sh"
+prepare_runtime_dirs
+if ! ensure_uninstall_processes_stopped; then
+  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。"
+fi

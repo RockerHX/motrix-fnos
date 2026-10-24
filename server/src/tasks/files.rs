@@ -413,22 +413,22 @@ pub(crate) fn save_restore_torrent_metadata(
     if torrent_data.is_empty() {
         return Err("种子 metadata 不能为空".to_string());
     }
-    let metadata_dir = restore_metadata_dir(app_data_dir, task_id);
-    fs::create_dir_all(&metadata_dir).map_err(|error| {
-        format!(
-            "创建任务恢复 metadata 目录失败：{}（{}）",
-            metadata_dir.display(),
-            error
-        )
-    })?;
+    let metadata_dir = crate::state::ensure_private_directory(
+        app_data_dir,
+        Path::new(&format!("task-metadata/task-{task_id}")),
+    )?;
     let path = metadata_dir.join(RESTORE_TORRENT_FILE);
-    fs::write(&path, torrent_data).map_err(|error| {
-        format!(
-            "保存任务恢复 metadata 失败：{}（{}）",
-            path.display(),
-            error
-        )
-    })?;
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .map_err(|error| format!("创建任务私有种子失败，保留现有内容：{error}"))?;
+    file.write_all(torrent_data)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("保存任务私有种子失败：{error}"))?;
     Ok(path)
 }
 

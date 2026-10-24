@@ -42,6 +42,12 @@ pub(super) async fn add_uri(
     params: &Value,
 ) -> Result<String, RpcFault> {
     ensure_add_uri_token(state, access, params).await?;
+    state
+        .ensure_download_available()
+        .map_err(|message| RpcFault {
+            code: -32005,
+            message,
+        })?;
     let command = parse_add_uri_command(params)?;
     let save_dir = match command.save_dir {
         Some(save_dir) => save_dir,
@@ -106,8 +112,30 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         .ok_or_else(|| RpcFault::invalid_params("aria2.addUri requires URI list"))?;
     let url = first_uri(uris)?;
     let options = params.get(1).and_then(Value::as_object);
+    let source_type = detect_source_type(&url);
+    if let Some(options) = options {
+        let has_forbidden_bt_proxy = options.keys().any(|key| {
+            is_bt_proxy_option(key)
+                || (source_type != DownloadTaskSourceType::Url && is_task_proxy_option(key))
+        }) || (source_type != DownloadTaskSourceType::Url
+            && options
+                .get("advancedOptions")
+                .and_then(Value::as_object)
+                .is_some_and(|advanced| {
+                    advanced.contains_key("useProxy") || advanced.contains_key("proxy")
+                }));
+        if has_forbidden_bt_proxy {
+            return Err(RpcFault::invalid_params(
+                "BT 任务不支持任务级代理，请在设置页使用 BT 使用代理总开关",
+            ));
+        }
+    }
 
-    let mut aria2_options = options.map(sanitize_aria2_options).unwrap_or_default();
+    let mut aria2_options = options
+        .map(sanitize_aria2_options)
+        .transpose()
+        .map_err(RpcFault::invalid_params)?
+        .unwrap_or_default();
     match aria2_options.get("all-proxy") {
         Some(Value::String(proxy_url)) => {
             let normalized =
@@ -126,7 +154,6 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         None => {}
     }
 
-    let source_type = detect_source_type(&url);
     let file_name = options.and_then(|options| string_option(options.get("out")));
     if source_type == DownloadTaskSourceType::Url {
         validate_url_output_file_name(file_name.as_deref()).map_err(RpcFault::invalid_params)?;
@@ -139,6 +166,30 @@ pub(super) fn parse_add_uri_command(params: &Value) -> Result<AddUriCommand, Rpc
         file_name,
         aria2_options,
     })
+}
+
+fn is_task_proxy_option(key: &str) -> bool {
+    [
+        "all-proxy",
+        "http-proxy",
+        "https-proxy",
+        "ftp-proxy",
+        "bt-proxy",
+    ]
+    .iter()
+    .any(|option| {
+        key == *option
+            || key
+                .strip_suffix("-user")
+                .is_some_and(|base| base == *option)
+            || key
+                .strip_suffix("-passwd")
+                .is_some_and(|base| base == *option)
+    })
+}
+
+fn is_bt_proxy_option(key: &str) -> bool {
+    matches!(key, "bt-proxy" | "bt-proxy-user" | "bt-proxy-passwd")
 }
 
 fn detect_source_type(url: &str) -> DownloadTaskSourceType {

@@ -1,6 +1,6 @@
 # FPK 打包说明
 
-完整测试阶段和自动化/人工边界见[交互式测试流程 H5](testing-flow.html)。
+测试覆盖和自动化/人工边界见[测试评估](testing-evaluation.md)。
 
 ## 作用
 
@@ -21,8 +21,10 @@ desktop_applaunchname =
 `app/ui/config` 中必须只有一个同名入口：
 
 ```json
-".url": {
-  "motrix.Application": { "type": "iframe", "port": "17080" }
+{
+  ".url": {
+    "motrix.Application": { "type": "iframe", "port": "17080" }
+  }
 }
 ```
 
@@ -35,7 +37,7 @@ desktop_applaunchname =
 
 这组配置已在 fnOS 实机验证，访问地址为 `https://motrix.<account>.fnos.net/`。旧的 `motrix.fnos` 身份和 `motrix.fnos.main` 入口会生成带后缀的域名，不能只改其中一个字段。构建脚本和静态测试会阻止身份字段再次分离。
 
-正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。ARM 包的 `os_min_version` 下调为 `1.2.0302`，以兼容尚未升级到 `1.2.0401` 的 ARM 设备；x86 包仍要求 `1.2.0401`。安装器会拒绝低于对应最低版本的 fnOS。`1.2.0302` 对开放 API、飞牛 App WebView 和 IPv6 管理入口的实际支持仍需在目标设备上验收，正式包只在实机确认后承诺对应能力。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
+正式包同时声明 `micro_app=true`，并在 `config/resource` 中精确申请 `trim.file.sharedAccess` 与 `trim.file.path`。ARM 和 x86 包的 `os_min_version` 均为 `1.2.0401`，与 `scripts/build/build-fpk.mjs`、manifest 模板、产物测试及已有双架构候选包一致。安装器会拒绝低于该最低版本的 fnOS；不承诺支持 `1.2.0302`。开放 API、飞牛 App WebView 和 IPv6 管理入口仍需在目标设备上验收。独立浏览器或 SDK 不可用时，页面提示用户改用 fnOS 宿主。
 
 构建和解包校验必须拒绝额外 Scope，并扫描 Web UI 产物，确保不包含 `TRIM_API_TOKEN`、官方 Socket 路径或 Authorization Header 拼装代码。
 
@@ -183,7 +185,7 @@ rtk pnpm run build:fpk:arm64
 rtk pnpm run assets:aria2:fetch
 ```
 
-该命令只用于维护 `assets/aria2/` 中固定版本的双架构 sidecar，会从对应 GitHub Release 下载 checksum，校验现有或新下载的二进制并设置可执行权限。它不是日常构建步骤；升级版本时还需审查脚本中的版本号、checksum 文件和两个二进制的变更。
+当前固定为 Aria2 Next **2.8.6**；版本、固定校验和及依赖基线分别见 `scripts/build/fetch-aria2-next.mjs`、`assets/aria2/aria2-next-2.8.6-checksums.sha256` 和 `assets/aria2/aria2-next-2.8.6-dependencies.env`。该命令只用于维护双架构 sidecar，会从对应 GitHub Release 下载 checksum，校验现有或新下载的二进制并设置可执行权限。它不是日常构建步骤；升级版本时还需审查脚本中的版本号、checksum 文件和两个二进制的变更。
 
 清理本地构建输出和 staged 产物：
 
@@ -327,6 +329,8 @@ rtk packaging/fnos/cmd/stop
 
 `/api/app/ready` 表示 Rust 管理与 JSON-RPC listener 已绑定、启动门禁已完成且服务未进入退出状态。SQLite 初始化仍由启动门禁保证，但每次 ready 请求不再执行实时数据库查询。
 
+IPv6 管理监听器在绑定前启用 `SO_REUSEADDR`，允许旧连接处于 `TIME_WAIT` 时立即重新监听；仍在运行的监听器占用同一端口时继续拒绝启动。查证依据：2026-10-23 ARM fnOS 日志中，server 于 15:20:30 停止且 Aria2 未运行，随后两次启用均因 `[::]:17080` 返回 `Address already in use` 失败，15:22:30 再次启用成功；本地真实 IPv6 连接回归已复现未设置地址复用时关闭后无法立即重绑的行为。修复后的 fnOS 快速启停效果仍须按下表验收。
+
 常看位置：
 
 - Rust 业务日志：`packaging/fnos/app/data/logs/server.log`，单文件上限 10 MiB，保留当前文件和最多 3 个轮转文件（`.1`～`.3`）。
@@ -338,15 +342,19 @@ rtk packaging/fnos/cmd/stop
 
 启动门禁在完成现有孤儿进程对账后、任何 Aria2 可能启动前维护旧原生日志。只有能够确认 sidecar 未运行、生命周期已停止且内存/磁盘运行态均不存在时，才把超过 10 MiB 的旧 `aria2.log` 原子收敛为最后 10 MiB，并在新旧命名中总计只保留两份历史日志。门禁无法证明安全时只记录警告并跳过，不会为了清理日志停止或唤醒 Aria2。
 
+server 在统一启动入口为 Aria2 子进程设置 `LANG=C.UTF-8`，覆盖缺失或非 UTF-8 的继承值，不修改 NAS 全局环境。依据：Aria2 Next 2.8.6 使用的 [libtorrent 2.1.1 路径转换实现](https://github.com/arvidn/libtorrent/blob/v2.1.1/src/escape_string.cpp#L531)仅凭 `LANG` 的 `.UTF-8` 后缀决定是否保留 UTF-8；ARM fnOS 排查已确认缺失该变量时出现中文目录转成点号、实际文件落在任务专属目录之外，删除文件后仍有残留。回归测试隔离验证未设置 `LANG`、`C` 和 `en_US.utf8` 三种启动环境下子进程均收到 `C.UTF-8`；macOS 测试不能代替下表的 Linux/fnOS 中文路径验收。
+
+已有点号目录不自动改名、接管或删除。修复后验收应使用全新任务目录；处理旧异常任务前先确认引擎停止写入，再核对文件归属。不能通过名称替换猜测目录归属，不同中文名称可能转换成相同点号名称。
+
 ## 最小排障
 
 - 安装失败：先检查包架构是否与设备一致
 - 启动失败：先看 `lifecycle.log`，再看 `server.log`；两者都只保留有限数量的历史文件。
 - Web UI 打不开：先看 `cmd/status` 和浏览器请求地址。桌面入口应打开 `http://<设备>:<service_port>/?v=<version>`；同时确认 staged `app/ui/config` 不含 `gatewayPrefix` 或 `gatewaySocket`，Rust server 的同一端口能返回根 HTML 与 `/api/app/ping`。
 - 下载失败：先看保存目录权限、Aria2 sidecar 和诊断日志；需要区分应用内调试记录、Rust `server.log`、`lifecycle.log` 与 Aria2 原生文件日志。
-- 同一 `motrix` 身份升级后任务或设置丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
+- 同一 `motrix` 身份升级后同代任务或密码、设置意外丢失：确认 `cmd/uninstall_callback` 默认保留 `TRIM_PKGVAR`，且未收到卸载向导删除数据变量
 - 从旧 `motrix.fnos` 安装切换后看不到原数据：这是应用身份变化的预期结果，不属于普通升级；新应用不会自动读取旧身份的 `TRIM_PKGVAR`
-- 卸载后重装仍有旧任务：这是默认保留数据的预期行为；如需完全清理，卸载时开启“同时删除 Motrix 应用数据”
+- 卸载后重装仍有任务：同代引擎默认保留数据；2.0.0 不展示旧代任务，但保留旧记录和文件。如需清理应用私有数据，卸载时开启“同时删除 Motrix 应用数据”，该操作不删除外部下载目录
 
 ### 无需 SSH 的日志排障
 
@@ -388,10 +396,17 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 
 ### 升级前备份与回滚
 
-- 实机升级前先停止应用，再备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。
+2.0.0 使用 `native-v2`，不导入、展示、继续或恢复旧代任务，升级后任务列表重新开始。升级向导和发布说明提醒用户先在旧版完成需要保留进度的下载；旧任务不阻止升级。密码、设置、授权和 RPC Token 沿用，旧任务记录、session、恢复状态及用户下载文件保留原处。
+
+FPK 不携带 `cmd/upgrade-checker` 或其他 server 副本，升级脚本只确认 server/sidecar 已停止。应用启动时执行常规 schema 更新，只加载当前代际任务和操作；不自动备份、归档或迁移旧任务状态，也不要求迁移完成标记。新 session 为 `$TRIM_PKGVAR/engine/native-v2/session/aria2.session`，原生状态为 `$TRIM_PKGVAR/engine/native-v2/state/`；旧 `aria2/aria2.session` 不导入新引擎。
+
+平台依据：2026-10-22 重新查证官方[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)：升级前后分别调用 `upgrade_init`、`upgrade_callback`，脚本应可重复执行。停服失败关闭、无 checker 重复升级、旧文件与设置保留由本仓库 Shell/Rust 测试验证；向导展示及实际升级顺序仍需 fnOS 实机验收。
+
+- 实机升级前先确认 server 和 sidecar 均已停止，再完整备份 fnOS 实际提供的 `TRIM_PKGVAR` 目录，包含一致的 SQLite、旧 session、原生状态和种子备份；运行中的 SQLite 与 Aria2 session 不作为可靠备份源。外部下载目录须另行保护，私有数据备份不能还原升级后被改动的下载文件。
 - 记录升级前的任务数量、下载设置、授权目录、Aria2 session 校验值和 JSON-RPC Token“是否已配置”，不要把 Token 原文写入验证记录。
 - 新包升级后应先在 NAS 本机确认 `127.0.0.1:17081/jsonrpc`，再修改 Lucky；启用局域网入口后还需从真实 RFC1918 客户端确认 `17082/jsonrpc`，并验证回环、公网、IPv6 来源被拒绝。
-- 回滚需要恢复旧 FPK 和升级前应用数据备份，并将 Lucky 后端恢复为旧版对应地址；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
+- 向导实际顺序、停服检查、升级后的新任务列表和手工备份回滚仍需按下方实机矩阵及[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)验证；平台失败后是否自动回退尚未确认。查证依据：[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)，实现见 `cmd/upgrade_init`、`cmd/upgrade_callback`。
+- 回滚需要先停止新版，成套恢复对应旧 FPK 和升级前停服取得的一致完整私有数据备份，并将 Lucky 后端恢复为旧版对应地址；缺少对应备份时不承诺无损回退，不得让旧版直接读取新版更新后的 SQLite 或引擎状态；不得只把 Lucky 改回 `17080` 而继续运行不提供该 JSON-RPC 路由的新 server。
 
 ### 验证结论分级
 
@@ -409,6 +424,8 @@ fnOS 会在卸载时保留应用 `var` 类用户数据目录；本项目也以�
 | 安装 | 安装匹配架构的 `.fpk` | 应用中心安装成功 | 安装界面报错、`TRIM_TEMP_LOGFILE`、应用中心任务日志 |
 | 启动 | 在应用中心或 `appcenter-cli start` 启动 | 服务进入运行中，Web UI 可打开 | `cmd/status`、`lifecycle.log`、`server.log`、监听端口 |
 | 停止 | 在应用中心或 `appcenter-cli stop` 停止 | 服务退出，状态变为未运行 | `cmd/status`、PID 文件是否清理 |
+| 快速重新启用（ARM / x86，待验收） | 建立 IPv6 管理连接，停用后立即启用；分别在 Aria2 运行和未运行时重复 | 无 `[::]:17080` 绑定失败，就绪接口返回 HTTP 200 | `lifecycle.log`、旧连接的 `TIME_WAIT` 状态；真实进程仍占用端口时应继续拒绝启动 |
+| BT 中文路径（ARM / x86，待验收） | 在全新目录创建中文名称的种子及磁链任务，暂停继续、重启恢复，再勾选删除文件 | 实际落盘路径与任务记录及 RPC 一致；只有一个任务顶层目录；后台清理完成后无任务内容残留 | 引擎进程 `LANG=C.UTF-8`、多层中文名称、非 ASCII 保存目录；种子自带根目录属于正常嵌套；已有异常点号目录另行保全 |
 | 配置变更 | 在“应用设置”修改其他应用配置并保存 | 不触碰官方 API 授权快照 | `app/data/accessible-paths.json`、`lifecycle.log`、配置保存日志 |
 | 开放 API（x86） | 在正式 `motrix` 身份的 fnOS `1.2.0401+` 管理员宿主中授权目录、刷新、创建任务、验证语义路径和完成任务文件操作 | 授权结果以官方查询为准；语义路径和宿主文件操作不改变后端授权边界 | fnOS 版本、FPK SHA-256、普通用户拒绝、授权撤销、空目录、Token/Socket 不可用、独立浏览器降级和升级后数据保留 |
 | 开放 API（ARM / 飞牛 App） | 在 ARM 设备与飞牛 App WebView 可用后，安装正式 `motrix` 包并重复授权与文件操作验证 | SDK 授权流程可用；主题/语言与文件操作符合宿主降级规则 | 设备和飞牛 App 版本、FPK SHA-256、脱敏诊断记录 |
@@ -436,7 +453,7 @@ appcenter-cli list
 
 ## GitHub Actions 自动发版流程
 
-当前默认发版入口是 `Release FPK` workflow。正常路径只需要人工输入一次版本号：
+功能分支先合入 `develop` 完成测试和发布验收，通过后再合入 `main`。当前默认发版入口是 `Release FPK` workflow，从验收后的 `main` 发起；正常路径只需要人工输入一次版本号：
 
 ```text
 Actions -> Release FPK -> Run workflow -> 输入 x.y.z
@@ -492,9 +509,9 @@ packaging/fnos/app/ui/config
 
 - `pre-commit` 只执行版本、暂存区空白和 Rust 格式检查，不运行前端类型检查、单元测试或生产构建。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 时跳过。正常分支推送必须在本地通过全部脚本、Rust、前端测试和构建。
-- GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动执行快速 `pnpm run verify`；nightly 或手动 dispatch 额外执行 `pnpm run verify:extended`。
+- GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动执行快速 `pnpm run verify`；每周日北京时间 02:17 定时或手动 dispatch 执行 `pnpm run verify:extended`。
 - Release 只允许修改 `CHANGELOG.md` 和固定版本文件；这些发布元数据变化与已经通过本地验证的业务源码视为等价，出现白名单外改动时立即中止。
-- `Release FPK` 只构建双架构 FPK，并解包验证、签署和发布产物，不重复执行源码或扩展测试；浏览器 E2E、真实 Aria2 集成与文件系统故障测试由 nightly 或手动 `Verify` 执行。
+- `Release FPK` 只构建双架构 FPK，并解包验证、签署和发布产物，不重复执行源码或扩展测试；浏览器 E2E、真实 Aria2 集成与文件系统故障测试由每周定时或手动 `Verify` 执行。
 - 自动生成的版本提交和内部推送都使用 `--no-verify`，避免 GitHub runner 因安装本地 hooks 而隐藏重复完整验证。
 - `Dependency Audit` 与源码验证和 Release 分离，每周一北京时间 03:23 定时执行。
 

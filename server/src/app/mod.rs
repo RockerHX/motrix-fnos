@@ -4,7 +4,7 @@ use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     backup_database, check_integrity, connect_database,
     maintenance::cleanup_history,
-    tasks::{list_download_tasks, max_download_task_id, persist_download_task_states},
+    tasks::{list_download_tasks_for_engine, max_download_task_id, persist_download_task_states},
     DATABASE_FILE_NAME,
 };
 use crate::fnos::FnosApiClient;
@@ -47,6 +47,8 @@ pub const DEFAULT_LAN_JSONRPC_ADDR: &str = "0.0.0.0:17082";
 pub const ACCESSIBLE_PATHS_FILE_NAME: &str = "accessible-paths.json";
 pub const JSONRPC_WEBSOCKET_CONNECTION_LIMIT: usize = 64;
 const RUNTIME_EVENT_BUFFER: usize = 32;
+
+pub mod compatibility;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerRuntimeConfig {
@@ -131,6 +133,7 @@ pub struct TasksSnapshotPayload {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEvent {
+    AppCompatibility(compatibility::AppCompatibility),
     TasksSnapshot(TasksSnapshotPayload),
     RuntimeExiting(RuntimeExitingPayload),
 }
@@ -166,6 +169,7 @@ impl Default for RuntimeEventHub {
 }
 
 pub struct HttpAppState {
+    pub(crate) compatibility: Mutex<compatibility::AppCompatibility>,
     pub core: Arc<ServerState>,
     pub auth: AuthRuntime,
     pub runtime: ServerRuntimeConfig,
@@ -204,6 +208,9 @@ impl HttpAppState {
         let auth = AuthRuntime::new(core.database.pool.clone());
         let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
         Self {
+            compatibility: Mutex::new(compatibility::AppCompatibility::normal(
+                crate::config::aria2::EngineGeneration::LegacyV1,
+            )),
             core: Arc::new(core),
             auth,
             runtime,
@@ -381,13 +388,40 @@ impl HttpAppState {
 
     pub fn aria2_config(&self) -> Aria2Config {
         let mut config = self.base_aria2_config.clone();
+        if self.compatibility_snapshot().engine_generation
+            == crate::config::aria2::EngineGeneration::NativeV2
+        {
+            let paths = crate::state::native_aria2_runtime_paths(&self.runtime.app_data_dir);
+            config.state_dir = Some(paths.state_dir.display().to_string());
+            config.session_path = Some(paths.session_path.display().to_string());
+        }
         if let Some(runtime) = self.aria2_runtime_snapshot() {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
             config.session_path = runtime.aria2_session_path.clone();
+            config.state_dir = runtime.aria2_state_path.clone();
             config.log_path = runtime.aria2_log_path.clone();
         }
         config
+    }
+
+    pub fn compatibility_snapshot(&self) -> compatibility::AppCompatibility {
+        self.compatibility
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    pub fn ensure_download_available(&self) -> Result<(), String> {
+        self.compatibility_snapshot().ensure_download_available()
+    }
+
+    pub(crate) fn public_task(&self, task: DownloadTask) -> PublicDownloadTask {
+        let mut public: PublicDownloadTask = task.into();
+        public.read_only = self.compatibility_snapshot().mode == "restricted"
+            || public.engine_generation == crate::config::aria2::EngineGeneration::Unknown
+            || public.engine_generation != self.compatibility_snapshot().engine_generation;
+        public
     }
 
     pub fn with_aria2_runtime_paths(&self, config: Aria2Config) -> Result<Aria2Config, String> {
@@ -409,11 +443,11 @@ impl HttpAppState {
         self.core.set_aria2_runtime(runtime)
     }
 
-    pub fn clear_aria2_runtime(&self) {
+    pub fn clear_aria2_runtime(&self) -> Result<(), String> {
         self.core.clear_aria2_runtime()
     }
 
-    pub fn load_saved_aria2_runtime(&self) -> Option<Aria2RuntimeInfo> {
+    pub fn load_saved_aria2_runtime(&self) -> Result<Option<Aria2RuntimeInfo>, String> {
         self.core.load_saved_aria2_runtime()
     }
 
@@ -487,8 +521,34 @@ pub async fn bootstrap_http_app_state(
             "启动阶段无法刷新 fnOS 共享授权目录，继续使用旧快照"
         ),
     }
-    let database = connect_database(runtime.database_path.clone()).await?;
-    let mut restored_tasks = list_download_tasks(&database.pool).await?;
+    let generation = match crate::runtime::resolve_aria2_binary(runtime, &Aria2Config::from_env()) {
+        Ok(binary) => crate::runtime::aria2_process::inspect_engine_generation(&binary.path)
+            .await
+            .unwrap_or(crate::config::aria2::EngineGeneration::Unknown),
+        Err(_) if runtime.aria2_path.is_none() => crate::config::aria2::EngineGeneration::LegacyV1,
+        Err(_) => crate::config::aria2::EngineGeneration::Unknown,
+    };
+    let mut compatibility = if generation == crate::config::aria2::EngineGeneration::Unknown {
+        compatibility::AppCompatibility::restricted(generation, "engine_unknown")
+    } else {
+        compatibility::AppCompatibility::normal(generation)
+    };
+    let database = if compatibility.mode == "restricted" && runtime.database_path.exists() {
+        crate::database::open_existing_database(runtime.database_path.clone()).await?
+    } else {
+        connect_database(runtime.database_path.clone()).await?
+    };
+    let mut restored_tasks = match list_download_tasks_for_engine(&database.pool, generation).await
+    {
+        Ok(tasks) => tasks,
+        Err(_) if compatibility.mode == "restricted" => Vec::new(),
+        Err(error) => {
+            compatibility =
+                compatibility::AppCompatibility::restricted(generation, "legacy_state_invalid");
+            tracing::warn!("任务快照不可读取，进入受限管理：{error}");
+            Vec::new()
+        }
+    };
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
     let fallback_download_dir = default_download_dir(&accessible_paths, &runtime.app_data_dir)
         .display()
@@ -496,15 +556,23 @@ pub async fn bootstrap_http_app_state(
     let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
     let json_rpc_token = load_json_rpc_token(&database.pool).await?;
     let lan_json_rpc_config = load_lan_json_rpc_config(&database.pool).await?;
-    migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
-    // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
-    reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
-    persist_download_task_states(&database.pool, &restored_tasks).await?;
+    if compatibility.mode == "normal"
+        && generation == crate::config::aria2::EngineGeneration::LegacyV1
+    {
+        migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
+        // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
+        reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
+        persist_download_task_states(&database.pool, &restored_tasks).await?;
+    }
     let next_task_id = max_download_task_id(&database.pool)
         .await?
         .saturating_add(1);
     let state = ServerState::new(database, restored_tasks, next_task_id);
     let state = Arc::new(HttpAppState::new(state, runtime.clone()));
+    *state
+        .compatibility
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = compatibility;
     state.set_app_config(app_config.clone()).await;
     state
         .refresh_json_rpc_default_download_dir(&app_config.default_download_dir, &accessible_paths);
@@ -512,8 +580,10 @@ pub async fn bootstrap_http_app_state(
     *state.lan_json_rpc_config.write().await = lan_json_rpc_config;
     // cmd/start 已完成孤儿进程对账；必须在未完成操作可能唤醒 Aria2 前收敛旧日志。
     crate::runtime::maintain_startup_aria2_logs(&state).await;
-    crate::runtime::reconcile_unfinished_task_operations(&state).await?;
-    crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    if state.ensure_download_available().is_ok() {
+        crate::runtime::reconcile_unfinished_task_operations(&state).await?;
+        crate::runtime::spawn_file_cleanup_worker(Arc::clone(&state)).await;
+    }
 
     Ok(state)
 }
@@ -561,6 +631,9 @@ fn migrate_legacy_owned_task_dirs(tasks: &mut [DownloadTask], accessible_paths: 
 }
 
 fn should_migrate_legacy_owned_task_dir(task: &DownloadTask) -> bool {
+    if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
+        return false;
+    }
     if task.source_type == crate::tasks::DownloadTaskSourceType::Torrent {
         return true;
     }
@@ -588,6 +661,26 @@ fn reconcile_magnet_metadata_dirs(
     // 清理范围固定在应用私有根目录；先收集仍被任务引用的目录，随后只删除其中未被引用的孤儿子目录。
     let mut referenced_dirs = std::collections::BTreeSet::new();
     for task in tasks.iter_mut() {
+        if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
+            // 新代际完整 metadata 归引擎管理；不能用旧临时种子约定清除其身份。
+            if let Some(parent) = task
+                .metadata_torrent_path
+                .as_deref()
+                .and_then(|path| Path::new(path).parent())
+            {
+                referenced_dirs.insert(parent.to_path_buf());
+            }
+            if is_pending_magnet_metadata_task(task) {
+                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
+            }
+            if task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
+                && task.file_path.is_none()
+            {
+                // NativeV2 keeps complete magnet metadata in the task directory until confirmation.
+                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
+            }
+            continue;
+        }
         let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {
             Some(magnet_metadata_task_dir(app_data_dir, task.id))
         } else {
@@ -935,6 +1028,10 @@ fn bind_ipv6_management_listener(port: u16) -> Result<TcpListener, String> {
     let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
     let socket = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP))
         .map_err(|error| format!("创建 IPv6 管理监听地址失败：{}（{}）", addr, error))?;
+    // 允许停用后立即重新监听，避免旧连接的 TIME_WAIT 阻止再次启用。
+    socket
+        .set_reuse_address(true)
+        .map_err(|error| format!("设置 IPv6 管理监听地址复用失败：{}（{}）", addr, error))?;
     socket
         .set_only_v6(true)
         .map_err(|error| format!("设置 IPv6 管理监听地址失败：{}（{}）", addr, error))?;

@@ -395,7 +395,7 @@ describe("taskStore refresh and operation state", () => {
     expect(store.isTaskOperating(removedTask.id)).toBe(false);
     expect(store.removedTasks).toEqual([]);
     expect(store.tasks).toContainEqual(restoredTask);
-    expect(mockedRestoreDownloadTask).toHaveBeenCalledWith(removedTask.id, true);
+    expect(mockedRestoreDownloadTask).toHaveBeenCalledWith(removedTask.id, true, false);
   });
 
   it("restoreTask keeps the removed task when the request fails", async () => {

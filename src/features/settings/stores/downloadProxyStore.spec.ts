@@ -29,6 +29,8 @@ describe("downloadProxyStore", () => {
       configured: true,
       maskedProxyUrl: "http://***:***@proxy.example.com:7890/",
       revision: 3,
+      btUseProxy: false,
+      btRuntimeApply: "deferred",
     });
     const store = useDownloadProxyStore();
 
@@ -70,6 +72,20 @@ describe("downloadProxyStore", () => {
     expect(store.isSaving).toBe(false);
   });
 
+  it("updates the BT proxy switch through the application setting", async () => {
+    const store = useDownloadProxyStore();
+    const response = proxyMutationResponse();
+    response.status.btUseProxy = true;
+    response.status.btRuntimeApply = "applied";
+    mockedUpdate.mockResolvedValueOnce(response);
+
+    await store.setBtUseProxy(true);
+
+    expect(mockedUpdate).toHaveBeenCalledWith(undefined, true);
+    expect(store.status?.btUseProxy).toBe(true);
+    expect(store.status?.btRuntimeApply).toBe("applied");
+  });
+
   it("does not restore transient results after the settings dialog closes", async () => {
     const store = useDownloadProxyStore();
     const deferred = deferredResponse();
@@ -95,7 +111,13 @@ describe("downloadProxyStore", () => {
     await store.clearProxy();
 
     expect(mockedDelete).toHaveBeenCalledOnce();
-    expect(store.status).toEqual({ configured: false, maskedProxyUrl: null, revision: 0 });
+    expect(store.status).toEqual({
+      configured: false,
+      maskedProxyUrl: null,
+      revision: 0,
+      btUseProxy: false,
+      btRuntimeApply: "deferred",
+    });
     expect(store.draftProxyUrl).toBe("");
   });
 });
@@ -106,6 +128,8 @@ function proxyMutationResponse(): DownloadProxyMutationResponse {
       configured: true,
       maskedProxyUrl: "http://***:***@proxy.example.com:7890/",
       revision: 4,
+      btUseProxy: false,
+      btRuntimeApply: "deferred",
     },
     appliedTaskIds: [1],
     deferredTaskIds: [2],

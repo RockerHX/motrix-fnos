@@ -17,6 +17,8 @@ fn test_dir(label: &str) -> PathBuf {
 fn task(source_type: DownloadTaskSourceType, save_dir: &Path) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/file.bin".to_string(),
         source_type,
         file_name: "file.bin".to_string(),

@@ -82,7 +82,7 @@ describe("taskService", () => {
     expect(httpPost).toHaveBeenNthCalledWith(3, "/api/tasks/7/confirm", { selectedFileIndexes: [3, 1] });
     expect(httpPut).toHaveBeenCalledWith("/api/tasks/7/proxy", { enabled: true });
     expect(httpPost).toHaveBeenNthCalledWith(4, "/api/tasks/7/redownload", { useProxy: false });
-    expect(httpPost).toHaveBeenNthCalledWith(5, "/api/tasks/8/restore", { useProxy: true });
+    expect(httpPost).toHaveBeenNthCalledWith(5, "/api/tasks/8/restore", { useProxy: true, restartFromZero: false });
     expect(httpPost).toHaveBeenNthCalledWith(6, "/api/tasks/9/redownload");
   });
 

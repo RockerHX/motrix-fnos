@@ -74,10 +74,8 @@ export function redownloadDownloadTask(taskId: number, useProxy?: boolean): Prom
     : httpPost<DownloadTask>(`/api/tasks/${taskId}/redownload`, { useProxy });
 }
 
-export function restoreDownloadTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
-  return useProxy === undefined
-    ? httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`)
-    : httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`, { useProxy });
+export function restoreDownloadTask(taskId: number, useProxy?: boolean, restartFromZero = false): Promise<DownloadTask> {
+  return httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`, { useProxy, restartFromZero });
 }
 
 export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {

@@ -68,7 +68,9 @@ describe("LogMaintenancePanel", () => {
     expect(wrapper.text()).toContain("Aria2 原生日志");
     expect(wrapper.text()).toContain("当前 10 MiB，历史 20 MiB");
     expect(wrapper.text()).toContain("3 个文件");
-    expect(wrapper.text()).toContain("存储与临时文件");
+    expect(wrapper.text()).toContain("存储与下载状态");
+    expect(wrapper.text()).toContain("下载恢复状态");
+    expect(wrapper.text()).toContain("7 KiB");
     expect(wrapper.text()).toContain("1.5 GiB");
     expect(wrapper.text()).toContain("2 个文件");
   });
@@ -196,6 +198,7 @@ function createStorageUsage(): DiagnosticsStorageUsage {
       availableBytes: 1536 * 1024 * 1024,
     },
     aria2SessionBytes: 12 * 1024,
+    nativeState: { totalBytes: 7 * 1024, fileCount: 2 },
     magnetMetadata: {
       totalBytes: 1536 * 1024,
       fileCount: 2,

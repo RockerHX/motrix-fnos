@@ -16,9 +16,17 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        let source_type = payload.source_type;
         let resolved_proxy = self
-            .resolve_create_task_proxy(&mut payload.advanced_options, &mut payload.aria2_options)
+            .resolve_create_task_proxy(
+                source_type,
+                &mut payload.advanced_options,
+                &mut payload.aria2_options,
+            )
             .await?;
+        if source_type != DownloadTaskSourceType::Url {
+            self.ensure_bt_proxy_ready(config).await?;
+        }
         let mut prepared = prepare_task_with_logs(payload, self.debug_logs)?;
         prepared.use_proxy = resolved_proxy.use_proxy;
         prepared.proxy_binding = resolved_proxy.binding;
@@ -37,7 +45,10 @@ impl<'a> TaskService<'a> {
                 task_id,
                 TaskOperationType::Create,
                 "prepared",
-                task_operation_context(None, critical_paths),
+                TaskOperationContext {
+                    engine_generation: Some(config.engine_generation()),
+                    ..task_operation_context(None, critical_paths)
+                },
             )
             .await?;
         let task = if prepared.source_type == DownloadTaskSourceType::Magnet {
@@ -74,7 +85,13 @@ impl<'a> TaskService<'a> {
                     .await;
                 return Err(error);
             }
-            match store_created_task_with_id(self.download_tasks, task_id, prepared, gid) {
+            match store_created_task_with_id(
+                self.download_tasks,
+                task_id,
+                prepared,
+                gid,
+                config.engine_generation(),
+            ) {
                 Ok(task) => task,
                 Err(error) => {
                     let gid = operation.context.new_gid.as_deref().unwrap_or_default();
@@ -121,9 +138,20 @@ impl<'a> TaskService<'a> {
             return Err("请选择已授权的保存目录".to_string());
         }
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
+        if payload.advanced_options.proxy_fields_present
+            || payload.advanced_options.use_proxy.is_some()
+            || payload.advanced_options.proxy.is_some()
+        {
+            return Err(super::proxy::BT_TASK_PROXY_UNSUPPORTED_MESSAGE.to_string());
+        }
+        self.ensure_bt_proxy_ready(config).await?;
         let mut aria2_options = serde_json::Map::new();
         let resolved_proxy = self
-            .resolve_create_task_proxy(&mut payload.advanced_options, &mut aria2_options)
+            .resolve_create_task_proxy(
+                DownloadTaskSourceType::Torrent,
+                &mut payload.advanced_options,
+                &mut aria2_options,
+            )
             .await?;
         let torrent_data = payload.torrent_data.clone();
         let mut prepared = prepare_torrent_task_with_logs(payload, self.debug_logs)?;
@@ -137,7 +165,10 @@ impl<'a> TaskService<'a> {
                 task_id,
                 TaskOperationType::Create,
                 "prepared",
-                task_operation_context(None, vec![prepared.save_dir.clone()]),
+                TaskOperationContext {
+                    engine_generation: Some(config.engine_generation()),
+                    ..task_operation_context(None, vec![prepared.save_dir.clone()])
+                },
             )
             .await?;
         let metadata_path =
@@ -192,8 +223,13 @@ impl<'a> TaskService<'a> {
                 .await;
             return Err(error);
         }
-        if let Err(error) = store_created_task_with_id(self.download_tasks, task_id, prepared, gid)
-        {
+        if let Err(error) = store_created_task_with_id(
+            self.download_tasks,
+            task_id,
+            prepared,
+            gid,
+            config.engine_generation(),
+        ) {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();
             let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;
             cleanup_empty_torrent_task_dir(&prepared_for_cleanup);

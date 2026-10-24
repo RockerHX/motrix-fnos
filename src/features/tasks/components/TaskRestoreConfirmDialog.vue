@@ -4,13 +4,14 @@ import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import type { TaskActionConfirmTexts, TaskActionLabels, TaskActionState } from "./taskActionViewModel";
 import TaskProxyToggle from "./TaskProxyToggle.vue";
 
-defineProps<{
+withDefaults(defineProps<{
   show: boolean;
   state: TaskActionState;
   labels: TaskActionLabels;
   confirmTexts: TaskActionConfirmTexts;
   useProxy: boolean;
-}>();
+  showProxy?: boolean;
+}>(), { showProxy: true });
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
@@ -33,6 +34,7 @@ const emit = defineEmits<{
     <NSpace vertical>
       <p>{{ confirmTexts.restoreConfirmText }}</p>
       <TaskProxyToggle
+        v-if="showProxy !== false"
         :value="useProxy"
         :disabled="state.isActionDisabled"
         :loading="state.isOperating"

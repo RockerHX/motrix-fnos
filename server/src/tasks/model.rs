@@ -84,6 +84,8 @@ pub struct DownloadTaskFile {
 #[serde(rename_all = "camelCase")]
 pub struct DownloadTask {
     pub id: u64,
+    #[serde(default)]
+    pub engine_generation: crate::config::aria2::EngineGeneration,
     pub url: String,
     pub source_type: DownloadTaskSourceType,
     pub file_name: String,
@@ -93,6 +95,8 @@ pub struct DownloadTask {
     pub category: String,
     pub gid: Option<String>,
     pub status: DownloadTaskStatus,
+    #[serde(default)]
+    pub removed_from_status: Option<DownloadTaskStatus>,
     pub total_length: u64,
     pub completed_length: u64,
     pub download_speed: u64,
@@ -244,13 +248,69 @@ pub enum DownloadTaskStartMode {
     Paused,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Clone, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTaskAdvancedOptions {
     pub connections: Option<u32>,
     pub download_limit_kb: Option<u64>,
     pub use_proxy: Option<bool>,
     pub proxy: Option<String>,
+    #[serde(skip)]
+    pub proxy_fields_present: bool,
+}
+
+struct FieldPresence<T> {
+    value: Option<T>,
+    present: bool,
+}
+
+impl<T> Default for FieldPresence<T> {
+    fn default() -> Self {
+        Self {
+            value: None,
+            present: false,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateTaskAdvancedOptionsWire {
+    #[serde(default)]
+    connections: Option<u32>,
+    #[serde(default)]
+    download_limit_kb: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_field_presence")]
+    use_proxy: FieldPresence<bool>,
+    #[serde(default, deserialize_with = "deserialize_field_presence")]
+    proxy: FieldPresence<String>,
+}
+
+fn deserialize_field_presence<'de, D, T>(deserializer: D) -> Result<FieldPresence<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(FieldPresence {
+        value: Option::<T>::deserialize(deserializer)?,
+        present: true,
+    })
+}
+
+impl<'de> Deserialize<'de> for CreateTaskAdvancedOptions {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = CreateTaskAdvancedOptionsWire::deserialize(deserializer)?;
+        Ok(Self {
+            connections: wire.connections,
+            download_limit_kb: wire.download_limit_kb,
+            use_proxy: wire.use_proxy.value,
+            proxy: wire.proxy.value,
+            proxy_fields_present: wire.use_proxy.present || wire.proxy.present,
+        })
+    }
 }
 
 impl fmt::Debug for CreateTaskAdvancedOptions {

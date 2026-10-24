@@ -39,13 +39,14 @@ pub fn stop_process_with_timeout(
     debug_logs: &DebugLogStore,
     process_exit_timeout: Duration,
 ) -> Result<Aria2ProcessStatus, String> {
-    stop_process_with_timeout_inner(process, Some(debug_logs), process_exit_timeout)
+    stop_process_with_timeout_inner(process, Some(debug_logs), process_exit_timeout, false)
 }
 
-fn stop_process_with_timeout_inner(
+pub(super) fn stop_process_with_timeout_inner(
     process: &Mutex<Option<ManagedAria2Process>>,
     debug_logs: Option<&DebugLogStore>,
     process_exit_timeout: Duration,
+    native: bool,
 ) -> Result<Aria2ProcessStatus, String> {
     let mut guard = process.lock().map_err(|_| {
         if let Some(debug_logs) = debug_logs {
@@ -57,6 +58,9 @@ fn stop_process_with_timeout_inner(
     if let Some(child) = guard.as_mut() {
         let pid = child.id();
         if !child.is_running()? {
+            if native {
+                return Err("Aria2 已退出，无法确认本次原生状态提交，已保留运行态".to_string());
+            }
             if let Some(debug_logs) = debug_logs {
                 debug_logs.warn(
                     "aria2",
@@ -67,20 +71,24 @@ fn stop_process_with_timeout_inner(
             if let Some(debug_logs) = debug_logs {
                 debug_logs.info("aria2", format!("准备停止 Aria2 进程，PID {}", pid));
             }
-            if let Err(error) = child.kill() {
-                if let Some(debug_logs) = debug_logs {
-                    debug_logs.warn(
-                        "aria2",
-                        format!("{}，尝试按 PID 兜底终止，PID {}", error, pid),
-                    );
+            if native {
+                child.interrupt_and_wait(process_exit_timeout)?;
+            } else {
+                if let Err(error) = child.kill() {
+                    if let Some(debug_logs) = debug_logs {
+                        debug_logs.warn(
+                            "aria2",
+                            format!("{}，尝试按 PID 兜底终止，PID {}", error, pid),
+                        );
+                    }
                 }
-            }
-            if !child.wait_for_exit(process_exit_timeout)? {
-                let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
-                if let Some(debug_logs) = debug_logs {
-                    debug_logs.error("aria2", &error);
+                if !child.wait_for_exit(process_exit_timeout)? {
+                    let error = format!("停止 Aria2 进程后 PID {} 仍然存活", pid);
+                    if let Some(debug_logs) = debug_logs {
+                        debug_logs.error("aria2", &error);
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
             if let Some(debug_logs) = debug_logs {
                 debug_logs.info("aria2", format!("Aria2 进程已停止，PID {}", pid));
@@ -162,13 +170,16 @@ async fn stop_aria2_after_shutdown_until(
     }
     let process_exit_timeout = remaining.min(state.aria2_lifecycle.policy().process_exit_timeout);
 
-    match stop_process_with_timeout(
+    match stop_process_with_timeout_inner(
         &state.aria2_process,
-        &state.core.debug_logs,
+        Some(&state.core.debug_logs),
         process_exit_timeout,
+        state.aria2_config().state_dir.is_some(),
     ) {
         Ok(status) => {
-            state.clear_aria2_runtime();
+            state
+                .clear_aria2_runtime()
+                .map_err(Aria2StopError::Failed)?;
             permit
                 .complete(Aria2LifecyclePhase::Stopped)
                 .map_err(Aria2StopError::Failed)?;
@@ -202,6 +213,10 @@ async fn stop_aria2_inner(
         ));
     }
     if save_session_before_stop && state.aria2_runtime_snapshot().is_some() {
+        let tasks = list_tasks(&state.core.download_tasks).map_err(Aria2StopError::Failed)?;
+        persist_download_task_states(&state.core.database.pool, &tasks)
+            .await
+            .map_err(Aria2StopError::Failed)?;
         let config = state.aria2_config();
         save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs))
             .await
@@ -223,13 +238,16 @@ async fn stop_aria2_inner(
         .acquire_stop_permit(quiescing)
         .map_err(Aria2StopError::Busy)?;
 
-    match stop_process_with_timeout(
+    match stop_process_with_timeout_inner(
         &state.aria2_process,
-        &state.core.debug_logs,
+        Some(&state.core.debug_logs),
         state.aria2_lifecycle.policy().process_exit_timeout,
+        state.aria2_config().state_dir.is_some(),
     ) {
         Ok(status) => {
-            state.clear_aria2_runtime();
+            state
+                .clear_aria2_runtime()
+                .map_err(Aria2StopError::Failed)?;
             permit
                 .complete(Aria2LifecyclePhase::Stopped)
                 .map_err(Aria2StopError::Failed)?;
@@ -273,9 +291,10 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
         &state.aria2_process,
         None,
         state.aria2_lifecycle.policy().process_exit_timeout,
+        config.state_dir.is_some(),
     ) {
         Ok(status) => {
-            state.clear_aria2_runtime();
+            state.clear_aria2_runtime()?;
             permit.complete(Aria2LifecyclePhase::Stopped)?;
             Ok(status)
         }
@@ -322,23 +341,33 @@ pub(crate) async fn current_activity_snapshot(
     let active_operation_count = state.core.download_tasks.active_operation_count()?;
     let coordinator = state.aria2_lifecycle.snapshot()?;
     let process = process_status(&state.aria2_process)?;
-    let has_bt_upload = process.running
+    let native = state.aria2_config().state_dir.is_some();
+    if native && state.aria2_runtime_snapshot().is_some() && !process.running {
+        return Err("原生引擎已退出，无法确认状态提交，已保留运行态供恢复核对".to_string());
+    }
+    let engine_tasks = if process.running
         && state.aria2_runtime_snapshot().is_some()
-        && tasks.iter().any(is_bt_activity_candidate)
-        && tell_active_task_activity(&state.aria2_rpc, &state.aria2_config(), debug_logs)
-            .await?
-            .iter()
-            .any(|task| task.is_bt_uploading());
+        && (native || tasks.iter().any(is_bt_activity_candidate))
+    {
+        tell_active_task_activity(&state.aria2_rpc, &state.aria2_config(), debug_logs).await?
+    } else {
+        Vec::new()
+    };
     Ok(Aria2ActivitySnapshot::from_tasks(
         &tasks,
         Aria2ActivitySignals {
-            has_bt_upload,
+            has_engine_activity: native && !engine_tasks.is_empty(),
+            has_bt_upload: engine_tasks.iter().any(|task| task.is_bt_uploading()),
+            has_verification_activity: engine_tasks.iter().any(|task| task.is_verifying()),
             has_inflight_operation: active_operation_count > 0,
             has_queued_request: coordinator.queued_requests > 0,
             ..Aria2ActivitySignals::default()
         },
     ))
 }
+
+#[cfg(test)]
+mod tests;
 
 fn is_bt_activity_candidate(task: &DownloadTask) -> bool {
     task.status != crate::tasks::DownloadTaskStatus::Removed

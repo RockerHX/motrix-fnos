@@ -178,11 +178,15 @@ pub(crate) fn build_add_uri_request_with_id(
         options.insert(key, value);
     }
     apply_task_proxy_option(&mut options, task);
+    apply_http_options(&mut options, config, task);
     if task.source_type == DownloadTaskSourceType::Magnet {
         apply_start_mode_option(&mut options, DownloadTaskStartMode::Now);
         options.insert("pause-metadata".to_string(), serde_json::json!("true"));
-        options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
+        if config.engine_generation() == crate::config::aria2::EngineGeneration::LegacyV1 {
+            options.insert("bt-save-metadata".to_string(), serde_json::json!("true"));
+        }
         apply_default_bt_trackers(&mut options);
+        apply_default_bt_seed_behavior(&mut options);
     } else {
         apply_start_mode_option(&mut options, task.start_mode);
     }
@@ -221,6 +225,23 @@ fn apply_start_mode_option(
     options.insert("pause".to_string(), serde_json::json!(pause));
 }
 
+fn apply_http_options(
+    options: &mut serde_json::Map<String, serde_json::Value>,
+    config: &Aria2Config,
+    task: &PreparedDownloadTask,
+) {
+    if task.source_type != DownloadTaskSourceType::Url {
+        options.remove("stream-max-connections");
+        return;
+    }
+    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
+        options.insert("media".to_string(), serde_json::json!("file"));
+    } else if let Some(connections) = options.remove("stream-max-connections") {
+        options.insert("split".to_string(), connections.clone());
+        options.insert("max-connection-per-server".to_string(), connections);
+    }
+}
+
 fn apply_default_bt_trackers(options: &mut serde_json::Map<String, serde_json::Value>) {
     options
         .entry("bt-tracker".to_string())
@@ -250,6 +271,7 @@ pub(crate) fn build_add_torrent_request_with_id(
     }
     apply_task_proxy_option(&mut options, task);
     apply_start_mode_option(&mut options, task.start_mode);
+    apply_http_options(&mut options, config, task);
     apply_default_bt_trackers(&mut options);
     apply_default_bt_seed_behavior(&mut options);
     if task.start_mode == DownloadTaskStartMode::Paused {
@@ -270,6 +292,9 @@ pub(crate) fn build_add_torrent_request_with_id(
 }
 
 fn validate_prepared_task_proxy(task: &PreparedDownloadTask) -> Result<(), String> {
+    if task.source_type != DownloadTaskSourceType::Url && task.use_proxy {
+        return Err("BT 任务不支持任务级代理，请使用 BT 使用代理总开关".to_string());
+    }
     if task.use_proxy && task.proxy_binding.effective_proxy_url().is_none() {
         return Err("任务要求使用代理，但没有可用的代理配置".to_string());
     }

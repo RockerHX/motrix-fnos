@@ -15,6 +15,80 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[tokio::test]
+async fn incompatible_task_mutations_preserve_records_and_files_without_rpc() {
+    use crate::config::aria2::EngineGeneration;
+
+    let mock = TaskCreationMockAria2Server::spawn().await;
+    for generation in [EngineGeneration::LegacyV1, EngineGeneration::Unknown] {
+        let save_dir = temp_dir("incompatible-task");
+        std::fs::create_dir_all(&save_dir).expect("save dir should create");
+        let payload = save_dir.join("archive.zip");
+        std::fs::write(&payload, b"existing download").expect("payload should write");
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "old-gid",
+            save_dir.display().to_string(),
+        );
+        task.engine_generation = generation;
+        task.gid = None;
+        let fixture = ServiceFixture::new(vec![task.clone()], false);
+        let service = fixture.service();
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
+
+        let errors = [
+            service.pause_download_task(&config, 1).await.unwrap_err(),
+            service
+                .pause_task_for_revocation(&config, 1)
+                .await
+                .unwrap_err(),
+            service.resume_download_task(&config, 1).await.unwrap_err(),
+            service
+                .redownload_download_task(&config, 1, None)
+                .await
+                .unwrap_err(),
+            service
+                .confirm_download_task_files(&config, 1, vec![1])
+                .await
+                .unwrap_err(),
+            service
+                .restore_removed_task(&config, 1, None, false)
+                .await
+                .unwrap_err(),
+            service
+                .delete_download_task(&config, 1, true)
+                .await
+                .unwrap_err(),
+            service
+                .permanently_delete_removed_task(&config, 1)
+                .await
+                .unwrap_err(),
+            service
+                .update_download_task_proxy(Some(&config), 1, false)
+                .await
+                .unwrap_err(),
+        ];
+        assert!(errors
+            .iter()
+            .all(|error| error.contains("task_engine_incompatible")));
+        if generation == EngineGeneration::Unknown {
+            assert!(service
+                .update_download_task_proxy(None, 1, false)
+                .await
+                .unwrap_err()
+                .contains("task_engine_incompatible"));
+        }
+        assert_eq!(fixture.tasks.list().unwrap(), vec![task]);
+        assert!(fixture.repository.operations().is_empty());
+        assert!(fixture.repository.persisted_tasks().is_empty());
+        assert_eq!(std::fs::read(&payload).unwrap(), b"existing download");
+    }
+    assert!(mock.requests().is_empty());
+    mock.abort();
+}
+
+#[tokio::test]
 async fn create_download_task_rejects_when_runtime_is_exiting() {
     let fixture = ServiceFixture::new(Vec::new(), true);
     let config = test_config(6800, "");
@@ -366,12 +440,16 @@ async fn create_download_task_persist_failure_marks_operation_failed_and_removes
 }
 
 #[tokio::test]
-async fn create_torrent_download_task_persists_with_fake_repository() {
-    let mock = MockAria2Server::spawn().await;
+async fn legacy_torrent_creation_stays_direct_and_resume_rejects_enabled_bt_proxy() {
+    let mock = TaskCreationMockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
     fixture
         .repository
-        .set_download_proxy("http://127.0.0.1:7890");
+        .set_download_proxy("http://proxy.example:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("legacy engine should be ready");
     let save_dir = temp_dir("service-create-torrent");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
     let config = test_config(mock.addr.port(), "secret");
@@ -386,10 +464,7 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
                 save_dir: save_dir.display().to_string(),
                 start_mode: DownloadTaskStartMode::Paused,
                 category: None,
-                advanced_options: CreateTaskAdvancedOptions {
-                    use_proxy: Some(true),
-                    ..CreateTaskAdvancedOptions::default()
-                },
+                advanced_options: CreateTaskAdvancedOptions::default(),
             },
         )
         .await
@@ -398,7 +473,7 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
     assert_eq!(task.id, 1);
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
     assert_eq!(task.status, DownloadTaskStatus::Paused);
-    assert!(task.use_proxy);
+    assert!(!task.use_proxy);
     assert_eq!(
         task.proxy_binding.source(),
         crate::tasks::TaskProxySource::Profile
@@ -427,17 +502,56 @@ async fn create_torrent_download_task_persists_with_fake_repository() {
         .context
         .completed_side_effects
         .contains(&"restore_metadata_saved".to_string()));
+    assert!(!mock.requests().iter().any(|request| {
+        matches!(
+            request["method"].as_str(),
+            Some("aria2.changeGlobalOption" | "aria2.getGlobalOption")
+        )
+    }));
+
+    {
+        let mut state = fixture.repository.state.lock().unwrap();
+        let proxy = state.download_proxy_config.as_mut().unwrap();
+        proxy.bt_use_proxy = true;
+        proxy.bt_runtime_apply = crate::database::settings::BtRuntimeApplyStatus::Applied;
+    }
+    let request_count = mock.requests().len();
+    let error = fixture
+        .service()
+        .resume_download_task(&config, 1)
+        .await
+        .unwrap_err();
+    assert!(error.contains("BT 全局代理"));
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Paused
+    );
+    assert_eq!(
+        fixture
+            .repository
+            .get_download_proxy_config()
+            .await
+            .unwrap()
+            .unwrap()
+            .bt_runtime_apply,
+        crate::database::settings::BtRuntimeApplyStatus::Blocked
+    );
+    assert_eq!(mock.requests().len(), request_count);
 
     mock.abort();
 }
 
 #[tokio::test]
-async fn create_magnet_download_task_persists_proxy_selection() {
-    let mock = MockAria2Server::spawn().await;
+async fn create_magnet_download_task_with_http_profile_on_legacy_engine() {
+    let mock = TaskCreationMockAria2Server::spawn().await;
     let fixture = ServiceFixture::new(Vec::new(), false);
     fixture
         .repository
-        .set_download_proxy("http://127.0.0.1:7890");
+        .set_download_proxy("http://proxy.example:7890");
+    fixture
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("legacy engine should be ready");
     let save_dir = temp_dir("service-create-magnet-proxy");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
 
@@ -452,22 +566,25 @@ async fn create_magnet_download_task_persists_proxy_selection() {
                 source_type: DownloadTaskSourceType::Magnet,
                 start_mode: DownloadTaskStartMode::Now,
                 category: None,
-                advanced_options: CreateTaskAdvancedOptions {
-                    use_proxy: Some(true),
-                    ..CreateTaskAdvancedOptions::default()
-                },
+                advanced_options: CreateTaskAdvancedOptions::default(),
                 aria2_options: serde_json::Map::new(),
             },
         )
         .await
         .expect("magnet proxy task should create");
 
-    assert!(task.use_proxy);
+    assert!(!task.use_proxy);
     assert_eq!(
         task.proxy_binding.source(),
         crate::tasks::TaskProxySource::Profile
     );
     assert_eq!(fixture.repository.persisted_tasks(), vec![task]);
+    assert!(!mock.requests().iter().any(|request| {
+        matches!(
+            request["method"].as_str(),
+            Some("aria2.changeGlobalOption" | "aria2.getGlobalOption")
+        )
+    }));
 
     mock.abort();
 }
@@ -485,12 +602,12 @@ async fn update_download_task_proxy_applies_runtime_option_then_persists() {
         false,
     );
     fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
-    fixture
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
         .expect("lifecycle should be ready");
+    fixture
+        .repository
+        .set_download_proxy("http://127.0.0.1:7890");
 
     let task = fixture
         .service()
@@ -917,6 +1034,73 @@ async fn resume_download_task_stays_paused_when_proxy_reconcile_fails() {
 }
 
 #[tokio::test]
+async fn resume_native_url_task_accepts_absolute_output_and_auto_renamed_file() {
+    for file_name in ["archive.zip", "archive.1.zip"] {
+        let save_dir = temp_dir("resume-native-output");
+        std::fs::create_dir_all(&save_dir).unwrap();
+        let path = save_dir.join(file_name).display().to_string();
+        let mock = ResumeProxyMockAria2Server::spawn_with_output_option(
+            false,
+            Some(path.clone()),
+            save_dir.display().to_string(),
+            path,
+        )
+        .await;
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Paused,
+            "gid-1",
+            mock.save_dir.clone(),
+        );
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        let fixture = ServiceFixture::new(vec![task], false);
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(
+            fixture
+                .app_data_dir
+                .join("native-state")
+                .display()
+                .to_string(),
+        );
+        let resumed = fixture
+            .service()
+            .resume_download_task(&config, 1)
+            .await
+            .expect("native absolute output should resume with original GID");
+        assert_eq!(resumed.gid.as_deref(), Some("gid-1"));
+        assert!(mock.methods().contains(&"aria2.unpause".to_string()));
+        mock.abort();
+    }
+}
+
+#[tokio::test]
+async fn resume_url_task_rejects_a_symlink_output() {
+    let mock = ResumeProxyMockAria2Server::spawn(false).await;
+    let external = temp_dir("resume-symlink-target");
+    std::fs::write(&external, b"user content").unwrap();
+    std::os::unix::fs::symlink(
+        &external,
+        std::path::Path::new(&mock.save_dir).join("archive.zip"),
+    )
+    .unwrap();
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "gid-1",
+        mock.save_dir.clone(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+    assert!(fixture
+        .service()
+        .resume_download_task(&test_config(mock.addr.port(), "secret"), 1)
+        .await
+        .is_err());
+    assert!(!mock.methods().contains(&"aria2.unpause".to_string()));
+    assert_eq!(std::fs::read(&external).unwrap(), b"user content");
+    mock.abort();
+}
+
+#[tokio::test]
 async fn resume_url_task_rejects_when_aria2_output_cannot_be_confirmed() {
     let mock = ResumeProxyMockAria2Server::spawn_without_confirmed_output().await;
     let task = sample_task(
@@ -1070,6 +1254,118 @@ async fn pause_and_resume_record_completed_operation_states() {
     assert_eq!(operations[1].status, TaskOperationStatus::Completed);
 
     mock.abort();
+}
+
+#[tokio::test]
+async fn native_unconfirmed_pause_returns_before_http_timeout_without_resuming_or_deleting() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = requests.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut config = test_config(listener.local_addr().unwrap().port(), "secret");
+    config.state_dir = Some("/private/native-state".to_string());
+    let app = Router::new().route(
+        "/jsonrpc",
+        post(move |Json(body): Json<Value>| {
+            observed.lock().unwrap().push(body["method"].clone());
+            async move {
+                Json(if body["method"] == "aria2.pause" {
+                    json!({"result": "gid-1"})
+                } else {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    json!({"result": {"gid": "gid-1", "status": "active", "totalLength": "100",
+                    "completedLength": "40", "downloadSpeed": "0", "files": []}})
+                })
+            }
+        }),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = temp_dir("native-unconfirmed-pause");
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("file.zip");
+    std::fs::write(&file, b"partial download").unwrap();
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        root.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let started = std::time::Instant::now();
+    let error = fixture
+        .service()
+        .pause_download_task(&config, 1)
+        .await
+        .unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(15));
+    assert!(error.contains("task_pause_unconfirmed"), "{error}");
+    assert!(error.contains("停止并重启应用"));
+    let calls = requests.lock().unwrap();
+    assert_eq!(calls[0], "aria2.pause");
+    assert!(calls[1..].iter().all(|method| method == "aria2.tellStatus"));
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Active
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Failed
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"partial download");
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(&fixture.app_data_dir).unwrap();
+}
+
+#[tokio::test]
+async fn native_delete_pause_rejection_preserves_active_task_without_manual_review_or_staging() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut config = test_config(listener.local_addr().unwrap().port(), "secret");
+    config.state_dir = Some("/private/native-state".to_string());
+    let app = Router::new().route("/jsonrpc", post(|Json(body): Json<Value>| async move {
+        if body["method"] == "aria2.tellStatus" {
+            (axum::http::StatusCode::OK, Json(json!({"result": {"gid": "gid-1", "status": "active",
+                "totalLength": "100", "completedLength": "40", "downloadSpeed": "0", "files": []}})))
+        } else {
+            (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": {"code": 1, "message": "cannot be paused now"}})))
+        }
+    }));
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = temp_dir("native-rejected-delete");
+    std::fs::create_dir_all(&root).unwrap();
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        root.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let file = PathBuf::from(task.file_path.as_ref().unwrap());
+    std::fs::write(&file, b"partial download").unwrap();
+    let fixture = ServiceFixture::new(vec![task], false);
+    let error = fixture
+        .service()
+        .delete_download_task(&config, 1, true)
+        .await
+        .unwrap_err();
+    assert!(error.contains("task_pause_unconfirmed"), "{error}");
+    assert_eq!(
+        fixture.tasks.list().unwrap()[0].status,
+        DownloadTaskStatus::Active
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Failed
+    );
+    assert_eq!(
+        fixture.repository.operations()[0].phase,
+        "aria2_pause_unconfirmed"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"partial download");
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    server.abort();
+    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_dir_all(&fixture.app_data_dir).unwrap();
 }
 
 #[tokio::test]
@@ -1321,7 +1617,7 @@ async fn restore_rejects_while_file_cleanup_is_pending() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&test_config(1, "secret"), 1, None)
+        .restore_removed_task(&test_config(1, "secret"), 1, None, false)
         .await
         .expect_err("restore should wait for file cleanup");
 
@@ -1339,6 +1635,8 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
     let fixture = ServiceFixture::new(
         vec![DownloadTask {
             id: 1,
+            engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+            removed_from_status: None,
             url: "magnet:?xt=urn:btih:test".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "磁力链接任务".to_string(),
@@ -1384,6 +1682,20 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
 
 #[tokio::test]
 async fn permanently_delete_removed_task_removes_memory_and_repository_record() {
+    let mock = MockAria2Server::spawn_with_router(Router::new().route(
+        "/jsonrpc",
+        post(|Json(payload): Json<Value>| async move {
+            Json(match payload["method"].as_str().unwrap_or_default() {
+                "aria2.remove" => json!({ "result": "gid-1" }),
+                "aria2.saveSession" => json!({ "result": "OK" }),
+                "aria2.tellStatus" => json!({
+                    "error": { "message": "GID gid-1 is not found" }
+                }),
+                method => json!({ "error": { "message": format!("unexpected method: {method}") } }),
+            })
+        }),
+    ))
+    .await;
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -1398,7 +1710,7 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
 
     fixture
         .service()
-        .permanently_delete_removed_task(1)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1)
         .await
         .expect("removed task should permanently delete");
 
@@ -1412,6 +1724,33 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
         TaskOperationType::PermanentDelete
     );
     assert_eq!(operations[0].status, TaskOperationStatus::Completed);
+    mock.abort();
+}
+
+#[tokio::test]
+async fn permanently_delete_native_task_without_gid_skips_engine() {
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Removed,
+        "",
+        temp_dir("service-permanent-delete-native-no-gid")
+            .display()
+            .to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.gid = None;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let mut config = test_config(1, "secret");
+    config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
+
+    fixture
+        .service()
+        .permanently_delete_removed_task(&config, 1)
+        .await
+        .expect("native task without GID should delete without starting Aria2");
+
+    assert!(fixture.tasks.list().expect("tasks should list").is_empty());
+    assert_eq!(fixture.repository.deleted_task_ids(), vec![1]);
 }
 
 #[tokio::test]
@@ -1428,6 +1767,8 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         repository: fixture.repository.clone(),
         tasks: TaskMemoryState::new(vec![DownloadTask {
             id: 1,
+            engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+            removed_from_status: None,
             url: "magnet:?xt=urn:btih:test".to_string(),
             source_type: DownloadTaskSourceType::Magnet,
             file_name: "archlinux.iso".to_string(),
@@ -1501,11 +1842,8 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         .filter_map(Result::ok)
         .all(|entry| entry.path().extension().and_then(|ext| ext.to_str()) != Some("torrent")));
     assert_eq!(task.gid.as_deref(), Some("gid-torrent"));
-    assert!(task.use_proxy);
-    assert_eq!(
-        task.proxy_binding.effective_proxy_url(),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(!task.use_proxy);
+    assert_eq!(task.proxy_binding.effective_proxy_url(), None);
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].operation_type, TaskOperationType::Confirm);
@@ -1515,6 +1853,164 @@ async fn confirm_download_task_files_archives_restore_metadata() {
         Some("gid-torrent")
     );
 
+    mock.abort();
+}
+
+#[tokio::test]
+async fn confirm_native_magnet_changes_the_original_gid() {
+    let metadata_dir_name = "magnet-metadata/task-1";
+    let final_dir = Arc::new(Mutex::new(None::<String>));
+    let final_dir_for_handler = final_dir.clone();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let requests_for_handler = requests.clone();
+    let metadata_dir = format!("/tmp/{metadata_dir_name}");
+    let call_count = Arc::new(Mutex::new(0_usize));
+    let call_count_for_handler = call_count.clone();
+    let app = Router::new().route(
+        "/jsonrpc",
+        post(move |Json(payload): Json<Value>| {
+            let requests = requests_for_handler.clone();
+            let final_dir = final_dir_for_handler.clone();
+            let call_count = call_count_for_handler.clone();
+            let metadata_dir = metadata_dir.clone();
+            async move {
+                requests
+                    .lock()
+                    .expect("native magnet requests should lock")
+                    .push(payload.clone());
+                let method = payload["method"].as_str().unwrap_or_default();
+                let response = match method {
+                    "aria2.tellStatus" => {
+                        let mut count = call_count.lock().expect("call count should lock");
+                        *count += 1;
+                        let awaiting = *count == 1;
+                        let dir = if awaiting {
+                            metadata_dir.clone()
+                        } else {
+                            final_dir
+                                .lock()
+                                .expect("final dir should lock")
+                                .clone()
+                                .expect("changeOption should set final dir")
+                        };
+                        let state = if awaiting { "awaiting" } else { "ready" };
+                        json!({
+                            "result": {
+                                "gid": "native-gid",
+                                "status": if awaiting || *count == 2 { "paused" } else { "active" },
+                                "totalLength": "1024",
+                                "completedLength": "0",
+                                "downloadSpeed": "0",
+                                "dir": dir,
+                                "files": [{
+                                    "index": "1",
+                                    "path": format!("{dir}/archlinux.iso"),
+                                    "length": "1024",
+                                    "completedLength": "0",
+                                    "selected": "true"
+                                }],
+                                "bittorrent": {
+                                    "fileSelectionState": state,
+                                    "info": { "name": "archlinux.iso" }
+                                }
+                            }
+                        })
+                    }
+                    "aria2.changeOption" => {
+                        let dir = payload["params"]
+                            .as_array()
+                            .and_then(|params| params.last())
+                            .and_then(Value::as_object)
+                            .and_then(|options| options.get("dir"))
+                            .and_then(Value::as_str)
+                            .expect("native confirmation should set dir")
+                            .to_string();
+                        *final_dir.lock().expect("final dir should lock") = Some(dir);
+                        json!({ "result": "native-gid" })
+                    }
+                    "aria2.unpause" => json!({ "result": "native-gid" }),
+                    _ => json!({ "error": { "message": format!("unexpected method: {method}") } }),
+                };
+                Json(response)
+            }
+        }),
+    );
+    let mock = MockAria2Server::spawn_with_router(app).await;
+    let save_dir = temp_dir("service-confirm-native-magnet");
+    std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Paused,
+        "native-gid",
+        save_dir.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = DownloadTaskSourceType::Magnet;
+    task.file_name = "archlinux.iso".to_string();
+    task.file_path = None;
+    task.confirmation_required = true;
+    task.files = vec![DownloadTaskFile {
+        index: 1,
+        path: save_dir
+            .join("archlinux/archlinux.iso")
+            .display()
+            .to_string(),
+        name: "archlinux.iso".to_string(),
+        length: 1024,
+        completed_length: 0,
+        selected: true,
+    }];
+    let fixture = ServiceFixture::new(vec![task], false);
+    let metadata_dir = fixture.app_data_dir.join(metadata_dir_name);
+    std::fs::create_dir_all(&metadata_dir).expect("native metadata dir should create");
+    std::fs::write(metadata_dir.join("native-state"), b"metadata")
+        .expect("native metadata marker should write");
+    let mut config = test_config(mock.addr.port(), "secret");
+    config.state_dir = Some(
+        fixture
+            .app_data_dir
+            .join("native-state")
+            .display()
+            .to_string(),
+    );
+
+    let confirmed = fixture
+        .service()
+        .confirm_download_task_files(&config, 1, vec![1])
+        .await
+        .expect("native magnet should confirm on the original GID");
+
+    assert_eq!(confirmed.gid.as_deref(), Some("native-gid"));
+    assert_eq!(confirmed.status, DownloadTaskStatus::Active);
+    assert!(!confirmed.confirmation_required);
+    assert_eq!(confirmed.selected_file_indexes, [1]);
+    assert!(confirmed.metadata_torrent_path.is_none());
+    assert!(!metadata_dir.exists());
+    assert_eq!(
+        requests
+            .lock()
+            .expect("requests should lock")
+            .iter()
+            .filter_map(|request| request["method"].as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "aria2.tellStatus",
+            "aria2.changeOption",
+            "aria2.tellStatus",
+            "aria2.unpause",
+            "aria2.tellStatus"
+        ]
+    );
+    assert!(!requests
+        .lock()
+        .expect("requests should lock")
+        .iter()
+        .any(|request| request["method"] == "aria2.addTorrent"));
+    assert_eq!(
+        fixture.repository.operations()[0].status,
+        TaskOperationStatus::Completed
+    );
     mock.abort();
 }
 
@@ -1533,7 +2029,7 @@ async fn restore_removed_url_task_returns_paused_task() {
 
     let restored = fixture
         .service()
-        .restore_removed_task(&config, 1, None)
+        .restore_removed_task(&config, 1, None, true)
         .await
         .expect("removed URL task should restore");
 
@@ -1555,6 +2051,77 @@ async fn restore_removed_url_task_returns_paused_task() {
 }
 
 #[tokio::test]
+async fn native_recycle_and_restore_keep_the_original_download() {
+    let save_dir = temp_dir("native-recycle");
+    std::fs::create_dir_all(&save_dir).unwrap();
+    let file = save_dir.join("archive.zip");
+    std::fs::write(&file, b"partial download").unwrap();
+    let mut task = sample_task(
+        1,
+        DownloadTaskStatus::Active,
+        "gid-1",
+        save_dir.display().to_string(),
+    );
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    let fixture = ServiceFixture::new(vec![task], false);
+    let mock = MockAria2Server::spawn_with_tell_status_dir(save_dir.display().to_string()).await;
+    let mut config = test_config(mock.addr.port(), "secret");
+    config.state_dir = Some(
+        fixture
+            .app_data_dir
+            .join("native-state")
+            .display()
+            .to_string(),
+    );
+
+    let removed = fixture
+        .service()
+        .delete_download_task(&config, 1, false)
+        .await
+        .unwrap();
+    assert_eq!(removed.status, DownloadTaskStatus::Removed);
+    let restored = fixture
+        .service()
+        .restore_removed_task(&config, 1, None, false)
+        .await
+        .unwrap();
+    assert_eq!(restored.status, DownloadTaskStatus::Paused);
+    assert_eq!(restored.gid.as_deref(), Some("gid-1"));
+    assert_eq!(restored.completed_length, 256);
+    assert_eq!(std::fs::read(&file).unwrap(), b"partial download");
+    assert!(!mock.methods().iter().any(|method| matches!(
+        method.as_str(),
+        "aria2.remove" | "aria2.addUri" | "aria2.unpause"
+    )));
+    mock.abort();
+}
+
+#[tokio::test]
+async fn completed_history_recycles_without_contacting_the_engine() {
+    let task = sample_task(
+        1,
+        DownloadTaskStatus::Complete,
+        "gid-1",
+        temp_dir("complete-recycle").display().to_string(),
+    );
+    let fixture = ServiceFixture::new(vec![task], false);
+
+    let removed = fixture
+        .service()
+        .delete_download_task(&test_config(1, "secret"), 1, false)
+        .await
+        .unwrap();
+    assert_eq!(removed.status, DownloadTaskStatus::Removed);
+    let restored = fixture
+        .service()
+        .restore_removed_task(&test_config(1, "secret"), 1, None, false)
+        .await
+        .unwrap();
+    assert_eq!(restored.status, DownloadTaskStatus::Complete);
+    assert_eq!(restored.gid.as_deref(), Some("gid-1"));
+}
+
+#[tokio::test]
 async fn restore_persist_failure_keeps_the_task_in_the_recycle_bin() {
     let mock = MockAria2Server::spawn().await;
     let task = sample_task(
@@ -1568,7 +2135,7 @@ async fn restore_persist_failure_keeps_the_task_in_the_recycle_bin() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None, false)
         .await
         .expect_err("persistence failure should restore the recycle-bin state");
 
@@ -1579,7 +2146,7 @@ async fn restore_persist_failure_keeps_the_task_in_the_recycle_bin() {
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
     assert_eq!(operations[0].status, TaskOperationStatus::Failed);
-    assert_eq!(operations[0].phase, "task_persist_failed");
+    assert_eq!(operations[0].phase, "restore_failed");
 
     mock.abort();
 }
@@ -1607,7 +2174,7 @@ async fn restore_removed_torrent_task_uses_private_metadata() {
 
     let restored = fixture
         .service()
-        .restore_removed_task(&config, 1, None)
+        .restore_removed_task(&config, 1, None, true)
         .await
         .expect("removed torrent task should restore");
 
@@ -1634,7 +2201,7 @@ async fn restore_removed_torrent_without_metadata_keeps_removed_state() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&config, 1, None)
+        .restore_removed_task(&config, 1, None, false)
         .await
         .expect_err("missing torrent metadata should reject restore");
 
@@ -1667,7 +2234,7 @@ async fn restore_removed_torrent_without_metadata_preserves_user_files() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None, false)
         .await
         .expect_err("missing torrent metadata should reject restore");
 
@@ -1702,7 +2269,7 @@ async fn restore_removed_magnet_without_metadata_restarts_parsing() {
 
     let restored = fixture
         .service()
-        .restore_removed_task(&config, 1, None)
+        .restore_removed_task(&config, 1, None, false)
         .await
         .expect("magnet task should restart metadata parsing");
 
@@ -1739,6 +2306,7 @@ async fn restore_inherits_override_proxy_when_omitted_or_unchanged() {
                 &test_config(mock.addr.port(), "secret"),
                 1,
                 use_proxy_override,
+                false,
             )
             .await
             .expect("override proxy should be inherited");
@@ -1758,7 +2326,7 @@ async fn restore_inherits_override_proxy_when_omitted_or_unchanged() {
 }
 
 #[tokio::test]
-async fn restore_torrent_explicit_enable_uses_profile_proxy() {
+async fn restore_torrent_rejects_task_proxy_override() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let save_dir = temp_dir("restore-torrent-enable-profile");
     let mut task = sample_task(
@@ -1779,27 +2347,24 @@ async fn restore_torrent_explicit_enable_uses_profile_proxy() {
     set_task_metadata_torrent_path(&fixture.tasks, 1, metadata_path.display().to_string())
         .expect("metadata path should update");
 
-    let restored = fixture
+    let error = fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, Some(true))
+        .restore_removed_task(
+            &test_config(mock.addr.port(), "secret"),
+            1,
+            Some(true),
+            false,
+        )
         .await
-        .expect("explicit proxy enable should restore torrent");
+        .expect_err("task proxy override should reject torrent restore");
 
-    assert!(restored.use_proxy);
-    assert_eq!(
-        restored.proxy_binding.source(),
-        crate::tasks::TaskProxySource::Profile
-    );
-    let options = mock.creation_options("aria2.addTorrent");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(error.contains("BT 任务不支持任务级代理"));
+    assert!(mock.requests().is_empty());
     mock.abort();
 }
 
 #[tokio::test]
-async fn restore_reparsed_magnet_inherits_profile_proxy() {
+async fn restore_reparsed_magnet_discards_legacy_task_proxy() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let task_dir = temp_dir("restore-magnet-profile").join("example");
     let mut task = sample_task(
@@ -1813,23 +2378,17 @@ async fn restore_reparsed_magnet_inherits_profile_proxy() {
     task.use_proxy = true;
     task.proxy_binding = crate::tasks::TaskProxyBinding::profile(None);
     let fixture = ServiceFixture::new(vec![task], false);
-    fixture
-        .repository
-        .set_download_proxy("http://127.0.0.1:7890");
 
     let restored = fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None, false)
         .await
         .expect("magnet metadata parsing should inherit profile proxy");
 
-    assert!(restored.use_proxy);
+    assert!(!restored.use_proxy);
     assert_eq!(restored.status, DownloadTaskStatus::Pending);
     let options = mock.creation_options("aria2.addUri");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("http://127.0.0.1:7890/")
-    );
+    assert!(!options[0].contains_key("all-proxy"));
     mock.abort();
 }
 
@@ -1849,7 +2408,7 @@ async fn restore_rejects_missing_profile_proxy_before_side_effects() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None, false)
         .await
         .expect_err("missing profile proxy should reject restore");
 
@@ -1901,7 +2460,7 @@ async fn redownload_explicit_disable_switches_override_to_profile() {
 }
 
 #[tokio::test]
-async fn redownload_confirmed_magnet_inherits_override_proxy() {
+async fn redownload_confirmed_magnet_discards_legacy_task_proxy() {
     let mock = TaskCreationMockAria2Server::spawn().await;
     let save_dir = temp_dir("redownload-magnet-override");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1931,16 +2490,13 @@ async fn redownload_confirmed_magnet_inherits_override_proxy() {
         .await
         .expect("confirmed magnet should inherit override proxy");
 
-    assert!(redownloaded.use_proxy);
+    assert!(!redownloaded.use_proxy);
     assert_eq!(
         redownloaded.proxy_binding.source(),
-        crate::tasks::TaskProxySource::Override
+        crate::tasks::TaskProxySource::Profile
     );
     let options = mock.creation_options("aria2.addTorrent");
-    assert_eq!(
-        options[0].get("all-proxy").and_then(Value::as_str),
-        Some("socks5://legacy.example.com:1080")
-    );
+    assert!(!options[0].contains_key("all-proxy"));
     mock.abort();
 }
 
@@ -2218,6 +2774,89 @@ async fn redownload_torrent_uses_add_torrent_and_preserves_metadata_source() {
 }
 
 #[tokio::test]
+async fn native_magnet_redownload_checks_identity_and_files_before_replacing_payload() {
+    for mismatch in ["hash", "path", "length", "index", "none"] {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let captured = calls.clone();
+        let hash = "a".repeat(40);
+        let expected_hash = hash.clone();
+        let mock = MockAria2Server::spawn_with_router(Router::new().route("/jsonrpc", post(move |Json(request): Json<Value>| {
+            let captured = captured.clone(); let hash = expected_hash.clone();
+            async move {
+                let method=request["method"].as_str().unwrap().to_string(); captured.lock().unwrap().push(method.clone());
+                Json(match method.as_str() {
+                    "aria2.inspectTorrent" => json!({"result":{"infoHashV1":if mismatch=="hash" {"b".repeat(40)} else {hash},"files":[{"index":if mismatch=="index" {"2"} else {"1"},"path":if mismatch=="path" {"other.bin"} else {"payload.bin"},"length":if mismatch=="length" {"999"} else {"11"}}]}}),
+                    "aria2.addTorrent" => {
+                        let options = request["params"].as_array().unwrap().last().unwrap();
+                        assert_eq!(options["check-integrity"], "true");
+                        assert_eq!(options["select-file"], "1");
+                        json!({"error":{"code":1,"message":"injected creation failure"}})
+                    },
+                    _ => panic!("unexpected method: {method}"),
+                })
+            }
+        }))).await;
+        let directory = temp_dir("native-redownload-inspection");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(directory.join("payload.bin"), b"old payload").unwrap();
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Complete,
+            "old-gid",
+            directory.display().to_string(),
+        );
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        task.source_type = DownloadTaskSourceType::Magnet;
+        task.url = format!("magnet:?xt=urn:btih:{hash}");
+        task.file_name = "fixture".to_string();
+        task.owned_task_dir = Some(task.save_dir.clone());
+        task.file_path = Some(directory.join("payload.bin").display().to_string());
+        task.files = vec![crate::tasks::DownloadTaskFile {
+            index: 1,
+            path: task.file_path.clone().unwrap(),
+            name: "payload.bin".to_string(),
+            length: 11,
+            completed_length: 11,
+            selected: true,
+        }];
+        task.selected_file_indexes = vec![1];
+        let fixture = ServiceFixture::new(vec![task.clone()], false);
+        save_restore_torrent_metadata(&fixture.app_data_dir, 1, b"private metadata").unwrap();
+        let mut config = test_config(mock.addr.port(), "secret");
+        config.state_dir = Some(
+            fixture
+                .app_data_dir
+                .join("engine/native-v2/state")
+                .display()
+                .to_string(),
+        );
+        let error = fixture
+            .service()
+            .redownload_download_task(&config, 1, None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            std::fs::read(directory.join("payload.bin")).unwrap(),
+            b"old payload"
+        );
+        assert_eq!(fixture.tasks.list().unwrap(), vec![task]);
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .contains(&"aria2.addTorrent".to_string()),
+            mismatch == "none"
+        );
+        if mismatch == "none" {
+            assert!(error.contains("injected creation failure"));
+        } else {
+            assert!(error.contains("task_metadata_missing"));
+        }
+        mock.abort();
+    }
+}
+
+#[tokio::test]
 async fn task_lifecycle_regression_preserves_operation_boundaries() {
     let save_dir = temp_dir("lifecycle-regression");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -2268,7 +2907,7 @@ async fn task_lifecycle_regression_preserves_operation_boundaries() {
 
     let restored = fixture
         .service()
-        .restore_removed_task(&config, created.id, None)
+        .restore_removed_task(&config, created.id, None, false)
         .await
         .expect("task should restore paused");
     assert_eq!(restored.status, DownloadTaskStatus::Paused);
@@ -2281,7 +2920,7 @@ async fn task_lifecycle_regression_preserves_operation_boundaries() {
         .expect("restored task should enter recycle bin again");
     fixture
         .service()
-        .permanently_delete_removed_task(created.id)
+        .permanently_delete_removed_task(&config, created.id)
         .await
         .expect("removed task should permanently delete");
 
@@ -2325,7 +2964,7 @@ async fn restore_rejects_revoked_destination_before_creating_it() {
 
     let error = fixture
         .service()
-        .restore_removed_task(&test_config(6800, "secret"), 1, None)
+        .restore_removed_task(&test_config(6800, "secret"), 1, None, false)
         .await
         .expect_err("restore should reject a revoked destination");
 
@@ -2355,7 +2994,7 @@ async fn restore_pending_magnet_uses_private_metadata_when_download_dir_is_revok
 
     fixture
         .service()
-        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None)
+        .restore_removed_task(&test_config(mock.addr.port(), "secret"), 1, None, false)
         .await
         .expect("private metadata restore should not require user directory access");
 
@@ -2760,9 +3399,11 @@ impl FakeTaskRepository {
             .lock()
             .expect("repository state should lock")
             .download_proxy_config = Some(StoredDownloadProxyConfig {
-            proxy_url: proxy_url.to_string(),
+            proxy_url: Some(proxy_url.to_string()),
             revision: 1,
             updated_at: 1,
+            bt_use_proxy: false,
+            bt_runtime_apply: crate::database::settings::BtRuntimeApplyStatus::Deferred,
         });
     }
 
@@ -2822,6 +3463,22 @@ impl TaskRepository for Arc<FakeTaskRepository> {
             .expect("repository state should lock")
             .download_proxy_config
             .clone())
+    }
+
+    async fn set_bt_proxy_runtime_apply_status(
+        &self,
+        status: crate::database::settings::BtRuntimeApplyStatus,
+    ) -> Result<(), String> {
+        if let Some(config) = self
+            .state
+            .lock()
+            .expect("repository state should lock")
+            .download_proxy_config
+            .as_mut()
+        {
+            config.bt_runtime_apply = status;
+        }
+        Ok(())
     }
 
     async fn upsert_task(&self, task: &DownloadTask) -> Result<(), String> {
@@ -3377,6 +4034,16 @@ impl ResumeProxyMockAria2Server {
             .and_then(|path| path.rsplit('/').next())
             .unwrap_or("archive.zip")
             .to_string();
+        Self::spawn_with_output_option(fail_change_option, output_path, save_dir, output_file_name)
+            .await
+    }
+
+    async fn spawn_with_output_option(
+        fail_change_option: bool,
+        output_path: Option<String>,
+        save_dir: String,
+        output_file_name: String,
+    ) -> Self {
         let confirmed_output = output_path.is_some();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let captured = requests.clone();
@@ -3559,17 +4226,22 @@ fn mock_aria2_response(payload: &Value) -> Value {
         .unwrap_or_default();
 
     match method {
+        "aria2.saveSession" => json!({ "result": "OK" }),
         "aria2.addUri" => json!({ "result": "gid-created" }),
         "aria2.addTorrent" => json!({ "result": "gid-torrent" }),
         "aria2.pause" | "aria2.unpause" | "aria2.changeOption" => {
-            json!({ "result": "gid-created" })
+            json!({ "result": payload["params"].as_array().unwrap().iter().find_map(|value| value.as_str().filter(|value| !value.starts_with("token:"))).unwrap() })
         }
         "aria2.getOption" => json!({ "result": {} }),
         "aria2.remove" | "aria2.removeDownloadResult" => {
             let gid = payload
                 .get("params")
                 .and_then(Value::as_array)
-                .and_then(|params| params.iter().find_map(Value::as_str))
+                .and_then(|params| {
+                    params.iter().find_map(|value| {
+                        value.as_str().filter(|value| !value.starts_with("token:"))
+                    })
+                })
                 .map(str::to_string)
                 .unwrap_or_else(|| "gid-1".to_string());
             json!({ "result": gid })
@@ -3600,7 +4272,8 @@ fn mock_aria2_response_with_tell_status_dir(payload: &Value, save_dir: &str) -> 
                     "dir": save_dir,
                     "files": [{
                         "index": "1",
-                        "path": format!("{save_dir}/archive.zip")
+                        "path": format!("{save_dir}/archive.zip"),
+                        "length": "1024", "completedLength": "256", "selected": "true"
                     }]
                 }
             })
@@ -3622,6 +4295,7 @@ fn test_config(port: u16, rpc_secret: &str) -> Aria2Config {
         rpc_port: port,
         rpc_secret: rpc_secret.to_string(),
         session_path: None,
+        state_dir: None,
         log_path: None,
     }
 }
@@ -3634,6 +4308,8 @@ pub(super) fn sample_task(
 ) -> DownloadTask {
     DownloadTask {
         id,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

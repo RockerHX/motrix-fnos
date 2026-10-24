@@ -1,6 +1,7 @@
 import { useTaskStore } from "../features/tasks/stores/taskStore";
 import type { DownloadTask } from "../types/tasks";
 import type { AuthStatus } from "../features/auth/types";
+import type { AppCompatibility } from "../types/app";
 
 export interface RuntimeExitingPayload {
   reason: string;
@@ -169,7 +170,10 @@ function handleSseEvent(
 ) {
   if (currentGeneration !== generation || currentConnectionGeneration !== activeConnectionGeneration) return;
   const taskStore = useTaskStore();
-  if (eventName === "tasks.snapshot") {
+  if (eventName === "app.compatibility") {
+    const payload = parseEventPayload<AppCompatibility>(data);
+    if (payload) taskStore.applyCompatibility(payload);
+  } else if (eventName === "tasks.snapshot") {
     const payload = parseEventPayload<TasksSnapshotPayload>(data);
     if (payload && !taskStore.isRuntimeExiting) taskStore.applyTaskSnapshot(payload);
   } else if (eventName === "runtime.exiting") {

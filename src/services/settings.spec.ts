@@ -12,9 +12,7 @@ describe("settings service", () => {
     saveAppConfig({
       defaultDownloadDir: "/downloads",
       maxConcurrentDownloads: 5,
-      maxConnectionPerServer: 6,
-      split: 7,
-      minSplitSize: "5M",
+      httpMaxConnections: 6,
       connectTimeout: 90,
       maxTries: 8,
       downloadLimit: 0,
@@ -27,9 +25,7 @@ describe("settings service", () => {
     expect(httpPut).toHaveBeenCalledWith("/api/settings", {
       defaultDownloadDir: "/downloads",
       maxConcurrentDownloads: 5,
-      maxConnectionPerServer: 6,
-      split: 7,
-      minSplitSize: "5M",
+      httpMaxConnections: 6,
       connectTimeout: 90,
       maxTries: 8,
       downloadLimit: 0,
@@ -51,9 +47,7 @@ describe("settings service", () => {
     expect(httpPut).toHaveBeenCalledWith("/api/settings", {
       defaultDownloadDir: "/downloads",
       maxConcurrentDownloads: 5,
-      maxConnectionPerServer: 1,
-      split: 5,
-      minSplitSize: "20M",
+      httpMaxConnections: 1,
       connectTimeout: 60,
       maxTries: 5,
       downloadLimit: 0,

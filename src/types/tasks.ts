@@ -1,6 +1,7 @@
 export type DownloadTaskStatus = "pending" | "active" | "paused" | "complete" | "error" | "removed";
 export type DownloadTaskSourceType = "url" | "torrent" | "magnet";
 export type DownloadTaskStartMode = "now" | "paused";
+export type EngineGeneration = "legacy-v1" | "native-v2" | "unknown";
 
 export interface CreateTaskAdvancedOptions {
   connections?: number | null;
@@ -11,6 +12,8 @@ export interface CreateTaskAdvancedOptions {
 
 export interface DownloadTask {
   id: number;
+  engineGeneration?: EngineGeneration;
+  readOnly?: boolean;
   url: string;
   /** Older servers may omit this field; the UI falls back to URL inference. */
   sourceType?: DownloadTaskSourceType;
@@ -28,6 +31,9 @@ export interface DownloadTask {
   errorMessage?: string | null;
   filePath?: string | null;
   useProxy: boolean;
+  filesDeleted?: boolean;
+  cleanupState?: "none" | "pending" | "failed";
+  metadataState?: "none" | "resolving" | "awaiting" | "ready" | "error";
   confirmationRequired: boolean;
   files: DownloadTaskFile[];
   createdAt: number;

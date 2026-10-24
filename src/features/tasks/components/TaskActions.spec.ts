@@ -465,6 +465,19 @@ describe("TaskActions", () => {
     await clickButton(restoreWrapper, "恢复", -1);
     expect(restoreWrapper.emitted("restore")).toEqual([[false]]);
   });
+
+  it("hides task proxy controls for BT tasks", async () => {
+    const { wrapper } = mountTaskActions({
+      task: createTask({ sourceType: "magnet", url: "magnet:?xt=urn:btih:test", status: "complete" }),
+      permissions: { canRedownload: true, canDelete: false },
+    });
+
+    await clickButton(wrapper, "详情");
+    expect(wrapper.find('[data-test="task-detail-settings-section"]').exists()).toBe(false);
+
+    await clickButton(wrapper, "重新下载");
+    expect(wrapper.find('[data-test="task-proxy-toggle"]').exists()).toBe(false);
+  });
 });
 
 interface MountTaskActionsOverrides {

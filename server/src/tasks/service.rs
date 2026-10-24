@@ -15,7 +15,7 @@ use crate::tasks::{
     mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
     mark_task_resumed, pause_task, pause_task_with_request_id, prepare_task_with_logs,
     prepare_torrent_task_with_logs, readd_task_to_aria2, reconcile_task_proxy_option, remove_task,
-    remove_task_record, remove_task_with_request_id, replace_task_snapshot,
+    remove_task_record, remove_task_result, remove_task_with_request_id, replace_task_snapshot,
     set_task_metadata_torrent_path, should_readd_task_after_resume_error,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
@@ -36,6 +36,7 @@ mod control;
 mod create;
 mod delete;
 mod magnet;
+mod native_metadata;
 mod proxy;
 mod query;
 mod restore;
@@ -43,17 +44,37 @@ mod restore;
 #[derive(Clone, Copy)]
 pub struct RuntimeGuard<'a> {
     shutdown: &'a ShutdownState,
+    compatibility: Option<&'a std::sync::Mutex<crate::app::compatibility::AppCompatibility>>,
 }
 
 impl<'a> RuntimeGuard<'a> {
     pub fn new(shutdown: &'a ShutdownState) -> Self {
-        Self { shutdown }
+        Self {
+            shutdown,
+            compatibility: None,
+        }
+    }
+
+    pub(crate) fn with_compatibility(
+        shutdown: &'a ShutdownState,
+        compatibility: &'a std::sync::Mutex<crate::app::compatibility::AppCompatibility>,
+    ) -> Self {
+        Self {
+            shutdown,
+            compatibility: Some(compatibility),
+        }
     }
 
     pub fn ensure_running(&self) -> Result<(), String> {
         if self.shutdown.is_exiting() {
             Err("应用正在退出，不能执行任务操作".to_string())
         } else {
+            if let Some(compatibility) = self.compatibility {
+                compatibility
+                    .lock()
+                    .map_err(|_| "无法读取兼容状态")?
+                    .ensure_download_available()?;
+            }
             Ok(())
         }
     }
@@ -206,6 +227,15 @@ impl<'a> TaskService<'a> {
         phase: impl Into<String>,
         context: TaskOperationContext,
     ) -> Result<TaskOperation, String> {
+        if self
+            .repository
+            .list_unfinished_operations()
+            .await?
+            .iter()
+            .any(|operation| operation.task_id == task_id)
+        {
+            return Err("该任务已有操作正在进行，请稍后重试".to_string());
+        }
         let operation = TaskOperation::new(task_id, operation_type, phase, context);
         self.repository.begin_operation(&operation).await?;
         Ok(operation)
@@ -480,7 +510,43 @@ impl<'a> TaskService<'a> {
         query::get_download_task(self, task_id)
     }
 
-    pub(super) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
+    fn ensure_task_engine_compatible(
+        &self,
+        config: &Aria2Config,
+        task_id: u64,
+    ) -> Result<(), String> {
+        let task = task_snapshot(self.download_tasks, task_id)?;
+        if task.engine_generation == crate::config::aria2::EngineGeneration::Unknown
+            || task.engine_generation != config.engine_generation()
+        {
+            return Err(
+                "task_engine_incompatible：任务与当前引擎代际不兼容，旧记录仅供查看".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn ensure_task_generation_writable(&self, task_id: u64) -> Result<(), String> {
+        if let Some(compatibility) = self.runtime_guard.compatibility {
+            let generation = compatibility
+                .lock()
+                .map_err(|_| "无法读取兼容状态")?
+                .engine_generation;
+            let task = task_snapshot(self.download_tasks, task_id)?;
+            if matches!(
+                generation,
+                crate::config::aria2::EngineGeneration::NativeV2
+                    | crate::config::aria2::EngineGeneration::Unknown
+            ) && (task.engine_generation == crate::config::aria2::EngineGeneration::Unknown
+                || task.engine_generation != generation)
+            {
+                return Err("task_engine_incompatible：旧版任务仅供查看".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn ensure_file_cleanup_not_pending(&self, task_id: u64) -> Result<(), String> {
         let pending = self
             .repository
             .list_unfinished_operations()
@@ -502,6 +568,7 @@ pub(super) fn task_operation_context(
     critical_paths: Vec<String>,
 ) -> TaskOperationContext {
     TaskOperationContext {
+        engine_generation: task_snapshot.as_ref().map(|task| task.engine_generation),
         old_gid: task_snapshot.as_ref().and_then(|task| task.gid.clone()),
         new_gid: None,
         aria2_request: None,

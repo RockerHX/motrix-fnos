@@ -160,7 +160,9 @@ fn bootstrap_http_app_state_restores_database_state() {
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 lan_jsonrpc_addr: DEFAULT_LAN_JSONRPC_ADDR.parse().expect("addr should parse"),
-                aria2_path: None,
+                aria2_path: Some(crate::test_support::legacy_version_only_engine(
+                    &app_data_dir,
+                )),
                 trusted_proxy_ips: Vec::new(),
             };
 
@@ -277,6 +279,9 @@ async fn bootstrap_reconciles_prepared_operation_without_starting_aria2() {
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         ..runtime
     };
     let database = connect_database(runtime.database_path.clone())
@@ -324,6 +329,9 @@ async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2(
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         ..runtime
     };
     let database = connect_database(runtime.database_path.clone())
@@ -351,6 +359,10 @@ async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2(
         .expect("manual review should survive restart");
 
     assert!(state.aria2_runtime_snapshot().is_none());
+    assert_eq!(
+        state.core.download_tasks.list().expect("tasks should list")[0].id,
+        task.id
+    );
     let unfinished = list_unfinished_task_operations(&state.core.database.pool)
         .await
         .expect("unfinished operations should list");
@@ -601,6 +613,37 @@ async fn non_conflict_lan_jsonrpc_bind_error_still_releases_other_ports() {
 }
 
 #[tokio::test]
+async fn ipv6_management_listener_rebinds_after_closing_an_accepted_connection() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        let listener = bind_ipv6_management_listener(0).expect("IPv6 listener should bind");
+        let port = listener.local_addr().unwrap().port();
+        assert!(
+            bind_ipv6_management_listener(port).is_err(),
+            "a running listener must retain exclusive ownership of its port"
+        );
+
+        let mut client = tokio::net::TcpStream::connect((Ipv6Addr::LOCALHOST, port))
+            .await
+            .expect("IPv6 client should connect");
+        let (mut connection, _) = listener.accept().await.unwrap();
+        // 服务端先关闭连接，使旧连接进入 TIME_WAIT，覆盖应用停用后立即启用的场景。
+        connection.shutdown().await.unwrap();
+        assert_eq!(client.read(&mut [0; 1]).await.unwrap(), 0);
+        drop(client);
+        drop(connection);
+        drop(listener);
+
+        let listener = bind_ipv6_management_listener(port)
+            .expect("IPv6 management port should rebind without waiting for TIME_WAIT to expire");
+        assert_eq!(listener.local_addr().unwrap().port(), port);
+    })
+    .await
+    .expect("IPv6 close and rebind should finish within the deadline");
+}
+
+#[tokio::test]
 async fn wildcard_management_listener_serves_ipv4_and_ipv6() {
     let runtime = listener_runtime(
         "0.0.0.0:0".parse().expect("address should parse"),
@@ -824,6 +867,8 @@ fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
     std::fs::write(metadata_dir.join("pending.torrent"), b"torrent").expect("torrent should write");
     let mut tasks = vec![DownloadTask {
         id: 9,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -865,6 +910,8 @@ fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missi
         .expect("metadata root should create");
     let mut tasks = vec![DownloadTask {
         id: 10,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -914,6 +961,8 @@ fn reconcile_missing_magnet_metadata_preserves_user_download_files() {
         .expect("metadata root should create");
     let mut tasks = vec![DownloadTask {
         id: 11,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Magnet,
         file_name: "磁力链接任务".to_string(),
@@ -1179,6 +1228,8 @@ fn migrate_legacy_owned_task_dirs_uses_authorized_parent_without_trusting_root()
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -1203,6 +1254,31 @@ fn sample_task() -> DownloadTask {
         created_at: 100,
         updated_at: 101,
     }
+}
+
+#[test]
+fn legacy_metadata_reconcile_preserves_native_confirmation_and_original_gid() {
+    let root = std::env::temp_dir().join(format!("motrix-native-boot-{}", now_ms()));
+    std::fs::create_dir_all(root.join("magnet-metadata")).unwrap();
+    let mut task = sample_task();
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+    task.url = "magnet:?xt=urn:btih:test".into();
+    task.confirmation_required = true;
+    task.metadata_torrent_path = None;
+    task.files = vec![crate::tasks::DownloadTaskFile {
+        index: 1,
+        path: "/downloads/file.bin".into(),
+        name: "file.bin".into(),
+        length: 100,
+        completed_length: 0,
+        selected: false,
+    }];
+    let mut tasks = vec![task.clone()];
+    reconcile_magnet_metadata_dirs(&root, &mut tasks).unwrap();
+    migrate_legacy_owned_task_dirs(&mut tasks, &["/downloads".into()]);
+    assert_eq!(tasks, vec![task]);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 async fn reserve_local_addr() -> SocketAddr {
@@ -1249,4 +1325,88 @@ fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be valid")
         .as_millis()
+}
+
+#[tokio::test]
+async fn native_bootstrap_ignores_damaged_legacy_rows_but_preserves_data_and_ids() {
+    use std::os::unix::fs::PermissionsExt;
+    for damaged in ["task", "operation"] {
+        let mut runtime = listener_runtime(
+            "127.0.0.1:0".parse().unwrap(),
+            "127.0.0.1:0".parse().unwrap(),
+        );
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        upsert_download_task(&database.pool, &sample_task())
+            .await
+            .unwrap();
+        let operation = TaskOperation::with_id(
+            "legacy-damaged",
+            7,
+            TaskOperationType::Delete,
+            "file_cleanup_pending",
+            TaskOperationContext::default(),
+        );
+        begin_task_operation(&database.pool, &operation)
+            .await
+            .unwrap();
+        if damaged == "task" {
+            sqlx::query("UPDATE download_tasks SET selected_file_indexes = 'broken'")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (7, -1, 'old', 'old', -1, -1, 1, 1)").execute(&database.pool).await.unwrap();
+        } else {
+            sqlx::query("UPDATE task_operations SET context_json = 'broken'")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+        }
+        save_json_rpc_token(&database.pool, "keep-rpc-token")
+            .await
+            .unwrap();
+        let auth = AuthService::new(database.pool.clone());
+        auth.setup("preserved management password").await.unwrap();
+        database.pool.close().await;
+        let binary = runtime.app_data_dir.join("version-only-engine");
+        std::fs::write(&binary, "#!/bin/sh\nprintf 'aria2 version 2.8.6\\n'\n").unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        runtime.aria2_path = Some(binary);
+        std::fs::write(runtime.app_data_dir.join("user-file"), b"keep payload").unwrap();
+        let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        assert!(
+            state.ensure_download_available().is_ok(),
+            "legacy damage must not block native startup"
+        );
+        assert!(state.core.download_tasks.list().unwrap().is_empty());
+        assert_eq!(state.core.next_task_id.load(Ordering::SeqCst), 8);
+        assert_eq!(
+            load_json_rpc_token(&state.core.database.pool)
+                .await
+                .unwrap(),
+            "keep-rpc-token"
+        );
+        assert!(AuthService::new(state.core.database.pool.clone())
+            .verify_password("preserved management password")
+            .await
+            .is_ok());
+        assert_eq!(
+            std::fs::read(runtime.app_data_dir.join("user-file")).unwrap(),
+            b"keep payload"
+        );
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_operations")
+            .fetch_one(&state.core.database.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            max_download_task_id(&state.core.database.pool)
+                .await
+                .unwrap(),
+            7
+        );
+        state.core.database.pool.close().await;
+        std::fs::remove_dir_all(runtime.app_data_dir).unwrap();
+    }
 }

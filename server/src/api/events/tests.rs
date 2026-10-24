@@ -57,13 +57,15 @@ async fn sse_route_sends_initial_tasks_snapshot_event() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let mut body = response.into_body();
+    let compatibility = next_sse_frame(&mut body).await;
+    assert!(compatibility.contains("event: app.compatibility"));
     let text = next_sse_frame(&mut body).await;
     assert!(text.contains("event: tasks.snapshot"));
     assert!(text.contains("\"archive.zip\""));
     assert!(text.contains("\"revision\":1"));
     assert!(!text.contains("proxyBinding"));
     assert!(!text.contains("metadataTorrentPath"));
-    assert!(!text.contains("filesDeleted"));
+    assert!(text.contains("\"filesDeleted\":true"));
     assert!(!text.contains("selectedFileIndexes"));
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(state
@@ -107,12 +109,17 @@ async fn sse_route_resyncs_with_current_snapshot_after_lag() {
         .await
         .expect("response should succeed");
     let mut body = response.into_body();
+    assert!(next_sse_frame(&mut body)
+        .await
+        .contains("event: app.compatibility"));
     assert!(next_sse_frame(&mut body).await.contains("\"revision\":0"));
 
     for _ in 0..40 {
         broadcast_tasks_snapshot(&state).expect("snapshot should broadcast");
     }
 
+    let resync = next_sse_frame(&mut body).await;
+    assert!(resync.contains("event: app.compatibility"));
     let resync = next_sse_frame(&mut body).await;
     assert!(resync.contains("event: tasks.snapshot"));
     assert!(resync.contains("\"archive.zip\""));
@@ -153,6 +160,7 @@ async fn sse_route_closes_when_its_jwt_is_invalidated() {
         .await
         .expect("response should succeed");
     let mut body = response.into_body();
+    let _compatibility = next_sse_frame(&mut body).await;
     let _initial = next_sse_frame(&mut body).await;
 
     state
@@ -194,6 +202,64 @@ async fn authenticated_events_app(state: Arc<HttpAppState>) -> (Router, String) 
     (app, token)
 }
 
+#[tokio::test]
+async fn sse_shutdown_closes_notified_lagged_and_late_subscribers() {
+    for scenario in ["notified", "lagged", "late"] {
+        let root = temp_dir("events-shutdown");
+        let state = bootstrap_http_app_state(&ServerRuntimeConfig {
+            database_path: root.join("motrix-fnos.sqlite"),
+            accessible_paths_path: root.join("accessible-paths.json"),
+            app_data_dir: root.clone(),
+            http_addr: "127.0.0.1:0".parse().unwrap(),
+            jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            aria2_path: None,
+            trusted_proxy_ips: Vec::new(),
+        })
+        .await
+        .unwrap();
+        let (app, token) = authenticated_events_app(state.clone()).await;
+        if scenario == "late" {
+            state.request_shutdown("订阅前已退出");
+        }
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/events")
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut body = response.into_body();
+        if scenario != "late" {
+            next_sse_frame(&mut body).await;
+            next_sse_frame(&mut body).await;
+            state.request_shutdown("测试 SSE 退出");
+            if scenario == "lagged" {
+                for _ in 0..100 {
+                    broadcast_tasks_snapshot(&state).unwrap();
+                }
+            } else {
+                assert!(next_sse_frame(&mut body)
+                    .await
+                    .contains("event: runtime.exiting"));
+            }
+        }
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), body.frame())
+                .await
+                .expect("SSE should close after the exit notification")
+                .is_none()
+        );
+        state.core.database.pool.close().await;
+        drop(body);
+        drop(state);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 async fn next_sse_frame(body: &mut Body) -> String {
     let frame = body
         .frame()
@@ -207,6 +273,8 @@ async fn next_sse_frame(body: &mut Body) -> String {
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),

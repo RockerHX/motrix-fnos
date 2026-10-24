@@ -27,7 +27,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Notify};
-use tokio::time::timeout;
+use tokio::time::{timeout, Instant};
 use tower::ServiceExt;
 
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -588,7 +588,9 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 
     let cached_result = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
@@ -665,7 +667,9 @@ async fn get_version_logs_confirmed_rpc_failure_as_warning() {
 
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     server.abort();
     let _ = server.await;
 }
@@ -868,7 +872,9 @@ async fn protocol_regression_keeps_add_uri_contract_across_all_rpc_entries() {
         .expect("WebSocket server task should join");
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     state.core.database.pool.close().await;
     rpc_server.abort();
     let _ = rpc_server.await;
@@ -1010,7 +1016,9 @@ async fn quiescing_auto_stop_yields_to_external_add_uri_workflow() {
         .is_some();
     stop_process(&state.aria2_process, &state.core.debug_logs)
         .expect("test Aria2 process should stop");
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
     state.core.database.pool.close().await;
     rpc_server.abort();
     let _ = rpc_server.await;
@@ -1244,6 +1252,91 @@ fn parse_add_uri_detects_torrent_source_type() {
 }
 
 #[test]
+fn parse_add_uri_rejects_bt_proxy_fields_before_option_filtering() {
+    for options in [
+        json!({ "all-proxy": "" }),
+        json!({ "http-proxy": false }),
+        json!({ "https-proxy-user": null }),
+        json!({ "ftp-proxy-passwd": "secret" }),
+        json!({ "bt-proxy": null }),
+        json!({ "advancedOptions": { "useProxy": false } }),
+        json!({ "advancedOptions": { "proxy": null } }),
+    ] {
+        let error = parse_add_uri_command(&json!([["magnet:?xt=urn:btih:test"], options]))
+            .expect_err("BT proxy inputs must be rejected even when empty or false-like");
+
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("BT 使用代理总开关"));
+    }
+}
+
+#[tokio::test]
+async fn bt_proxy_validation_errors_are_preserved_in_batch_and_multicall() {
+    let state = test_state().await;
+    write_json_rpc_token(&state, "secret").await;
+    let invalid_call = json!({
+        "jsonrpc": "2.0",
+        "id": "bt-proxy",
+        "method": "aria2.addUri",
+        "params": [
+            "token:secret",
+            ["magnet:?xt=urn:btih:test"],
+            { "advancedOptions": { "useProxy": null } }
+        ]
+    });
+
+    let batch = handle_jsonrpc_payload(
+        &state,
+        json!([
+            invalid_call.clone(),
+            { "jsonrpc": "2.0", "id": "version", "method": "aria2.getVersion", "params": [] }
+        ]),
+    )
+    .await;
+    assert_eq!(batch[0]["error"]["code"], -32602);
+    assert!(batch[0]["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("BT 使用代理总开关"));
+    assert!(batch[1]["result"].is_object());
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+
+    let multicall = handle_jsonrpc_payload(
+        &state,
+        json!({
+            "jsonrpc": "2.0",
+            "id": "multicall",
+            "method": "system.multicall",
+            "params": [[{
+                "methodName": "aria2.addUri",
+                "params": [
+                    "token:secret",
+                    ["magnet:?xt=urn:btih:test"],
+                    { "http-proxy-passwd": "secret" }
+                ]
+            }]]
+        }),
+    )
+    .await;
+    assert_eq!(multicall["result"][0]["faultCode"], -32602);
+    assert!(multicall["result"][0]["faultString"]
+        .as_str()
+        .unwrap()
+        .contains("BT 使用代理总开关"));
+    assert!(state
+        .core
+        .download_tasks
+        .list()
+        .expect("tasks should list")
+        .is_empty());
+}
+
+#[test]
 fn parse_add_uri_preserves_speed_related_options() {
     let command = parse_add_uri_command(&json!([
         "token:anything",
@@ -1251,11 +1344,10 @@ fn parse_add_uri_preserves_speed_related_options() {
         {
             "dir": "/vol1/1000/tmp",
             "out": "file.zip",
-            "split": "256",
-            "max-connection-per-server": "256",
+            "split": "12",
+            "max-connection-per-server": "8",
             "max-download-limit": "524288",
             "all-proxy": "socks5://127.0.0.1:7890",
-            "min-split-size": "1M",
             "user-agent": "Motrix",
             "header": ["Referer: https://example.com"],
             "unknown-option": "ignored"
@@ -1263,14 +1355,16 @@ fn parse_add_uri_preserves_speed_related_options() {
     ]))
     .expect("addUri params should parse");
 
-    assert_eq!(command.aria2_options["split"], "256");
-    assert_eq!(command.aria2_options["max-connection-per-server"], "256");
+    assert_eq!(command.aria2_options["stream-max-connections"], "8");
+    assert!(!command.aria2_options.contains_key("split"));
+    assert!(!command
+        .aria2_options
+        .contains_key("max-connection-per-server"));
     assert_eq!(command.aria2_options["max-download-limit"], "524288");
     assert_eq!(
         command.aria2_options["all-proxy"],
         "socks5://127.0.0.1:7890"
     );
-    assert_eq!(command.aria2_options["min-split-size"], "1M");
     assert_eq!(command.aria2_options["user-agent"], "Motrix");
     assert_eq!(
         command.aria2_options["header"][0],
@@ -1391,6 +1485,35 @@ async fn authorized_save_dir_replaces_stale_cached_default_after_authorization_c
         .expect_err("an unrelated unauthorized directory must still be rejected");
     assert_eq!(unauthorized.code, -32602);
     assert_eq!(unauthorized.message, "保存目录不在飞牛已授权目录列表中");
+}
+
+#[tokio::test]
+async fn websocket_shutdown_closes_idle_connections_and_returns_their_quota() {
+    let state = test_state().await;
+    let root = state.runtime.app_data_dir.clone();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = super::super::jsonrpc_router(state.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let mut socket = connect_websocket(addr).await;
+    state.request_shutdown("测试 WebSocket 退出");
+    assert_websocket_closed(&mut socket).await;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while state.jsonrpc_websocket_connections.available_permits() != 64 {
+        assert!(
+            Instant::now() < deadline,
+            "closed socket must release its quota"
+        );
+        tokio::task::yield_now().await;
+    }
+    drop(socket);
+    server.abort();
+    let _ = server.await;
+    state.core.database.pool.close().await;
+    drop(state);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 async fn test_state() -> Arc<HttpAppState> {

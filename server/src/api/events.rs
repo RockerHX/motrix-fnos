@@ -27,8 +27,11 @@ async fn stream_events(
             tasks: Vec::new(),
         });
     let stream = async_stream::stream! {
-        if !event_context_is_authorized(&state, &event_auth_context).await {
+        if state.core.shutdown.is_exiting() || !event_context_is_authorized(&state, &event_auth_context).await {
             return;
+        }
+        if let Some(event) = runtime_event_to_sse(RuntimeEvent::AppCompatibility(state.compatibility_snapshot())) {
+            yield Ok::<Event, Infallible>(event);
         }
         if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(initial_event)) {
             yield Ok::<Event, Infallible>(event);
@@ -50,15 +53,25 @@ async fn stream_events(
                     }
                     match received {
                         Ok(event) => {
+                            let exiting = matches!(event, RuntimeEvent::RuntimeExiting(_));
                             if let Some(event) = runtime_event_to_sse(event) {
                                 yield Ok::<Event, Infallible>(event);
                             }
+                            if exiting {
+                                break;
+                            }
                         }
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            if state.core.shutdown.is_exiting() {
+                                break;
+                            }
                             state.core.debug_logs.warn(
                                 "runtime.events",
                                 format!("SSE 事件流检测到丢帧，已跳过 {} 条事件", skipped),
                             );
+                            if let Some(event) = runtime_event_to_sse(RuntimeEvent::AppCompatibility(state.compatibility_snapshot())) {
+                                yield Ok::<Event, Infallible>(event);
+                            }
                             if let Ok(snapshot) = current_tasks_snapshot(&state) {
                                 if let Some(event) = runtime_event_to_sse(RuntimeEvent::TasksSnapshot(snapshot)) {
                                     yield Ok::<Event, Infallible>(event);
@@ -81,6 +94,9 @@ async fn stream_events(
 
 fn runtime_event_to_sse(event: RuntimeEvent) -> Option<Event> {
     match event {
+        RuntimeEvent::AppCompatibility(payload) => serde_json::to_string(&payload)
+            .ok()
+            .map(|payload| Event::default().event("app.compatibility").data(payload)),
         RuntimeEvent::TasksSnapshot(payload) => serde_json::to_string(&payload)
             .ok()
             .map(|payload| Event::default().event("tasks.snapshot").data(payload)),

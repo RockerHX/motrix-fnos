@@ -1,5 +1,7 @@
 use crate::app::HttpAppState;
-use crate::database::task_operations::{list_unfinished_task_operations, update_task_operation};
+use crate::database::task_operations::{
+    list_unfinished_task_operations_for_engine, update_task_operation,
+};
 use crate::tasks::files::cleanup_staged_task_file_path;
 use crate::tasks::TaskOperation;
 use std::collections::HashSet;
@@ -9,6 +11,9 @@ use std::time::Duration;
 const FILE_CLEANUP_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 pub(crate) async fn spawn_file_cleanup_worker(state: Arc<HttpAppState>) {
+    if state.ensure_download_available().is_err() {
+        return;
+    }
     let has_pending_cleanup = match has_pending_file_cleanup(&state).await {
         Ok(has_pending_cleanup) => has_pending_cleanup,
         Err(error) => {
@@ -72,20 +77,32 @@ async fn run_file_cleanup_worker(state: Arc<HttpAppState>) {
 }
 
 async fn has_pending_file_cleanup(state: &HttpAppState) -> Result<bool, String> {
-    Ok(list_unfinished_task_operations(&state.core.database.pool)
-        .await?
-        .into_iter()
-        .any(|operation| operation.is_file_cleanup_pending()))
+    Ok(list_unfinished_task_operations_for_engine(
+        &state.core.database.pool,
+        state.aria2_config().engine_generation(),
+    )
+    .await?
+    .into_iter()
+    .filter(|operation| operation.engine_generation() == state.aria2_config().engine_generation())
+    .any(|operation| operation.is_file_cleanup_pending()))
 }
 
 pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), String> {
+    state.ensure_download_available()?;
     let mut attempted = HashSet::new();
     let mut first_error = None;
 
     loop {
-        let operations = list_unfinished_task_operations(&state.core.database.pool).await?;
+        let operations = list_unfinished_task_operations_for_engine(
+            &state.core.database.pool,
+            state.aria2_config().engine_generation(),
+        )
+        .await?;
         let pending = operations
             .into_iter()
+            .filter(|operation| {
+                operation.engine_generation() == state.aria2_config().engine_generation()
+            })
             .filter(|operation| operation.is_file_cleanup_pending())
             .filter(|operation| !attempted.contains(&operation.id))
             .collect::<Vec<_>>();

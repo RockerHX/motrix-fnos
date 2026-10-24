@@ -105,9 +105,14 @@ async fn handle_jsonrpc_socket(
     _permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let lan_connection = access == JsonRpcAccess::Lan;
+    let mut runtime_events = state.runtime_events.subscribe();
     let mut idle_deadline = Instant::now() + JSONRPC_WEBSOCKET_IDLE_TIMEOUT;
     loop {
+        if state.core.shutdown.is_exiting() {
+            break;
+        }
         let message = tokio::select! {
+            _ = runtime_events.recv() => continue,
             changed = config_revision.changed(), if lan_connection => {
                 if changed.is_err() || !lan_connection_allowed(&state, peer).await {
                     close_disallowed_socket(&mut socket).await;

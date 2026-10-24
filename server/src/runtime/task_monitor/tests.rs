@@ -236,7 +236,9 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
             assert_eq!(payload.tasks.len(), 1);
             assert_eq!(payload.tasks[0].status, DownloadTaskStatus::Complete);
         }
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     }
 
     cleanup_state(&state);
@@ -258,7 +260,9 @@ async fn task_snapshot_revisions_strictly_increase() {
         .expect("first event should be broadcast")
     {
         RuntimeEvent::TasksSnapshot(payload) => payload.revision,
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     };
     let second_revision = match receiver
         .recv()
@@ -266,7 +270,9 @@ async fn task_snapshot_revisions_strictly_increase() {
         .expect("second event should be broadcast")
     {
         RuntimeEvent::TasksSnapshot(payload) => payload.revision,
-        RuntimeEvent::RuntimeExiting(_) => panic!("unexpected runtime exiting event"),
+        RuntimeEvent::RuntimeExiting(_) | RuntimeEvent::AppCompatibility(_) => {
+            panic!("unexpected runtime event")
+        }
     };
     assert_eq!(first_revision, 1);
     assert_eq!(second_revision, 2);
@@ -386,6 +392,8 @@ async fn auto_stop_allows_missing_metadata_record_and_clears_runtime() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
+        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
         file_name: "archive.zip".to_string(),
@@ -454,7 +462,9 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
     let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
-    state.clear_aria2_runtime();
+    state
+        .clear_aria2_runtime()
+        .expect("runtime record should clear");
 }
 
 fn temp_dir(label: &str) -> PathBuf {
@@ -634,6 +644,7 @@ async fn mock_aria2_rpc(
             let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
             json!({ "result": gid })
         }
+        "aria2.saveSession" => json!({ "result": "OK" }),
         _ => json!({ "result": "ok" }),
     })
 }

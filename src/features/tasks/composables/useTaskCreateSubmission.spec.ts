@@ -25,7 +25,7 @@ describe("useTaskCreateSubmission", () => {
     taskStore.createTask.mockResolvedValue(undefined);
   });
 
-  it("submits single URL, batch URL, torrent and magnet sources with the proxy selection", async () => {
+  it("keeps task proxy selection for URLs and omits it for BT sources", async () => {
     const setup = createSubmission();
     setup.form.useProxy = true;
     setup.form.urls = "https://example.com/file.iso";
@@ -51,20 +51,16 @@ describe("useTaskCreateSubmission", () => {
     setup.form.torrentFile = new File(["torrent"], "example.torrent");
     setup.form.saveDir = "/downloads";
     await setup.submission.submitCreateTask();
-    expect(taskStore.createTorrentTask).toHaveBeenCalledWith(
-      expect.objectContaining({ advancedOptions: expect.objectContaining({ useProxy: true }) }),
-    );
+    const torrentPayload = taskStore.createTorrentTask.mock.calls[taskStore.createTorrentTask.mock.calls.length - 1]?.[0];
+    expect(torrentPayload.advancedOptions).not.toHaveProperty("useProxy");
 
     setup.activeInputType.value = "magnet";
     setup.form.magnet = " magnet:?xt=urn:btih:test ";
     setup.form.saveDir = "/downloads";
     await setup.submission.submitCreateTask();
-    expect(taskStore.createTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: "magnet:?xt=urn:btih:test",
-        advancedOptions: expect.objectContaining({ useProxy: true }),
-      }),
-    );
+    const magnetPayload = taskStore.createTask.mock.calls[taskStore.createTask.mock.calls.length - 1]?.[0];
+    expect(magnetPayload).toMatchObject({ url: "magnet:?xt=urn:btih:test" });
+    expect(magnetPayload.advancedOptions).not.toHaveProperty("useProxy");
   });
 
   it("keeps the dialog open and records partial batch failures", async () => {

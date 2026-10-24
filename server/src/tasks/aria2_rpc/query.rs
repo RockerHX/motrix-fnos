@@ -15,9 +15,20 @@ pub(crate) struct Aria2ActiveTaskActivity {
     pub(crate) seeder: Value,
     #[serde(default)]
     pub(crate) bittorrent: Option<Value>,
+    #[serde(default)]
+    verify_integrity_pending: Value,
+    #[serde(default)]
+    verified_length: Option<Value>,
 }
 
 impl Aria2ActiveTaskActivity {
+    pub(crate) fn is_verifying(&self) -> bool {
+        value_as_bool(&self.verify_integrity_pending)
+            || self
+                .verified_length
+                .as_ref()
+                .is_some_and(|value| !value.is_null())
+    }
     pub(crate) fn is_bt_uploading(&self) -> bool {
         let is_bittorrent = self
             .bittorrent
@@ -105,8 +116,7 @@ pub(crate) async fn tell_active_task_activity(
     client
         .request::<Vec<Aria2ActiveTaskActivity>>(config, &request_body)
         .await
-        .and_then(|response| response.into_optional_result())
-        .map(|tasks| tasks.unwrap_or_default())
+        .and_then(|response| response.into_result())
         .map_err(|error| {
             let message = format!("读取 Aria2 活动任务失败：{}", error);
             log_error(debug_logs, "aria2.tellActive", &message);
@@ -117,7 +127,7 @@ pub(crate) async fn tell_active_task_activity(
 pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
     let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
-    params.push(status_fields());
+    params.push(status_fields_for_config(config));
 
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -133,7 +143,7 @@ pub(crate) fn build_tell_many_request(config: &Aria2Config, method: &str) -> ser
         params.push(serde_json::json!(0));
         params.push(serde_json::json!(1000));
     }
-    params.push(status_fields());
+    params.push(status_fields_for_config(config));
 
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -150,6 +160,9 @@ fn status_fields() -> serde_json::Value {
         "totalLength",
         "completedLength",
         "downloadSpeed",
+        "uploadSpeed",
+        "verifyIntegrityPending",
+        "verifiedLength",
         "connections",
         "numSeeders",
         "seeder",
@@ -164,3 +177,15 @@ fn status_fields() -> serde_json::Value {
         "files"
     ])
 }
+
+fn status_fields_for_config(config: &Aria2Config) -> serde_json::Value {
+    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
+        let mut fields = status_fields().as_array().cloned().unwrap_or_default();
+        fields.retain(|field| field != "followedBy");
+        return serde_json::Value::Array(fields);
+    }
+    status_fields()
+}
+
+#[cfg(test)]
+mod tests;

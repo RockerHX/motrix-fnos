@@ -16,6 +16,7 @@ import type {
   TaskActionState,
   TaskFileActionView,
 } from "./taskActionViewModel";
+import { getTaskSourceType } from "../utils/taskFormat";
 
 const props = withDefaults(
   defineProps<{
@@ -59,6 +60,7 @@ const showDetails = ref(false);
 const redownloadUseProxy = ref(false);
 const restoreUseProxy = ref(false);
 const canOpenFileManager = computed(() => props.fileActions?.hostSupported && props.task.status === "complete");
+const isBtTask = computed(() => getTaskSourceType(props.task) !== "url");
 
 function openDetails() {
   showDetails.value = true;
@@ -93,12 +95,12 @@ function openDeleteConfirm() {
 }
 
 function openRedownloadConfirm() {
-  redownloadUseProxy.value = props.task.useProxy;
+  redownloadUseProxy.value = isBtTask.value ? false : props.task.useProxy;
   showRedownloadConfirm.value = true;
 }
 
 function openRestoreConfirm() {
-  restoreUseProxy.value = props.task.useProxy;
+  restoreUseProxy.value = isBtTask.value ? false : props.task.useProxy;
   showRestoreConfirm.value = true;
 }
 </script>
@@ -459,6 +461,7 @@ function openRestoreConfirm() {
     :is-operating="props.state.isOperating"
     :is-action-disabled="props.state.isActionDisabled"
     :file-actions="props.fileActions"
+    :show-proxy="!isBtTask"
     :labels="props.labels"
     @update-proxy="emit('updateProxy', $event)"
     @open-file="emit('openFile')"
@@ -471,6 +474,7 @@ function openRestoreConfirm() {
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
+    :show-proxy="!isBtTask"
     @confirm="emit('confirmRedownload', $event)"
   />
 
@@ -480,6 +484,7 @@ function openRestoreConfirm() {
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
+    :show-proxy="!isBtTask"
     @confirm="emit('restore', $event)"
   />
 

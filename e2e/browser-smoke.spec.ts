@@ -4,6 +4,8 @@ const password = "test-password-123";
 const accessToken = "e2e-access-token";
 const task = {
   id: 1,
+  engineGeneration: "native-v2",
+  readOnly: false,
   url: "https://example.test/file.iso",
   sourceType: "url",
   fileName: "file.iso",
@@ -19,6 +21,9 @@ const task = {
   errorMessage: null,
   filePath: null,
   useProxy: false,
+  filesDeleted: false,
+  cleanupState: "none",
+  metadataState: "none",
   confirmationRequired: false,
   files: [],
   createdAt: 1,
@@ -93,6 +98,21 @@ test.describe("browser smoke", () => {
     await expect.poll(() => fixture.eventRequests, { timeout: 6_000 }).toBeGreaterThan(1);
   });
 
+  test("updates task progress from authenticated SSE snapshots without a page reload", async ({ page }) => {
+    const fixture = await installFixture(page);
+    fixture.eventTasks = [{ ...task, status: "active", completedLength: 256, downloadSpeed: 128 }];
+    const eventRequest = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/events");
+    await completeLogin(page);
+
+    expect((await eventRequest).headers().authorization).toBe(`Bearer ${accessToken}`);
+    await expect(page.getByText("file.iso", { exact: true })).toBeVisible();
+    const progress = page.getByRole("progressbar");
+    await expect(progress).toHaveAttribute("aria-valuenow", "25");
+
+    fixture.eventTasks = [{ ...fixture.eventTasks[0], completedLength: 768 }];
+    await expect(progress).toHaveAttribute("aria-valuenow", "75", { timeout: 6_000 });
+  });
+
   test("renders the task shell at a mobile viewport", async ({ page }) => {
     await installFixture(page);
     await completeLogin(page);
@@ -119,6 +139,7 @@ async function installFixture(page: Page) {
     authenticated: false,
     forceUnauthorized: false,
     eventRequests: 0,
+    eventTasks: [] as (typeof task)[],
     createdUrls: [] as string[],
   };
 
@@ -130,7 +151,7 @@ async function installFixture(page: Page) {
 
 async function handleApiRoute(
   route: Route,
-  fixture: { authenticated: boolean; forceUnauthorized: boolean; eventRequests: number; createdUrls: string[] },
+  fixture: { authenticated: boolean; forceUnauthorized: boolean; eventRequests: number; eventTasks: (typeof task)[]; createdUrls: string[] },
 ) {
   const request = route.request();
   const url = new URL(request.url());
@@ -141,7 +162,7 @@ async function handleApiRoute(
     await route.fulfill({
       status: 200,
       headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
-      body: `event: tasks.snapshot\ndata: ${JSON.stringify({ revision: fixture.eventRequests, tasks: [] })}\n\n`,
+      body: `event: tasks.snapshot\ndata: ${JSON.stringify({ revision: fixture.eventRequests, tasks: fixture.eventTasks })}\n\n`,
     });
     return;
   }
@@ -206,7 +227,7 @@ async function handleApiRoute(
     return;
   }
   if (path === "/api/settings") {
-    await json(route, 200, { defaultDownloadDir: "/downloads", maxConcurrentDownloads: 5, maxConnectionPerServer: 1, split: 5, minSplitSize: "20M", connectTimeout: 60, maxTries: 5, downloadLimit: 0, uploadLimit: 0, language: "zh-CN" });
+    await json(route, 200, { defaultDownloadDir: "/downloads", maxConcurrentDownloads: 5, httpMaxConnections: 1, connectTimeout: 60, maxTries: 5, downloadLimit: 0, uploadLimit: 0, language: "zh-CN" });
     return;
   }
   if (path === "/api/storage/accessible-paths") {

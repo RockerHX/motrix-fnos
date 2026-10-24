@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
+import type { AppCompatibility } from "../../../types/app";
 import {
   createBatchDownloadTasks,
   createDownloadTask,
@@ -48,6 +49,11 @@ export const useTaskStore = defineStore("tasks", () => {
   const hasLoadedTasks = ref(false);
   const pendingTaskErrorMessages = ref<string[]>([]);
   const isRuntimeExiting = ref(false);
+  const compatibility = ref<AppCompatibility | null>(null);
+  const isDownloadBlocked = computed(() => compatibility.value?.mode === "restricted");
+  function applyCompatibility(payload: AppCompatibility) {
+    compatibility.value = payload;
+  }
   const runtimeExitReason = ref("");
   let tasksRequestGeneration = 0;
   let removedTasksRequestGeneration = 0;
@@ -212,12 +218,12 @@ export const useTaskStore = defineStore("tasks", () => {
     }
   }
 
-  async function restoreTask(taskId: number, useProxy?: boolean): Promise<DownloadTask> {
+  async function restoreTask(taskId: number, useProxy?: boolean, restartFromZero = false): Promise<DownloadTask> {
     ensureRuntimeActive();
     const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
-      const task = await restoreDownloadTask(taskId, useProxy);
+      const task = await restoreDownloadTask(taskId, useProxy, restartFromZero);
       if (isCurrentMutation(mutationGeneration) && !isRuntimeExiting.value) {
         removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
         upsertTask(task);
@@ -279,6 +285,9 @@ export const useTaskStore = defineStore("tasks", () => {
   }
 
   function ensureRuntimeActive() {
+    if (isDownloadBlocked.value) {
+      throw new Error(compatibility.value?.message || t("task.upgradeRequired"));
+    }
     if (isRuntimeExiting.value) {
       throw new Error(t("task.runtimeExiting"));
     }
@@ -289,6 +298,9 @@ export const useTaskStore = defineStore("tasks", () => {
   }
 
   function beginTaskOperation(taskId: number) {
+    if ([...tasks.value, ...removedTasks.value].some((task) => task.id === taskId && task.readOnly)) {
+      throw new Error(t("task.legacyReadOnly"));
+    }
     if (!operatingTaskIds.value.includes(taskId)) {
       operatingTaskIds.value = [...operatingTaskIds.value, taskId];
     }
@@ -352,6 +364,7 @@ export const useTaskStore = defineStore("tasks", () => {
     hasLoadedTasks.value = false;
     pendingTaskErrorMessages.value = [];
     isRuntimeExiting.value = false;
+    compatibility.value = null;
     runtimeExitReason.value = "";
     latestTasksSnapshotRevision = -1;
     notifiedErrorTaskKeys.clear();
@@ -490,6 +503,9 @@ export const useTaskStore = defineStore("tasks", () => {
     operatingTaskIds,
     pendingTaskErrorMessages,
     isRuntimeExiting,
+    compatibility,
+    isDownloadBlocked,
+    applyCompatibility,
     runtimeExitReason,
     createTask,
     createBatchTasks,

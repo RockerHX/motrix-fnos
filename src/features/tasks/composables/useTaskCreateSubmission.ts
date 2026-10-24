@@ -83,7 +83,7 @@ export function useTaskCreateSubmission(options: UseTaskCreateSubmissionOptions)
       saveDir: form.saveDir,
       startMode: form.startMode,
       category: normalizeTaskCategory(form.category),
-      advancedOptions: buildTaskAdvancedOptions(form),
+      advancedOptions: buildTaskAdvancedOptions(form, false),
     });
     finishSuccessfulCreate();
   }
@@ -96,7 +96,7 @@ export function useTaskCreateSubmission(options: UseTaskCreateSubmissionOptions)
       sourceType: "magnet",
       startMode: form.startMode,
       category: normalizeTaskCategory(form.category),
-      advancedOptions: buildTaskAdvancedOptions(form),
+      advancedOptions: buildTaskAdvancedOptions(form, false),
     });
     finishSuccessfulCreate();
   }
