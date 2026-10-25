@@ -81,6 +81,62 @@ test.describe("browser smoke", () => {
     await expect(page.getByText("file.iso", { exact: true })).toBeVisible();
   });
 
+  for (const deleteFiles of [false, true]) {
+    test(`moves a task to Trash and permanently deletes it with deleteFiles=${deleteFiles}`, async ({ page }, testInfo) => {
+      const fixture = await installFixture(page);
+      fixture.createdUrls.push(task.url);
+      fixture.eventTasks = [{ ...task }];
+      let removed: (typeof task)[] = [];
+      let cleanupDone = false;
+      const deleteRequests: string[] = [];
+      await page.route("**/api/tasks**", async (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === "/api/tasks" && url.searchParams.get("status") === "removed") {
+          await json(route, 200, cleanupDone ? [] : removed);
+        } else if (url.pathname === "/api/tasks/1" && route.request().method() === "DELETE") {
+          deleteRequests.push(url.pathname + url.search);
+          fixture.createdUrls = [];
+          fixture.eventTasks = [];
+          removed = [{ ...task, status: "removed" }];
+          await json(route, 200, removed[0]);
+        } else if (url.pathname === "/api/tasks/1/permanent") {
+          deleteRequests.push(url.pathname + url.search);
+          if (url.searchParams.get("deleteFiles") === "true") {
+            removed = [{ ...removed[0], cleanupState: "pending", filesDeleted: true }];
+            await json(route, 202, removed[0]);
+          } else {
+            removed = [];
+            await route.fulfill({ status: 204 });
+          }
+        } else {
+          await route.fallback();
+        }
+      });
+      await completeLogin(page);
+      await page.getByRole("button", { name: "移入回收站", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+      await expect(dialog).toContainText("此操作不会释放磁盘空间");
+      await dialog.getByRole("button", { name: "移入回收站", exact: true }).click();
+      await expect(page.getByText("file.iso", { exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "回收站", exact: true }).click();
+      await page.getByRole("button", { name: "永久删除", exact: true }).click();
+      const checkbox = dialog.getByRole("checkbox");
+      await expect(checkbox).not.toBeChecked();
+      if (deleteFiles) await checkbox.check();
+      await page.screenshot({ path: testInfo.outputPath("permanent-delete.png"), fullPage: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      if (deleteFiles) {
+        await expect(page.getByText("文件清理中", { exact: true })).toBeVisible();
+        cleanupDone = true;
+      }
+      await expect(page.getByText("file.iso", { exact: true })).toHaveCount(0);
+      expect(deleteRequests).toEqual(["/api/tasks/1", `/api/tasks/1/permanent?deleteFiles=${deleteFiles}`]);
+    });
+  }
+
   test("handles an expired API token by returning to the login gate", async ({ page }) => {
     const fixture = await installFixture(page);
     await completeLogin(page);
@@ -131,7 +187,7 @@ async function completeLogin(page: Page) {
   await expect(page.locator('[data-test="auth-password"]')).toBeVisible();
   await page.locator('[data-test="auth-password"] input').fill(password);
   await page.locator('[data-test="auth-submit"]').click();
-  await expect(page.locator(".window-shell")).toBeVisible();
+  await expect(page.locator(".window-shell")).toBeVisible({ timeout: 10_000 });
 }
 
 async function installFixture(page: Page) {

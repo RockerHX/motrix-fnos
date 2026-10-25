@@ -76,6 +76,9 @@ export function deriveTaskDisplayStatus(task: DownloadTask): TaskDisplayStatus {
 }
 
 export function formatTaskStatusLabel(taskOrStatus: DownloadTask | DownloadTaskStatus) {
+  if (typeof taskOrStatus !== "string" && taskOrStatus.cleanupState && taskOrStatus.cleanupState !== "none") {
+    return t(taskOrStatus.cleanupState === "failed" ? "task.status.cleanupFailed" : "task.status.cleanupPending");
+  }
   const status =
     typeof taskOrStatus === "string" ? taskOrStatus : deriveTaskDisplayStatus(taskOrStatus);
   const labels: Record<TaskDisplayStatus, TranslationKey> = {

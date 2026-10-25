@@ -268,8 +268,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | `POST` | `/api/tasks/:id/redownload` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/restore` | 可选 `TaskRestoreRequest` | `DownloadTask` |
 | `PUT` | `/api/tasks/:id/proxy` | `UpdateTaskProxyRequest` | `DownloadTask` |
-| `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
-| `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
+| `DELETE` | `/api/tasks/:id`（兼容 `deleteFiles=false`） | - | `DownloadTask` |
+| `DELETE` | `/api/tasks/:id/permanent?deleteFiles=true\|false`（默认 `false`） | - | `204 No Content` 或 `202 DownloadTask` |
 
 约定：
 
@@ -288,7 +288,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 原生未完成任务保留文件恢复时复用原 ID/GID、路径、session 和原生状态，不重新创建下载。内容已删除时须显式提交 `restartFromZero=true`，否则返回 `409 task_restart_confirmation_required`；确认后创建从零开始的暂停尝试。文件未删除却要求从零恢复返回 `400 task_restore_options_invalid`。
 - 原生 GID/恢复状态无效或完整 metadata 缺失时返回 `409 task_resume_state_invalid` / `task_metadata_missing`，保留文件和回收站记录，不另建 GID 接管半成品。清理未完成时恢复和永久删除返回 `409 file_cleanup_pending`。旧代任务不在新版内存任务集中，旧 ID 按不存在处理，不能据此承诺统一返回 `409 task_engine_incompatible`。
 - 旧 ID 与任意不存在的 ID 使用相同响应：继续、文件确认和未提交代理覆盖的重新下载返回 `400 task_operation_failed`；暂停在引擎就绪后同样返回 `400 task_operation_failed`（启动失败可先返回引擎错误）。移入回收站、恢复、永久删除、任务代理及文件上下文查询返回 `404 task_not_found`。重新下载显式提交 `useProxy` 时会先查任务，缺失也返回 `404 task_not_found`。这些响应以认证、请求格式和运行状态等前置检查通过为前提；`task_engine_incompatible` 保留给实际加载任务的代际不匹配校验。
-- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，不删除用户下载文件。
+- `DELETE /api/tasks/:id` 只移入回收站并保留原位置的下载文件、进度和恢复信息。2.0.1 起旧参数 `deleteFiles=true` 返回 `400 task_delete_files_moved`，不改变任务和文件，提示先移入回收站，再使用永久删除接口；省略或 `false` 保持兼容。
+- `DELETE /api/tasks/:id/permanent?deleteFiles=true|false` 只允许永久删除回收站任务；省略或 `false` 释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，保留用户下载文件，成功返回 `204 No Content`。
+- 永久删除显式 `deleteFiles=true` 时校验当前授权与任务文件归属，确认引擎停止写入后原子暂存文件并持久化 `file_cleanup_pending` 操作。需要后台清理时返回 `202 Accepted` 与 `DownloadTask`（`cleanupState=pending`），记录保留在回收站；清理成功后才移除记录。失败显示 `cleanupState=failed` 并自动重试，重启继续清理；清理期间恢复和重复永久删除返回 `409 file_cleanup_pending`。无文件需要清理或旧记录已为 `filesDeleted=true` 时不重复删除，立即完成返回 `204`。
 - 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
 - 磁链在应用私有目录解析 metadata，全程保持同一 GID；引擎 `bittorrent.fileSelectionState=awaiting` 时任务暂停并设置 `confirmationRequired=true`。前端展示 `files`，确认文件后才开始写入用户下载目录。
 - 磁链确认时在已授权父目录下设置任务专属目录；完整 metadata 和文件选择随原生状态持久化，不依赖导出 `.torrent`、`.aria2` 控制文件或后继 GID。

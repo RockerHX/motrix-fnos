@@ -134,6 +134,153 @@ async fn aria2_operation_reconcile_skips_file_cleanup_operations() {
     close_state(state, &root).await;
 }
 
+#[tokio::test]
+async fn permanent_delete_keeps_failed_record_and_finishes_after_restart() {
+    let root = temp_dir("permanent-restart");
+    let (state, backup) = pending_permanent_delete(&root).await;
+    let metadata = root.join("task-metadata/task-17/source.torrent");
+    assert!(metadata.exists());
+    let parked = root.join("parked-backup");
+    std::fs::rename(&backup, &parked).unwrap();
+    std::fs::write(&backup, b"invalid backup").unwrap();
+    assert!(run_file_cleanup_once(&state).await.is_err());
+    assert_eq!(state.core.download_tasks.list().unwrap().len(), 1);
+    assert_eq!(
+        crate::database::tasks::list_download_tasks(&state.core.database.pool)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(metadata.exists());
+    let unfinished = list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .unwrap();
+    assert_eq!(unfinished.len(), 1);
+    assert!(unfinished[0].is_file_cleanup_pending());
+    assert!(unfinished[0].error_message.is_some());
+    let config = state.aria2_config();
+    let service = crate::api::build_task_service(&state);
+    assert!(service
+        .restore_removed_task(&config, 17, None, false)
+        .await
+        .unwrap_err()
+        .contains("file_cleanup_pending"));
+    assert!(service
+        .permanently_delete_removed_task(&config, 17, false)
+        .await
+        .unwrap_err()
+        .contains("file_cleanup_pending"));
+    drop(service);
+    std::fs::remove_file(&backup).unwrap();
+    std::fs::rename(&parked, &backup).unwrap();
+    state.core.database.pool.close().await;
+    drop(state);
+
+    let restarted = state_without_operation(&root).await;
+    let tasks = crate::database::tasks::list_download_tasks(&restarted.core.database.pool)
+        .await
+        .unwrap();
+    restarted
+        .core
+        .download_tasks
+        .with_tasks_mut(|stored| *stored = tasks)
+        .unwrap();
+    crate::runtime::reconcile_unfinished_task_operations(&restarted)
+        .await
+        .unwrap();
+    assert!(restarted.aria2_runtime_snapshot().is_none());
+    run_file_cleanup_once(&restarted).await.unwrap();
+    assert!(!backup.exists());
+    assert!(!metadata.exists());
+    assert_eq!(std::fs::read(root.join("unrelated.bin")).unwrap(), b"keep");
+    assert!(restarted.core.download_tasks.list().unwrap().is_empty());
+    assert!(
+        crate::database::tasks::list_download_tasks(&restarted.core.database.pool)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        list_unfinished_task_operations(&restarted.core.database.pool)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    close_state(restarted, &root).await;
+}
+
+#[tokio::test]
+async fn permanent_delete_retries_record_commit_after_files_are_cleaned() {
+    let root = temp_dir("permanent-commit-retry");
+    let (state, backup) = pending_permanent_delete(&root).await;
+    sqlx::query("CREATE TRIGGER fail_task_delete BEFORE DELETE ON download_tasks BEGIN SELECT RAISE(ABORT, 'injected record delete failure'); END")
+        .execute(&state.core.database.pool).await.unwrap();
+    assert!(run_file_cleanup_once(&state).await.is_err());
+    assert!(!backup.exists());
+    assert_eq!(state.core.download_tasks.list().unwrap().len(), 1);
+    assert!(list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .unwrap()[0]
+        .is_file_cleanup_pending());
+    sqlx::query("DROP TRIGGER fail_task_delete")
+        .execute(&state.core.database.pool)
+        .await
+        .unwrap();
+    run_file_cleanup_once(&state).await.unwrap();
+    assert!(state.core.download_tasks.list().unwrap().is_empty());
+    close_state(state, &root).await;
+}
+
+async fn pending_permanent_delete(root: &Path) -> (Arc<HttpAppState>, PathBuf) {
+    let state = state_without_operation(root).await;
+    let download_dir = root.join("downloads");
+    std::fs::create_dir_all(&download_dir).unwrap();
+    let payload = download_dir.join("file.bin");
+    std::fs::write(&payload, b"partial bytes").unwrap();
+    std::fs::write(root.join("unrelated.bin"), b"keep").unwrap();
+    std::fs::write(
+        &state.runtime.accessible_paths_path,
+        serde_json::to_vec(&serde_json::json!({"paths": [root]})).unwrap(),
+    )
+    .unwrap();
+    let mut task: crate::tasks::DownloadTask = serde_json::from_value(serde_json::json!({
+        "id": 17, "url": "https://example.com/file.bin", "sourceType": "url",
+        "fileName": "file.bin", "saveDir": download_dir, "category": "默认",
+        "status": "removed", "removedFromStatus": "paused", "totalLength": 100,
+        "completedLength": 13, "downloadSpeed": 0, "filePath": payload,
+        "useProxy": false, "filesDeleted": false, "confirmationRequired": false,
+        "files": [], "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    task.engine_generation = state.aria2_config().engine_generation();
+    let metadata = root.join("task-metadata/task-17/source.torrent");
+    std::fs::create_dir_all(metadata.parent().unwrap()).unwrap();
+    std::fs::write(&metadata, b"metadata").unwrap();
+    crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+        .await
+        .unwrap();
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task))
+        .unwrap();
+    let pending = crate::api::build_task_service(&state)
+        .permanently_delete_removed_task(&state.aria2_config(), 17, true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(pending.files_deleted);
+    assert!(!payload.exists());
+    assert_eq!(state.core.download_tasks.list().unwrap().len(), 1);
+    let operation = list_unfinished_task_operations(&state.core.database.pool)
+        .await
+        .unwrap()
+        .remove(0);
+    let backup = PathBuf::from(&operation.context.file_cleanup_paths[0]);
+    (state, backup)
+}
+
 async fn state_with_operation(root: &Path, task_id: u64, backup: PathBuf) -> Arc<HttpAppState> {
     let state = state_without_operation(root).await;
     let operation = TaskOperation::with_id(

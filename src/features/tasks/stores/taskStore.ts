@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { AppCompatibility } from "../../../types/app";
 import {
   createBatchDownloadTasks,
@@ -65,6 +65,17 @@ export const useTaskStore = defineStore("tasks", () => {
   let taskMutationGeneration = 0;
   let activeCreateGeneration = 0;
   let activeCreateRequests = 0;
+
+  watch(
+    () => !isRuntimeExiting.value && removedTasks.value.some((task) => task.cleanupState && task.cleanupState !== "none"),
+    (pending, _, onCleanup) => {
+      if (!pending) return;
+      const timer = setInterval(() => {
+        if (!isRemovedTasksRequestInFlight) void refreshRemovedTasks();
+      }, 2000);
+      onCleanup(() => clearInterval(timer));
+    },
+  );
 
   async function refreshTasks(options: RefreshTasksOptions = {}): Promise<RefreshTasksResult> {
     if (isRuntimeExiting.value) {
@@ -200,19 +211,22 @@ export const useTaskStore = defineStore("tasks", () => {
     return runTaskOperation(taskId, () => redownloadDownloadTask(taskId, useProxy));
   }
 
-  async function deleteTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
-    return runTaskOperation(taskId, () => deleteDownloadTask(taskId, deleteFiles));
+  async function deleteTask(taskId: number): Promise<DownloadTask> {
+    return runTaskOperation(taskId, () => deleteDownloadTask(taskId));
   }
 
-  async function permanentlyDeleteTask(taskId: number): Promise<void> {
+  async function permanentlyDeleteTask(taskId: number, deleteFiles = false): Promise<DownloadTask | undefined> {
     ensureRuntimeActive();
     const mutationGeneration = taskMutationGeneration;
     beginTaskOperation(taskId);
     try {
-      await permanentlyDeleteDownloadTask(taskId);
+      const pending = await permanentlyDeleteDownloadTask(taskId, deleteFiles);
       if (isCurrentMutation(mutationGeneration)) {
-        removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
+        cancelRemovedTasksRequest();
+        if (pending) upsertRemovedTask(pending);
+        else removedTasks.value = removedTasks.value.filter((item) => item.id !== taskId);
       }
+      return pending;
     } finally {
       if (isCurrentMutation(mutationGeneration)) endTaskOperation(taskId);
     }

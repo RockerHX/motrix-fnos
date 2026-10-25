@@ -50,6 +50,9 @@ pub(super) fn sync_native_session(
     {
         if task.status == DownloadTaskStatus::Complete
             || task.removed_from_status == Some(DownloadTaskStatus::Complete)
+            || (task.status == DownloadTaskStatus::Removed
+                && task.files_deleted
+                && task.gid.is_none())
         {
             continue;
         }

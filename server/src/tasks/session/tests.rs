@@ -201,6 +201,25 @@ fn native_config(port: u16) -> Aria2Config {
     config
 }
 
+#[test]
+fn native_restore_allows_released_tasks_only_after_payload_deletion_was_recorded() {
+    let mut task = proxy_task(None);
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+    task.status = DownloadTaskStatus::Removed;
+    task.removed_from_status = Some(DownloadTaskStatus::Paused);
+    task.gid = None;
+    task.files_deleted = true;
+    let tasks = TaskMemoryState::new(vec![task.clone()]);
+    assert_eq!(
+        super::native::sync_native_session(&tasks, &[], Path::new("/private")).unwrap(),
+        vec![task.clone()]
+    );
+    task.files_deleted = false;
+    let tasks = TaskMemoryState::new(vec![task.clone()]);
+    assert!(super::native::sync_native_session(&tasks, &[], Path::new("/private")).is_err());
+    assert_eq!(tasks.list().unwrap(), vec![task]);
+}
+
 #[tokio::test]
 async fn native_restore_keeps_original_gid_and_recycle_bin_fact() {
     let mock = MockAria2Server::spawn("").await;

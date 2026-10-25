@@ -379,6 +379,16 @@ fn decide_permanent_delete_action(
             "永久删除操作对应的任务不在回收站，需要人工核对".to_string(),
         ));
     }
+    if operation
+        .context
+        .completed_side_effects
+        .iter()
+        .any(|effect| effect == "delete_files_requested")
+    {
+        return Some(ReconcileAction::ManualReview(
+            "永久删除的文件暂存尚未确认完成，已保留任务记录和文件，需要人工核对".to_string(),
+        ));
+    }
     let Some(old_gid) = operation
         .context
         .old_gid

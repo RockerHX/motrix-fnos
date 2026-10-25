@@ -1227,6 +1227,126 @@ async fn list_tasks_rejects_unsupported_status_filter() {
 }
 
 #[tokio::test]
+async fn old_delete_files_parameter_returns_migration_error_without_changing_task_or_file() {
+    let state = test_state().await;
+    let root = temp_dir("old-delete-files");
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("payload.bin");
+    std::fs::write(&file, b"preserved").unwrap();
+    let mut task = sample_task(1, DownloadTaskStatus::Active);
+    task.file_path = Some(file.display().to_string());
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task.clone()))
+        .unwrap();
+    let response = test_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/tasks/1?deleteFiles=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let error = response_json::<ErrorResponse>(response, StatusCode::BAD_REQUEST).await;
+    assert_eq!(error.code, "task_delete_files_moved");
+    assert_eq!(state.core.download_tasks.list().unwrap(), vec![task]);
+    assert_eq!(std::fs::read(&file).unwrap(), b"preserved");
+    assert!(state.aria2_runtime_snapshot().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+    cleanup_state(&state);
+}
+
+#[tokio::test]
+async fn permanent_delete_defaults_to_keeping_files_and_can_submit_background_cleanup() {
+    for delete_files in [false, true] {
+        let state = test_state().await;
+        let root = temp_dir("permanent-delete-files-api");
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("payload.bin");
+        std::fs::write(&file, b"preserved").unwrap();
+        let mut task = sample_task(1, DownloadTaskStatus::Removed);
+        task.gid = None;
+        task.save_dir = root.display().to_string();
+        task.file_path = Some(file.display().to_string());
+        write_accessible_paths(&state, &[root.display().to_string()]);
+        crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+            .await
+            .unwrap();
+        state
+            .core
+            .download_tasks
+            .with_tasks_mut(|tasks| tasks.push(task))
+            .unwrap();
+        assert!(state.try_start_file_cleanup_worker());
+        let app = test_router(state.clone());
+        let path = if delete_files {
+            "/api/tasks/1/permanent?deleteFiles=true"
+        } else {
+            "/api/tasks/1/permanent"
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if delete_files {
+            let pending = response_json::<PublicDownloadTask>(response, StatusCode::ACCEPTED).await;
+            assert_eq!(pending.cleanup_state, "pending");
+            assert!(!file.exists());
+            assert_eq!(state.core.download_tasks.list().unwrap().len(), 1);
+            for path in ["/api/tasks/1/permanent", "/api/tasks/1/restore"] {
+                let method = if path.ends_with("restore") {
+                    "POST"
+                } else {
+                    "DELETE"
+                };
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let error = response_json::<ErrorResponse>(response, StatusCode::CONFLICT).await;
+                assert_eq!(error.code, "file_cleanup_pending");
+            }
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/tasks?status=removed")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let tasks = response_json::<Vec<PublicDownloadTask>>(response, StatusCode::OK).await;
+            assert_eq!(tasks[0].cleanup_state, "pending");
+        } else {
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert_eq!(std::fs::read(&file).unwrap(), b"preserved");
+            assert!(state.core.download_tasks.list().unwrap().is_empty());
+        }
+        assert!(state.aria2_runtime_snapshot().is_none());
+        state.finish_file_cleanup_worker();
+        std::fs::remove_dir_all(root).unwrap();
+        cleanup_state(&state);
+    }
+}
+
+#[tokio::test]
 async fn permanent_delete_rejects_non_removed_task() {
     let state = test_state().await;
     state

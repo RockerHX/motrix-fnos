@@ -56,12 +56,9 @@ async fn incompatible_task_mutations_preserve_records_and_files_without_rpc() {
                 .restore_removed_task(&config, 1, None, false)
                 .await
                 .unwrap_err(),
+            service.delete_download_task(&config, 1).await.unwrap_err(),
             service
-                .delete_download_task(&config, 1, true)
-                .await
-                .unwrap_err(),
-            service
-                .permanently_delete_removed_task(&config, 1)
+                .permanently_delete_removed_task(&config, 1, false)
                 .await
                 .unwrap_err(),
             service
@@ -1345,7 +1342,7 @@ async fn native_delete_pause_rejection_preserves_active_task_without_manual_revi
     let fixture = ServiceFixture::new(vec![task], false);
     let error = fixture
         .service()
-        .delete_download_task(&config, 1, true)
+        .delete_download_task(&config, 1)
         .await
         .unwrap_err();
     assert!(error.contains("task_pause_unconfirmed"), "{error}");
@@ -1406,6 +1403,8 @@ async fn delete_download_task_marks_removed_and_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
+    let payload = save_dir.join("archive.zip");
+    std::fs::write(&payload, b"partial bytes").unwrap();
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
@@ -1419,11 +1418,14 @@ async fn delete_download_task_marks_removed_and_persists() {
 
     let task = fixture
         .service()
-        .delete_download_task(&config, 1, false)
+        .delete_download_task(&config, 1)
         .await
         .expect("task should delete");
 
     assert_eq!(task.status, DownloadTaskStatus::Removed);
+    assert!(!task.files_deleted);
+    assert_eq!(task.completed_length, 256);
+    assert_eq!(std::fs::read(&payload).unwrap(), b"partial bytes");
     let persisted = fixture.repository.persisted_tasks();
     assert_eq!(persisted.len(), 1);
     assert_eq!(persisted[0].status, DownloadTaskStatus::Removed);
@@ -1439,7 +1441,7 @@ async fn delete_download_task_marks_removed_and_persists() {
 }
 
 #[tokio::test]
-async fn delete_with_files_queues_staged_files_after_task_state_persists() {
+async fn permanent_delete_with_files_queues_staged_files_after_task_state_persists() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-files");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1448,7 +1450,7 @@ async fn delete_with_files_queues_staged_files_after_task_state_persists() {
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
-            DownloadTaskStatus::Active,
+            DownloadTaskStatus::Removed,
             "gid-1",
             save_dir.display().to_string(),
         )],
@@ -1457,9 +1459,10 @@ async fn delete_with_files_queues_staged_files_after_task_state_persists() {
 
     let task = fixture
         .service()
-        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1, true)
         .await
-        .expect("task and files should delete");
+        .expect("task and files should delete")
+        .expect("cleanup should be pending");
 
     assert_eq!(task.status, DownloadTaskStatus::Removed);
     assert!(task.files_deleted);
@@ -1486,7 +1489,7 @@ async fn delete_with_files_queues_staged_files_after_task_state_persists() {
 }
 
 #[tokio::test]
-async fn delete_with_files_aria2_failure_keeps_the_original_file() {
+async fn permanent_delete_with_files_aria2_failure_keeps_the_original_file() {
     let save_dir = temp_dir("service-delete-files-aria2-failure");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
     let file_path = save_dir.join("archive.zip");
@@ -1494,7 +1497,7 @@ async fn delete_with_files_aria2_failure_keeps_the_original_file() {
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
-            DownloadTaskStatus::Active,
+            DownloadTaskStatus::Removed,
             "gid-1",
             save_dir.display().to_string(),
         )],
@@ -1503,7 +1506,7 @@ async fn delete_with_files_aria2_failure_keeps_the_original_file() {
 
     let error = fixture
         .service()
-        .delete_download_task(&test_config(1, "secret"), 1, true)
+        .permanently_delete_removed_task(&test_config(1, "secret"), 1, true)
         .await
         .expect_err("Aria2 failure should reject deletion before staging files");
 
@@ -1513,15 +1516,15 @@ async fn delete_with_files_aria2_failure_keeps_the_original_file() {
         b"payload"
     );
     let task = &fixture.tasks.list().expect("tasks should list")[0];
-    assert_eq!(task.status, DownloadTaskStatus::Active);
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
-    assert_eq!(operations[0].status, TaskOperationStatus::Failed);
-    assert_eq!(operations[0].phase, "aria2_remove_failed");
+    assert_eq!(operations[0].status, TaskOperationStatus::ManualReview);
+    assert_eq!(operations[0].phase, "engine_release_failed");
 }
 
 #[tokio::test]
-async fn delete_with_files_persist_failure_restores_the_original_file() {
+async fn permanent_delete_with_files_persist_failure_restores_the_original_file() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-files-persist-failure");
     std::fs::create_dir_all(&save_dir).expect("save dir should create");
@@ -1530,7 +1533,7 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
     let fixture = ServiceFixture::new(
         vec![sample_task(
             1,
-            DownloadTaskStatus::Active,
+            DownloadTaskStatus::Removed,
             "gid-1",
             save_dir.display().to_string(),
         )],
@@ -1540,7 +1543,7 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
 
     let error = fixture
         .service()
-        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1, true)
         .await
         .expect_err("persistence failure should restore staged files");
 
@@ -1550,7 +1553,7 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
         b"payload"
     );
     let task = &fixture.tasks.list().expect("tasks should list")[0];
-    assert_eq!(task.status, DownloadTaskStatus::Active);
+    assert_eq!(task.status, DownloadTaskStatus::Removed);
     assert_eq!(task.gid.as_deref(), Some("gid-1"));
     let operations = fixture.repository.operations();
     assert_eq!(operations.len(), 1);
@@ -1561,7 +1564,7 @@ async fn delete_with_files_persist_failure_restores_the_original_file() {
 }
 
 #[tokio::test]
-async fn delete_with_files_persist_failure_restores_owned_bt_directory() {
+async fn permanent_delete_with_files_persist_failure_restores_owned_bt_directory() {
     let mock = MockAria2Server::spawn().await;
     let save_dir = temp_dir("service-delete-bt-persist-failure");
     let task_dir = save_dir.join("archive");
@@ -1570,7 +1573,7 @@ async fn delete_with_files_persist_failure_restores_owned_bt_directory() {
     std::fs::write(&file_path, b"payload").expect("task file should write");
     let mut task = sample_task(
         1,
-        DownloadTaskStatus::Active,
+        DownloadTaskStatus::Removed,
         "gid-1",
         save_dir.display().to_string(),
     );
@@ -1582,7 +1585,7 @@ async fn delete_with_files_persist_failure_restores_owned_bt_directory() {
 
     fixture
         .service()
-        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1, true)
         .await
         .expect_err("persistence failure should roll back the BT directory");
 
@@ -1671,7 +1674,7 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
 
     fixture
         .service()
-        .delete_download_task(&config, 1, false)
+        .delete_download_task(&config, 1)
         .await
         .expect("task should delete");
 
@@ -1710,7 +1713,7 @@ async fn permanently_delete_removed_task_removes_memory_and_repository_record() 
 
     fixture
         .service()
-        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1, false)
         .await
         .expect("removed task should permanently delete");
 
@@ -1745,12 +1748,132 @@ async fn permanently_delete_native_task_without_gid_skips_engine() {
 
     fixture
         .service()
-        .permanently_delete_removed_task(&config, 1)
+        .permanently_delete_removed_task(&config, 1, false)
         .await
         .expect("native task without GID should delete without starting Aria2");
 
     assert!(fixture.tasks.list().expect("tasks should list").is_empty());
     assert_eq!(fixture.repository.deleted_task_ids(), vec![1]);
+}
+
+#[tokio::test]
+async fn permanent_delete_keeps_payload_by_default_and_never_redeletes_old_files() {
+    for (delete_files, already_deleted) in [(false, false), (true, true)] {
+        let root = temp_dir("permanent-keep-content");
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("archive.zip");
+        std::fs::write(&file, b"keep this file").unwrap();
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "",
+            root.display().to_string(),
+        );
+        task.gid = None;
+        task.files_deleted = already_deleted;
+        let fixture = ServiceFixture::new(vec![task], false);
+        let pending = fixture
+            .service()
+            .permanently_delete_removed_task(&test_config(1, "secret"), 1, delete_files)
+            .await
+            .unwrap();
+        assert!(pending.is_none());
+        assert!(fixture.tasks.list().unwrap().is_empty());
+        assert_eq!(std::fs::read(&file).unwrap(), b"keep this file");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn permanent_delete_without_download_files_finishes_without_cleanup() {
+    for source in [
+        DownloadTaskSourceType::Url,
+        DownloadTaskSourceType::Torrent,
+        DownloadTaskSourceType::Magnet,
+    ] {
+        let root = temp_dir("permanent-no-content");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "",
+            root.display().to_string(),
+        );
+        task.gid = None;
+        task.file_path = None;
+        task.source_type = source;
+        if task.source_type == DownloadTaskSourceType::Torrent {
+            task.url = "torrent:source.torrent".to_string();
+            task.owned_task_dir = Some(root.join("missing-owned").display().to_string());
+        } else if task.source_type == DownloadTaskSourceType::Magnet {
+            task.url = "magnet:?xt=urn:btih:test".to_string();
+            task.confirmation_required = true;
+        }
+        let fixture = ServiceFixture::new(vec![task], false);
+        assert!(fixture
+            .service()
+            .permanently_delete_removed_task(&test_config(1, "secret"), 1, true)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(fixture.tasks.list().unwrap().is_empty());
+        assert!(root.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn permanent_delete_stages_only_the_owned_native_bt_directory() {
+    for source in [
+        DownloadTaskSourceType::Torrent,
+        DownloadTaskSourceType::Magnet,
+    ] {
+        let root = temp_dir("permanent-native-bt");
+        let owned = root.join("任务专属目录");
+        std::fs::create_dir_all(&owned).unwrap();
+        std::fs::write(owned.join("内容.bin"), b"download bytes").unwrap();
+        std::fs::write(root.join("unrelated.bin"), b"keep").unwrap();
+        let mut task = sample_task(
+            1,
+            DownloadTaskStatus::Removed,
+            "",
+            root.display().to_string(),
+        );
+        task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+        task.gid = None;
+        task.url = if source == DownloadTaskSourceType::Torrent {
+            "torrent:source.torrent"
+        } else {
+            "magnet:?xt=urn:btih:test"
+        }
+        .to_string();
+        task.source_type = source;
+        task.owned_task_dir = Some(owned.display().to_string());
+        task.file_path = Some(owned.join("内容.bin").display().to_string());
+        let fixture = ServiceFixture::new(vec![task], false);
+        let mut config = test_config(1, "secret");
+        config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
+        assert!(fixture
+            .service()
+            .permanently_delete_removed_task(&config, 1, true)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(!owned.exists());
+        assert_eq!(std::fs::read(root.join("unrelated.bin")).unwrap(), b"keep");
+        assert_eq!(
+            fixture.tasks.list().unwrap()[0].status,
+            DownloadTaskStatus::Removed
+        );
+        let operations = fixture.repository.operations();
+        assert!(operations[0].is_file_cleanup_pending());
+        let backup = PathBuf::from(&operations[0].context.file_cleanup_paths[0]);
+        assert_eq!(
+            std::fs::read(backup.join("任务专属目录/内容.bin")).unwrap(),
+            b"download bytes"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[tokio::test]
@@ -2076,7 +2199,7 @@ async fn native_recycle_and_restore_keep_the_original_download() {
 
     let removed = fixture
         .service()
-        .delete_download_task(&config, 1, false)
+        .delete_download_task(&config, 1)
         .await
         .unwrap();
     assert_eq!(removed.status, DownloadTaskStatus::Removed);
@@ -2108,7 +2231,7 @@ async fn completed_history_recycles_without_contacting_the_engine() {
 
     let removed = fixture
         .service()
-        .delete_download_task(&test_config(1, "secret"), 1, false)
+        .delete_download_task(&test_config(1, "secret"), 1)
         .await
         .unwrap();
     assert_eq!(removed.status, DownloadTaskStatus::Removed);
@@ -2900,7 +3023,7 @@ async fn task_lifecycle_regression_preserves_operation_boundaries() {
 
     let removed = fixture
         .service()
-        .delete_download_task(&config, created.id, false)
+        .delete_download_task(&config, created.id)
         .await
         .expect("task should enter recycle bin");
     assert_eq!(removed.status, DownloadTaskStatus::Removed);
@@ -2915,12 +3038,12 @@ async fn task_lifecycle_regression_preserves_operation_boundaries() {
 
     fixture
         .service()
-        .delete_download_task(&config, created.id, false)
+        .delete_download_task(&config, created.id)
         .await
         .expect("restored task should enter recycle bin again");
     fixture
         .service()
-        .permanently_delete_removed_task(&config, created.id)
+        .permanently_delete_removed_task(&config, created.id, false)
         .await
         .expect("removed task should permanently delete");
 
@@ -3029,7 +3152,7 @@ async fn delete_files_rejects_revoked_destination_before_staging_files() {
     std::fs::write(&file_path, b"user data").expect("file should write");
     let mut task = sample_task(
         1,
-        DownloadTaskStatus::Complete,
+        DownloadTaskStatus::Removed,
         "gid-1",
         save_dir.display().to_string(),
     );
@@ -3040,7 +3163,7 @@ async fn delete_files_rejects_revoked_destination_before_staging_files() {
 
     let error = fixture
         .service()
-        .delete_download_task(&test_config(mock.addr.port(), "secret"), 1, true)
+        .permanently_delete_removed_task(&test_config(mock.addr.port(), "secret"), 1, true)
         .await
         .expect_err("deleteFiles should reject a revoked destination");
 

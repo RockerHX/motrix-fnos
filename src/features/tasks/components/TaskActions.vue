@@ -42,10 +42,10 @@ const emit = defineEmits<{
   resume: [];
   confirmFiles: [];
   confirmRedownload: [useProxy: boolean];
-  confirmDelete: [deleteFiles: boolean];
+  confirmDelete: [];
   restore: [useProxy: boolean];
   updateProxy: [enabled: boolean];
-  confirmPermanentDelete: [];
+  confirmPermanentDelete: [deleteFiles: boolean];
   detailsOpened: [];
   openFileManager: [];
   openFile: [];
@@ -83,10 +83,11 @@ watch(
 );
 
 watch(
-  () => [props.permissions.canRedownload, props.permissions.canRestore] as const,
-  ([canRedownload, canRestore]) => {
+  () => [props.permissions.canRedownload, props.permissions.canRestore, props.permissions.canPermanentDelete] as const,
+  ([canRedownload, canRestore, canPermanentDelete]) => {
     if (!canRedownload) showRedownloadConfirm.value = false;
     if (!canRestore) showRestoreConfirm.value = false;
+    if (!canPermanentDelete) showPermanentDeleteConfirm.value = false;
   },
 );
 
@@ -493,7 +494,7 @@ function openRestoreConfirm() {
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
-    @confirm="emit('confirmDelete', $event)"
+    @confirm="emit('confirmDelete')"
   />
 
   <TaskPermanentDeleteConfirmDialog
@@ -501,7 +502,7 @@ function openRestoreConfirm() {
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
-    @confirm="emit('confirmPermanentDelete')"
+    @confirm="emit('confirmPermanentDelete', $event)"
   />
 </template>
 

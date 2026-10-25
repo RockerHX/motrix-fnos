@@ -56,13 +56,13 @@ export function useTaskBulkActions({ taskStore, toolbar, message, t }: UseTaskBu
     showBulkDeleteConfirm.value = true;
   }
 
-  async function confirmDeleteVisibleTasks() {
+  async function confirmDeleteVisibleTasks(deleteFiles = false) {
     try {
       if (bulkDeleteMode.value === "clearTrash") {
-        await runBatch(toolbar.clearTrashCandidates.value, (task) => taskStore.permanentlyDeleteTask(task.id), "task.bulk.clearTrashSuccess", "task.bulk.trashEmpty");
+        await runBatch(toolbar.clearTrashCandidates.value, (task) => taskStore.permanentlyDeleteTask(task.id, deleteFiles), "task.bulk.clearTrashSuccess", "task.bulk.trashEmpty");
         return;
       }
-      await runBatch(toolbar.deleteCandidates.value, (task) => taskStore.deleteTask(task.id, false), "task.bulk.deleteSuccess", "task.bulk.noDeletable");
+      await runBatch(toolbar.deleteCandidates.value, (task) => taskStore.deleteTask(task.id), "task.bulk.deleteSuccess", "task.bulk.noDeletable");
     } finally {
       showBulkDeleteConfirm.value = false;
     }

@@ -174,7 +174,7 @@ async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_ta
     }
     for (method, path) in [
         ("POST", format!("/api/tasks/{id}/pause")),
-        ("DELETE", format!("/api/tasks/{id}?deleteFiles=true")),
+        ("DELETE", format!("/api/tasks/{id}")),
     ] {
         let started = Instant::now();
         let (status, error) = api(&state, &token, method, &path, Value::Null).await;

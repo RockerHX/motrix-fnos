@@ -4,6 +4,16 @@ vi.mock("naive-ui", async () => {
   const { defineComponent, h } = await import("vue");
 
   return {
+    NCheckbox: defineComponent({
+      props: { checked: Boolean, disabled: Boolean },
+      emits: ["update:checked"],
+      setup(props, { emit, slots }) {
+        return () => h("label", [h("input", {
+          type: "checkbox", checked: props.checked, disabled: props.disabled,
+          onChange: (event: Event) => emit("update:checked", (event.target as HTMLInputElement).checked),
+        }), slots.default?.()]);
+      },
+    }),
     NModal: defineComponent({
       name: "NModalStub",
       props: {
@@ -91,8 +101,8 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("Delete 12 visible tasks?");
-    expect(wrapper.text()).toContain("local files will not be deleted");
+    expect(wrapper.text()).toContain("Move 12 visible tasks to Trash?");
+    expect(wrapper.text()).toContain("Local files will not be deleted");
   });
 
   it("warns that clearing Trash permanently deletes all records", () => {
@@ -107,6 +117,24 @@ describe("TaskBulkDeleteConfirmDialog", () => {
     expect(wrapper.text()).toContain("永久删除回收站中的 4 条任务记录");
     expect(wrapper.text()).toContain("无法撤销");
     expect(wrapper.text()).toContain("全部永久删除");
+  });
+
+  it("offers file deletion only for clearing Trash and resets it on reopen", async () => {
+    const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
+      props: { show: true, taskCount: 2 },
+    });
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await wrapper.setProps({ mode: "clearTrash" });
+    const checkbox = wrapper.get<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox.element.checked).toBe(false);
+    await clickButton(wrapper, "全部永久删除");
+    expect(wrapper.emitted("confirm")).toEqual([[false]]);
+    await checkbox.setValue(true);
+    await clickButton(wrapper, "全部永久删除");
+    expect(wrapper.emitted("confirm")).toEqual([[false], [true]]);
+    await wrapper.setProps({ show: false });
+    await wrapper.setProps({ show: true });
+    expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
   });
 
   it("closes without confirming when canceled", async () => {
@@ -131,7 +159,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       },
     });
 
-    await clickButton(wrapper, "删除");
+    await clickButton(wrapper, "移入回收站");
 
     expect(wrapper.emitted("confirm")).toHaveLength(1);
   });

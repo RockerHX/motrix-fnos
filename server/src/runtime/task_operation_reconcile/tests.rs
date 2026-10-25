@@ -9,6 +9,25 @@ use crate::tasks::{DownloadTaskFile, DownloadTaskSourceType, TaskOperationContex
 use std::collections::HashMap;
 
 #[test]
+fn interrupted_permanent_file_deletion_keeps_the_task_for_manual_review() {
+    let mut operation = operation(
+        TaskOperationType::PermanentDelete,
+        "engine_released",
+        Some("old-gid"),
+        None,
+        vec!["delete_files_requested"],
+    );
+    let mut task = task_with_gid("old-gid");
+    task.status = DownloadTaskStatus::Removed;
+    operation.context.task_snapshot = Some(task.clone());
+    let presence = HashMap::from([("old-gid".to_string(), Aria2TaskPresence::Missing)]);
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task], &presence),
+        ReconcileAction::ManualReview(_)
+    ));
+}
+
+#[test]
 fn prepared_operation_is_marked_failed_without_starting_recovery() {
     let operation = operation(
         TaskOperationType::Create,

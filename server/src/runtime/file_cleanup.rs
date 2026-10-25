@@ -166,8 +166,24 @@ async fn process_file_cleanup_operation(
                 .push("task_files_deleted".to_string());
         }
         operation.context = context;
-        operation.complete("completed");
-        update_task_operation(&state.core.database.pool, &operation).await?;
+        if operation.operation_type == crate::tasks::TaskOperationType::PermanentDelete {
+            let task = operation
+                .context
+                .task_snapshot
+                .clone()
+                .ok_or_else(|| "永久删除清理缺少任务快照，已保留任务记录".to_string())?;
+            if let Err(error) = crate::api::build_task_service(state)
+                .finish_permanent_delete(&task, &mut operation)
+                .await
+            {
+                operation.retain_file_cleanup_pending(error.clone());
+                update_task_operation(&state.core.database.pool, &operation).await?;
+                return Err(error);
+            }
+        } else {
+            operation.complete("completed");
+            update_task_operation(&state.core.database.pool, &operation).await?;
+        }
         return Ok(());
     }
 

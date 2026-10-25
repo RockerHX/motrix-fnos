@@ -96,6 +96,8 @@ describe("useTaskToolbar", () => {
     const clearTrashTasks = ref<DownloadTask[]>([
       createTask({ id: 1, status: "removed" }),
       createTask({ id: 2, status: "removed" }),
+      createTask({ id: 3, status: "removed", cleanupState: "pending" }),
+      createTask({ id: 4, status: "removed", cleanupState: "failed" }),
     ]);
     const toolbar = useTaskToolbar({
       activeCategory,

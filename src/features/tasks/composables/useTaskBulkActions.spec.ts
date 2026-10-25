@@ -34,7 +34,20 @@ describe("useTaskBulkActions", () => {
     actions.requestDeleteVisibleTasks();
     expect(actions.showBulkDeleteConfirm.value).toBe(true);
     await actions.confirmDeleteVisibleTasks();
-    expect(taskStore.deleteTask).toHaveBeenCalledWith(1, false);
+    expect(taskStore.deleteTask).toHaveBeenCalledWith(1);
+    expect(actions.showBulkDeleteConfirm.value).toBe(false);
+  });
+
+  it("passes the file choice to each Trash task and reports partial failures", async () => {
+    const taskStore = { permanentlyDeleteTask: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("failed")) };
+    const message = messageApi();
+    const actions = useTaskBulkActions({ taskStore: taskStore as never, toolbar: toolbar([task(1), task(2)]) as never,
+      message, t: (key, params) => `${key}:${params?.count ?? ""}` });
+    actions.requestClearTrash();
+    await actions.confirmDeleteVisibleTasks(true);
+    expect(taskStore.permanentlyDeleteTask.mock.calls).toEqual([[1, true], [2, true]]);
+    expect(message.success).toHaveBeenCalledWith("task.bulk.clearTrashSuccess:1");
+    expect(message.error).toHaveBeenCalledWith("task.bulk.partialFailed:1");
     expect(actions.showBulkDeleteConfirm.value).toBe(false);
   });
 

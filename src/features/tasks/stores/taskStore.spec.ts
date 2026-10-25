@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 import { t } from "../../../i18n";
 import type { CreateDownloadTaskRequest, DownloadTask } from "../../../types/tasks";
 import { useTaskStore } from "./taskStore";
@@ -322,7 +323,7 @@ describe("taskStore refresh and operation state", () => {
     expect(store.tasks.find((task) => task.id === completedTask.id)).toEqual(redownloadedTask);
 
     mockedDeleteDownloadTask.mockResolvedValueOnce(removedTask);
-    await expect(store.deleteTask(completedTask.id, true)).resolves.toEqual(removedTask);
+    await expect(store.deleteTask(completedTask.id)).resolves.toEqual(removedTask);
     expect(store.tasks.find((task) => task.id === completedTask.id)).toBeUndefined();
     expect(store.removedTasks).toContainEqual(removedTask);
   });
@@ -367,7 +368,7 @@ describe("taskStore refresh and operation state", () => {
   it("permanentlyDeleteTask removes removed task after request succeeds", async () => {
     const store = useTaskStore();
     const removedTask = createTask({ id: 31, status: "removed" });
-    const deferred = createDeferred<void>();
+    const deferred = createDeferred<DownloadTask | undefined>();
 
     store.removedTasks = [removedTask];
     mockedPermanentlyDeleteDownloadTask.mockReturnValueOnce(deferred.promise);
@@ -375,10 +376,43 @@ describe("taskStore refresh and operation state", () => {
     const promise = store.permanentlyDeleteTask(removedTask.id);
     expect(store.isTaskOperating(removedTask.id)).toBe(true);
 
-    deferred.resolve();
+    deferred.resolve(undefined);
     await expect(promise).resolves.toBeUndefined();
     expect(store.isTaskOperating(removedTask.id)).toBe(false);
     expect(store.removedTasks).toEqual([]);
+  });
+
+  it("keeps pending deletion in Trash and refreshes until file cleanup finishes", async () => {
+    vi.useFakeTimers();
+    const store = useTaskStore();
+    const pending = createTask({ id: 31, status: "removed", cleanupState: "pending", filesDeleted: true });
+    store.removedTasks = [createTask({ id: 31, status: "removed" })];
+    const staleRefresh = createDeferred<DownloadTask[]>();
+    mockedListRemovedDownloadTasks.mockReturnValueOnce(staleRefresh.promise);
+    const staleRefreshPromise = store.refreshRemovedTasks();
+    mockedPermanentlyDeleteDownloadTask.mockResolvedValueOnce(pending);
+    await expect(store.permanentlyDeleteTask(31, true)).resolves.toEqual(pending);
+    expect(mockedPermanentlyDeleteDownloadTask).toHaveBeenCalledWith(31, true);
+    staleRefresh.resolve([createTask({ id: 31, status: "removed" })]);
+    await staleRefreshPromise;
+    expect(store.removedTasks).toEqual([pending]);
+    await nextTick();
+    const deferredRefresh = createDeferred<DownloadTask[]>();
+    mockedListRemovedDownloadTasks.mockReturnValueOnce(deferredRefresh.promise);
+    const callsBeforeRefresh = mockedListRemovedDownloadTasks.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mockedListRemovedDownloadTasks).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+    deferredRefresh.resolve([{ ...pending, cleanupState: "failed" }]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.removedTasks[0]?.cleanupState).toBe("failed");
+    mockedListRemovedDownloadTasks.mockResolvedValueOnce([]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(store.removedTasks).toEqual([]);
+    const calls = mockedListRemovedDownloadTasks.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(mockedListRemovedDownloadTasks).toHaveBeenCalledTimes(calls);
+    store.$dispose();
+    vi.useRealTimers();
   });
 
   it("restoreTask moves a removed task back to the active collection", async () => {

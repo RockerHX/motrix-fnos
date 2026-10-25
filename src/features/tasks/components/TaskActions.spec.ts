@@ -239,17 +239,20 @@ describe("TaskActions", () => {
     }
   });
 
-  it("emits confirmDelete with deleteFiles=true when checkbox is selected", async () => {
-    const { wrapper } = mountTaskActions({
-      permissions: { canDelete: true },
-    });
-
+  it("confirms moving to Trash without a file deletion option", async () => {
+    const { wrapper } = mountTaskActions({ permissions: { canDelete: true } });
     await clickButton(wrapper, "删除");
-    const checkbox = wrapper.get('input[type="checkbox"]');
-    await checkbox.setValue(true);
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
     await clickButton(wrapper, "删除", -1);
+    expect(wrapper.emitted("confirmDelete")).toEqual([[]]);
+  });
 
-    expect(wrapper.emitted("confirmDelete")).toEqual([[true]]);
+  it("forwards the file deletion choice from permanent deletion", async () => {
+    const { wrapper } = mountTaskActions({ task: { status: "removed" }, permissions: { canPermanentDelete: true } });
+    await clickButton(wrapper, "永久删除");
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await clickButton(wrapper, "永久删除", -1);
+    expect(wrapper.emitted("confirmPermanentDelete")).toEqual([[true]]);
   });
 
   it("renders details from ordered detail items", async () => {
