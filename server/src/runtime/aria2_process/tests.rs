@@ -480,19 +480,25 @@ async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadli
 async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restore() {
     let _process_start_guard = process_start_test_guard().await;
     use std::os::unix::fs::PermissionsExt;
-    for scenario in ["empty", "unknown", "bt-proxy", "bt-proxy-rejected"] {
+    for scenario in [
+        "empty",
+        "unknown",
+        "bt-proxy",
+        "bt-proxy-rejected",
+        "late-exit",
+    ] {
         let unknown_gid = scenario == "unknown";
         let reject_proxy = scenario == "bt-proxy-rejected";
+        let late_exit = scenario == "late-exit";
         let root = temp_dir(&format!("native-{scenario}"));
         std::fs::create_dir_all(&root).unwrap();
         let binary = root.join("fake-native");
         let script = r#"#!/usr/bin/env python3
-import json, pathlib, signal, sys
+import json, pathlib, signal, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 if '--version' in sys.argv:
     print('aria2 version 2.8.6')
     sys.exit(0)
-signal.signal(signal.SIGINT, lambda *args: sys.exit(0))
 root = pathlib.Path(__file__).parent
 (root / 'launch-args.json').write_text(json.dumps(sys.argv[1:]))
 with (root / 'starts').open('a') as file: file.write('started\n')
@@ -531,7 +537,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response)
     def log_message(self, *args): pass
-HTTPServer(('127.0.0.1', port), Handler).serve_forever()
+server = HTTPServer(('127.0.0.1', port), Handler)
+def stop(*args):
+    server.server_close()
+    if (root / 'checkpoint-delay').exists():
+        time.sleep(float((root / 'checkpoint-delay').read_text()))
+    (root / 'checkpoint').write_bytes(b'committed')
+    sys.exit(0)
+signal.signal(signal.SIGINT, stop)
+server.serve_forever()
 "#;
         std::fs::write(&binary, script).unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -569,7 +583,7 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
             .await
             .unwrap();
         }
-        for _ in 0..2 {
+        for attempt in 0..2 {
             let result = ensure_aria2_ready(&state).await;
             if unknown_gid || reject_proxy {
                 assert!(result.err().unwrap().contains(if unknown_gid {
@@ -590,6 +604,38 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                 assert_eq!(
                     ready.session_path.as_deref(),
                     root.join("engine/native-v2/session/aria2.session").to_str()
+                );
+            }
+            if late_exit && attempt == 0 {
+                std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
+                let calls_before_stop = std::fs::read(root.join("calls")).unwrap();
+                assert!(super::stop::stop_process_with_timeout_inner(
+                    &state.aria2_process,
+                    None,
+                    Duration::from_millis(20),
+                    true,
+                )
+                .unwrap_err()
+                .contains("超时"));
+                state
+                    .aria2_lifecycle
+                    .set_phase(crate::runtime::Aria2LifecyclePhase::Faulted)
+                    .unwrap();
+                let error = ensure_aria2_ready(&state).await.err().unwrap();
+                assert!(error.contains("正在停止"), "{error}");
+                assert_eq!(
+                    std::fs::read(root.join("calls")).unwrap(),
+                    calls_before_stop
+                );
+                let deadline = std::time::Instant::now() + Duration::from_secs(3);
+                while process_status(&state.aria2_process).unwrap().running {
+                    assert!(std::time::Instant::now() < deadline);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                assert!(state.aria2_process.lock().unwrap().is_some());
+                assert_eq!(
+                    std::fs::read(root.join("checkpoint")).unwrap(),
+                    b"committed"
                 );
             }
         }
@@ -630,7 +676,7 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                 .lines()
                 .filter(|line| *line == "aria2.tellWaiting")
                 .count(),
-            if unknown_gid {
+            if unknown_gid || late_exit {
                 2
             } else {
                 usize::from(!reject_proxy)
@@ -641,7 +687,7 @@ HTTPServer(('127.0.0.1', port), Handler).serve_forever()
                 .unwrap()
                 .lines()
                 .count(),
-            if reject_proxy { 2 } else { 1 }
+            if reject_proxy || late_exit { 2 } else { 1 }
         );
         if scenario.starts_with("bt-proxy") {
             assert_eq!(

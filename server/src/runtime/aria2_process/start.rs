@@ -3,7 +3,7 @@ use startup_config::StartupConfig;
 
 use super::resolve::{inspect_engine_generation, resolve_aria2_binary};
 use super::status::process_status;
-use super::stop::{stop_process, stop_process_with_timeout_inner};
+use super::stop::{reconcile_pending_native_stop, stop_process, stop_process_with_timeout_inner};
 use super::types::{Aria2ProcessStatus, ManagedAria2Process};
 use crate::app::{HttpAppState, ServerRuntimeConfig};
 use crate::aria2::{
@@ -153,6 +153,7 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             .map_err(|error| lifecycle_error(state, error))?;
     }
     state.ensure_download_available()?;
+    reconcile_pending_native_stop(state).map_err(|error| lifecycle_error(state, error))?;
     let process = process_status(&state.aria2_process)?;
     if process.running {
         let Some(runtime) = state.aria2_runtime_snapshot() else {

@@ -37,11 +37,14 @@ fn native_process(
         COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("interrupts"), b"").unwrap();
     let stderr = NativeProcessStderr(std::fs::File::create_new(root.join("stderr")).unwrap());
     let script = r#"
 import pathlib, signal, sys, time
 root = pathlib.Path(sys.argv[1])
 def stop(*args):
+    with (root / 'interrupts').open('a') as output:
+        output.write('interrupt\n')
     if (root / 'checkpoint-delay').exists():
         time.sleep(float((root / 'checkpoint-delay').read_text()))
     (root / 'checkpoint').write_bytes(b'committed')
@@ -120,6 +123,115 @@ fn native_stop_waits_for_slow_checkpoint_within_the_daily_budget() {
         b"committed"
     );
     assert!(process.lock().unwrap().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn native_stop_timeout_recovers_after_status_queries_observe_late_exit() {
+    let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
+    let state = ready_native_state(&root, process, 0).await;
+    let error = stop_process_with_timeout_inner(
+        &state.aria2_process,
+        None,
+        Duration::from_millis(20),
+        true,
+    )
+    .unwrap_err();
+    assert!(error.contains("超时"));
+    state
+        .aria2_lifecycle
+        .set_phase(Aria2LifecyclePhase::Faulted)
+        .unwrap();
+
+    let error = crate::runtime::ensure_aria2_ready(&state)
+        .await
+        .err()
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while process_status(&state.aria2_process).unwrap().running {
+        assert!(std::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let retained_exit = state.aria2_process.lock().unwrap().is_some();
+    let recovery = crate::runtime::monitor_tasks_once(&state).await;
+    let runtime_cleared =
+        state.aria2_runtime_snapshot().is_none() && !state.core.aria2_runtime_path.exists();
+    let phase = state.aria2_lifecycle.snapshot().unwrap().phase;
+    state.core.database.pool.close().await;
+    std::fs::remove_dir_all(root).unwrap();
+
+    assert!(error.contains("正在停止"), "{error}");
+    assert!(
+        retained_exit,
+        "status reads must retain the native exit result"
+    );
+    recovery.unwrap();
+    assert!(runtime_cleared);
+    assert_eq!(phase, Aria2LifecyclePhase::Stopped);
+}
+
+#[test]
+fn native_stop_retry_does_not_interrupt_checkpoint_twice() {
+    let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
+    assert!(
+        stop_process_with_timeout_inner(&process, None, Duration::from_millis(20), true,)
+            .unwrap_err()
+            .contains("超时")
+    );
+    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("interrupts")).unwrap(),
+        "interrupt\n"
+    );
+    assert_eq!(
+        std::fs::read(root.join("checkpoint")).unwrap(),
+        b"committed"
+    );
+    assert!(process.lock().unwrap().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn native_late_checkpoint_failure_keeps_runtime_after_status_queries() {
+    let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
+    std::fs::create_dir(root.join("checkpoint")).unwrap();
+    let state = ready_native_state(&root, process, 0).await;
+    assert!(stop_process_with_timeout_inner(
+        &state.aria2_process,
+        None,
+        Duration::from_millis(20),
+        true,
+    )
+    .unwrap_err()
+    .contains("超时"));
+    state
+        .aria2_lifecycle
+        .set_phase(Aria2LifecyclePhase::Faulted)
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while process_status(&state.aria2_process).unwrap().running {
+        assert!(std::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    for _ in 0..2 {
+        let error = crate::runtime::monitor_tasks_once(&state)
+            .await
+            .unwrap_err();
+        assert!(error.contains("异常退出"), "{error}");
+        let error = crate::runtime::ensure_aria2_ready(&state)
+            .await
+            .err()
+            .unwrap();
+        assert!(error.contains("异常退出"), "{error}");
+        assert!(state.aria2_runtime_snapshot().is_some());
+        assert!(state.core.aria2_runtime_path.exists());
+        assert!(state.aria2_process.lock().unwrap().is_some());
+    }
+    stop_process(&state.aria2_process, &state.core.debug_logs).unwrap();
+    state.core.database.pool.close().await;
     std::fs::remove_dir_all(root).unwrap();
 }
 

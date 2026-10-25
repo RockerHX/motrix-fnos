@@ -57,7 +57,9 @@ pub(super) fn stop_process_with_timeout_inner(
 
     if let Some(child) = guard.as_mut() {
         let pid = child.id();
-        if !child.is_running()? {
+        if native && child.stop_requested {
+            child.interrupt_and_wait(process_exit_timeout)?;
+        } else if !child.is_running()? {
             if native {
                 return Err("Aria2 已退出，无法确认本次原生状态提交，已保留运行态".to_string());
             }
@@ -107,6 +109,31 @@ pub(super) fn stop_process_with_timeout_inner(
     })
 }
 
+// 调用方须持有生命周期锁，避免收尾与新引擎启动交错。
+pub(crate) fn reconcile_pending_native_stop(state: &HttpAppState) -> Result<(), String> {
+    let mut process = state
+        .aria2_process
+        .lock()
+        .map_err(|_| "无法读取 Aria2 进程状态".to_string())?;
+    let Some(child) = process.as_mut().filter(|child| child.stop_requested) else {
+        return Ok(());
+    };
+    if !child.native_stop_completed()? {
+        return Err("Aria2 生命周期请求被拒绝：引擎正在停止并保存原生状态，请稍后重试".to_string());
+    }
+    state.clear_aria2_runtime()?;
+    let pid = child.id();
+    process.take();
+    state
+        .aria2_lifecycle
+        .set_phase(Aria2LifecyclePhase::Stopped)?;
+    state.core.debug_logs.info(
+        "aria2",
+        format!("已确认 Aria2 延迟正常退出并清理运行态，PID {pid}"),
+    );
+    Ok(())
+}
+
 pub async fn stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, Aria2StopError> {
     stop_aria2_inner(state, true).await
 }
@@ -128,6 +155,7 @@ async fn stop_aria2_after_shutdown_until(
             .map_err(|_| {
                 Aria2StopError::Failed("退出总预算耗尽，未能取得 Aria2 生命周期锁".to_string())
             })?;
+    reconcile_pending_native_stop(state).map_err(Aria2StopError::Failed)?;
     let quiescing = state
         .aria2_lifecycle
         .begin_quiescing()
@@ -199,6 +227,7 @@ async fn stop_aria2_inner(
     save_session_before_stop: bool,
 ) -> Result<Aria2ProcessStatus, Aria2StopError> {
     let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+    reconcile_pending_native_stop(state).map_err(Aria2StopError::Failed)?;
     let quiescing = state
         .aria2_lifecycle
         .begin_quiescing()
@@ -267,6 +296,7 @@ pub async fn auto_stop_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus,
     if state.core.shutdown.is_exiting() {
         return Err("服务正在退出，跳过 Aria2 自动停止".to_string());
     }
+    reconcile_pending_native_stop(state)?;
     ensure_auto_stop_idle(state).await?;
     let quiescing = state.aria2_lifecycle.begin_quiescing()?;
 

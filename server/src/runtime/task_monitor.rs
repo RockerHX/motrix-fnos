@@ -163,6 +163,10 @@ async fn maybe_auto_stop(
 
 pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String> {
     state.ensure_download_available()?;
+    {
+        let _operation = state.aria2_lifecycle.lock_lifecycle_operation().await;
+        super::aria2_process::reconcile_pending_native_stop(state)?;
+    }
     let previous_tasks = visible_tasks_snapshot(state)?;
     if !previous_tasks.iter().any(should_monitor_task) {
         return Ok(());
