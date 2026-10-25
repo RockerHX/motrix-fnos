@@ -291,7 +291,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `DELETE /api/tasks/:id` 只移入回收站并保留原位置的下载文件、进度和恢复信息。2.0.1 起旧参数 `deleteFiles=true` 返回 `400 task_delete_files_moved`，不改变任务和文件，提示先移入回收站，再使用永久删除接口；省略或 `false` 保持兼容。
 - `DELETE /api/tasks/:id/permanent?deleteFiles=true|false` 只允许永久删除回收站任务；省略或 `false` 释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，保留用户下载文件，成功返回 `204 No Content`。
 - 永久删除显式 `deleteFiles=true` 时校验当前授权与任务文件归属，确认引擎停止写入后原子暂存文件并持久化 `file_cleanup_pending` 操作。需要后台清理时返回 `202 Accepted` 与 `DownloadTask`（`cleanupState=pending`），记录保留在回收站；清理成功后才移除记录。失败显示 `cleanupState=failed` 并自动重试，重启继续清理；清理期间恢复和重复永久删除返回 `409 file_cleanup_pending`。无文件需要清理或旧记录已为 `filesDeleted=true` 时不重复删除，立即完成返回 `204`。
-- 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
+- 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。尚在解析或等待确认、未进入内容下载的磁链即使收到 `deleteFiles=true` 也仅清理私有数据，不检查用户下载目录授权、不暂存或删除用户文件，成功返回 `204`；已确认并建立专属下载目录的磁链仍执行完整授权与归属检查，不能以进度为零跳过。
 - 磁链在应用私有目录解析 metadata，全程保持同一 GID；引擎 `bittorrent.fileSelectionState=awaiting` 时任务暂停并设置 `confirmationRequired=true`。前端展示 `files`，确认文件后才开始写入用户下载目录。
 - 磁链确认时在已授权父目录下设置任务专属目录；完整 metadata 和文件选择随原生状态持久化，不依赖导出 `.torrent`、`.aria2` 控制文件或后继 GID。
 - 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。

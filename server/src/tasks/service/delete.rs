@@ -196,7 +196,8 @@ impl<'a> TaskService<'a> {
             return Err("只有回收站任务可以永久删除".to_string());
         }
         self.ensure_file_cleanup_not_pending(task_id).await?;
-        if delete_files && !snapshot.files_deleted {
+        let delete_files = delete_files && snapshot.can_delete_download_files();
+        if delete_files {
             self.validate_task_authorization(&snapshot)?;
             self.prepare_existing_task_destination(&snapshot)?;
             self.validate_payload_ownership(&snapshot)?;
@@ -208,13 +209,13 @@ impl<'a> TaskService<'a> {
                 );
             }
         }
-        let mut staged = if delete_files && !snapshot.files_deleted {
+        let mut staged = if delete_files {
             prepare_task_file_staging(&snapshot)?
         } else {
             None
         };
         let mut context = task_operation_context(Some(snapshot.clone()), Vec::new());
-        if delete_files && !snapshot.files_deleted {
+        if delete_files {
             context
                 .completed_side_effects
                 .push("delete_files_requested".to_string());

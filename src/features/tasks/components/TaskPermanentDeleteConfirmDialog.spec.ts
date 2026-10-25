@@ -39,7 +39,7 @@ import { defaultConfirmTexts, defaultLabels, defaultState } from "./taskActionTe
 describe("TaskPermanentDeleteConfirmDialog", () => {
   it("emits only close and permanent delete confirmation", async () => {
     const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
-      props: { show: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
     });
 
     await wrapper.findAll("button")[0].trigger("click");
@@ -49,7 +49,7 @@ describe("TaskPermanentDeleteConfirmDialog", () => {
   });
   it("deletes files only when selected and resets the choice on reopening", async () => {
     const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
-      props: { show: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
     });
     const checkbox = wrapper.get<HTMLInputElement>('input[type="checkbox"]');
     expect(checkbox.element.checked).toBe(false);
@@ -60,5 +60,16 @@ describe("TaskPermanentDeleteConfirmDialog", () => {
     await wrapper.setProps({ show: true });
     expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
   });
-
+  it("hides an unavailable file choice and clears a previous selection", async () => {
+    const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+    });
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.setProps({ canDeleteFiles: false });
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await wrapper.findAll("button")[1].trigger("click");
+    expect(wrapper.emitted("confirm")).toEqual([[false]]);
+    await wrapper.setProps({ canDeleteFiles: true });
+    expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
+  });
 });

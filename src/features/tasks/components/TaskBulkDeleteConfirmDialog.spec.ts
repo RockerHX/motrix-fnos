@@ -85,6 +85,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       props: {
         show: true,
         taskCount: 3,
+        canDeleteFiles: false,
       },
     });
 
@@ -98,6 +99,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       props: {
         show: true,
         taskCount: 12,
+        canDeleteFiles: false,
       },
     });
 
@@ -110,6 +112,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       props: {
         show: true,
         taskCount: 4,
+        canDeleteFiles: true,
         mode: "clearTrash",
       },
     });
@@ -121,7 +124,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
 
   it("offers file deletion only for clearing Trash and resets it on reopen", async () => {
     const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
-      props: { show: true, taskCount: 2 },
+      props: { show: true, taskCount: 2, canDeleteFiles: true },
     });
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
     await wrapper.setProps({ mode: "clearTrash" });
@@ -142,6 +145,7 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       props: {
         show: true,
         taskCount: 2,
+        canDeleteFiles: false,
       },
     });
 
@@ -156,12 +160,28 @@ describe("TaskBulkDeleteConfirmDialog", () => {
       props: {
         show: true,
         taskCount: 2,
+        canDeleteFiles: false,
       },
     });
 
     await clickButton(wrapper, "移入回收站");
 
     expect(wrapper.emitted("confirm")).toHaveLength(1);
+  });
+
+  it("hides file deletion when no Trash task has eligible content and clears the old choice", async () => {
+    const { wrapper } = mountWithPinia(TaskBulkDeleteConfirmDialog, {
+      props: { show: true, taskCount: 2, mode: "clearTrash", canDeleteFiles: false },
+    });
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await wrapper.setProps({ canDeleteFiles: true });
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.setProps({ canDeleteFiles: false });
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await clickButton(wrapper, "全部永久删除");
+    expect(wrapper.emitted("confirm")).toEqual([[false]]);
+    await wrapper.setProps({ canDeleteFiles: true });
+    expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
   });
 });
 

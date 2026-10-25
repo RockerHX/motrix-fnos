@@ -229,6 +229,7 @@ async function logout() {
       <TaskBulkDeleteConfirmDialog
         :show="bulkActions.showBulkDeleteConfirm.value"
         :task-count="bulkActions.bulkDeleteTaskCount.value"
+        :can-delete-files="bulkActions.canBulkDeleteFiles.value"
         :is-loading="bulkActions.isBulkOperating.value"
         :mode="bulkActions.bulkDeleteMode.value"
         @update:show="bulkActions.showBulkDeleteConfirm.value = $event"

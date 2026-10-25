@@ -16,7 +16,7 @@ import type {
   TaskActionState,
   TaskFileActionView,
 } from "./taskActionViewModel";
-import { getTaskSourceType } from "../utils/taskFormat";
+import { canDeleteTaskFiles, getTaskSourceType } from "../utils/taskFormat";
 
 const props = withDefaults(
   defineProps<{
@@ -499,6 +499,7 @@ function openRestoreConfirm() {
 
   <TaskPermanentDeleteConfirmDialog
     v-model:show="showPermanentDeleteConfirm"
+    :can-delete-files="canDeleteTaskFiles(props.task)"
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"

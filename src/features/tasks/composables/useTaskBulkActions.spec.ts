@@ -64,6 +64,25 @@ describe("useTaskBulkActions", () => {
     expect(message.warning).toHaveBeenCalledWith("task.bulk.noDeletable");
     expect(actions.showBulkDeleteConfirm.value).toBe(false);
   });
+
+  it("offers file deletion only when Trash contains eligible content and applies it per task", async () => {
+    const parsing = { ...task(1), url: "magnet:?xt=urn:btih:test" };
+    const awaiting = { ...parsing, id: 2, confirmationRequired: true,
+      files: [{ index: 1, path: "/downloads/preview.bin", name: "preview.bin", length: 100, completedLength: 0, selected: true }] };
+    const candidates = toolbar([parsing, awaiting]);
+    const taskStore = { permanentlyDeleteTask: vi.fn().mockResolvedValue(undefined) };
+    const actions = useTaskBulkActions({ taskStore: taskStore as never, toolbar: candidates as never,
+      message: messageApi(), t: (key) => key });
+    actions.requestClearTrash();
+    expect(actions.canBulkDeleteFiles.value).toBe(false);
+    const confirmed = { ...parsing, id: 3, ownedTaskDir: "/downloads/owned" };
+    candidates.clearTrashCandidates.value = [parsing, awaiting, confirmed, { ...task(4), filesDeleted: true }];
+    expect(actions.canBulkDeleteFiles.value).toBe(true);
+
+    await actions.confirmDeleteVisibleTasks(true);
+
+    expect(taskStore.permanentlyDeleteTask.mock.calls).toEqual([[1, false], [2, false], [3, true], [4, false]]);
+  });
 });
 
 function toolbar(tasks: DownloadTask[]) {

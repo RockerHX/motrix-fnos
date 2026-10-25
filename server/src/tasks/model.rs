@@ -58,6 +58,11 @@ pub fn is_pending_magnet_metadata_task(task: &DownloadTask) -> bool {
     task.url.to_ascii_lowercase().starts_with("magnet:?")
         && !task.confirmation_required
         && task
+            .owned_task_dir
+            .as_deref()
+            .map(|path| path.trim().is_empty())
+            .unwrap_or(true)
+        && task
             .metadata_torrent_path
             .as_deref()
             .map(|path| path.trim().is_empty())
@@ -117,6 +122,22 @@ pub struct DownloadTask {
     pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+impl DownloadTask {
+    pub fn can_delete_download_files(&self) -> bool {
+        !self.files_deleted
+            && (self.source_type != DownloadTaskSourceType::Magnet
+                || self
+                    .owned_task_dir
+                    .as_deref()
+                    .is_some_and(|path| !path.trim().is_empty())
+                || (!self.confirmation_required
+                    && self
+                        .file_path
+                        .as_deref()
+                        .is_some_and(|path| !path.trim().is_empty())))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

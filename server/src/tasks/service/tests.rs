@@ -1684,6 +1684,115 @@ async fn delete_download_task_cleans_metadata_dir_for_parsing_magnet_task() {
 }
 
 #[tokio::test]
+async fn native_unconfirmed_magnets_retain_private_data_until_permanent_deletion() {
+    for awaiting_confirmation in [false, true] {
+        for delete_files in [false, true] {
+            let root = temp_dir("native-magnet-trash-private-data");
+            std::fs::create_dir_all(&root).unwrap();
+            let unrelated = root.join("unrelated.bin");
+            std::fs::write(&unrelated, b"keep user data").unwrap();
+            let fixture = ServiceFixture::new(Vec::new(), false);
+            let metadata_dir = fixture.app_data_dir.join("magnet-metadata/task-1");
+            std::fs::create_dir_all(&metadata_dir).unwrap();
+            let metadata_path = metadata_dir.join("metadata.torrent");
+            std::fs::write(&metadata_path, b"private metadata").unwrap();
+            let mut task = sample_task(
+                1,
+                DownloadTaskStatus::Paused,
+                "gid-1",
+                root.display().to_string(),
+            );
+            task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
+            task.url = "magnet:?xt=urn:btih:test".to_string();
+            task.source_type = DownloadTaskSourceType::Magnet;
+            task.file_name = "bundle".to_string();
+            task.file_path = None;
+            task.total_length = if awaiting_confirmation { 100 } else { 0 };
+            task.completed_length = 0;
+            task.confirmation_required = awaiting_confirmation;
+            if awaiting_confirmation {
+                task.files = vec![DownloadTaskFile {
+                    index: 1,
+                    path: root.join("bundle/content.bin").display().to_string(),
+                    name: "content.bin".to_string(),
+                    length: 100,
+                    completed_length: 0,
+                    selected: true,
+                }];
+            }
+            fixture
+                .tasks
+                .with_tasks_mut(|tasks| tasks.push(task))
+                .unwrap();
+            let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let status = json!({
+                "gid": "gid-1", "status": "paused", "dir": metadata_dir,
+                "totalLength": if awaiting_confirmation { "100" } else { "0" },
+                "completedLength": "0", "downloadSpeed": "0",
+                "bittorrent": { "fileSelectionState": if awaiting_confirmation { "awaiting" } else { "resolving" }, "info": { "name": "bundle" } },
+                "files": if awaiting_confirmation { json!([{
+                    "index": 1, "path": metadata_dir.join("content.bin"), "length": "100",
+                    "completedLength": "0", "selected": "true"
+                }]) } else { json!([]) }
+            });
+            let mock = MockAria2Server::spawn_with_router(Router::new().route(
+                "/jsonrpc",
+                post(move |Json(payload): Json<Value>| {
+                    let released = Arc::clone(&released);
+                    let status = status.clone();
+                    async move {
+                        Json(match payload["method"].as_str().unwrap_or_default() {
+                            "aria2.tellStatus" if !released.load(Ordering::SeqCst) => {
+                                json!({ "result": status })
+                            }
+                            "aria2.tellStatus" => {
+                                json!({ "error": { "message": "GID gid-1 is not found" } })
+                            }
+                            "aria2.remove" => {
+                                released.store(true, Ordering::SeqCst);
+                                json!({ "result": "gid-1" })
+                            }
+                            "aria2.saveSession" => json!({ "result": "OK" }),
+                            method => json!({ "error": { "message": format!("unexpected method: {method}") } }),
+                        })
+                    }
+                }),
+            ))
+            .await;
+            let mut config = test_config(mock.addr.port(), "secret");
+            config.state_dir = Some(fixture.app_data_dir.join("state").display().to_string());
+            std::fs::write(&fixture.accessible_paths_path, r#"{"paths":[]}"#).unwrap();
+
+            let removed = fixture
+                .service()
+                .delete_download_task(&config, 1)
+                .await
+                .unwrap();
+            assert_eq!(removed.status, DownloadTaskStatus::Removed);
+            assert_eq!(removed.gid.as_deref(), Some("gid-1"));
+            assert_eq!(removed.confirmation_required, awaiting_confirmation);
+            assert!(metadata_path.is_file());
+            let pending = fixture
+                .service()
+                .permanently_delete_removed_task(&config, 1, delete_files)
+                .await
+                .unwrap();
+            assert!(pending.is_none());
+            assert!(!metadata_dir.exists());
+            assert!(fixture.tasks.list().unwrap().is_empty());
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep user data");
+            assert!(fixture
+                .repository
+                .operations()
+                .iter()
+                .all(|operation| !operation.is_file_cleanup_pending()));
+            mock.abort();
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn permanently_delete_removed_task_removes_memory_and_repository_record() {
     let mock = MockAria2Server::spawn_with_router(Router::new().route(
         "/jsonrpc",

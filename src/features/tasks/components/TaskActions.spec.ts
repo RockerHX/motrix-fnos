@@ -255,6 +255,35 @@ describe("TaskActions", () => {
     expect(wrapper.emitted("confirmPermanentDelete")).toEqual([[true]]);
   });
 
+  it.each([false, true])("hides file deletion before magnet confirmation (awaiting=%s)", async (confirmationRequired) => {
+    const { wrapper } = mountTaskActions({
+      task: {
+        url: "magnet:?xt=urn:btih:test", sourceType: "magnet", status: "removed", filePath: null, completedLength: 0,
+        confirmationRequired,
+        files: confirmationRequired ? [{ index: 1, path: "/downloads/preview.bin", name: "preview.bin", length: 100, completedLength: 0, selected: true }] : [],
+      },
+      permissions: { canPermanentDelete: true },
+    });
+    await clickButton(wrapper, "永久删除");
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await clickButton(wrapper, "永久删除", -1);
+    expect(wrapper.emitted("confirmPermanentDelete")).toEqual([[false]]);
+  });
+
+  it("offers file deletion for confirmed magnets even at zero progress", async () => {
+    const { wrapper } = mountTaskActions({
+      task: {
+        url: "magnet:?xt=urn:btih:test", sourceType: "magnet", status: "removed", ownedTaskDir: "/downloads/owned",
+        confirmationRequired: false, completedLength: 0,
+      },
+      permissions: { canPermanentDelete: true },
+    });
+    await clickButton(wrapper, "永久删除");
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await clickButton(wrapper, "永久删除", -1);
+    expect(wrapper.emitted("confirmPermanentDelete")).toEqual([[true]]);
+  });
+
   it("renders details from ordered detail items", async () => {
     const { wrapper } = mountTaskActions({
       details: {

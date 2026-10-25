@@ -1347,6 +1347,121 @@ async fn permanent_delete_defaults_to_keeping_files_and_can_submit_background_cl
 }
 
 #[tokio::test]
+async fn permanent_delete_unconfirmed_magnets_cleans_private_data_without_download_authorization() {
+    for awaiting_confirmation in [false, true] {
+        for delete_files in [false, true] {
+            let state = test_state().await;
+            let root = temp_dir("permanent-delete-magnet-private-only");
+            std::fs::create_dir_all(&root).unwrap();
+            let unrelated = root.join("unrelated.bin");
+            std::fs::write(&unrelated, b"keep user data").unwrap();
+            let metadata_dir = state.runtime.app_data_dir.join("magnet-metadata/task-1");
+            std::fs::create_dir_all(&metadata_dir).unwrap();
+            std::fs::write(metadata_dir.join("metadata.torrent"), b"private metadata").unwrap();
+            let restore_path = crate::tasks::files::save_restore_torrent_metadata(
+                &state.runtime.app_data_dir,
+                1,
+                b"restore metadata",
+            )
+            .unwrap();
+            let mut task = sample_task(1, DownloadTaskStatus::Removed);
+            task.gid = None;
+            task.url = "magnet:?xt=urn:btih:test".to_string();
+            task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+            task.save_dir = root.display().to_string();
+            task.file_path = None;
+            task.confirmation_required = awaiting_confirmation;
+            if awaiting_confirmation {
+                task.files = vec![DownloadTaskFile {
+                    index: 1,
+                    path: root.join("preview.bin").display().to_string(),
+                    name: "preview.bin".to_string(),
+                    length: 100,
+                    completed_length: 0,
+                    selected: true,
+                }];
+            }
+            write_accessible_paths(&state, &[]);
+            crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+                .await
+                .unwrap();
+            state
+                .core
+                .download_tasks
+                .with_tasks_mut(|tasks| tasks.push(task))
+                .unwrap();
+
+            let response = test_router(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .method("DELETE")
+                        .uri(format!("/api/tasks/1/permanent?deleteFiles={delete_files}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert!(state.core.download_tasks.list().unwrap().is_empty());
+            assert!(
+                crate::database::tasks::list_download_tasks(&state.core.database.pool)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(!metadata_dir.exists());
+            assert!(!restore_path.exists());
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep user data");
+            assert!(state.aria2_runtime_snapshot().is_none());
+            std::fs::remove_dir_all(root).unwrap();
+            cleanup_state(&state);
+        }
+    }
+}
+
+#[tokio::test]
+async fn permanent_delete_confirmed_magnet_requires_authorization_even_at_zero_progress() {
+    let state = test_state().await;
+    let root = temp_dir("permanent-delete-confirmed-magnet");
+    let owned = root.join("owned");
+    std::fs::create_dir_all(&owned).unwrap();
+    let payload = owned.join("payload.bin");
+    std::fs::write(&payload, b"preallocated content").unwrap();
+    let mut task = sample_task(1, DownloadTaskStatus::Removed);
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+    task.gid = None;
+    task.save_dir = root.display().to_string();
+    task.owned_task_dir = Some(owned.display().to_string());
+    task.file_path = None;
+    task.completed_length = 0;
+    write_accessible_paths(&state, &[]);
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task.clone()))
+        .unwrap();
+
+    let response = test_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/tasks/1/permanent?deleteFiles=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let error = response_json::<ErrorResponse>(response, StatusCode::FORBIDDEN).await;
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert_eq!(state.core.download_tasks.list().unwrap(), vec![task]);
+    assert_eq!(std::fs::read(&payload).unwrap(), b"preallocated content");
+    assert!(state.aria2_runtime_snapshot().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+    cleanup_state(&state);
+}
+
+#[tokio::test]
 async fn permanent_delete_rejects_non_removed_task() {
     let state = test_state().await;
     state

@@ -56,6 +56,12 @@ export function getTaskSourceType(task: Pick<DownloadTask, "sourceType" | "url">
   return "url";
 }
 
+export function canDeleteTaskFiles(task: DownloadTask): boolean {
+  return !task.filesDeleted && (getTaskSourceType(task) !== "magnet"
+    || Boolean(task.ownedTaskDir?.trim())
+    || (!task.confirmationRequired && Boolean(task.filePath?.trim())));
+}
+
 export function formatTaskProgress(task: DownloadTask) {
   if (task.totalLength <= 0) {
     return "0.00%";

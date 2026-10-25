@@ -6,6 +6,7 @@ import type { TaskActionConfirmTexts, TaskActionLabels, TaskActionState } from "
 
 const props = defineProps<{
   show: boolean;
+  canDeleteFiles: boolean;
   state: TaskActionState;
   labels: TaskActionLabels;
   confirmTexts: TaskActionConfirmTexts;
@@ -16,8 +17,8 @@ const emit = defineEmits<{
   confirm: [deleteFiles: boolean];
 }>();
 const deleteFiles = ref(false);
-watch(() => props.show, (show) => {
-  if (show) deleteFiles.value = false;
+watch(() => [props.show, props.canDeleteFiles], () => {
+  deleteFiles.value = false;
 });
 </script>
 
@@ -31,10 +32,10 @@ watch(() => props.show, (show) => {
     :confirm-text="confirmTexts.permanentDeleteConfirmText"
     confirm-type="error"
     @update:show="emit('update:show', $event)"
-    @confirm="emit('confirm', deleteFiles)"
+    @confirm="emit('confirm', canDeleteFiles && deleteFiles)"
   >
     <template #extra>
-      <NCheckbox v-model:checked="deleteFiles" :disabled="state.isActionDisabled">{{ confirmTexts.deleteFilesLabel }}</NCheckbox>
+      <NCheckbox v-if="canDeleteFiles" v-model:checked="deleteFiles" :disabled="state.isActionDisabled">{{ confirmTexts.deleteFilesLabel }}</NCheckbox>
     </template>
     <template #confirm-label>{{ labels.permanentDelete }}</template>
   </AppConfirmDialog>

@@ -449,7 +449,8 @@ async fn permanently_delete_task(
             "只有已删除任务可以永久删除".to_string(),
         ));
     }
-    if query.delete_files == Some(true) && !task.files_deleted {
+    let delete_files = query.delete_files.unwrap_or(false) && task.can_delete_download_files();
+    if delete_files {
         service
             .ensure_task_authorized(task_id)
             .map_err(classify_task_error)?;
@@ -472,7 +473,7 @@ async fn permanently_delete_task(
         .cloned()
         .unwrap_or_else(|| state.aria2_config());
     let pending = service
-        .permanently_delete_removed_task(&config, task_id, query.delete_files.unwrap_or(false))
+        .permanently_delete_removed_task(&config, task_id, delete_files)
         .await
         .map_err(classify_task_error)?;
     if let Some(task) = pending {
