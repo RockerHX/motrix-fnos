@@ -313,10 +313,14 @@ async fn state_without_operation(root: &Path) -> Arc<HttpAppState> {
     let database = connect_database(runtime.database_path.clone())
         .await
         .expect("database should connect");
-    Arc::new(HttpAppState::new(
+    let state = Arc::new(HttpAppState::new(
         ServerState::new(database, Vec::new(), 1),
         runtime,
-    ))
+    ));
+    *state.compatibility.lock().unwrap() = crate::app::compatibility::AppCompatibility::normal(
+        crate::config::aria2::EngineGeneration::LegacyV1,
+    );
+    state
 }
 
 async fn close_state(state: Arc<HttpAppState>, root: &Path) {
@@ -363,7 +367,10 @@ async fn wait_for_worker_completion(state: &Arc<HttpAppState>, backup: &Path) {
 
 fn temp_dir(label: &str) -> PathBuf {
     let id = TEMP_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let path = std::env::temp_dir().join(format!("motrix-fnos-file-cleanup-{label}-{id}"));
+    let path = std::env::temp_dir().join(format!(
+        "motrix-fnos-file-cleanup-{label}-{}-{id}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&path).expect("temporary directory should create");
     path
 }

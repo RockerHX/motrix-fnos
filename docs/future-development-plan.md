@@ -85,11 +85,11 @@
 
 ## 3. FUTURE-REFACTOR-01：设置服务分层重构
 
-状态：待规划，当前不实施。
+状态：普通设置与公网 Token 的并发更新边界已在审计修复中实施；其余分层与测试迁移继续按本节收口。
 
 ### 3.1 背景
 
-当前 `server/src/api/settings.rs::update_settings` 除了解析 HTTP 请求，还负责保存 `AppConfig`、刷新内存中的默认下载目录、记录日志，并在 Aria2 可用时即时应用全局下载配置。功能行为正确，但业务编排位于 `api/`，与架构文档规定的 `api -> service -> domain -> persistence` 分层不一致。
+原 `server/src/api/settings.rs::update_settings` 同时承担配置保存、缓存和引擎即时应用。2026-10-26 审计修复将这条更新链及公网 Token 更新移入 settings 服务，并增加事务及统一串行发布边界；目录读取和部分外围编排仍由 handler 负责。保留既定失败语义，其余分层整理不扩大到本轮修复。
 
 ### 3.2 重构范围
 

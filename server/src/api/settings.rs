@@ -1,14 +1,14 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::settings::proxy::{
     delete_download_proxy_for_engine, load_download_proxy_status, update_download_proxy,
     DownloadProxyMutationResponse, DownloadProxyServiceContext, DownloadProxyServiceError,
     DownloadProxyStatus,
 };
 use crate::settings::service::{
-    save_app_config, save_json_rpc_token, save_lan_json_rpc_config, AppConfig, LanJsonRpcConfig,
+    save_lan_json_rpc_config, update_app_config, update_public_rpc_token, AppConfig,
+    LanJsonRpcConfig, RuntimeApplyStatus,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -78,14 +78,6 @@ struct UpdateLanJsonRpcRequest {
 pub struct LanJsonRpcMutationResponse {
     pub status: LanJsonRpcStatus,
     pub issued_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum RuntimeApplyStatus {
-    Applied,
-    Deferred,
-    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -171,19 +163,10 @@ async fn update_settings(
         crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
             .display()
             .to_string();
-    let config = save_app_config(
-        &state.core.database.pool,
-        payload,
-        &default_download_dir,
-        &accessible_paths,
-        &state.runtime.app_data_dir,
-    )
-    .await
-    .map_err(classify_settings_save_error)?;
-    state.set_app_config(config.clone()).await;
-    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
-    state.core.debug_logs.info("settings", "应用配置已保存");
-    let runtime_apply = apply_runtime_download_config(&state, &config).await;
+    let (config, runtime_apply) =
+        update_app_config(&state, payload, &default_download_dir, &accessible_paths)
+            .await
+            .map_err(classify_settings_save_error)?;
     Ok(Json(UpdateSettingsResponse {
         config,
         runtime_apply: Some(runtime_apply),
@@ -266,10 +249,9 @@ async fn update_json_rpc_token(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<UpdateJsonRpcTokenRequest>,
 ) -> Result<Json<JsonRpcTokenStatus>, ApiError> {
-    let token = save_json_rpc_token(&state.core.database.pool, &payload.token)
+    let token = update_public_rpc_token(&state, &payload.token)
         .await
         .map_err(|error| ApiError::internal("jsonrpc_token_save_failed", error))?;
-    state.remember_json_rpc_token(&token);
     state
         .core
         .debug_logs
@@ -417,60 +399,4 @@ fn parse_download_proxy_update(
         None
     };
     Ok((proxy_url, bt_use_proxy))
-}
-
-async fn apply_runtime_download_config(
-    state: &HttpAppState,
-    config: &AppConfig,
-) -> RuntimeApplyStatus {
-    let _activity = match state.aria2_lifecycle.acquire_activity() {
-        Ok(activity) => activity,
-        Err(error) => {
-            state.core.debug_logs.warn(
-                "settings",
-                format!(
-                    "Aria2 生命周期正在转换，下载配置将在下次启动后生效：{}",
-                    error
-                ),
-            );
-            return RuntimeApplyStatus::Deferred;
-        }
-    };
-    let aria2_config = state.aria2_config();
-    let status = ping_rpc(&state.aria2_rpc, &aria2_config, None).await;
-    if !status.connected {
-        state.core.debug_logs.warn(
-            "settings",
-            format!(
-                "Aria2 RPC 未就绪，下载配置将在下次启动后生效：{}",
-                status.message
-            ),
-        );
-        return RuntimeApplyStatus::Deferred;
-    }
-
-    let options = global_options_from_values(
-        config.max_concurrent_downloads,
-        config.download_limit,
-        config.upload_limit,
-        config.http_max_connections,
-        config.connect_timeout,
-        config.max_tries,
-    );
-    if let Err(error) = apply_global_options(
-        &state.aria2_rpc,
-        &aria2_config,
-        &options,
-        Some(&state.core.debug_logs),
-    )
-    .await
-    {
-        state
-            .core
-            .debug_logs
-            .warn("settings", format!("即时应用下载配置失败：{}", error));
-        RuntimeApplyStatus::Failed
-    } else {
-        RuntimeApplyStatus::Applied
-    }
 }

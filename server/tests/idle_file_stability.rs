@@ -29,6 +29,15 @@ static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[tokio::test(flavor = "current_thread")]
 async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     let app_data_dir = temp_dir("idle-file-stability");
+    use std::os::unix::fs::PermissionsExt;
+    fs::create_dir_all(&app_data_dir).unwrap();
+    let engine = app_data_dir.join("version-only-engine");
+    fs::write(
+        &engine,
+        "#!/bin/sh\n[ \"$1\" = --version ] || exit 99\nprintf 'aria2 version 2.5.5\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&engine, fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
@@ -40,7 +49,7 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
         lan_jsonrpc_addr: "127.0.0.1:0"
             .parse()
             .expect("LAN JSON-RPC addr should parse"),
-        aria2_path: None,
+        aria2_path: Some(engine),
         trusted_proxy_ips: Vec::new(),
     };
     let initial_database = connect_database(runtime.database_path.clone())

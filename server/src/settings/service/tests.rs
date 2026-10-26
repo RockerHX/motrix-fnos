@@ -1,6 +1,60 @@
 use super::*;
 use crate::database::connect_database;
 
+#[tokio::test]
+async fn concurrent_settings_and_token_updates_preserve_both_values_after_reopen() {
+    let root = std::env::temp_dir().join(format!(
+        "motrix-settings-concurrency-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("settings.sqlite");
+    let database = connect_database(path.clone()).await.unwrap();
+    let directory = root.display().to_string();
+    for index in 1..=32 {
+        let config = AppConfig {
+            default_download_dir: directory.clone(),
+            max_concurrent_downloads: index,
+            ..AppConfig::default()
+        };
+        let token = if index % 2 == 0 {
+            String::new()
+        } else {
+            format!("token-{index}")
+        };
+        let paths = vec![directory.clone()];
+        let (saved, rotated) = tokio::join!(
+            save_app_config(&database.pool, config.clone(), &directory, &paths, &root),
+            save_json_rpc_token(&database.pool, &token),
+        );
+        assert_eq!(saved.unwrap(), config);
+        assert_eq!(rotated.unwrap(), token);
+        assert_eq!(
+            load_app_config_from_pool(&database.pool, &directory)
+                .await
+                .unwrap(),
+            config
+        );
+        assert_eq!(load_json_rpc_token(&database.pool).await.unwrap(), token);
+    }
+    database.pool.close().await;
+    let reopened = connect_database(path).await.unwrap();
+    assert_eq!(
+        load_app_config_from_pool(&reopened.pool, &directory)
+            .await
+            .unwrap()
+            .max_concurrent_downloads,
+        32
+    );
+    assert_eq!(load_json_rpc_token(&reopened.pool).await.unwrap(), "");
+    reopened.pool.close().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn app_config_uses_defaults_and_round_trips_saved_values() {
     tokio::runtime::Runtime::new()

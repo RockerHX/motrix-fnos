@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite, SqlitePool};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DOWNLOAD_PROXY_CONFIG_KEY: &str = "download_proxy";
@@ -234,28 +234,39 @@ async fn write_download_proxy_config(
     Ok(())
 }
 
-pub async fn get_app_config_value<T>(pool: &SqlitePool, key: &str) -> Result<Option<T>, String>
+pub async fn get_app_config_value<'e, T>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    key: &str,
+) -> Result<Option<T>, String>
 where
     T: DeserializeOwned,
 {
-    get_json_value(pool, "app_config", key).await
+    get_json_value(executor, "app_config", key).await
 }
 
-pub async fn set_app_config_value<T>(pool: &SqlitePool, key: &str, value: &T) -> Result<(), String>
+pub async fn set_app_config_value<'e, T>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    key: &str,
+    value: &T,
+) -> Result<(), String>
 where
     T: Serialize,
 {
-    set_json_value(pool, "app_config", key, value).await
+    set_json_value(executor, "app_config", key, value).await
 }
 
-async fn get_json_value<T>(pool: &SqlitePool, table: &str, key: &str) -> Result<Option<T>, String>
+async fn get_json_value<'e, T>(
+    executor: impl Executor<'e, Database = Sqlite>,
+    table: &str,
+    key: &str,
+) -> Result<Option<T>, String>
 where
     T: DeserializeOwned,
 {
     let value: Option<String> =
         sqlx::query_scalar(&format!("SELECT value FROM {table} WHERE key = ?"))
             .bind(key)
-            .fetch_optional(pool)
+            .fetch_optional(executor)
             .await
             .map_err(|error| format!("读取配置失败：{}", error))?;
 
@@ -266,8 +277,8 @@ where
         .transpose()
 }
 
-async fn set_json_value<T>(
-    pool: &SqlitePool,
+async fn set_json_value<'e, T>(
+    executor: impl Executor<'e, Database = Sqlite>,
     table: &str,
     key: &str,
     value: &T,
@@ -289,7 +300,7 @@ where
     .bind(key)
     .bind(value)
     .bind(current_timestamp_ms() as i64)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(|error| format!("保存配置失败：{}", error))?;
 

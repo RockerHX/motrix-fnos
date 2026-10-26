@@ -333,7 +333,7 @@ async fn ready_native_state(
         http_addr: "127.0.0.1:0".parse().unwrap(),
         jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::native_version_only_engine(root)),
         trusted_proxy_ips: Vec::new(),
     };
     let state = crate::app::bootstrap_http_app_state(&runtime)

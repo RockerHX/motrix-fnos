@@ -206,7 +206,9 @@ async fn bootstrap_without_pending_file_cleanup_keeps_state_exclusively_owned() 
         http_addr: "127.0.0.1:0".parse().expect("address should parse"),
         jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -241,7 +243,9 @@ async fn bootstrap_trims_oversized_aria2_log_without_starting_aria2() {
         http_addr: "127.0.0.1:0".parse().expect("address should parse"),
         jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -1256,6 +1260,79 @@ fn sample_task() -> DownloadTask {
     }
 }
 
+#[tokio::test]
+async fn unavailable_engines_restrict_management_without_loading_or_changing_old_tasks() {
+    use std::os::unix::fs::PermissionsExt;
+    for (index, script, executable) in [
+        (0, None, false),
+        (1, Some("#!/bin/sh\nprintf 'unknown engine\\n'\n"), true),
+        (2, Some("#!/bin/sh\nexit 1\n"), true),
+        (
+            3,
+            Some("#!/bin/sh\nprintf 'aria2 version 2.8.6\\n'\n"),
+            false,
+        ),
+        (4, Some("#!/bin/sh\nexec sleep 4\n"), true),
+    ] {
+        let root = std::env::temp_dir().join(format!(
+            "motrix-engine-gate-{}-{}-{index}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("invalid-engine");
+        if let Some(script) = script {
+            std::fs::write(&binary, script).unwrap();
+            std::fs::set_permissions(
+                &binary,
+                std::fs::Permissions::from_mode(if executable { 0o700 } else { 0o600 }),
+            )
+            .unwrap();
+        }
+        let runtime = ServerRuntimeConfig {
+            database_path: root.join(DATABASE_FILE_NAME),
+            accessible_paths_path: root.join(ACCESSIBLE_PATHS_FILE_NAME),
+            app_data_dir: root.clone(),
+            http_addr: "127.0.0.1:0".parse().unwrap(),
+            jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            aria2_path: Some(binary),
+            trusted_proxy_ips: Vec::new(),
+        };
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        let task = sample_task();
+        upsert_download_task(&database.pool, &task).await.unwrap();
+        save_json_rpc_token(&database.pool, "preserved-token")
+            .await
+            .unwrap();
+        let private = root.join("magnet-metadata/unreferenced/keep.bin");
+        std::fs::create_dir_all(private.parent().unwrap()).unwrap();
+        std::fs::write(&private, b"preserved content").unwrap();
+        database.pool.close().await;
+        let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        assert_eq!(state.compatibility_snapshot().mode, "restricted");
+        assert_eq!(
+            state.compatibility_snapshot().reason_code.as_deref(),
+            Some("engine_unknown")
+        );
+        assert!(state.ensure_download_available().is_err());
+        assert!(state.core.download_tasks.list().unwrap().is_empty());
+        assert_eq!(
+            list_download_tasks(&state.core.database.pool)
+                .await
+                .unwrap(),
+            vec![task]
+        );
+        assert_eq!(state.json_rpc_token(), "preserved-token");
+        assert_eq!(std::fs::read(&private).unwrap(), b"preserved content");
+        assert!(state.aria2_runtime_snapshot().is_none());
+        state.core.database.pool.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 #[test]
 fn legacy_metadata_reconcile_preserves_native_confirmation_and_original_gid() {
     let root = std::env::temp_dir().join(format!("motrix-native-boot-{}", now_ms()));
@@ -1311,11 +1388,13 @@ fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRu
     ServerRuntimeConfig {
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
-        app_data_dir,
+        app_data_dir: app_data_dir.clone(),
         http_addr,
         jsonrpc_addr,
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     }
 }

@@ -6,13 +6,21 @@ use tracing_subscriber::fmt::MakeWriter;
 use crate::auth::{AuthError, AuthService, AuthState};
 
 pub(crate) fn legacy_version_only_engine(app_data_dir: &Path) -> PathBuf {
+    version_only_engine(app_data_dir, "2.5.5")
+}
+
+pub(crate) fn native_version_only_engine(app_data_dir: &Path) -> PathBuf {
+    version_only_engine(app_data_dir, "2.8.6")
+}
+
+fn version_only_engine(app_data_dir: &Path, version: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
     std::fs::create_dir_all(app_data_dir).expect("fixture directory should create");
-    let binary = app_data_dir.join("legacy-version-only-engine");
+    let binary = app_data_dir.join(format!("version-only-engine-{version}"));
     std::fs::write(
         &binary,
-        "#!/bin/sh\n[ \"$#\" -eq 1 ] && [ \"$1\" = \"--version\" ] || exit 1\nprintf 'aria2 version 2.5.5\\n'\n",
+        format!("#!/bin/sh\n[ \"$#\" -eq 1 ] && [ \"$1\" = \"--version\" ] || exit 1\nprintf 'aria2 version {version}\\n'\n"),
     )
     .expect("engine identity fixture should write");
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700))

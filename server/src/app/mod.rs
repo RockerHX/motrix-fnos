@@ -188,6 +188,7 @@ pub struct HttpAppState {
     lan_json_rpc_config_revision: watch::Sender<u64>,
     pub(crate) jsonrpc_websocket_connections: Arc<Semaphore>,
     pub(crate) download_proxy_update_lock: tokio::sync::Mutex<()>,
+    pub(crate) settings_update_lock: tokio::sync::Mutex<()>,
     accessible_paths_refresh_lock: tokio::sync::Mutex<()>,
     fnos_api_client: Mutex<FnosApiClient>,
     listeners_ready: AtomicBool,
@@ -208,8 +209,9 @@ impl HttpAppState {
         let auth = AuthRuntime::new(core.database.pool.clone());
         let aria2_lifecycle = Arc::new(Aria2LifecycleCoordinator::default());
         Self {
-            compatibility: Mutex::new(compatibility::AppCompatibility::normal(
-                crate::config::aria2::EngineGeneration::LegacyV1,
+            compatibility: Mutex::new(compatibility::AppCompatibility::restricted(
+                crate::config::aria2::EngineGeneration::Unknown,
+                "engine_unknown",
             )),
             core: Arc::new(core),
             auth,
@@ -231,6 +233,7 @@ impl HttpAppState {
                 JSONRPC_WEBSOCKET_CONNECTION_LIMIT,
             )),
             download_proxy_update_lock: tokio::sync::Mutex::new(()),
+            settings_update_lock: tokio::sync::Mutex::new(()),
             accessible_paths_refresh_lock: tokio::sync::Mutex::new(()),
             fnos_api_client: Mutex::new(FnosApiClient::default()),
             listeners_ready: AtomicBool::new(false),
@@ -525,7 +528,6 @@ pub async fn bootstrap_http_app_state(
         Ok(binary) => crate::runtime::aria2_process::inspect_engine_generation(&binary.path)
             .await
             .unwrap_or(crate::config::aria2::EngineGeneration::Unknown),
-        Err(_) if runtime.aria2_path.is_none() => crate::config::aria2::EngineGeneration::LegacyV1,
         Err(_) => crate::config::aria2::EngineGeneration::Unknown,
     };
     let mut compatibility = if generation == crate::config::aria2::EngineGeneration::Unknown {
@@ -538,15 +540,17 @@ pub async fn bootstrap_http_app_state(
     } else {
         connect_database(runtime.database_path.clone()).await?
     };
-    let mut restored_tasks = match list_download_tasks_for_engine(&database.pool, generation).await
-    {
-        Ok(tasks) => tasks,
-        Err(_) if compatibility.mode == "restricted" => Vec::new(),
-        Err(error) => {
-            compatibility =
-                compatibility::AppCompatibility::restricted(generation, "legacy_state_invalid");
-            tracing::warn!("任务快照不可读取，进入受限管理：{error}");
-            Vec::new()
+    let mut restored_tasks = if compatibility.mode == "restricted" {
+        Vec::new()
+    } else {
+        match list_download_tasks_for_engine(&database.pool, generation).await {
+            Ok(tasks) => tasks,
+            Err(error) => {
+                compatibility =
+                    compatibility::AppCompatibility::restricted(generation, "legacy_state_invalid");
+                tracing::warn!("任务快照不可读取，进入受限管理：{error}");
+                Vec::new()
+            }
         }
     };
     let accessible_paths = load_accessible_paths(&runtime.accessible_paths_path)?;
