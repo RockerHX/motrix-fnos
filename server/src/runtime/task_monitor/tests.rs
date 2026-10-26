@@ -223,6 +223,12 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
         .expect("tasks should lock");
+    crate::database::tasks::persist_download_task_states(
+        &state.core.database.pool,
+        &state.core.download_tasks.list().unwrap(),
+    )
+    .await
+    .unwrap();
     let mut receiver = state.runtime_events.subscribe();
 
     monitor_tasks_once(&state)

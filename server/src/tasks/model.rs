@@ -125,6 +125,22 @@ pub struct DownloadTask {
 }
 
 impl DownloadTask {
+    pub(crate) fn persisted_snapshot(&self) -> Self {
+        let mut task = self.clone();
+        if task.files_deleted {
+            task.completed_length = 0;
+            for file in &mut task.files {
+                file.completed_length = 0;
+            }
+        }
+        if task.source_type != DownloadTaskSourceType::Url || !task.use_proxy {
+            task.use_proxy = false;
+            task.proxy_binding = TaskProxyBinding::default();
+        }
+        task.files.sort_by_key(|file| file.index);
+        task
+    }
+
     pub fn can_delete_download_files(&self) -> bool {
         !self.files_deleted
             && (self.source_type != DownloadTaskSourceType::Magnet

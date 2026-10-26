@@ -3,6 +3,7 @@ use crate::aria2::Aria2RpcClient;
 
 pub async fn refresh_tasks_from_aria2(
     tasks: &TaskMemoryState,
+    pool: &sqlx::SqlitePool,
     app_data_dir: &Path,
     accessible_paths_path: &Path,
     client: &Aria2RpcClient,
@@ -13,6 +14,7 @@ pub async fn refresh_tasks_from_aria2(
     let candidates: Vec<DownloadTask> = snapshot
         .iter()
         .filter(|task| should_refresh_task(task))
+        .filter(|task| task.status != DownloadTaskStatus::Removed)
         .filter(|task| task.engine_generation == config.engine_generation())
         .filter(|task| {
             task.gid
@@ -141,53 +143,61 @@ pub async fn refresh_tasks_from_aria2(
         }
     }
 
-    // 回写时再次核对 task id 与旧 GID，防止 RPC 往返期间并发操作产生的新 GID 被旧查询结果覆盖。
-    let mut guard = tasks.with_tasks_mut(|tasks| {
-        for update in &updates {
-            match update {
-                TaskRefreshUpdate::Status { gid, status } => {
-                    for task in tasks.iter_mut().filter(|task| {
-                        task.gid.as_ref() == Some(gid) && task.status != DownloadTaskStatus::Removed
-                    }) {
-                        apply_aria2_status(task, status);
-                    }
-                }
-                TaskRefreshUpdate::Readded {
-                    task_id,
-                    old_gid,
-                    new_gid,
-                } => {
-                    if let Some(task) = tasks.iter_mut().find(|task| {
-                        task.id == *task_id
-                            && task.gid.as_ref() == Some(old_gid)
-                            && task.status != DownloadTaskStatus::Removed
-                    }) {
-                        apply_readded_gid(task, new_gid);
-                    }
-                }
-                TaskRefreshUpdate::MagnetMetadataResolved {
-                    old_gid,
-                    status,
-                    metadata_torrent_path,
-                } => {
-                    if let Some(task) = tasks.iter_mut().find(|task| {
-                        task.gid.as_ref() == Some(old_gid)
-                            && task.status != DownloadTaskStatus::Removed
-                    }) {
-                        apply_magnet_metadata_confirmation(
-                            task,
-                            status,
-                            metadata_torrent_path.clone(),
-                        );
-                    }
+    let mut operations = Vec::new();
+    let mut changed = Vec::new();
+    for update in updates {
+        let original = snapshot.iter().find(|task| match &update {
+            TaskRefreshUpdate::Status { gid, .. } => task.gid.as_ref() == Some(gid),
+            TaskRefreshUpdate::Readded {
+                task_id, old_gid, ..
+            } => task.id == *task_id && task.gid.as_ref() == Some(old_gid),
+            TaskRefreshUpdate::MagnetMetadataResolved { old_gid, .. } => {
+                task.gid.as_ref() == Some(old_gid)
+            }
+        });
+        let Some(original) = original else { continue };
+        let Ok(operation) = tasks.begin_operation(original.id) else {
+            continue;
+        };
+        if task_snapshot(tasks, original.id).ok().as_ref() != Some(original) {
+            continue;
+        }
+        let mut next = original.clone();
+        match update {
+            TaskRefreshUpdate::Status { status, .. } => {
+                super::progress::update_aria2_status(&mut next, &status);
+            }
+            TaskRefreshUpdate::Readded { new_gid, .. } => apply_readded_gid(&mut next, &new_gid),
+            TaskRefreshUpdate::MagnetMetadataResolved {
+                status,
+                metadata_torrent_path,
+                ..
+            } => {
+                apply_magnet_metadata_confirmation(&mut next, &status, metadata_torrent_path);
+            }
+        }
+        // 轮询时间不是业务变化；结构相等比较同时覆盖不会出现在公开 JSON 中的代理绑定。
+        next.updated_at = original.updated_at;
+        if next.persisted_snapshot() == original.persisted_snapshot() {
+            continue;
+        }
+        next.updated_at = current_timestamp_ms();
+        operations.push(operation);
+        changed.push((original.clone(), next));
+    }
+    // 先提交后发布；失败时内存仍是可再次查询的原快照，完成状态也不会漏存。
+    let saved = crate::database::tasks::persist_task_refreshes(pool, &changed).await?;
+    tasks.with_tasks_mut(|stored| {
+        for (original, next) in saved {
+            if let Some(task) = stored.iter_mut().find(|task| **task == original) {
+                *task = next;
+                if task.status == DownloadTaskStatus::Complete {
+                    super::files::cleanup_aria2_control_file(task);
                 }
             }
         }
-
-        tasks.clone()
-    })?;
-
-    Ok(std::mem::take(&mut guard))
+        stored.clone()
+    })
 }
 
 pub async fn sync_task_progress_from_aria2_by_gid(
@@ -352,3 +362,6 @@ pub fn should_readd_task_after_resume_error(task: &DownloadTask, message: &str) 
         || (normalized.contains("cannot be unpaused now")
             && task.status == DownloadTaskStatus::Error)
 }
+
+#[cfg(test)]
+mod tests;

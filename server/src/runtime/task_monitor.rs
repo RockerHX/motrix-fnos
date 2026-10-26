@@ -1,5 +1,4 @@
 use crate::app::{HttpAppState, RuntimeEvent, TasksSnapshotPayload};
-use crate::database::tasks::persist_download_task_states;
 use crate::runtime::{
     auto_stop_aria2, current_activity_snapshot, ensure_aria2_ready, Aria2LifecyclePhase,
 };
@@ -175,6 +174,7 @@ pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String>
     let config = ensure_aria2_ready(state).await?;
     let tasks = refresh_tasks_from_aria2(
         &state.core.download_tasks,
+        &state.core.database.pool,
         &state.runtime.app_data_dir,
         &state.runtime.accessible_paths_path,
         &state.aria2_rpc,
@@ -182,12 +182,6 @@ pub async fn monitor_tasks_once(state: &Arc<HttpAppState>) -> Result<(), String>
         Some(&state.core.debug_logs),
     )
     .await?;
-    let compatible_tasks: Vec<_> = tasks
-        .iter()
-        .filter(|task| task.engine_generation == config.engine_generation())
-        .cloned()
-        .collect();
-    persist_download_task_states(&state.core.database.pool, &compatible_tasks).await?;
     let next_tasks = visible_tasks(tasks);
     if next_tasks != previous_tasks {
         broadcast_tasks_snapshot(state)?;

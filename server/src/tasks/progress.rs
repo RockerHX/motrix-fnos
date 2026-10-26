@@ -76,6 +76,13 @@ pub(crate) fn apply_magnet_metadata_confirmation(
 }
 
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    update_aria2_status(task, status);
+    if task.status == DownloadTaskStatus::Complete {
+        cleanup_aria2_control_file(task);
+    }
+}
+
+pub(crate) fn update_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
         && task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
         && is_magnet_metadata_awaiting(status)
@@ -180,9 +187,6 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
                         .to_string(),
                 )
             });
-    }
-    if task.status == DownloadTaskStatus::Complete {
-        cleanup_aria2_control_file(task);
     }
     task.updated_at = current_timestamp_ms();
 }

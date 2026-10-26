@@ -880,8 +880,10 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
     };
 
     let client = crate::aria2::Aria2RpcClient::new();
+    let database = refresh_database(&app_data_dir, &tasks).await;
     let refreshed = refresh_tasks_from_aria2(
         &tasks,
+        &database.pool,
         &app_data_dir,
         &app_data_dir.join("accessible-paths.json"),
         &client,
@@ -935,8 +937,10 @@ async fn native_refresh_never_readds_a_missing_gid_from_status_or_rpc_error() {
         let mut task = sample_task(Some(file.display().to_string()), root.display().to_string());
         task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
         let tasks = TaskMemoryState::new(vec![task]);
+        let database = refresh_database(&root, &tasks).await;
         let result = refresh_tasks_from_aria2(
             &tasks,
+            &database.pool,
             &root,
             &root.join("accessible-paths.json"),
             &Aria2RpcClient::new(),
@@ -978,8 +982,10 @@ async fn refresh_tasks_from_aria2_does_not_readd_a_revoked_task() {
         ..test_config()
     };
 
+    let database = refresh_database(&app_data_dir, &tasks).await;
     let refreshed = refresh_tasks_from_aria2(
         &tasks,
+        &database.pool,
         &app_data_dir,
         &accessible_paths_path,
         &Aria2RpcClient::new(),
@@ -2014,4 +2020,14 @@ async fn mock_stale_aria2_rpc(Json(payload): Json<Value>) -> Json<Value> {
         }),
         other => json!({ "error": { "message": format!("unexpected method: {other}") } }),
     })
+}
+
+async fn refresh_database(root: &Path, tasks: &TaskMemoryState) -> crate::database::AppDatabase {
+    let database = crate::database::connect_database(root.join("refresh.sqlite"))
+        .await
+        .unwrap();
+    crate::database::tasks::persist_download_task_states(&database.pool, &tasks.list().unwrap())
+        .await
+        .unwrap();
+    database
 }
