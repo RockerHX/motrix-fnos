@@ -9,7 +9,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         let gid = task_gid(self.download_tasks, task_id)?;
@@ -69,9 +69,6 @@ impl<'a> TaskService<'a> {
         {
             Ok(task) => task,
             Err(error) => {
-                if config.state_dir.is_none() {
-                    let _ = unpause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-                }
                 return Err(self
                     .rollback_task_operation_state(snapshot, &mut operation, "sync_failed", error)
                     .await);
@@ -106,7 +103,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _guard = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if !matches!(
@@ -286,7 +283,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let task_before_resume = task_snapshot(self.download_tasks, task_id)?;
@@ -315,7 +312,7 @@ impl<'a> TaskService<'a> {
                 return Err(error);
             }
         };
-        let output_validation_stale = match validate_url_task_output_before_resume(
+        if let Err(error) = validate_url_task_output_before_resume(
             self.aria2_rpc,
             config,
             &task_before_resume,
@@ -324,43 +321,40 @@ impl<'a> TaskService<'a> {
         )
         .await
         {
-            Ok(()) => false,
-            Err(error) if is_stale_aria2_gid_error(&error) => true,
+            let error = if is_stale_aria2_gid_error(&error) {
+                format!("task_resume_state_invalid：原 GID 已丢失，已保留任务与文件：{error}")
+            } else {
+                error
+            };
+            self.fail_task_operation(&mut operation, "aria2_output_validation_failed", &error)
+                .await;
+            return Err(error);
+        }
+        match reconcile_task_proxy_option(
+            self.aria2_rpc,
+            config,
+            &runtime_task,
+            Some(&gid),
+            Some(self.debug_logs),
+        )
+        .await
+        {
+            Ok(true) => operation
+                .context
+                .completed_side_effects
+                .push("proxy_option_reconciled".to_string()),
+            Ok(false) => {}
             Err(error) => {
-                self.fail_task_operation(&mut operation, "aria2_output_validation_failed", &error)
+                let phase = if error.is_outcome_unknown() {
+                    "proxy_reconcile_outcome_unknown"
+                } else {
+                    "proxy_reconcile_failed"
+                };
+                self.fail_task_operation(&mut operation, phase, error.to_string())
                     .await;
-                return Err(error);
-            }
-        };
-        if !output_validation_stale {
-            match reconcile_task_proxy_option(
-                self.aria2_rpc,
-                config,
-                &runtime_task,
-                Some(&gid),
-                Some(self.debug_logs),
-            )
-            .await
-            {
-                Ok(true) => operation
-                    .context
-                    .completed_side_effects
-                    .push("proxy_option_reconciled".to_string()),
-                Ok(false) => {}
-                Err(error) if is_stale_aria2_gid_error(&error.to_string()) => {}
-                Err(error) => {
-                    let phase = if error.is_outcome_unknown() {
-                        "proxy_reconcile_outcome_unknown"
-                    } else {
-                        "proxy_reconcile_failed"
-                    };
-                    self.fail_task_operation(&mut operation, phase, error.to_string())
-                        .await;
-                    return Err(error.to_string());
-                }
+                return Err(error.to_string());
             }
         }
-        let mut readded = false;
         let request_id = operation.id.clone();
         let destination = if crate::tasks::is_pending_magnet_metadata_task(&task_before_resume) {
             self.validate_task_authorization(&task_before_resume)
@@ -406,35 +400,6 @@ impl<'a> TaskService<'a> {
                     .await?;
                 return Err(error);
             }
-            Err(error) if should_readd_task_after_resume_error(&task_before_resume, &error) => {
-                self.debug_logs.warn(
-                    "tasks.restore",
-                    format!("恢复任务时发现旧 GID 已失效，准备重新加入任务：{}", error),
-                );
-                if let Err(error) = self.validate_task_authorization(&task_before_resume) {
-                    self.fail_task_operation(&mut operation, "authorization_revoked", &error)
-                        .await;
-                    return Err(error);
-                }
-                readded = true;
-                match readd_task_to_aria2(
-                    self.aria2_rpc,
-                    self.download_tasks,
-                    config,
-                    &runtime_task,
-                    self.accessible_paths_path,
-                    Some(self.debug_logs),
-                )
-                .await
-                {
-                    Ok(task) => task,
-                    Err(error) => {
-                        self.fail_task_operation(&mut operation, "aria2_readd_failed", &error)
-                            .await;
-                        return Err(error);
-                    }
-                }
-            }
             Err(error) => {
                 self.fail_task_operation(&mut operation, "aria2_resume_failed", &error)
                     .await;
@@ -442,28 +407,14 @@ impl<'a> TaskService<'a> {
             }
         };
         let mut resume_context = operation.context.clone();
-        if readded {
-            resume_context.new_gid = task.gid.clone();
-            resume_context
-                .completed_side_effects
-                .push("aria2_task_readded".to_string());
-        } else {
-            resume_context
-                .completed_side_effects
-                .push("aria2_task_resumed".to_string());
-        }
+        resume_context
+            .completed_side_effects
+            .push("aria2_task_resumed".to_string());
         if let Err(error) = self
             .update_task_operation(&mut operation, "aria2_resumed", resume_context)
             .await
         {
-            if readded {
-                if let Some(new_gid) = task.gid.as_deref() {
-                    let _ =
-                        remove_task(self.aria2_rpc, config, new_gid, Some(self.debug_logs)).await;
-                }
-            } else {
-                let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-            }
+            let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return Err(self
                 .rollback_task_operation_state(
                     task_before_resume,
@@ -477,14 +428,7 @@ impl<'a> TaskService<'a> {
             .persist_task_with_operation(&task, &mut operation, "task_resumed")
             .await
         {
-            if readded {
-                if let Some(new_gid) = task.gid.as_deref() {
-                    let _ =
-                        remove_task(self.aria2_rpc, config, new_gid, Some(self.debug_logs)).await;
-                }
-            } else {
-                let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-            }
+            let _ = pause_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
             return Err(self
                 .rollback_task_operation_state(
                     task_before_resume,
@@ -515,7 +459,7 @@ impl<'a> TaskService<'a> {
         use_proxy_override: Option<bool>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
@@ -556,9 +500,7 @@ impl<'a> TaskService<'a> {
             use_proxy: resolved_proxy.use_proxy,
             proxy_binding: resolved_proxy.binding.clone(),
         };
-        if snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-            && snapshot.source_type != DownloadTaskSourceType::Url
-        {
+        if snapshot.source_type != DownloadTaskSourceType::Url {
             prepared
                 .aria2_options
                 .insert("check-integrity".to_string(), serde_json::json!("true"));

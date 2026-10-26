@@ -404,7 +404,7 @@ async fn test_database(label: &str) -> (crate::database::AppDatabase, std::path:
 fn sample_task(id: u64, proxy_binding: TaskProxyBinding) -> DownloadTask {
     DownloadTask {
         id,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: format!("https://example.com/{id}.zip"),
         source_type: DownloadTaskSourceType::Url,

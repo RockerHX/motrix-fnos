@@ -34,7 +34,7 @@ async fn idle_monitor_and_readonly_requests_keep_application_files_unchanged() {
     let engine = app_data_dir.join("version-only-engine");
     fs::write(
         &engine,
-        "#!/bin/sh\n[ \"$1\" = --version ] || exit 99\nprintf 'aria2 version 2.5.5\\n'\n",
+        "#!/bin/sh\n[ \"$1\" = --version ] || exit 99\nprintf 'aria2 version 2.8.6\\n'\n",
     )
     .unwrap();
     fs::set_permissions(&engine, fs::Permissions::from_mode(0o700)).unwrap();
@@ -223,7 +223,7 @@ async fn exercise_idle_window(
             .expect("JSON-RPC body should read"),
     )
     .expect("JSON-RPC response should parse");
-    assert_eq!(payload["result"]["version"], "2.5.5");
+    assert_eq!(payload["result"]["version"], "2.8.6");
 
     let response = jsonrpc
         .clone()
@@ -270,7 +270,7 @@ async fn spawn_mock_aria2() -> (u16, tokio::task::JoinHandle<()>) {
                 axum::Json(json!({
                     "jsonrpc": "2.0",
                     "id": "motrix-fnos-version-check",
-                    "result": { "version": "2.5.5" }
+                    "result": { "version": "2.8.6" }
                 }))
             }),
         );
@@ -386,7 +386,7 @@ fn assert_required_idle_files(app_data_dir: &Path, snapshot: &TreeSnapshot) {
         database.clone(),
         PathBuf::from(format!("{}-wal", database.display())),
         PathBuf::from(format!("{}-shm", database.display())),
-        app_data_dir.join("aria2/aria2.session"),
+        app_data_dir.join("engine/native-v2/session/aria2.session"),
         app_data_dir.join("aria2-runtime.json"),
         app_data_dir.join("logs/server.log"),
         app_data_dir.join("logs/lifecycle.log"),
@@ -460,10 +460,22 @@ fn temp_dir(label: &str) -> PathBuf {
 
 #[cfg(unix)]
 fn spawn_idle_child() -> Child {
-    Command::new("sh")
-        .args(["-c", "sleep 10"])
+    use std::io::BufRead;
+    use std::process::Stdio;
+    let mut child = Command::new("sh")
+        .args([
+            "-c",
+            "trap 'exit 0' INT; printf 'ready\\n'; while :; do sleep 0.01; done",
+        ])
+        .stdout(Stdio::piped())
         .spawn()
-        .expect("idle child should spawn")
+        .expect("idle child should spawn");
+    let mut ready = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready, "ready\n");
+    child
 }
 
 #[cfg(windows)]

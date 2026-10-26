@@ -66,7 +66,7 @@ pub(super) async fn create_magnet_download_task(
         task_id,
         prepared,
         gid,
-        config.engine_generation(),
+        crate::config::aria2::EngineGeneration::NativeV2,
     ) {
         Ok(task) => Ok(task),
         Err(error) => {
@@ -89,7 +89,7 @@ impl<'a> TaskService<'a> {
         selected_file_indexes: Vec<u32>,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let mut selected = selected_file_indexes
@@ -119,208 +119,11 @@ impl<'a> TaskService<'a> {
         }
         self.ensure_bt_proxy_ready(config).await?;
         self.validate_task_authorization(&task)?;
-        if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-            && task.source_type == DownloadTaskSourceType::Magnet
-        {
-            return self
-                .confirm_native_magnet_download_task(config, task, selected)
-                .await;
+        if task.source_type != DownloadTaskSourceType::Magnet {
+            return Err("当前任务不需要确认文件".to_string());
         }
-
-        let proxy_binding = self.resolve_existing_task_proxy(&task).await?;
-        let select_file = selected
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let selected_set = selected
-            .iter()
-            .copied()
-            .collect::<std::collections::BTreeSet<_>>();
-        let task_file_indexes = task
-            .files
-            .iter()
-            .map(|file| file.index)
-            .collect::<std::collections::BTreeSet<_>>();
-        if !selected_set.is_subset(&task_file_indexes) {
-            return Err("选择的文件索引不在任务文件列表中".to_string());
-        }
-
-        let mut operation = self
-            .begin_task_operation(
-                task_id,
-                TaskOperationType::Confirm,
-                "prepared",
-                task_operation_context(
-                    Some(task.clone()),
-                    vec![
-                        task.save_dir.clone(),
-                        magnet_metadata_task_dir(self.app_data_dir, task_id)
-                            .display()
-                            .to_string(),
-                    ],
-                ),
-            )
-            .await?;
-        let torrent_data = match read_saved_torrent_metadata(&task) {
-            Ok(data) => data,
-            Err(error) => {
-                self.fail_task_operation(&mut operation, "metadata_read_failed", &error)
-                    .await;
-                return Err(error);
-            }
-        };
-        let restore_metadata_path =
-            match save_restore_torrent_metadata(self.app_data_dir, task_id, &torrent_data) {
-                Ok(path) => path,
-                Err(error) => {
-                    self.fail_task_operation(&mut operation, "metadata_save_failed", &error)
-                        .await;
-                    return Err(error);
-                }
-            };
-        let mut metadata_context = operation.context.clone();
-        metadata_context
-            .critical_paths
-            .push(restore_metadata_path.display().to_string());
-        metadata_context
-            .completed_side_effects
-            .push("restore_metadata_saved".to_string());
-        if let Err(error) = self
-            .update_task_operation(&mut operation, "metadata_saved", metadata_context)
+        self.confirm_native_magnet_download_task(config, task, selected)
             .await
-        {
-            remove_restore_metadata(self.app_data_dir, task_id);
-            self.fail_task_operation(&mut operation, "metadata_record_failed", &error)
-                .await;
-            return Err(error);
-        }
-        if let Err(error) = self.validate_task_authorization(&task) {
-            remove_restore_metadata(self.app_data_dir, task_id);
-            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
-                .await;
-            return Err(error);
-        }
-        let mut options = serde_json::Map::new();
-        options.insert("select-file".to_string(), serde_json::json!(select_file));
-        if let Err(error) = self.prepare_task_destination(&task) {
-            remove_restore_metadata(self.app_data_dir, task_id);
-            self.fail_task_operation(&mut operation, "authorization_revoked", &error)
-                .await;
-            return Err(error);
-        }
-        let mut prepared = match prepare_bt_download_task_with_logs(
-            PrepareBtDownloadTaskRequest {
-                source_url: task.url.clone(),
-                display_name: task.file_name.clone(),
-                base_save_dir: task.save_dir.clone(),
-                source_type: DownloadTaskSourceType::Magnet,
-                start_mode: DownloadTaskStartMode::Now,
-                category: Some(task.category.clone()),
-                advanced_options: CreateTaskAdvancedOptions::default(),
-                aria2_options: options,
-                task_kind: "磁链",
-            },
-            Some(self.debug_logs),
-        ) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                self.fail_task_operation(&mut operation, "prepare_failed", &error)
-                    .await;
-                return Err(error);
-            }
-        };
-        prepared.use_proxy = false;
-        prepared.proxy_binding = proxy_binding;
-        let gid = match self
-            .add_torrent_for_task_operation(config, &mut operation, &prepared, &torrent_data)
-            .await
-        {
-            Ok(gid) => gid,
-            Err(error) => {
-                if self.has_unknown_aria2_outcome(&operation) {
-                    return Err(error);
-                }
-                cleanup_empty_torrent_task_dir(&prepared);
-                remove_restore_metadata(self.app_data_dir, task_id);
-                self.fail_task_operation(&mut operation, "aria2_failed", &error)
-                    .await;
-                return Err(error);
-            }
-        };
-        if let Err(error) = self
-            .record_aria2_task_created(&mut operation, gid.clone())
-            .await
-        {
-            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-            cleanup_empty_torrent_task_dir(&prepared);
-            remove_restore_metadata(self.app_data_dir, task_id);
-            self.fail_task_operation(&mut operation, "aria2_record_failed", &error)
-                .await;
-            return Err(error);
-        }
-        let mut confirmed_task = match mark_task_files_confirmed(
-            self.download_tasks,
-            task_id,
-            gid.clone(),
-            prepared.save_dir.clone(),
-            &selected,
-            restore_metadata_path.display().to_string(),
-            prepared.proxy_binding.clone(),
-        ) {
-            Ok(task) => task,
-            Err(error) => {
-                let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-                cleanup_empty_torrent_task_dir(&prepared);
-                remove_restore_metadata(self.app_data_dir, task_id);
-                self.fail_task_operation(&mut operation, "memory_state_failed", &error)
-                    .await;
-                return Err(error);
-            }
-        };
-
-        match sync_task_progress_from_aria2_by_gid(
-            self.aria2_rpc,
-            self.download_tasks,
-            config,
-            &gid,
-            Some(self.debug_logs),
-        )
-        .await
-        {
-            Ok(synced_task) => confirmed_task = synced_task,
-            Err(error) => self.debug_logs.warn(
-                "tasks.control",
-                format!(
-                    "确认文件后同步最新进度失败，使用最后已知进度，ID {}，GID {}：{}",
-                    task_id, gid, error
-                ),
-            ),
-        }
-        if let Err(error) = self
-            .persist_task_with_operation(&confirmed_task, &mut operation, "task_confirmed")
-            .await
-        {
-            let _ = remove_task(self.aria2_rpc, config, &gid, Some(self.debug_logs)).await;
-            cleanup_empty_torrent_task_dir(&prepared);
-            replace_task_snapshot(self.download_tasks, task.clone())?;
-            remove_restore_metadata(self.app_data_dir, task_id);
-            self.fail_task_operation(&mut operation, "task_persist_failed", &error)
-                .await;
-            return Err(error);
-        }
-        delete::remove_magnet_metadata_dir(self.app_data_dir, &task);
-        operation
-            .context
-            .completed_side_effects
-            .push("magnet_metadata_removed".to_string());
-        self.complete_task_operation(&mut operation, "completed")
-            .await;
-        self.debug_logs.info(
-            "tasks.control",
-            format!("任务文件已确认并开始下载，ID {}，GID {}", task_id, gid),
-        );
-        Ok(confirmed_task)
     }
 
     async fn confirm_native_magnet_download_task(

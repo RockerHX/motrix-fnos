@@ -92,15 +92,7 @@ impl<'a> TaskMutationContext<'a> {
         {
             return Self::prepare_for_task(state, task_id).await;
         }
-        let mut config = state.aria2_config();
-        if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
-            config.state_dir = Some(
-                crate::state::native_aria2_runtime_paths(&state.core.app_data_dir)
-                    .state_dir
-                    .display()
-                    .to_string(),
-            );
-        }
+        let config = state.aria2_config();
         Ok(Self {
             state,
             service,

@@ -185,6 +185,8 @@ rtk pnpm run build:fpk:arm64
 rtk pnpm run assets:aria2:fetch
 ```
 
+运行边界：内置及外部路径仅允许运行已验证的 **2.8.6**，统一设置应用私有 `state-dir`。2.5.5 仅可识别为 `legacy-v1`，以 `engine_unsupported` 进入受限管理；未知、缺失及探测失败同样拒绝下载。旧数据、session、下载文件和凭据保留，不迁移或接管旧任务；回滚仍须配套恢复升级前完整备份。
+
 当前固定为 Aria2 Next **2.8.6**；版本、固定校验和及依赖基线分别见 `scripts/build/fetch-aria2-next.mjs`、`assets/aria2/aria2-next-2.8.6-checksums.sha256` 和 `assets/aria2/aria2-next-2.8.6-dependencies.env`。该命令只用于维护双架构 sidecar，会从对应 GitHub Release 下载 checksum，校验现有或新下载的二进制并设置可执行权限。它不是日常构建步骤；升级版本时还需审查脚本中的版本号、checksum 文件和两个二进制的变更。
 
 清理本地构建输出和 staged 产物：

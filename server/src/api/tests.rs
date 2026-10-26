@@ -2298,7 +2298,7 @@ async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         aria2_path: Some(
             aria2_path
                 .map(PathBuf::from)
-                .unwrap_or_else(|| crate::test_support::legacy_version_only_engine(&app_data_dir)),
+                .unwrap_or_else(|| crate::test_support::native_version_only_engine(&app_data_dir)),
         ),
         trusted_proxy_ips: Vec::new(),
     };
@@ -2472,7 +2472,7 @@ fn spawn_sleep_child() -> std::process::Child {
 fn active_task_for_stop() -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/active.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,

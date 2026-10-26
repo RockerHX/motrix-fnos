@@ -50,10 +50,6 @@ pub fn should_pause_task_on_exit(task: &DownloadTask) -> bool {
     )
 }
 
-pub fn should_force_pause_task_on_startup(task: &DownloadTask) -> bool {
-    should_pause_task_on_exit(task)
-}
-
 pub fn is_pending_magnet_metadata_task(task: &DownloadTask) -> bool {
     task.url.to_ascii_lowercase().starts_with("magnet:?")
         && !task.confirmation_required

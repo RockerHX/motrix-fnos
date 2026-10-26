@@ -203,6 +203,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `AppCompatibility` 返回 `engineGeneration`（`legacy-v1` / `native-v2` / `unknown`）、`mode`（`normal` / `restricted`）、`reasonCode`、`unfinishedTaskCount`、`unresolvedOperationCount` 和脱敏 `message`。受限管理保留登录、读取、诊断和停服，拒绝下载写操作与引擎启动；HTTP 返回 `409 engine_upgrade_required`，外部 RPC 创建返回 `-32005`。`ready=true` 只代表管理服务就绪，不代表允许下载。
 
+内置引擎及 `MOTRIX_FNOS_ARIA2_PATH` 外部路径仅支持已验证的 Aria2 Next 2.8.6。2.5.5 仍返回 `engineGeneration=legacy-v1`，但以 `reasonCode=engine_unsupported` 进入受限管理；未知或探测失败返回 `unknown` / `engine_unknown`。缺失、不可执行、探测超时均不降级运行旧引擎。受限启动不加载任务、不恢复或清理任务文件；历史记录、凭据、session 和文件保留，不能用更换路径接管旧任务。HTTP、SSE 与 RPC 的现有字段结构及上述错误响应保持不变。
+
 2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [FPK 升级说明](fpk-packaging.md#升级前备份与回滚)。
 
 `AppUpdateCheck` 示例：

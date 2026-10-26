@@ -12,7 +12,6 @@ pub(crate) struct Aria2TaskStatus {
     pub(super) error_message: Option<String>,
     pub(super) dir: Option<String>,
     pub(super) files: Option<Vec<Aria2FileStatus>>,
-    pub(super) followed_by: Option<Vec<String>>,
     pub(super) bittorrent: Option<Aria2BittorrentStatus>,
 }
 

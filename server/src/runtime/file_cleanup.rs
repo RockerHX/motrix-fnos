@@ -79,11 +79,13 @@ async fn run_file_cleanup_worker(state: Arc<HttpAppState>) {
 async fn has_pending_file_cleanup(state: &HttpAppState) -> Result<bool, String> {
     Ok(list_unfinished_task_operations_for_engine(
         &state.core.database.pool,
-        state.aria2_config().engine_generation(),
+        crate::config::aria2::EngineGeneration::NativeV2,
     )
     .await?
     .into_iter()
-    .filter(|operation| operation.engine_generation() == state.aria2_config().engine_generation())
+    .filter(|operation| {
+        operation.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2
+    })
     .any(|operation| operation.is_file_cleanup_pending()))
 }
 
@@ -95,13 +97,13 @@ pub(crate) async fn run_file_cleanup_once(state: &HttpAppState) -> Result<(), St
     loop {
         let operations = list_unfinished_task_operations_for_engine(
             &state.core.database.pool,
-            state.aria2_config().engine_generation(),
+            crate::config::aria2::EngineGeneration::NativeV2,
         )
         .await?;
         let pending = operations
             .into_iter()
             .filter(|operation| {
-                operation.engine_generation() == state.aria2_config().engine_generation()
+                operation.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2
             })
             .filter(|operation| operation.is_file_cleanup_pending())
             .filter(|operation| !attempted.contains(&operation.id))

@@ -6,6 +6,7 @@ use crate::database::{
 };
 use axum::{routing::post, Json, Router};
 use serde_json::{json, Value};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
@@ -36,18 +37,9 @@ async fn late_rpc_preserves_pause_resume_proxy_delete_and_active_operations() {
         let original = tasks.list().unwrap().remove(0);
         let monitor_tasks = tasks.clone();
         let pool = database.pool.clone();
-        let monitor_root = root.clone();
         let refresh = tokio::spawn(async move {
-            refresh_tasks_from_aria2(
-                &monitor_tasks,
-                &pool,
-                &monitor_root,
-                &monitor_root.join("paths.json"),
-                &Aria2RpcClient::new(),
-                &config,
-                None,
-            )
-            .await
+            refresh_tasks_from_aria2(&monitor_tasks, &pool, &Aria2RpcClient::new(), &config, None)
+                .await
         });
         started.notified().await;
         let operation = tasks.begin_operation(1).unwrap();
@@ -121,8 +113,6 @@ async fn failed_final_snapshot_retries_before_memory_publication_and_survives_re
     assert!(refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &root,
-        &root.join("paths.json"),
         &Aria2RpcClient::new(),
         &config,
         None
@@ -144,8 +134,6 @@ async fn failed_final_snapshot_retries_before_memory_publication_and_survives_re
     let saved = refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &root,
-        &root.join("paths.json"),
         &Aria2RpcClient::new(),
         &config,
         None,
@@ -172,8 +160,6 @@ async fn identical_poll_does_not_write_or_change_the_business_timestamp() {
     let first = refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &root,
-        &root.join("paths.json"),
         &Aria2RpcClient::new(),
         &config,
         None,
@@ -185,8 +171,6 @@ async fn identical_poll_does_not_write_or_change_the_business_timestamp() {
     let second = refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &root,
-        &root.join("paths.json"),
         &Aria2RpcClient::new(),
         &config,
         None,
@@ -220,8 +204,6 @@ async fn removed_unconfirmed_tasks_are_never_polled_or_restored_by_monitoring() 
     let result = refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &root,
-        &root.join("paths.json"),
         &Aria2RpcClient::new(),
         &config,
         None,

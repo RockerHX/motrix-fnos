@@ -320,7 +320,7 @@ async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         trusted_proxy_ips: Vec::new(),
@@ -400,7 +400,7 @@ async fn auto_stop_allows_missing_metadata_record_and_clears_runtime() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -437,7 +437,7 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         trusted_proxy_ips: Vec::new(),
@@ -468,6 +468,10 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         Aria2BinarySource::ExternalPath,
     ));
     state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .unwrap();
+    state
 }
 
 fn cleanup_state(state: &Arc<HttpAppState>) {
@@ -495,10 +499,7 @@ static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(unix)]
 fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("sh")
-        .args(["-c", "sleep 30"])
-        .spawn()
-        .expect("sleep child should spawn")
+    crate::test_support::spawn_graceful_engine_child()
 }
 
 #[cfg(windows)]
@@ -625,7 +626,7 @@ async fn mock_aria2_rpc(
         .unwrap_or_default();
 
     Json(match method {
-        "aria2.getVersion" => json!({ "result": { "version": "1.37.0" } }),
+        "aria2.getVersion" => json!({ "result": { "version": "2.8.6" } }),
         "aria2.tellStatus" => {
             let gid = gid_param(&params);
             let task = state
@@ -655,6 +656,7 @@ async fn mock_aria2_rpc(
             json!({ "result": gid })
         }
         "aria2.saveSession" => json!({ "result": "OK" }),
+        "aria2.tellActive" => json!({ "result": [] }),
         _ => json!({ "result": "ok" }),
     })
 }

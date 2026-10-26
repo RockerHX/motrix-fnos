@@ -1,7 +1,6 @@
 pub mod aria2_rpc;
 pub mod file_context;
 pub mod files;
-mod magnet_refresh;
 pub mod model;
 pub mod operation;
 pub mod options;
@@ -17,7 +16,6 @@ mod status;
 
 use crate::config::aria2::Aria2Config;
 use crate::debug_logs::DebugLogStore;
-use crate::tasks::files::find_single_torrent_file;
 pub(crate) use aria2_rpc::task_exists;
 pub use aria2_rpc::{
     add_torrent_to_aria2, add_uri_to_aria2, change_task_options,
@@ -30,13 +28,11 @@ pub(crate) use aria2_rpc::{
 };
 pub use file_context::{task_file_actions, TaskFileActions, TaskFileAvailability};
 pub use files::{delete_task_files, validate_task_files};
-use magnet_refresh::{resolve_followed_metadata, stale_magnet_metadata_status};
 pub use model::{
-    is_pending_magnet_metadata_task, should_force_pause_task_on_startup, should_pause_task_on_exit,
-    CreateDownloadTaskRequest, CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest,
-    DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStartMode,
-    DownloadTaskStatus, PreparedDownloadTask, SensitiveProxyUrl, TaskProxyBinding, TaskProxySource,
-    DEFAULT_TASK_CATEGORY,
+    is_pending_magnet_metadata_task, should_pause_task_on_exit, CreateDownloadTaskRequest,
+    CreateTaskAdvancedOptions, CreateTorrentDownloadTaskRequest, DownloadTask, DownloadTaskFile,
+    DownloadTaskSourceType, DownloadTaskStartMode, DownloadTaskStatus, PreparedDownloadTask,
+    SensitiveProxyUrl, TaskProxyBinding, TaskProxySource, DEFAULT_TASK_CATEGORY,
 };
 pub use operation::{
     Aria2TaskRequest, TaskOperation, TaskOperationContext, TaskOperationStatus, TaskOperationType,
@@ -47,33 +43,26 @@ pub use prepare::{
     prepare_torrent_task_with_logs,
 };
 pub(crate) use prepare::{validate_url_output_file_name, INVALID_URL_OUTPUT_FILE_NAME};
-use progress::{
-    apply_aria2_status, apply_aria2_status_by_gid, apply_magnet_metadata_confirmation,
-    is_aria2_status_error, parse_aria2_u64,
-};
+use progress::{apply_aria2_status_by_gid, is_aria2_status_error, parse_aria2_u64};
 pub use public::PublicDownloadTask;
-use refresh::task_status_error;
 pub use refresh::{
-    is_stale_aria2_gid_error, refresh_tasks_from_aria2, should_readd_task_after_resume_error,
-    sync_task_progress_after_pause_by_gid, sync_task_progress_from_aria2_by_gid,
+    is_stale_aria2_gid_error, refresh_tasks_from_aria2, sync_task_progress_after_pause_by_gid,
+    sync_task_progress_from_aria2_by_gid,
 };
 pub(crate) use session::find_aria2_task_for_request;
-use session::readd_download_task;
 pub(crate) use session::validate_url_task_output_before_resume;
 pub use session::{
-    readd_task_to_aria2, reconcile_session_task_proxies, reconcile_task_proxy_option,
-    sync_session_tasks_from_aria2,
+    reconcile_session_task_proxies, reconcile_task_proxy_option, sync_session_tasks_from_aria2,
 };
-use state::{apply_paused_state, apply_readded_gid, should_refresh_task};
+use state::should_refresh_task;
 pub use state::{
-    list_tasks, mark_magnet_task_reparsing, mark_task_files_confirmed, mark_task_paused,
-    mark_task_paused_by_gid, mark_task_redownloaded, mark_task_removed, mark_task_restored,
-    mark_task_resumed, mark_unfinished_tasks_paused, remove_task_record, replace_task_snapshot,
+    list_tasks, mark_task_files_confirmed, mark_task_paused, mark_task_paused_by_gid,
+    mark_task_redownloaded, mark_task_removed, mark_task_restored, mark_task_resumed,
+    mark_unfinished_tasks_paused, remove_task_record, replace_task_snapshot,
     set_task_metadata_torrent_path, store_created_task, store_created_task_with_id, task_gid,
     task_snapshot, update_task_proxy_state, TaskMemoryState,
 };
 use status::Aria2TaskStatus;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn current_timestamp_ms() -> u64 {

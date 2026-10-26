@@ -5,10 +5,6 @@ use tracing_subscriber::fmt::MakeWriter;
 
 use crate::auth::{AuthError, AuthService, AuthState};
 
-pub(crate) fn legacy_version_only_engine(app_data_dir: &Path) -> PathBuf {
-    version_only_engine(app_data_dir, "2.5.5")
-}
-
 pub(crate) fn native_version_only_engine(app_data_dir: &Path) -> PathBuf {
     version_only_engine(app_data_dir, "2.8.6")
 }
@@ -26,6 +22,22 @@ fn version_only_engine(app_data_dir: &Path, version: &str) -> PathBuf {
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700))
         .expect("engine identity fixture should be executable");
     binary
+}
+
+pub(crate) fn spawn_graceful_engine_child() -> std::process::Child {
+    use std::io::Read;
+    let mut child = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "trap 'exit 0' INT; printf ready; while :; do sleep 0.01; done",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("graceful engine fixture should spawn");
+    let mut ready = [0; 5];
+    child.stdout.take().unwrap().read_exact(&mut ready).unwrap();
+    assert_eq!(&ready, b"ready");
+    child
 }
 
 pub(crate) trait AuthServiceTestExt {

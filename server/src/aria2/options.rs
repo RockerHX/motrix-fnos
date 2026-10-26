@@ -53,13 +53,6 @@ pub async fn apply_bt_proxy(
     config: &Aria2Config,
     proxy_url: Option<&str>,
 ) -> Result<(), String> {
-    if config.engine_generation() != crate::config::aria2::EngineGeneration::NativeV2 {
-        return if proxy_url.is_some() {
-            Err("BT 总代理需要使用已验证的 NativeV2 引擎".to_string())
-        } else {
-            Ok(())
-        };
-    }
     let target = proxy_url.unwrap_or_default();
     let mut params = Vec::new();
     if !config.rpc_secret.is_empty() {
@@ -127,19 +120,14 @@ fn build_change_global_option_request(
         params.push(serde_json::json!(format!("token:{}", config.rpc_secret)));
     }
 
-    let mut values = serde_json::json!({
+    let values = serde_json::json!({
+        "stream-max-connections": options.http_max_connections.to_string(),
         "max-concurrent-downloads": options.max_concurrent_downloads.to_string(),
         "connect-timeout": options.connect_timeout.to_string(),
         "max-tries": options.max_tries.to_string(),
         "max-overall-download-limit": options.download_limit.to_string(),
         "max-overall-upload-limit": options.upload_limit.to_string(),
     });
-    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
-        values["stream-max-connections"] = options.http_max_connections.to_string().into();
-    } else {
-        values["split"] = options.http_max_connections.to_string().into();
-        values["max-connection-per-server"] = options.http_max_connections.to_string().into();
-    }
     params.push(values);
 
     serde_json::json!({

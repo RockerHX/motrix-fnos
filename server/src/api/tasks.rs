@@ -114,7 +114,7 @@ async fn list_tasks(
         let operations =
             crate::database::task_operations::list_unfinished_task_operations_for_engine(
                 &state.core.database.pool,
-                state.aria2_config().engine_generation(),
+                crate::config::aria2::EngineGeneration::NativeV2,
             )
             .await
             .map_err(classify_task_error)?;

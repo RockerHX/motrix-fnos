@@ -82,14 +82,6 @@ impl Aria2Config {
     pub fn rpc_url(&self) -> String {
         format!("http://{}:{}/jsonrpc", self.rpc_host, self.rpc_port)
     }
-
-    pub fn engine_generation(&self) -> EngineGeneration {
-        if self.state_dir.is_some() {
-            EngineGeneration::NativeV2
-        } else {
-            EngineGeneration::LegacyV1
-        }
-    }
 }
 
 fn current_target_triple() -> &'static str {

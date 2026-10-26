@@ -9,7 +9,7 @@ impl<'a> TaskService<'a> {
         task_id: u64,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if snapshot.status == DownloadTaskStatus::Removed {
@@ -31,35 +31,11 @@ impl<'a> TaskService<'a> {
             )
             .await?;
         let mut task_before_delete = snapshot.clone();
-        let native = snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2;
-        if !native
-            && matches!(
-                task_before_delete.source_type,
-                DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
-            )
-        {
-            match archive_task_torrent_metadata(self.app_data_dir, &task_before_delete) {
-                Ok(path) => {
-                    task_before_delete = set_task_metadata_torrent_path(
-                        self.download_tasks,
-                        task_id,
-                        path.display().to_string(),
-                    )?;
-                }
-                Err(error) => self.debug_logs.warn(
-                    "tasks.restore",
-                    format!(
-                        "删除任务前未能归档 BT metadata，后续恢复可能受限：{}",
-                        error
-                    ),
-                ),
-            }
-        }
         let gid = task_before_delete
             .gid
             .clone()
             .filter(|gid| !gid.trim().is_empty());
-        if native && snapshot.status != DownloadTaskStatus::Complete {
+        if snapshot.status != DownloadTaskStatus::Complete {
             match self
                 .pause_retained_task(config, &snapshot, &mut operation)
                 .await
@@ -87,63 +63,13 @@ impl<'a> TaskService<'a> {
                         .await);
                 }
             }
-        } else if snapshot.status != DownloadTaskStatus::Complete {
-            if let Some(gid) = gid.as_deref() {
-                let request_id = operation.id.clone();
-                if let Err(error) = remove_task_with_request_id(
-                    self.aria2_rpc,
-                    config,
-                    gid,
-                    Some(&request_id),
-                    Some(self.debug_logs),
-                )
-                .await
-                {
-                    if is_aria2_outcome_unknown_error(&error) {
-                        self.record_unknown_aria2_outcome(&mut operation, error.clone())
-                            .await?;
-                        return Err(error);
-                    }
-                    if is_stale_aria2_gid_error(&error) {
-                        self.debug_logs.warn(
-                            "tasks.control",
-                            format!(
-                            "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
-                            task_id, gid, error
-                        ),
-                        );
-                    } else {
-                        return Err(self
-                            .rollback_task_operation_state(
-                                snapshot,
-                                &mut operation,
-                                "aria2_remove_failed",
-                                error,
-                            )
-                            .await);
-                    }
-                }
-            }
         }
         let mut context = operation.context.clone();
-        context.completed_side_effects.push(
-            if native {
-                "aria2_task_retained"
-            } else {
-                "aria2_task_removed"
-            }
-            .to_string(),
-        );
+        context
+            .completed_side_effects
+            .push("aria2_task_retained".to_string());
         if let Err(error) = self
-            .update_task_operation(
-                &mut operation,
-                if native {
-                    "aria2_retained"
-                } else {
-                    "aria2_removed"
-                },
-                context,
-            )
+            .update_task_operation(&mut operation, "aria2_retained", context)
             .await
         {
             return Err(self
@@ -166,9 +92,6 @@ impl<'a> TaskService<'a> {
                 .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                 .await);
         }
-        if !native {
-            remove_magnet_metadata_dir(self.app_data_dir, &task_before_delete);
-        }
         self.complete_task_operation(&mut operation, "completed")
             .await;
         self.debug_logs.info(
@@ -189,7 +112,7 @@ impl<'a> TaskService<'a> {
         delete_files: bool,
     ) -> Result<Option<DownloadTask>, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if snapshot.status != DownloadTaskStatus::Removed {
@@ -351,12 +274,10 @@ impl<'a> TaskService<'a> {
         reason: impl Into<String>,
     ) -> String {
         let mut errors = vec![reason.into()];
-        if snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-            && !matches!(
-                snapshot.status,
-                DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
-            )
-        {
+        if !matches!(
+            snapshot.status,
+            DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
+        ) {
             if let Ok(paused) = task_snapshot(self.download_tasks, snapshot.id) {
                 if paused.status == DownloadTaskStatus::Paused
                     || paused.status == DownloadTaskStatus::Complete
@@ -521,31 +442,28 @@ impl<'a> TaskService<'a> {
             }
         }
         crate::aria2::save_session(self.aria2_rpc, config, Some(self.debug_logs)).await?;
-        if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
-            let still_present =
-                crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs))
-                    .await?;
-            if still_present {
-                remove_task_result(
-                    self.aria2_rpc,
-                    config,
-                    gid,
-                    Some(&format!("{}:remove-result", operation.id)),
-                    Some(self.debug_logs),
-                )
-                .await
-                .map_err(|error| {
-                    if is_aria2_outcome_unknown_error(&error) {
-                        format!("task_outcome_unknown：原 GID 结果清理未确认：{error}")
-                    } else {
-                        error
-                    }
-                })?;
-            }
-            if crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await?
-            {
-                return Err("task_outcome_unknown：原 GID 尚未移除，保留任务记录".to_string());
-            }
+
+        let still_present =
+            crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await?;
+        if still_present {
+            remove_task_result(
+                self.aria2_rpc,
+                config,
+                gid,
+                Some(&format!("{}:remove-result", operation.id)),
+                Some(self.debug_logs),
+            )
+            .await
+            .map_err(|error| {
+                if is_aria2_outcome_unknown_error(&error) {
+                    format!("task_outcome_unknown：原 GID 结果清理未确认：{error}")
+                } else {
+                    error
+                }
+            })?;
+        }
+        if crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await? {
+            return Err("task_outcome_unknown：原 GID 尚未移除，保留任务记录".to_string());
         }
         let mut context = operation.context.clone();
         context

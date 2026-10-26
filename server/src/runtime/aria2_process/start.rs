@@ -26,22 +26,6 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-pub fn start_process(
-    process: &Mutex<Option<ManagedAria2Process>>,
-    runtime: &ServerRuntimeConfig,
-    config: &Aria2Config,
-    debug_logs: &DebugLogStore,
-) -> Result<Aria2ProcessStatus, String> {
-    start_process_with_log_level(
-        process,
-        runtime,
-        config,
-        debug_logs,
-        Aria2LogLevel::Warn,
-        None,
-    )
-}
-
 fn start_process_with_log_level(
     process: &Mutex<Option<ManagedAria2Process>>,
     runtime: &ServerRuntimeConfig,
@@ -174,11 +158,9 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         }
 
         if state.aria2_lifecycle.snapshot()?.phase == crate::runtime::Aria2LifecyclePhase::Ready {
-            if runtime.aria2_state_path.is_some() {
-                validate_native_operations(state)
-                    .await
-                    .map_err(|error| lifecycle_error(state, error))?;
-            }
+            validate_native_operations(state)
+                .await
+                .map_err(|error| lifecycle_error(state, error))?;
             return Ok(state.aria2_config());
         }
     }
@@ -199,32 +181,43 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
             .info("aria2", "Aria2 进程未运行，准备自动启动");
         started_process = true;
         let mut base = state.base_aria2_config.clone();
-        let resolved = resolve_aria2_binary(&state.runtime, &base)
-            .map_err(|error| lifecycle_error(state, error))?;
+        let resolved = resolve_aria2_binary(&state.runtime, &base).map_err(|error| {
+            *state
+                .compatibility
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                crate::app::compatibility::AppCompatibility::for_engine(EngineGeneration::Unknown);
+            let _ = state
+                .runtime_events
+                .send(crate::app::RuntimeEvent::AppCompatibility(
+                    state.compatibility_snapshot(),
+                ));
+            lifecycle_error(state, error)
+        })?;
         let generation = inspect_engine_generation(&resolved.path)
             .await
-            .map_err(|error| lifecycle_error(state, error))?;
+            .unwrap_or(EngineGeneration::Unknown);
+        let compatibility = crate::app::compatibility::AppCompatibility::for_engine(generation);
+        if compatibility.mode == "restricted" {
+            *state
+                .compatibility
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = compatibility;
+            let _ = state
+                .runtime_events
+                .send(crate::app::RuntimeEvent::AppCompatibility(
+                    state.compatibility_snapshot(),
+                ));
+            state
+                .ensure_download_available()
+                .map_err(|error| lifecycle_error(state, error))?;
+        }
         validate_task_generations(state, generation)
             .map_err(|error| lifecycle_error(state, error))?;
         let proxy_config =
             crate::database::settings::get_download_proxy_config(&state.core.database.pool)
                 .await
                 .map_err(|error| lifecycle_error(state, error))?;
-        if proxy_config
-            .as_ref()
-            .is_some_and(|proxy| proxy.bt_use_proxy)
-            && generation != EngineGeneration::NativeV2
-        {
-            let _ = crate::database::settings::set_download_proxy_runtime_apply_status(
-                &state.core.database.pool,
-                crate::database::settings::BtRuntimeApplyStatus::Blocked,
-            )
-            .await;
-            return Err(lifecycle_error(
-                state,
-                "已启用的 BT 总代理要求使用已验证的 NativeV2 引擎".to_string(),
-            ));
-        }
         let bt_proxy = crate::settings::proxy::resolve_bt_proxy_url(
             proxy_config
                 .as_ref()
@@ -253,26 +246,23 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
                     .map_err(|error| lifecycle_error(state, error))?,
             );
         }
-        if generation == EngineGeneration::NativeV2 {
-            validate_native_metadata_refs(
-                &state.core.database.pool,
-                &state.runtime.app_data_dir,
-                &state.core.download_tasks.list()?,
-            )
+        validate_native_metadata_refs(
+            &state.core.database.pool,
+            &state.runtime.app_data_dir,
+            &state.core.download_tasks.list()?,
+        )
+        .await
+        .map_err(|error| lifecycle_error(state, error))?;
+        validate_native_operations(state)
             .await
             .map_err(|error| lifecycle_error(state, error))?;
-            validate_native_operations(state)
-                .await
-                .map_err(|error| lifecycle_error(state, error))?;
-            validate_native_authorization(state).map_err(|error| lifecycle_error(state, error))?;
-        }
-        base.state_dir =
-            (generation == crate::config::aria2::EngineGeneration::NativeV2).then(|| {
-                crate::state::native_aria2_runtime_paths(&state.runtime.app_data_dir)
-                    .state_dir
-                    .display()
-                    .to_string()
-            });
+        validate_native_authorization(state).map_err(|error| lifecycle_error(state, error))?;
+        base.state_dir = Some(
+            crate::state::native_aria2_runtime_paths(&state.runtime.app_data_dir)
+                .state_dir
+                .display()
+                .to_string(),
+        );
         let saved_runtime = state
             .load_saved_aria2_runtime()
             .map_err(|error| lifecycle_error(state, error))?;
@@ -344,11 +334,9 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
     }
 
     let config = state.aria2_config();
-    if config.engine_generation() == EngineGeneration::NativeV2 {
-        validate_native_operations(state)
-            .await
-            .map_err(|error| lifecycle_error(state, error))?;
-    }
+    validate_native_operations(state)
+        .await
+        .map_err(|error| lifecycle_error(state, error))?;
     if let Err(error) = wait_for_rpc_ready(
         &state.aria2_rpc,
         &config,
@@ -387,32 +375,30 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         return Err(lifecycle_error(state, error));
     }
     drop(startup_config);
-    if config.state_dir.is_some() {
-        let body = serde_json::json!({
-            "jsonrpc": "2.0", "id": "motrix-fnos-restore-pause-all", "method": "aria2.forcePauseAll",
-            "params": [format!("token:{}", config.rpc_secret)],
-        });
-        let paused = state
-            .aria2_rpc
-            .request::<serde_json::Value>(&config, &body)
-            .await
-            .and_then(|response| response.into_result());
-        if !matches!(&paused, Ok(value) if value == "OK") {
-            let stopped = stop_process_with_timeout_inner(
-                &state.aria2_process,
-                Some(&state.core.debug_logs),
-                Duration::from_secs(2),
-                true,
-            );
-            if let Err(error) = stopped {
-                state.core.debug_logs.error("aria2.restore", error);
-            }
-            return Err(lifecycle_error(
-                state,
-                "启动恢复无法确认所有任务已暂停，已请求停止所属引擎并保留原状态".to_string(),
-            ));
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": "motrix-fnos-restore-pause-all", "method": "aria2.forcePauseAll",
+        "params": [format!("token:{}", config.rpc_secret)],
+    });
+    let paused = state
+        .aria2_rpc
+        .request::<serde_json::Value>(&config, &body)
+        .await
+        .and_then(|response| response.into_result());
+    if !matches!(&paused, Ok(value) if value == "OK") {
+        let stopped = stop_process_with_timeout_inner(
+            &state.aria2_process,
+            Some(&state.core.debug_logs),
+            Duration::from_secs(2),
+        );
+        if let Err(error) = stopped {
+            state.core.debug_logs.error("aria2.restore", error);
         }
+        return Err(lifecycle_error(
+            state,
+            "启动恢复无法确认所有任务已暂停，已请求停止所属引擎并保留原状态".to_string(),
+        ));
     }
+
     let app_config = state.current_app_config().await;
     let options = global_options_from_values(
         app_config.max_concurrent_downloads,
@@ -430,54 +416,41 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
     )
     .await
     {
-        if config.engine_generation() == EngineGeneration::NativeV2 {
-            return Err(lifecycle_error(
-                state,
-                format!("应用引擎配置失败，恢复任务保持暂停：{error}"),
-            ));
-        }
-        state.core.debug_logs.warn(
-            "aria2.options",
-            format!(
-                "启动后应用保存的下载配置失败，保留配置并继续恢复：{}",
-                error
-            ),
-        );
+        return Err(lifecycle_error(
+            state,
+            format!("应用引擎配置失败，恢复任务保持暂停：{error}"),
+        ));
     }
-    if config.engine_generation() == EngineGeneration::NativeV2
-        || (started_process && has_session_restore_candidates(state)?)
     {
         let _proxy_update_guard = state.download_proxy_update_lock.lock().await;
-        if config.engine_generation() == EngineGeneration::NativeV2 {
-            let proxy =
-                crate::database::settings::get_download_proxy_config(&state.core.database.pool)
-                    .await
-                    .map_err(|error| lifecycle_error(state, error))?;
-            let applied = crate::settings::proxy::apply_bt_proxy_config(
-                &crate::tasks::repository::SqliteTaskRepository::for_engine(
-                    &state.core.database.pool,
-                    state.aria2_config().engine_generation(),
-                ),
-                &state.aria2_rpc,
-                &config,
-                proxy.as_ref(),
-            )
+        let proxy = crate::database::settings::get_download_proxy_config(&state.core.database.pool)
             .await
             .map_err(|error| lifecycle_error(state, error))?;
-            if applied == crate::database::settings::BtRuntimeApplyStatus::Blocked {
-                if started_process {
-                    stop_process(&state.aria2_process, &state.core.debug_logs)
-                        .map_err(|error| lifecycle_error(state, error))?;
-                    state
-                        .clear_aria2_runtime()
-                        .map_err(|error| lifecycle_error(state, error))?;
-                }
-                return Err(lifecycle_error(
-                    state,
-                    "BT 全局代理配置无效、应用或核验失败，恢复任务保持暂停".to_string(),
-                ));
+        let applied = crate::settings::proxy::apply_bt_proxy_config(
+            &crate::tasks::repository::SqliteTaskRepository::for_engine(
+                &state.core.database.pool,
+                crate::config::aria2::EngineGeneration::NativeV2,
+            ),
+            &state.aria2_rpc,
+            &config,
+            proxy.as_ref(),
+        )
+        .await
+        .map_err(|error| lifecycle_error(state, error))?;
+        if applied == crate::database::settings::BtRuntimeApplyStatus::Blocked {
+            if started_process {
+                stop_process(&state.aria2_process, &state.core.debug_logs)
+                    .map_err(|error| lifecycle_error(state, error))?;
+                state
+                    .clear_aria2_runtime()
+                    .map_err(|error| lifecycle_error(state, error))?;
             }
+            return Err(lifecycle_error(
+                state,
+                "BT 全局代理配置无效、应用或核验失败，恢复任务保持暂停".to_string(),
+            ));
         }
+
         let previous_tasks = state.core.download_tasks.list()?;
         let tasks = sync_session_tasks_from_aria2(
             &state.core.download_tasks,
@@ -488,18 +461,19 @@ async fn ensure_aria2_ready_locked(state: &HttpAppState) -> Result<Aria2Config, 
         )
         .await
         .map_err(|error| lifecycle_error(state, error))?;
-        if config.engine_generation() == EngineGeneration::NativeV2 {
-            if let Err(error) = validate_native_authorization(state) {
-                state
-                    .core
-                    .download_tasks
-                    .with_tasks_mut(|stored| *stored = previous_tasks)?;
-                return Err(lifecycle_error(state, error));
-            }
+        if let Err(error) = validate_native_authorization(state) {
+            state
+                .core
+                .download_tasks
+                .with_tasks_mut(|stored| *stored = previous_tasks)?;
+            return Err(lifecycle_error(state, error));
         }
+
         let compatible_tasks: Vec<_> = tasks
             .iter()
-            .filter(|task| task.engine_generation == config.engine_generation())
+            .filter(|task| {
+                task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
+            })
             .cloned()
             .collect();
         if let Err(error) =
@@ -550,7 +524,7 @@ fn validate_task_generations(
 async fn validate_native_operations(state: &HttpAppState) -> Result<(), String> {
     let operations = list_unfinished_task_operations_for_engine(
         &state.core.database.pool,
-        state.aria2_config().engine_generation(),
+        crate::config::aria2::EngineGeneration::NativeV2,
     )
     .await?;
     if operations.iter().any(|operation| {
@@ -581,15 +555,6 @@ fn validate_native_authorization(state: &HttpAppState) -> Result<(), String> {
         .map_err(|error| format!("恢复任务授权核对失败，任务保持暂停：{error:?}"))?;
     }
     Ok(())
-}
-
-fn has_session_restore_candidates(state: &HttpAppState) -> Result<bool, String> {
-    Ok(state.core.download_tasks.list()?.iter().any(|task| {
-        !matches!(
-            task.status,
-            DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
-        )
-    }))
 }
 
 pub async fn start_aria2(state: &HttpAppState) -> Result<Aria2ProcessStatus, String> {
@@ -733,3 +698,6 @@ fn saved_runtime_info(runtime: &Aria2RuntimeInfo) -> SavedAria2Runtime {
         aria2_log_path: runtime.aria2_log_path.clone(),
     }
 }
+
+#[cfg(test)]
+mod tests;

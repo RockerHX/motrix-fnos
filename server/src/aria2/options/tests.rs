@@ -22,7 +22,7 @@ fn test_config() -> Aria2Config {
 }
 
 #[test]
-fn global_options_map_legacy_http_connection_fields() {
+fn global_options_map_native_http_connection_fields() {
     let options = global_options_from_values(8, 1024, 2048, 6, 90, 8);
     let request = build_change_global_option_request(&test_config(), &options);
 
@@ -30,8 +30,7 @@ fn global_options_map_legacy_http_connection_fields() {
         request["params"][1],
         json!({
             "max-concurrent-downloads": "8",
-            "max-connection-per-server": "6",
-            "split": "6",
+            "stream-max-connections": "6",
             "connect-timeout": "90",
             "max-tries": "8",
             "max-overall-download-limit": "1024",

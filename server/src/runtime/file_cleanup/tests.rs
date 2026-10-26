@@ -253,7 +253,7 @@ async fn pending_permanent_delete(root: &Path) -> (Arc<HttpAppState>, PathBuf) {
         "files": [], "createdAt": 1, "updatedAt": 1,
     }))
     .unwrap();
-    task.engine_generation = state.aria2_config().engine_generation();
+    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
     let metadata = root.join("task-metadata/task-17/source.torrent");
     std::fs::create_dir_all(metadata.parent().unwrap()).unwrap();
     std::fs::write(&metadata, b"metadata").unwrap();
@@ -289,6 +289,7 @@ async fn state_with_operation(root: &Path, task_id: u64, backup: PathBuf) -> Arc
         TaskOperationType::Delete,
         "file_cleanup_pending",
         TaskOperationContext {
+            engine_generation: Some(crate::config::aria2::EngineGeneration::NativeV2),
             file_cleanup_paths: vec![backup.display().to_string()],
             ..TaskOperationContext::default()
         },
@@ -318,7 +319,7 @@ async fn state_without_operation(root: &Path) -> Arc<HttpAppState> {
         runtime,
     ));
     *state.compatibility.lock().unwrap() = crate::app::compatibility::AppCompatibility::normal(
-        crate::config::aria2::EngineGeneration::LegacyV1,
+        crate::config::aria2::EngineGeneration::NativeV2,
     );
     state
 }

@@ -374,7 +374,7 @@ async fn deferred_proxy_operation_reconciles_without_starting_aria2() {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         trusted_proxy_ips: Vec::new(),
@@ -462,7 +462,7 @@ fn operation(
 fn task_with_gid(gid: &str) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,

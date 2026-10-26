@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::aria2::Aria2BinarySource;
+use crate::tasks::DownloadTask;
 use std::io::{Read, Seek};
 use std::path::PathBuf;
 use std::process::Command;
@@ -83,8 +84,7 @@ while True:
 #[test]
 fn native_stop_waits_for_checkpoint_and_normal_exit_before_reporting_success() {
     let (root, process, _stderr) = native_process(false);
-    let status =
-        stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
+    let status = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2)).unwrap();
     assert!(!status.running);
     assert_eq!(
         std::fs::read(root.join("checkpoint")).unwrap(),
@@ -98,8 +98,8 @@ fn native_stop_waits_for_checkpoint_and_normal_exit_before_reporting_success() {
 fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success() {
     let (root, process, _stderr) = native_process(true);
     let started = std::time::Instant::now();
-    let error = stop_process_with_timeout_inner(&process, None, Duration::from_millis(80), true)
-        .unwrap_err();
+    let error =
+        stop_process_with_timeout_inner(&process, None, Duration::from_millis(80)).unwrap_err();
     assert!(error.contains("超时"));
     assert!(started.elapsed() < Duration::from_millis(400));
     assert!(!root.join("checkpoint").exists());
@@ -107,7 +107,11 @@ fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success
     let child = guard.as_mut().unwrap();
     assert!(child.is_running().unwrap());
     child.kill().unwrap();
-    assert!(child.wait_for_exit(Duration::from_secs(2)).unwrap());
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while child.is_running().unwrap() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!child.is_running().unwrap());
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -116,7 +120,7 @@ fn native_stop_waits_for_slow_checkpoint_within_the_daily_budget() {
     let (root, process, _stderr) = native_process(false);
     std::fs::write(root.join("checkpoint-delay"), "0.2").unwrap();
     let started = std::time::Instant::now();
-    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
+    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2)).unwrap();
     assert!(started.elapsed() >= Duration::from_millis(200));
     assert_eq!(
         std::fs::read(root.join("checkpoint")).unwrap(),
@@ -131,13 +135,9 @@ async fn native_stop_timeout_recovers_after_status_queries_observe_late_exit() {
     let (root, process, _stderr) = native_process(false);
     std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
     let state = ready_native_state(&root, process, 0).await;
-    let error = stop_process_with_timeout_inner(
-        &state.aria2_process,
-        None,
-        Duration::from_millis(20),
-        true,
-    )
-    .unwrap_err();
+    let error =
+        stop_process_with_timeout_inner(&state.aria2_process, None, Duration::from_millis(20))
+            .unwrap_err();
     assert!(error.contains("超时"));
     state
         .aria2_lifecycle
@@ -176,11 +176,11 @@ fn native_stop_retry_does_not_interrupt_checkpoint_twice() {
     let (root, process, _stderr) = native_process(false);
     std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
     assert!(
-        stop_process_with_timeout_inner(&process, None, Duration::from_millis(20), true,)
+        stop_process_with_timeout_inner(&process, None, Duration::from_millis(20),)
             .unwrap_err()
             .contains("超时")
     );
-    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true).unwrap();
+    stop_process_with_timeout_inner(&process, None, Duration::from_secs(2)).unwrap();
     assert_eq!(
         std::fs::read_to_string(root.join("interrupts")).unwrap(),
         "interrupt\n"
@@ -199,14 +199,11 @@ async fn native_late_checkpoint_failure_keeps_runtime_after_status_queries() {
     std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
     std::fs::create_dir(root.join("checkpoint")).unwrap();
     let state = ready_native_state(&root, process, 0).await;
-    assert!(stop_process_with_timeout_inner(
-        &state.aria2_process,
-        None,
-        Duration::from_millis(20),
-        true,
-    )
-    .unwrap_err()
-    .contains("超时"));
+    assert!(
+        stop_process_with_timeout_inner(&state.aria2_process, None, Duration::from_millis(20),)
+            .unwrap_err()
+            .contains("超时")
+    );
     state
         .aria2_lifecycle
         .set_phase(Aria2LifecyclePhase::Faulted)
@@ -230,7 +227,8 @@ async fn native_late_checkpoint_failure_keeps_runtime_after_status_queries() {
         assert!(state.core.aria2_runtime_path.exists());
         assert!(state.aria2_process.lock().unwrap().is_some());
     }
-    stop_process(&state.aria2_process, &state.core.debug_logs).unwrap();
+    let mut child = state.aria2_process.lock().unwrap().take().unwrap();
+    assert!(!child.is_running().unwrap());
     state.core.database.pool.close().await;
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -252,7 +250,7 @@ fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
         } else {
             std::fs::create_dir(root.join("checkpoint")).unwrap();
         }
-        let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), true);
+        let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2));
         std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert!(result.unwrap_err().contains("异常退出"));
         assert_eq!(
@@ -260,8 +258,8 @@ fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
             b"preserved"
         );
         assert!(process.lock().unwrap().is_some());
-        stop_process_with_timeout_inner(&process, None, Duration::from_secs(2), false).unwrap();
-        assert!(process.lock().unwrap().is_none());
+        // The child has already exited abnormally; only this fixture tears down its retained handle.
+        process.lock().unwrap().take();
         std::fs::remove_dir_all(root).unwrap();
     }
 }

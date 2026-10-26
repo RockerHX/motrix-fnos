@@ -4,7 +4,7 @@ use crate::config::aria2::{Aria2Config, ARIA2_PATH_ENV};
 use crate::database::{
     backup_database, check_integrity, connect_database,
     maintenance::cleanup_history,
-    tasks::{list_download_tasks_for_engine, max_download_task_id, persist_download_task_states},
+    tasks::{list_download_tasks_for_engine, max_download_task_id},
     DATABASE_FILE_NAME,
 };
 use crate::fnos::FnosApiClient;
@@ -18,17 +18,14 @@ use crate::storage::{
     default_download_dir, load_accessible_paths, refresh_accessible_paths_from_fnos,
     AccessiblePathsRefreshError,
 };
-use crate::tasks::{
-    is_pending_magnet_metadata_task, DownloadTask, DownloadTaskStatus, PublicDownloadTask,
-};
+use crate::tasks::{DownloadTask, PublicDownloadTask};
 use serde::Serialize;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::env;
-use std::fs;
 use std::future::{Future, IntoFuture};
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
@@ -391,18 +388,12 @@ impl HttpAppState {
 
     pub fn aria2_config(&self) -> Aria2Config {
         let mut config = self.base_aria2_config.clone();
-        if self.compatibility_snapshot().engine_generation
-            == crate::config::aria2::EngineGeneration::NativeV2
-        {
-            let paths = crate::state::native_aria2_runtime_paths(&self.runtime.app_data_dir);
-            config.state_dir = Some(paths.state_dir.display().to_string());
-            config.session_path = Some(paths.session_path.display().to_string());
-        }
+        let paths = crate::state::native_aria2_runtime_paths(&self.runtime.app_data_dir);
+        config.state_dir = Some(paths.state_dir.display().to_string());
+        config.session_path = Some(paths.session_path.display().to_string());
         if let Some(runtime) = self.aria2_runtime_snapshot() {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
-            config.session_path = runtime.aria2_session_path.clone();
-            config.state_dir = runtime.aria2_state_path.clone();
             config.log_path = runtime.aria2_log_path.clone();
         }
         config
@@ -530,17 +521,13 @@ pub async fn bootstrap_http_app_state(
             .unwrap_or(crate::config::aria2::EngineGeneration::Unknown),
         Err(_) => crate::config::aria2::EngineGeneration::Unknown,
     };
-    let mut compatibility = if generation == crate::config::aria2::EngineGeneration::Unknown {
-        compatibility::AppCompatibility::restricted(generation, "engine_unknown")
-    } else {
-        compatibility::AppCompatibility::normal(generation)
-    };
+    let mut compatibility = compatibility::AppCompatibility::for_engine(generation);
     let database = if compatibility.mode == "restricted" && runtime.database_path.exists() {
         crate::database::open_existing_database(runtime.database_path.clone()).await?
     } else {
         connect_database(runtime.database_path.clone()).await?
     };
-    let mut restored_tasks = if compatibility.mode == "restricted" {
+    let restored_tasks = if compatibility.mode == "restricted" {
         Vec::new()
     } else {
         match list_download_tasks_for_engine(&database.pool, generation).await {
@@ -560,14 +547,6 @@ pub async fn bootstrap_http_app_state(
     let app_config = load_app_config_from_pool(&database.pool, &fallback_download_dir).await?;
     let json_rpc_token = load_json_rpc_token(&database.pool).await?;
     let lan_json_rpc_config = load_lan_json_rpc_config(&database.pool).await?;
-    if compatibility.mode == "normal"
-        && generation == crate::config::aria2::EngineGeneration::LegacyV1
-    {
-        migrate_legacy_owned_task_dirs(&mut restored_tasks, &accessible_paths);
-        // 必须先用应用私有 metadata 目录对账恢复任务，再持久化修正后的状态，避免丢失目录在下次启动时继续伪装成可恢复任务。
-        reconcile_magnet_metadata_dirs(&runtime.app_data_dir, &mut restored_tasks)?;
-        persist_download_task_states(&database.pool, &restored_tasks).await?;
-    }
     let next_task_id = max_download_task_id(&database.pool)
         .await?
         .saturating_add(1);
@@ -590,182 +569,6 @@ pub async fn bootstrap_http_app_state(
     }
 
     Ok(state)
-}
-
-fn migrate_legacy_owned_task_dirs(tasks: &mut [DownloadTask], accessible_paths: &[String]) {
-    let accessible_roots = accessible_paths
-        .iter()
-        .filter_map(|path| Path::new(path).canonicalize().ok())
-        .collect::<Vec<_>>();
-
-    if accessible_roots.is_empty() {
-        return;
-    }
-
-    for task in tasks.iter_mut() {
-        let has_owned_task_dir = task
-            .owned_task_dir
-            .as_deref()
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .is_some();
-        if has_owned_task_dir || !should_migrate_legacy_owned_task_dir(task) {
-            continue;
-        }
-
-        let candidate = Path::new(&task.save_dir);
-        if let Ok(metadata) = fs::symlink_metadata(candidate) {
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                continue;
-            }
-        }
-
-        let Some(parent) = candidate.parent().and_then(|path| path.canonicalize().ok()) else {
-            continue;
-        };
-        if accessible_roots.iter().any(|root| root == &parent) {
-            task.owned_task_dir = Some(
-                candidate
-                    .canonicalize()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_else(|_| candidate.display().to_string()),
-            );
-        }
-    }
-}
-
-fn should_migrate_legacy_owned_task_dir(task: &DownloadTask) -> bool {
-    if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
-        return false;
-    }
-    if task.source_type == crate::tasks::DownloadTaskSourceType::Torrent {
-        return true;
-    }
-
-    task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
-        && !task.confirmation_required
-        && (task.metadata_torrent_path.is_some() || task.file_path.is_some())
-}
-
-fn reconcile_magnet_metadata_dirs(
-    app_data_dir: &Path,
-    tasks: &mut [DownloadTask],
-) -> Result<(), String> {
-    let metadata_root = app_data_dir.join("magnet-metadata");
-    if !metadata_root.exists() {
-        return Ok(());
-    }
-    if !metadata_root.is_dir() {
-        return Err(format!(
-            "磁链 metadata 根目录不是文件夹：{}",
-            metadata_root.display()
-        ));
-    }
-
-    // 清理范围固定在应用私有根目录；先收集仍被任务引用的目录，随后只删除其中未被引用的孤儿子目录。
-    let mut referenced_dirs = std::collections::BTreeSet::new();
-    for task in tasks.iter_mut() {
-        if task.engine_generation != crate::config::aria2::EngineGeneration::LegacyV1 {
-            // 新代际完整 metadata 归引擎管理；不能用旧临时种子约定清除其身份。
-            if let Some(parent) = task
-                .metadata_torrent_path
-                .as_deref()
-                .and_then(|path| Path::new(path).parent())
-            {
-                referenced_dirs.insert(parent.to_path_buf());
-            }
-            if is_pending_magnet_metadata_task(task) {
-                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
-            }
-            if task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
-                && task.file_path.is_none()
-            {
-                // NativeV2 keeps complete magnet metadata in the task directory until confirmation.
-                referenced_dirs.insert(magnet_metadata_task_dir(app_data_dir, task.id));
-            }
-            continue;
-        }
-        let pending_metadata_dir = if is_pending_magnet_metadata_task(task) {
-            Some(magnet_metadata_task_dir(app_data_dir, task.id))
-        } else {
-            None
-        };
-
-        if task.confirmation_required {
-            let metadata_missing = task
-                .metadata_torrent_path
-                .as_deref()
-                .filter(|path| !path.trim().is_empty())
-                .map(PathBuf::from)
-                .filter(|path| path.is_file())
-                .is_none();
-            if metadata_missing {
-                task.status = DownloadTaskStatus::Error;
-                task.gid = None;
-                task.confirmation_required = false;
-                task.download_speed = 0;
-                task.error_code = None;
-                task.error_message = Some("磁链 metadata 文件丢失，请重新添加磁链".to_string());
-                task.metadata_torrent_path = None;
-            }
-        }
-
-        if let Some(metadata_dir) = pending_metadata_dir {
-            if metadata_dir.is_dir() {
-                referenced_dirs.insert(metadata_dir);
-            } else {
-                task.status = DownloadTaskStatus::Error;
-                task.gid = None;
-                task.download_speed = 0;
-                task.error_code = None;
-                task.error_message = Some("磁链 metadata 临时目录丢失，请重新添加磁链".to_string());
-            }
-        } else if let Some(metadata_dir) = task
-            .metadata_torrent_path
-            .as_deref()
-            .and_then(|path| Path::new(path).parent())
-        {
-            referenced_dirs.insert(metadata_dir.to_path_buf());
-        }
-    }
-
-    for entry in fs::read_dir(&metadata_root).map_err(|error| {
-        format!(
-            "读取磁链 metadata 根目录失败：{}（{}）",
-            metadata_root.display(),
-            error
-        )
-    })? {
-        let entry = entry.map_err(|error| {
-            format!(
-                "读取磁链 metadata 目录项失败：{}（{}）",
-                metadata_root.display(),
-                error
-            )
-        })?;
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        if referenced_dirs.contains(&path) {
-            continue;
-        }
-        fs::remove_dir_all(&path).map_err(|error| {
-            format!(
-                "清理孤儿磁链 metadata 目录失败：{}（{}）",
-                path.display(),
-                error
-            )
-        })?;
-    }
-
-    Ok(())
-}
-
-fn magnet_metadata_task_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {
-    app_data_dir
-        .join("magnet-metadata")
-        .join(format!("task-{task_id}"))
 }
 
 pub async fn run_server() -> Result<(), String> {

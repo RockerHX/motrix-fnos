@@ -201,8 +201,8 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
                 "POST",
                 "/api/tasks",
                 &json!({
-                    "url": "https://example.com/archive.zip",
-                    "fileName": "archive.zip",
+                    "url": "magnet:?xt=urn:btih:test",
+                    "sourceType": "magnet",
                     "saveDir": save_dir
                 }),
             ))
@@ -220,18 +220,12 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
                 .iter_mut()
                 .find(|task| task.id == created.id)
                 .expect("created task should exist");
-            std::fs::create_dir_all(&task.save_dir).expect("task dir should create");
-            std::fs::write(
-                std::path::Path::new(&task.save_dir).join("metadata.torrent"),
-                b"torrent-bytes",
-            )
-            .expect("metadata torrent should write");
-            task.gid = None;
-            task.status = DownloadTaskStatus::Pending;
+            task.status = DownloadTaskStatus::Paused;
+            task.file_name = "archive.zip".to_string();
             task.confirmation_required = true;
             task.files = vec![DownloadTaskFile {
                 index: 1,
-                path: format!("{}/archive.zip", task.save_dir),
+                path: format!("{}/archive.zip/archive.zip", task.save_dir),
                 name: "archive.zip".to_string(),
                 length: 1024,
                 completed_length: 0,
@@ -268,7 +262,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
     .await;
 
     assert_eq!(confirmed.status, DownloadTaskStatus::Active);
-    assert_eq!(confirmed.gid.as_deref(), Some("gid-2"));
+    assert_eq!(confirmed.gid.as_deref(), Some("gid-1"));
     assert!(!confirmed.confirmation_required);
 
     cleanup_state(&state);
@@ -1740,7 +1734,7 @@ async fn test_state() -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         trusted_proxy_ips: Vec::new(),
@@ -1783,6 +1777,10 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         child,
         Aria2BinarySource::ExternalPath,
     ));
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("ready fixture should be ready");
 
     state
 }
@@ -1869,7 +1867,7 @@ fn multipart_torrent_request(
 fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: format!("https://example.com/archive-{id}.zip"),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -1978,6 +1976,7 @@ struct MockTask {
     status: String,
     dir: String,
     file_name: String,
+    file_selection_state: Option<String>,
 }
 
 async fn mock_aria2_rpc(
@@ -1998,10 +1997,11 @@ async fn mock_aria2_rpc(
     Json(match method {
         "aria2.getVersion" => json!({
             "result": {
-                "version": "1.37.0"
+                "version": "2.8.6"
             }
         }),
-        "aria2.saveSession" => json!({ "result": "OK" }),
+        "aria2.saveSession" | "aria2.changeGlobalOption" => json!({ "result": "OK" }),
+        "aria2.getGlobalOption" => json!({"result":{"bt-proxy":""}}),
         "aria2.addUri" => {
             let options_index = if first_param_is_token(&params) { 2 } else { 1 };
             let options = params
@@ -2020,12 +2020,19 @@ async fn mock_aria2_rpc(
                 .unwrap_or("archive.zip")
                 .to_string();
             let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
+            let is_magnet = params
+                .iter()
+                .find_map(Value::as_array)
+                .and_then(|urls| urls.first())
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("magnet:"));
             state.tasks.lock().expect("tasks should lock").insert(
                 gid.clone(),
                 MockTask {
-                    status: "active".to_string(),
+                    status: if is_magnet { "paused" } else { "active" }.to_string(),
                     dir,
                     file_name,
+                    file_selection_state: is_magnet.then(|| "awaiting".to_string()),
                 },
             );
             json!({ "result": gid })
@@ -2049,6 +2056,7 @@ async fn mock_aria2_rpc(
                     status: "active".to_string(),
                     dir,
                     file_name: "example".to_string(),
+                    file_selection_state: Some("ready".to_string()),
                 },
             );
             json!({ "result": gid })
@@ -2072,6 +2080,15 @@ async fn mock_aria2_rpc(
             if state.fail_change_option.load(Ordering::SeqCst) {
                 json!({ "error": { "code": 1, "message": "cannot change option" } })
             } else {
+                let options = params.last().and_then(Value::as_object).unwrap();
+                if let Some(task) = state.tasks.lock().unwrap().get_mut(&gid) {
+                    if let Some(dir) = options.get("dir").and_then(Value::as_str) {
+                        task.dir = dir.to_string();
+                    }
+                    if options.contains_key("select-file") {
+                        task.file_selection_state = Some("ready".to_string());
+                    }
+                }
                 json!({ "result": gid })
             }
         }
@@ -2113,6 +2130,7 @@ async fn mock_aria2_rpc(
                         "completedLength": "256",
                         "downloadSpeed": "128",
                         "dir": task.dir,
+                        "bittorrent": task.file_selection_state.as_ref().map(|selection| json!({"fileSelectionState":selection,"info":{"name":task.file_name}})),
                         "files": [
                             {
                                 "index": 1,
@@ -2128,7 +2146,7 @@ async fn mock_aria2_rpc(
             } else {
                 json!({
                     "error": {
-                        "message": "GID not found"
+                        "message": format!("GID {gid} is not found")
                     }
                 })
             }

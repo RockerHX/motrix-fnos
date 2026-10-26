@@ -3,7 +3,7 @@ mod create;
 pub(crate) mod query;
 mod transport;
 
-pub(crate) use control::{build_gid_control_request, send_gid_control_request};
+pub(crate) use control::build_gid_control_request;
 pub use control::{
     change_task_options, change_task_options_with_request_id, get_task_options, pause_task,
     pause_task_with_request_id, remove_task, remove_task_with_request_id, unpause_task,

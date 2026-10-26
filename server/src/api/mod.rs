@@ -96,7 +96,7 @@ pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
     TaskService::new(TaskServiceDependencies {
         repository: Box::new(SqliteTaskRepository::for_engine(
             &state.core.database.pool,
-            state.aria2_config().engine_generation(),
+            crate::config::aria2::EngineGeneration::NativeV2,
         )),
         download_tasks: &state.core.download_tasks,
         next_task_id: &state.core.next_task_id,

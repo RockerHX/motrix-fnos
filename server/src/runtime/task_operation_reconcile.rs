@@ -38,11 +38,13 @@ pub async fn reconcile_unfinished_task_operations(state: &HttpAppState) -> Resul
     state.ensure_download_available()?;
     let operations = list_unfinished_task_operations_for_engine(
         &state.core.database.pool,
-        state.aria2_config().engine_generation(),
+        crate::config::aria2::EngineGeneration::NativeV2,
     )
     .await?
     .into_iter()
-    .filter(|operation| operation.engine_generation() == state.aria2_config().engine_generation())
+    .filter(|operation| {
+        operation.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2
+    })
     .filter(|operation| !operation.is_file_cleanup_pending())
     .collect::<Vec<_>>();
     if operations.is_empty() {
@@ -145,11 +147,6 @@ async fn reconcile_proxy_operation(
     .await
     {
         Ok(_) => ReconcileAction::Complete("启动时已按 SQLite 事实对账任务代理".to_string()),
-        Err(error) if crate::tasks::is_stale_aria2_gid_error(&error.to_string()) => {
-            ReconcileAction::Complete(
-                "启动时任务 GID 已失效，代理事实将在重建 GID 时应用".to_string(),
-            )
-        }
         Err(error) => ReconcileAction::ManualReview(format!(
             "启动时任务代理对账失败：{}；任务保持暂停",
             error
@@ -626,9 +623,7 @@ async fn release_replaced_aria2_task(
         Err(error) => return Err(error),
     }
     crate::aria2::save_session(&state.aria2_rpc, &config, Some(&state.core.debug_logs)).await?;
-    if config.engine_generation() == EngineGeneration::NativeV2
-        && task_exists(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await?
-    {
+    if task_exists(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await? {
         remove_task_result(
             &state.aria2_rpc,
             &config,

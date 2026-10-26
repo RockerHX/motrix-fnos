@@ -145,7 +145,7 @@ async fn clear_download_proxy(
         &state.core.download_tasks,
         &state.download_proxy_update_lock,
         &state.core.debug_logs,
-        Some(state.aria2_config().engine_generation()),
+        Some(crate::config::aria2::EngineGeneration::NativeV2),
     )
     .await
     .map(|()| StatusCode::NO_CONTENT)

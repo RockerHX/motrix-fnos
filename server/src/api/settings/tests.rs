@@ -725,7 +725,7 @@ async fn lan_test_state(label: &str) -> (Arc<HttpAppState>, ServerRuntimeConfig)
     let runtime = ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.sqlite"),
         accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         app_data_dir,

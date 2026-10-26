@@ -110,14 +110,6 @@ pub async fn update_download_proxy(
         .snapshot()
         .map_err(DownloadProxyServiceError::State)?
         .phase;
-    if target_bt_use_proxy
-        && phase == Aria2LifecyclePhase::Ready
-        && context.aria2_config.as_ref().is_some_and(|config| {
-            config.engine_generation() != crate::config::aria2::EngineGeneration::NativeV2
-        })
-    {
-        return Err(DownloadProxyServiceError::BtProxyEngineUnsupported);
-    }
     let mut previously_active_bt = Vec::new();
     let mut runtime_activity = None;
     let mut runtime_apply = if phase == Aria2LifecyclePhase::Ready {
@@ -201,7 +193,10 @@ pub async fn update_download_proxy(
     if bt_proxy_changed && phase == Aria2LifecyclePhase::Ready {
         let config = context.aria2_config.as_ref().expect("ready config checked");
         runtime_apply = apply_bt_proxy_config(
-            &SqliteTaskRepository::for_engine(context.pool, config.engine_generation()),
+            &SqliteTaskRepository::for_engine(
+                context.pool,
+                crate::config::aria2::EngineGeneration::NativeV2,
+            ),
             context.aria2_rpc,
             config,
             Some(&replaced.config),

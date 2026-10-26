@@ -47,8 +47,10 @@ async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_ar
         mock.calls(),
         vec![
             "aria2.tellStatus".to_string(),
-            "aria2.pause".to_string(),
+            "aria2.forcePauseAll".to_string(),
             "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string(),
+            "aria2.tellActive".to_string(),
         ]
     );
     assert!(state.aria2_runtime_snapshot().is_none());
@@ -154,7 +156,14 @@ async fn manual_stop_saves_session_once_before_stopping_idle_aria2() {
         .expect("manual stop should succeed");
 
     assert_eq!(mock.save_session_calls(), 1);
-    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellActive".to_string(),
+            "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string()
+        ]
+    );
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(state
         .aria2_process
@@ -263,8 +272,10 @@ async fn shutdown_wins_over_auto_stop_and_keeps_pause_semantics() {
         mock.calls(),
         vec![
             "aria2.tellStatus".to_string(),
-            "aria2.pause".to_string(),
+            "aria2.forcePauseAll".to_string(),
             "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string(),
+            "aria2.tellActive".to_string(),
         ]
     );
     assert!(auto_stop_result
@@ -326,7 +337,14 @@ async fn auto_stop_persists_task_state_before_saving_session() {
         .expect("stored tasks should load");
     assert_eq!(stored_tasks.len(), 1);
     assert_eq!(stored_tasks[0].status, DownloadTaskStatus::Complete);
-    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellActive".to_string(),
+            "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string()
+        ]
+    );
 
     state.core.database.pool.close().await;
     mock.abort();
@@ -370,7 +388,7 @@ async fn auto_stop_preserves_runtime_when_task_state_persist_fails() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -407,7 +425,7 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         trusted_proxy_ips: Vec::new(),
@@ -455,10 +473,7 @@ fn temp_dir(label: &str) -> PathBuf {
 
 #[cfg(unix)]
 fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("sh")
-        .args(["-c", "sleep 30"])
-        .spawn()
-        .expect("sleep child should spawn")
+    crate::test_support::spawn_graceful_engine_child()
 }
 
 #[cfg(windows)]
@@ -616,13 +631,12 @@ async fn mock_aria2_rpc(
                 }
             })
         }
-        "aria2.pause" => {
-            let gid = gid_param(&params);
+        "aria2.forcePauseAll" => {
             state.pause_calls.fetch_add(1, Ordering::SeqCst);
-            if let Some(task) = state.tasks.lock().expect("tasks should lock").get_mut(&gid) {
+            for task in state.tasks.lock().expect("tasks should lock").values_mut() {
                 task.status = "paused".to_string();
             }
-            json!({ "result": gid })
+            json!({ "result": "OK" })
         }
         "aria2.saveSession" => {
             state.save_session_calls.fetch_add(1, Ordering::SeqCst);

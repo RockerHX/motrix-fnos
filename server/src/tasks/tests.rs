@@ -2,7 +2,7 @@ use super::aria2_rpc::query::Aria2ActiveTaskActivity;
 use super::refresh::{
     ensure_pause_status_settled, is_stale_aria2_gid_status, pause_status_is_settled,
 };
-use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus, Aria2UriStatus};
+use super::status::{Aria2BittorrentInfo, Aria2BittorrentStatus, Aria2FileStatus};
 use super::*;
 use crate::aria2::Aria2RpcClient;
 use crate::tasks::aria2_rpc::{
@@ -10,8 +10,10 @@ use crate::tasks::aria2_rpc::{
 };
 use crate::tasks::files::{bt_task_path_component, delete_file_candidates};
 use crate::tasks::prepare::{default_download_dir, expand_home_dir, resolve_save_dir_with_logs};
+use crate::tasks::progress::apply_aria2_status;
 use crate::tasks::progress::{apply_magnet_metadata_confirmation, normalize_aria2_error_code};
-use crate::tasks::session::{find_matching_sqlite_task, matching_aria2_task_gids};
+use crate::tasks::refresh::task_status_error;
+use crate::tasks::session::matching_aria2_task_gids;
 use axum::{extract::Json, routing::post, Router};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -48,7 +50,7 @@ fn temp_download_dir(name: &str) -> String {
 fn sample_task(file_path: Option<String>, save_dir: String) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
@@ -451,23 +453,6 @@ fn task_gid_rejects_removed_task() {
 }
 
 #[test]
-fn startup_force_pause_scope_matches_exit_pause_scope() {
-    let mut task = sample_task(None, "/downloads".to_string());
-
-    task.status = DownloadTaskStatus::Pending;
-    assert!(should_force_pause_task_on_startup(&task));
-
-    task.status = DownloadTaskStatus::Active;
-    assert!(should_force_pause_task_on_startup(&task));
-
-    task.status = DownloadTaskStatus::Paused;
-    assert!(!should_force_pause_task_on_startup(&task));
-
-    task.status = DownloadTaskStatus::Complete;
-    assert!(!should_force_pause_task_on_startup(&task));
-}
-
-#[test]
 fn exit_pause_scope_only_includes_unfinished_tasks() {
     let mut task = sample_task(None, "/downloads".to_string());
 
@@ -683,60 +668,6 @@ fn delete_task_files_accepts_legacy_magnet_directory_with_task_extension() {
     assert!(!task_dir.exists());
 }
 
-fn session_status(gid: &str, url: &str, dir: &str, path: &str) -> Aria2TaskStatus {
-    Aria2TaskStatus {
-        gid: Some(gid.to_string()),
-        status: "paused".to_string(),
-        total_length: "100".to_string(),
-        completed_length: "40".to_string(),
-        download_speed: "0".to_string(),
-        error_code: None,
-        error_message: None,
-        dir: Some(dir.to_string()),
-        files: Some(vec![Aria2FileStatus {
-            index: 1,
-            path: path.to_string(),
-            length: "100".to_string(),
-            completed_length: "40".to_string(),
-            selected: "true".to_string(),
-            uris: vec![Aria2UriStatus {
-                uri: url.to_string(),
-            }],
-        }]),
-        followed_by: None,
-        bittorrent: None,
-    }
-}
-
-#[test]
-fn session_task_matches_by_url_dir_and_file() {
-    let task = sample_task(
-        Some("/downloads/file.zip".to_string()),
-        "/downloads".to_string(),
-    );
-    let session_task = session_status(
-        "newgid",
-        "https://example.com/file.zip",
-        "/downloads",
-        "/downloads/file.zip",
-    );
-
-    assert_eq!(find_matching_sqlite_task(&[task], &session_task), Some(0));
-}
-
-#[test]
-fn session_task_does_not_match_unknown_url() {
-    let task = sample_task(None, "/downloads".to_string());
-    let session_task = session_status(
-        "newgid",
-        "https://example.com/other.zip",
-        "/downloads",
-        "/downloads/file.zip",
-    );
-
-    assert_eq!(find_matching_sqlite_task(&[task], &session_task), None);
-}
-
 #[test]
 fn tell_many_request_uses_offsets_for_waiting_tasks() {
     let config = test_config();
@@ -757,97 +688,13 @@ fn is_stale_aria2_gid_error_detects_unrecoverable_resume_errors() {
     assert!(!is_stale_aria2_gid_error("download failed"));
 }
 
-#[test]
-fn resume_error_readds_when_gid_is_not_found() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.status = DownloadTaskStatus::Error;
-
-    assert!(should_readd_task_after_resume_error(
-        &task,
-        "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
-    ));
-}
-
-#[test]
-fn resume_error_does_not_readd_pending_magnet_metadata_task() {
-    let task = DownloadTask {
-        id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
-        removed_from_status: None,
-        url: "magnet:?xt=urn:btih:test".to_string(),
-        source_type: DownloadTaskSourceType::Magnet,
-        file_name: "磁力链接任务".to_string(),
-        save_dir: "/downloads".to_string(),
-        owned_task_dir: None,
-        category: "默认".to_string(),
-        gid: Some("metadata-gid".to_string()),
-        status: DownloadTaskStatus::Error,
-        total_length: 0,
-        completed_length: 0,
-        download_speed: 0,
-        error_code: None,
-        error_message: Some("磁链 metadata 解析任务已失效，请重新添加磁链".to_string()),
-        file_path: None,
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
-        metadata_torrent_path: None,
-        files_deleted: false,
-        selected_file_indexes: Vec::new(),
-        confirmation_required: false,
-        files: Vec::new(),
-        created_at: 1,
-        updated_at: 1,
-    };
-
-    assert!(!should_readd_task_after_resume_error(
-        &task,
-        "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
-    ));
-}
-
-#[test]
-fn resume_error_does_not_readd_native_task_with_missing_gid() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
-    task.status = DownloadTaskStatus::Error;
-
-    assert!(!should_readd_task_after_resume_error(
-        &task,
-        "恢复任务失败：GID 6c4e6a308ea8d57e is not found"
-    ));
-}
-
-#[test]
-fn resume_error_readds_only_when_task_already_has_stale_gid_error() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.status = DownloadTaskStatus::Error;
-    task.error_message = Some("No URI available.".to_string());
-
-    assert!(should_readd_task_after_resume_error(
-        &task,
-        "GID#abc cannot be unpaused now"
-    ));
-
-    task.error_message = Some("download failed".to_string());
-    assert!(should_readd_task_after_resume_error(
-        &task,
-        "GID#abc cannot be unpaused now"
-    ));
-
-    task.status = DownloadTaskStatus::Active;
-    assert!(!should_readd_task_after_resume_error(
-        &task,
-        "GID#abc cannot be unpaused now"
-    ));
-}
-
 #[tokio::test]
 async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error() {
     let mock = MockStaleAria2Server::spawn().await;
     let app_data_dir = PathBuf::from(temp_download_dir("refresh-stale-magnet"));
     let tasks = TaskMemoryState::new(vec![DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "magnet:?xt=urn:btih:test".to_string(),
         source_type: DownloadTaskSourceType::Magnet,
@@ -881,22 +728,14 @@ async fn refresh_tasks_from_aria2_marks_stale_pending_magnet_metadata_task_error
 
     let client = crate::aria2::Aria2RpcClient::new();
     let database = refresh_database(&app_data_dir, &tasks).await;
-    let refreshed = refresh_tasks_from_aria2(
-        &tasks,
-        &database.pool,
-        &app_data_dir,
-        &app_data_dir.join("accessible-paths.json"),
-        &client,
-        &config,
-        None,
-    )
-    .await
-    .expect("refresh should succeed");
+    let refreshed = refresh_tasks_from_aria2(&tasks, &database.pool, &client, &config, None)
+        .await
+        .expect("refresh should succeed");
 
     assert_eq!(refreshed[0].status, DownloadTaskStatus::Error);
     assert_eq!(
         refreshed[0].error_message.as_deref(),
-        Some("磁链 metadata 解析任务已失效，请重新添加磁链")
+        Some("task_resume_state_invalid：原生任务 GID 已丢失，未自动重建")
     );
 
     mock.abort();
@@ -941,8 +780,6 @@ async fn native_refresh_never_readds_a_missing_gid_from_status_or_rpc_error() {
         let result = refresh_tasks_from_aria2(
             &tasks,
             &database.pool,
-            &root,
-            &root.join("accessible-paths.json"),
             &Aria2RpcClient::new(),
             &config,
             None,
@@ -986,8 +823,6 @@ async fn refresh_tasks_from_aria2_does_not_readd_a_revoked_task() {
     let refreshed = refresh_tasks_from_aria2(
         &tasks,
         &database.pool,
-        &app_data_dir,
-        &accessible_paths_path,
         &Aria2RpcClient::new(),
         &config,
         None,
@@ -999,7 +834,7 @@ async fn refresh_tasks_from_aria2_does_not_readd_a_revoked_task() {
     assert!(refreshed[0]
         .error_message
         .as_deref()
-        .is_some_and(|error| error.contains("未获授权")));
+        .is_some_and(|error| error.contains("task_resume_state_invalid")));
     let _ = fs::remove_dir_all(app_data_dir);
     mock.abort();
 }
@@ -1239,7 +1074,7 @@ fn tell_status_request_contains_gid_and_fields() {
 fn apply_aria2_status_updates_progress_fields() {
     let mut task = DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
@@ -1285,7 +1120,7 @@ fn apply_aria2_status_updates_progress_fields() {
                 selected: "true".to_string(),
                 uris: Vec::new(),
             }]),
-            followed_by: None,
+
             bittorrent: None,
         },
     );
@@ -1356,61 +1191,6 @@ fn active_task_activity_detects_bt_seeding_and_upload_speed() {
 }
 
 #[test]
-fn apply_magnet_metadata_confirmation_marks_task_pending_confirmation() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.url = "magnet:?xt=urn:btih:test".to_string();
-    task.file_name = "磁力链接任务".to_string();
-    task.gid = Some("metadata-gid".to_string());
-    task.status = DownloadTaskStatus::Active;
-
-    apply_magnet_metadata_confirmation(
-        &mut task,
-        &Aria2TaskStatus {
-            gid: Some("real-download-gid".to_string()),
-            status: "paused".to_string(),
-            total_length: "1024".to_string(),
-            completed_length: "0".to_string(),
-            download_speed: "0".to_string(),
-            error_code: None,
-            error_message: None,
-            dir: Some("/app/data/magnet-metadata/task-1".to_string()),
-            files: Some(vec![Aria2FileStatus {
-                index: 1,
-                path: "/app/data/magnet-metadata/task-1/archlinux.iso".to_string(),
-                length: "1024".to_string(),
-                completed_length: "0".to_string(),
-                selected: "true".to_string(),
-                uris: Vec::new(),
-            }]),
-            followed_by: None,
-            bittorrent: Some(Aria2BittorrentStatus {
-                file_selection_state: None,
-                info: Some(Aria2BittorrentInfo {
-                    name: Some("archlinux.iso".to_string()),
-                }),
-            }),
-        },
-        "/app/data/magnet-metadata/task-1/123.torrent".to_string(),
-    );
-
-    assert!(task.gid.is_none());
-    assert_eq!(task.status, DownloadTaskStatus::Pending);
-    assert!(task.confirmation_required);
-    assert_eq!(task.file_name, "archlinux.iso");
-    assert_eq!(task.save_dir, "/downloads");
-    assert_eq!(task.total_length, 1024);
-    assert_eq!(task.completed_length, 0);
-    assert_eq!(task.download_speed, 0);
-    assert_eq!(task.files.len(), 1);
-    assert_eq!(task.files[0].path, "/downloads/archlinux/archlinux.iso");
-    assert!(task.file_path.is_none());
-    assert_eq!(
-        task.metadata_torrent_path.as_deref(),
-        Some("/app/data/magnet-metadata/task-1/123.torrent")
-    );
-}
-
-#[test]
 fn apply_native_magnet_metadata_confirmation_keeps_gid_and_private_metadata_path() {
     let mut task = sample_task(None, "/downloads".to_string());
     task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
@@ -1439,7 +1219,7 @@ fn apply_native_magnet_metadata_confirmation_keeps_gid_and_private_metadata_path
                 selected: "true".to_string(),
                 uris: Vec::new(),
             }]),
-            followed_by: None,
+
             bittorrent: Some(Aria2BittorrentStatus {
                 file_selection_state: Some("awaiting".to_string()),
                 info: Some(Aria2BittorrentInfo {
@@ -1447,7 +1227,6 @@ fn apply_native_magnet_metadata_confirmation_keeps_gid_and_private_metadata_path
                 }),
             }),
         },
-        String::new(),
     );
 
     assert_eq!(task.gid.as_deref(), Some("native-gid"));
@@ -1484,7 +1263,7 @@ fn apply_aria2_status_does_not_override_pending_magnet_metadata_save_dir() {
             selected: "true".to_string(),
             uris: Vec::new(),
         }]),
-        followed_by: None,
+
         bittorrent: None,
     };
 
@@ -1494,35 +1273,6 @@ fn apply_aria2_status_does_not_override_pending_magnet_metadata_save_dir() {
     assert_eq!(task.save_dir, original_save_dir);
     assert!(task.file_path.is_none());
     assert!(task.files.is_empty());
-}
-
-#[test]
-fn apply_aria2_status_keeps_active_progress_non_decreasing() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.total_length = 100;
-    task.completed_length = 65;
-
-    apply_aria2_status(
-        &mut task,
-        &Aria2TaskStatus {
-            gid: None,
-            status: "active".to_string(),
-            total_length: "100".to_string(),
-            completed_length: "63".to_string(),
-            download_speed: "20".to_string(),
-            error_code: None,
-            error_message: None,
-            dir: None,
-            files: None,
-            followed_by: None,
-            bittorrent: None,
-        },
-    );
-
-    assert_eq!(task.status, DownloadTaskStatus::Active);
-    assert_eq!(task.total_length, 100);
-    assert_eq!(task.completed_length, 65);
-    assert_eq!(task.download_speed, 20);
 }
 
 #[test]
@@ -1544,7 +1294,6 @@ fn native_aria2_status_reflects_progress_regressions() {
             error_message: None,
             dir: None,
             files: None,
-            followed_by: None,
             bittorrent: None,
         },
     );
@@ -1582,7 +1331,7 @@ fn apply_aria2_status_removes_completed_control_file() {
                 selected: "true".to_string(),
                 uris: Vec::new(),
             }]),
-            followed_by: None,
+
             bittorrent: None,
         },
     );
@@ -1603,7 +1352,6 @@ fn pause_status_settles_only_after_paused_progress_is_stable() {
         error_message: None,
         dir: None,
         files: None,
-        followed_by: None,
         bittorrent: None,
     };
     let mut paused = active.clone();
@@ -1631,7 +1379,6 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
         error_message: None,
         dir: Some("/downloads".to_string()),
         files: None,
-        followed_by: None,
         bittorrent: None,
     };
 
@@ -1650,7 +1397,7 @@ fn apply_aria2_status_by_gid_updates_progress_before_pause_state() {
 fn apply_aria2_status_ignores_empty_error_code_zero() {
     let mut task = DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/file.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
@@ -1687,7 +1434,6 @@ fn apply_aria2_status_ignores_empty_error_code_zero() {
         error_message: Some("".to_string()),
         dir: None,
         files: None,
-        followed_by: None,
         bittorrent: None,
     };
 
@@ -1711,7 +1457,6 @@ fn non_zero_aria2_error_code_is_error() {
         error_message: Some("Resource not found".to_string()),
         dir: None,
         files: None,
-        followed_by: None,
         bittorrent: None,
     };
 
@@ -1735,7 +1480,6 @@ fn aria2_error_16_gets_readable_hint() {
         error_message: Some("Download aborted.".to_string()),
         dir: None,
         files: None,
-        followed_by: None,
         bittorrent: None,
     };
 
@@ -1747,66 +1491,6 @@ fn aria2_error_16_gets_readable_hint() {
         .as_deref()
         .unwrap_or_default()
         .contains("无法创建或写入目标文件"));
-}
-
-#[test]
-fn apply_aria2_status_preserves_progress_when_active_status_is_temporarily_empty() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    task.status = DownloadTaskStatus::Paused;
-    let status = Aria2TaskStatus {
-        gid: None,
-        status: "active".to_string(),
-        total_length: "0".to_string(),
-        completed_length: "0".to_string(),
-        download_speed: "0".to_string(),
-        error_code: None,
-        error_message: None,
-        dir: None,
-        files: None,
-        followed_by: None,
-        bittorrent: None,
-    };
-
-    apply_aria2_status(&mut task, &status);
-
-    assert_eq!(task.status, DownloadTaskStatus::Active);
-    assert_eq!(task.total_length, 100);
-    assert_eq!(task.completed_length, 40);
-    assert_eq!(task.download_speed, 0);
-    assert!(task.error_code.is_none());
-    assert!(task.error_message.is_none());
-}
-
-#[test]
-fn apply_aria2_status_preserves_progress_when_error_has_no_lengths() {
-    let mut task = sample_task(None, "/downloads".to_string());
-    let status = Aria2TaskStatus {
-        gid: None,
-        status: "error".to_string(),
-        total_length: "0".to_string(),
-        completed_length: "0".to_string(),
-        download_speed: "0".to_string(),
-        error_code: Some("1".to_string()),
-        error_message: Some(
-            "SSL/TLS handshake failure: unable to get local issuer certificate".to_string(),
-        ),
-        dir: None,
-        files: None,
-        followed_by: None,
-        bittorrent: None,
-    };
-
-    apply_aria2_status(&mut task, &status);
-
-    assert_eq!(task.status, DownloadTaskStatus::Error);
-    assert_eq!(task.total_length, 100);
-    assert_eq!(task.completed_length, 40);
-    assert_eq!(task.download_speed, 0);
-    assert_eq!(task.error_code.as_deref(), Some("1"));
-    assert_eq!(
-        task.error_message.as_deref(),
-        Some("SSL/TLS handshake failure: unable to get local issuer certificate")
-    );
 }
 
 #[test]
@@ -1906,31 +1590,9 @@ fn stale_aria2_gid_error_is_detected() {
         error_message: Some("No URI available.".to_string()),
         dir: None,
         files: None,
-        followed_by: None,
         bittorrent: None,
     }));
     assert!(!is_stale_aria2_gid_error("连接失败"));
-}
-
-#[test]
-fn readded_gid_updates_task_without_clearing_progress() {
-    let save_dir = temp_download_dir("readded-gid");
-    let mut task = sample_task(None, save_dir.clone());
-    task.status = DownloadTaskStatus::Error;
-    task.gid = Some("old-gid".to_string());
-    task.error_code = Some("1".to_string());
-    task.error_message = Some("No URI available.".to_string());
-
-    apply_readded_gid(&mut task, "new-gid");
-
-    assert_eq!(task.gid.as_deref(), Some("new-gid"));
-    assert_eq!(task.status, DownloadTaskStatus::Active);
-    assert_eq!(task.completed_length, 40);
-    assert_eq!(task.total_length, 100);
-    assert!(task.error_code.is_none());
-    assert!(task.error_message.is_none());
-    let expected_file_path = Path::new(&save_dir).join("file.zip").display().to_string();
-    assert_eq!(task.file_path.as_deref(), Some(expected_file_path.as_str()));
 }
 
 #[test]

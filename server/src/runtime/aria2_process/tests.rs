@@ -137,64 +137,6 @@ fn stop_process_succeeds_when_no_process_running() {
     assert_eq!(status.message, "Aria2 进程已停止");
 }
 
-#[cfg(unix)]
-#[test]
-fn start_process_sets_utf8_path_encoding() {
-    use std::os::unix::fs::PermissionsExt;
-
-    const PROBE_ENV: &str = "MOTRIX_TEST_ENGINE_LOCALE_PROBE";
-    if std::env::var_os(PROBE_ENV).is_none() {
-        for lang in [None, Some("C"), Some("en_US.utf8")] {
-            let mut command = Command::new(std::env::current_exe().unwrap());
-            command
-                .args([
-                    "--exact",
-                    "runtime::aria2_process::tests::start_process_sets_utf8_path_encoding",
-                ])
-                .env(PROBE_ENV, "1")
-                .env("LC_ALL", "C")
-                .env_remove("LC_CTYPE")
-                .env_remove("LANG");
-            if let Some(lang) = lang {
-                command.env("LANG", lang);
-            }
-            let output = command.output().unwrap();
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            assert!(
-                output.status.success() && stdout.contains("1 passed"),
-                "LANG={lang:?}: {stdout}\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        return;
-    }
-
-    let root = temp_dir("engine-locale");
-    std::fs::create_dir_all(&root).unwrap();
-    let binary = root.join("fake-aria2");
-    std::fs::write(
-        &binary,
-        "#!/bin/sh\nprintf '%s' \"${LANG-}\" > \"${0%/*}/engine-lang\"\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let runtime = sample_runtime(Some(binary));
-    let mut config = sample_config();
-    config.rpc_port = 0;
-    let process = Mutex::new(None);
-    start_process(&process, &runtime, &config, &DebugLogStore::default()).unwrap();
-    let mut child = process.into_inner().unwrap().unwrap();
-    let exited = child.wait_for_exit(Duration::from_secs(3)).unwrap();
-    if !exited {
-        child.kill().unwrap();
-        assert!(child.wait_for_exit(Duration::from_secs(3)).unwrap());
-    }
-    let lang = std::fs::read_to_string(root.join("engine-lang"));
-    std::fs::remove_dir_all(root).unwrap();
-    assert!(exited, "locale probe should exit within the deadline");
-    assert_eq!(lang.unwrap(), "C.UTF-8");
-}
-
 #[tokio::test]
 async fn wait_for_rpc_ready_only_writes_debug_success_after_startup() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -242,11 +184,12 @@ async fn concurrent_start_requests_apply_saved_download_config_once() {
         r##"#!/usr/bin/env python3
 import json
 import pathlib
+import signal
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 if "--version" in sys.argv:
-    print("aria2 version 2.5.5")
+    print("aria2 version 2.8.6")
     sys.exit(0)
 
 root = pathlib.Path(__file__).parent
@@ -267,13 +210,15 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(self.rfile.read(length))
         with rpc_count.open("a", encoding="utf-8") as output:
             output.write(payload.get("method", "") + "\n")
-        if payload.get("method") == "aria2.changeGlobalOption":
+        method = payload['method']
+        if method == 'aria2.changeGlobalOption' and 'bt-proxy' not in payload['params'][-1]:
             global_options.write_text(json.dumps(payload), encoding="utf-8")
-        body = json.dumps({
-            "jsonrpc": "2.0",
-            "id": payload.get("id"),
-            "result": {"version": "2.5.5"},
-        }).encode("utf-8")
+        if method == 'aria2.getVersion': result = {'version': '2.8.6'}
+        elif method == 'aria2.getGlobalOption': result = {'bt-proxy': ''}
+        elif method in ['aria2.forcePauseAll', 'aria2.changeGlobalOption']: result = 'OK'
+        elif method in ['aria2.tellActive', 'aria2.tellWaiting', 'aria2.tellStopped']: result = []
+        else: raise AssertionError(method)
+        body = json.dumps({'jsonrpc': '2.0', 'id': payload.get('id'), 'result': result}).encode('utf-8')
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -283,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
 HTTPServer(("127.0.0.1", port), Handler).serve_forever()
 "##,
     )
@@ -384,14 +330,20 @@ HTTPServer(("127.0.0.1", port), Handler).serve_forever()
     assert_eq!(process_count.lines().count(), 1);
     assert_eq!(
         rpc_methods.lines().collect::<Vec<_>>(),
-        ["aria2.getVersion", "aria2.changeGlobalOption"]
+        [
+            "aria2.getVersion",
+            "aria2.forcePauseAll",
+            "aria2.changeGlobalOption",
+            "aria2.changeGlobalOption",
+            "aria2.getGlobalOption",
+            "aria2.tellActive",
+            "aria2.tellWaiting",
+            "aria2.tellStopped"
+        ]
     );
     assert_eq!(global_options["params"][1]["max-concurrent-downloads"], "9");
-    assert_eq!(
-        global_options["params"][1]["max-connection-per-server"],
-        "6"
-    );
-    assert_eq!(global_options["params"][1]["split"], "6");
+    assert_eq!(global_options["params"][1]["stream-max-connections"], "6");
+    assert!(global_options["params"][1].get("split").is_none());
     assert_eq!(global_options["params"][1]["connect-timeout"], "90");
     assert_eq!(global_options["params"][1]["max-tries"], "8");
 }
@@ -474,6 +426,68 @@ async fn engine_generation_probe_accepts_only_verified_releases_and_has_a_deadli
         .contains("超时"));
     assert!(started.elapsed() < Duration::from_secs(4));
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn manual_and_demand_start_recheck_replaced_or_missing_engine_before_launch() {
+    use crate::config::aria2::EngineGeneration;
+    use std::os::unix::fs::PermissionsExt;
+    for manual in [false, true] {
+        for version in [Some("2.5.5"), Some("9.9.9"), None] {
+            let root = temp_dir("replaced-engine");
+            let binary = crate::test_support::native_version_only_engine(&root);
+            let mut runtime = sample_runtime(Some(binary.clone()));
+            runtime.app_data_dir = root.clone();
+            runtime.database_path = root.join("motrix-fnos.db");
+            runtime.accessible_paths_path = root.join("accessible-paths.json");
+            let state = bootstrap_http_app_state(&runtime).await.unwrap();
+            assert!(state.ensure_download_available().is_ok());
+            let mut events = state.runtime_events.subscribe();
+            if let Some(version) = version {
+                std::fs::write(&binary, format!(
+                    "#!/bin/sh\nif [ \"$1\" = --version ]; then printf 'aria2 version {version}\\n'; else touch \"${{0%/*}}/launched\"; fi\n"
+                )).unwrap();
+                std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+            } else {
+                std::fs::remove_file(&binary).unwrap();
+            }
+            if manual {
+                assert!(start_aria2(&state).await.is_err());
+            } else {
+                assert!(ensure_aria2_ready(&state).await.is_err());
+            }
+            let compatibility = state.compatibility_snapshot();
+            match events.try_recv().unwrap() {
+                crate::app::RuntimeEvent::AppCompatibility(event) => {
+                    assert_eq!(event.mode, compatibility.mode);
+                    assert_eq!(event.reason_code, compatibility.reason_code);
+                }
+                _ => panic!("expected compatibility update after engine rejection"),
+            }
+            assert_eq!(compatibility.mode, "restricted");
+            assert_eq!(
+                compatibility.engine_generation,
+                if version == Some("2.5.5") {
+                    EngineGeneration::LegacyV1
+                } else {
+                    EngineGeneration::Unknown
+                }
+            );
+            assert_eq!(
+                compatibility.reason_code.as_deref(),
+                Some(if version == Some("2.5.5") {
+                    "engine_unsupported"
+                } else {
+                    "engine_unknown"
+                })
+            );
+            assert!(!root.join("launched").exists());
+            assert!(state.aria2_process.lock().unwrap().is_none());
+            assert!(state.aria2_runtime_snapshot().is_none());
+            state.core.database.pool.close().await;
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 }
 
 #[tokio::test]
@@ -597,10 +611,7 @@ server.serve_forever()
                 );
             } else {
                 let ready = result.unwrap();
-                assert_eq!(
-                    ready.engine_generation(),
-                    crate::config::aria2::EngineGeneration::NativeV2
-                );
+                assert!(ready.state_dir.is_some());
                 assert_eq!(
                     ready.session_path.as_deref(),
                     root.join("engine/native-v2/session/aria2.session").to_str()
@@ -613,7 +624,6 @@ server.serve_forever()
                     &state.aria2_process,
                     None,
                     Duration::from_millis(20),
-                    true,
                 )
                 .unwrap_err()
                 .contains("超时"));
@@ -742,7 +752,7 @@ async fn mock_version_rpc(Json(_payload): Json<Value>) -> Json<Value> {
     }))
 }
 
-fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
+pub(super) fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
     let app_data_dir = temp_dir("runtime");
     ServerRuntimeConfig {
         database_path: app_data_dir.join("motrix-fnos.db"),
@@ -756,7 +766,7 @@ fn sample_runtime(aria2_path: Option<PathBuf>) -> ServerRuntimeConfig {
     }
 }
 
-fn sample_config() -> Aria2Config {
+pub(super) fn sample_config() -> Aria2Config {
     Aria2Config {
         aria2_path: None,
         binary_source: Aria2BinarySource::Sidecar,
@@ -771,7 +781,7 @@ fn sample_config() -> Aria2Config {
     }
 }
 
-fn temp_dir(label: &str) -> PathBuf {
+pub(super) fn temp_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "motrix-fnos-{}-{}",
         label,

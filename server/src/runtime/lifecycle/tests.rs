@@ -417,7 +417,7 @@ async fn lifecycle_failure_backoff_does_not_block_user_work() {
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,
