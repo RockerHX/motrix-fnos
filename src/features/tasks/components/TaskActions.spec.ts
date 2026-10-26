@@ -174,8 +174,9 @@ describe("TaskActions", () => {
     expect(removedWrapper.text()).toContain("永久删除");
   });
 
-  it("emits pause, resume, confirmFiles and confirmed restore in both normal and compact layouts", async () => {
+  it("emits pause, resume, confirmFiles and confirmed restore on desktop and mobile", async () => {
     const { wrapper } = mountTaskActions({
+      mode: "desktop",
       permissions: {
         canPause: true,
         canResume: true,
@@ -196,7 +197,7 @@ describe("TaskActions", () => {
     expect(wrapper.emitted("restore")).toHaveLength(1);
 
     const { wrapper: compactWrapper } = mountTaskActions({
-      compact: true,
+      mode: "mobile",
       permissions: {
         canPause: true,
         canResume: true,
@@ -227,9 +228,8 @@ describe("TaskActions", () => {
       canPermanentDelete: true,
     };
     const variants = [
-      mountTaskActions({ permissions }),
-      mountTaskActions({ compact: true, permissions }),
-      mountTaskActions({ variant: "icon-pill", permissions }),
+      mountTaskActions({ mode: "mobile", permissions }),
+      mountTaskActions({ mode: "desktop", permissions }),
     ];
 
     for (const { wrapper } of variants) {
@@ -322,7 +322,7 @@ describe("TaskActions", () => {
 
   it("renders only permitted icon-pill actions with accessible labels and titles", () => {
     const { wrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: {
         canPause: true,
         canResume: false,
@@ -378,7 +378,7 @@ describe("TaskActions", () => {
 
   it("emits direct actions from icon-pill buttons", async () => {
     const { wrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: {
         canPause: true,
         canResume: true,
@@ -401,7 +401,7 @@ describe("TaskActions", () => {
 
   it("keeps the icon action slot but hides pause and resume icons while operating", () => {
     const { wrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       state: {
         isOperating: true,
         isActionDisabled: true,
@@ -424,28 +424,28 @@ describe("TaskActions", () => {
 
   it("opens existing confirmation modals from icon-pill buttons", async () => {
     const { wrapper: redownloadWrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: { canRedownload: true, canDelete: false },
     });
     await clickIconButton(redownloadWrapper, "重新下载");
     expect(redownloadWrapper.find('[data-test="n-modal"]').text()).toContain("确认重新下载");
 
     const { wrapper: deleteWrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: { canDelete: true },
     });
     await clickIconButton(deleteWrapper, "删除");
     expect(deleteWrapper.find('[data-test="n-modal"]').text()).toContain("确认删除");
 
     const { wrapper: permanentDeleteWrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: { canDelete: false, canPermanentDelete: true },
     });
     await clickIconButton(permanentDeleteWrapper, "永久删除");
     expect(permanentDeleteWrapper.find('[data-test="n-modal"]').text()).toContain("确认永久删除");
 
     const { wrapper: restoreWrapper } = mountTaskActions({
-      variant: "icon-pill",
+      mode: "desktop",
       permissions: { canDelete: false, canRestore: true },
     });
     await clickIconButton(restoreWrapper, "恢复");
@@ -513,8 +513,7 @@ describe("TaskActions", () => {
 });
 
 interface MountTaskActionsOverrides {
-  compact?: boolean;
-  variant?: "text" | "icon-pill";
+  mode?: "desktop" | "mobile";
   state?: Partial<TaskActionState>;
   permissions?: Partial<TaskActionPermissions>;
   labels?: Partial<TaskActionLabels>;
@@ -530,8 +529,7 @@ interface MountTaskActionsOverrides {
 
 function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
   const props = {
-    compact: overrides.compact ?? false,
-    variant: overrides.variant ?? "text",
+    mode: overrides.mode ?? "mobile",
     task: createTask(overrides.task),
     state: {
       isOperating: false,
@@ -637,7 +635,7 @@ function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
 }
 
 async function clickButton(wrapper: ReturnType<typeof mountTaskActions>["wrapper"], text: string, index = 0) {
-  const matches = wrapper.findAll("button").filter((item) => item.text() === text);
+  const matches = wrapper.findAll("button").filter((item) => item.text() === text || item.attributes("aria-label") === text);
   const normalizedIndex = index >= 0 ? index : matches.length + index;
   const button = matches[normalizedIndex];
 

@@ -2,6 +2,7 @@ import { ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DebugLogEntry } from "../types";
 import { useDebugLogExport } from "./useDebugLogExport";
+import { setLanguage } from "../../../i18n";
 
 const message = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn() }));
 
@@ -21,6 +22,19 @@ const logs: DebugLogEntry[] = [
 ];
 
 describe("useDebugLogExport", () => {
+  it("uses the current language and keeps unknown categories in exported text", () => {
+    const entries = ref([{ ...logs[0], category: "settings" as const }, { ...logs[0], id: 2, category: "future" as DebugLogEntry["category"] }]);
+    const exporter = useDebugLogExport({ logs: entries, filteredLogs: entries, warningCount: ref(2), errorCount: ref(0), onManualCopy: vi.fn() });
+    expect(exporter.formatAllLogs()).toContain("[设置]");
+    try {
+      setLanguage("en-US");
+      expect(exporter.formatAllLogs()).toContain("[Settings]");
+      expect(exporter.formatAllLogs()).toContain("[future]");
+    } finally {
+      setLanguage("zh-CN");
+    }
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     Object.defineProperty(document, "execCommand", {

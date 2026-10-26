@@ -17,7 +17,7 @@ const props = defineProps<{
       <TaskCardHeader :task="props.task" variant="desktop">
         <template #actions>
           <div :aria-label="t('task.table.actions')">
-            <TaskActionsContainer :task="props.task" variant="icon-pill" />
+            <TaskActionsContainer :task="props.task" mode="desktop" />
           </div>
         </template>
       </TaskCardHeader>

@@ -16,8 +16,8 @@ vi.mock("../composables/useTaskStatusActions", () => ({
 vi.mock("./TaskActionsContainer.vue", () => ({
   default: {
     name: "TaskActionsContainerStub",
-    props: ["task", "compact", "variant"],
-    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ compact }}</div>',
+    props: ["task", "mode"],
+    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ mode }}</div>',
   },
 }));
 
@@ -70,7 +70,7 @@ describe("TaskMobileList", () => {
     expect(wrapper.get(".task-card-meta").text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.get(".task-card-meta").text()).toContain("1.0 KB/s");
     expect(wrapper.get(".task-card-meta").text()).toContain("默认");
-    expect(wrapper.get('[data-test="task-actions"]').text()).toContain("actions-1");
+    expect(wrapper.get('[data-test="task-actions"]').text()).toContain("actions-1-mobile");
   });
 
   it("renders shared error message for failed task", () => {

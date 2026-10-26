@@ -22,17 +22,10 @@ import type {
 } from "./taskActionViewModel";
 import type { TaskFileAvailability, TaskFileContextResponse } from "../../../types/tasks";
 
-const props = withDefaults(
-  defineProps<{
-    task: DownloadTask;
-    compact?: boolean;
-    variant?: "text" | "icon-pill";
-  }>(),
-  {
-    compact: false,
-    variant: "text",
-  },
-);
+const props = defineProps<{
+  task: DownloadTask;
+  mode: "desktop" | "mobile";
+}>();
 
 const taskStore = useTaskStore();
 const message = useMessage();
@@ -287,8 +280,7 @@ function formatTimestamp(timestamp: number) {
 <template>
   <TaskActions
     :task="props.task"
-    :compact="props.compact"
-    :variant="props.variant"
+    :mode="props.mode"
     :state="actionState"
     :permissions="permissions"
     :labels="labels"

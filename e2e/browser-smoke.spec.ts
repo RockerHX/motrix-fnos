@@ -180,6 +180,20 @@ test.describe("browser smoke", () => {
       await expect(page.locator(".desktop-actions")).toBeVisible();
     }
   });
+
+  test("opens task details with the keyboard and closes with Escape", async ({ page }) => {
+    const fixture = await installFixture(page);
+    fixture.createdUrls.push(task.url);
+    fixture.eventTasks = [{ ...task }];
+    await completeLogin(page);
+    const details = page.getByRole("button", { name: "详情", exact: true });
+    await expect(details).toHaveAttribute("aria-label", "详情");
+    await details.focus();
+    await details.press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
 });
 
 async function completeLogin(page: Page) {

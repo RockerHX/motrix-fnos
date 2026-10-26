@@ -1,8 +1,9 @@
 import { useMessage } from "naive-ui";
+import { formatDebugLogCategory } from "../utils/debugLogFormat";
 import type { Ref } from "vue";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { useI18n } from "../../../i18n";
-import type { DebugLogCategory, DebugLogEntry } from "../types";
+import type { DebugLogEntry } from "../types";
 
 interface UseDebugLogExportOptions {
   logs: Ref<DebugLogEntry[]>;
@@ -70,20 +71,7 @@ export function useDebugLogExport({
   function formatLogLine(log: DebugLogEntry) {
     const repeatCount = log.repeatCount ?? 1;
     const repeats = repeatCount > 1 ? ` x${repeatCount} last=${formatTime(log.lastTimestampMs ?? log.timestampMs)}` : "";
-    return `[${formatTime(log.timestampMs)}] [${log.level.toUpperCase()}] [${categoryLabel(log.category)}] [${log.module}]${repeats} ${log.message}`;
-  }
-
-  function categoryLabel(category: DebugLogCategory) {
-    const labels: Record<DebugLogCategory, string> = {
-      app: t("logs.category.app"),
-      task: t("logs.category.task"),
-      aria2: t("logs.category.aria2"),
-      settings: t("logs.category.settings"),
-      storage: t("logs.category.storage"),
-      api: t("logs.category.api"),
-      runtime: t("logs.category.runtime"),
-    };
-    return labels[category] ?? category;
+    return `[${formatTime(log.timestampMs)}] [${log.level.toUpperCase()}] [${formatDebugLogCategory(log.category)}] [${log.module}]${repeats} ${log.message}`;
   }
 
   function formatTime(timestampMs: number) {

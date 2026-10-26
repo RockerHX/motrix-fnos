@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { formatDebugLogCategory } from "../utils/debugLogFormat";
 import { NEmpty, NTag } from "naive-ui";
 import { nextTick, ref, watch } from "vue";
 import { useI18n } from "../../../i18n";
-import type { DebugLogCategory, DebugLogEntry, DebugLogLevel } from "../types";
+import type { DebugLogEntry, DebugLogLevel } from "../types";
 
 const props = defineProps<{
   logs: DebugLogEntry[];
@@ -46,18 +47,6 @@ function levelLabel(level: DebugLogLevel) {
   return labels[level];
 }
 
-function categoryLabel(category: DebugLogCategory) {
-  const labels: Record<DebugLogCategory, string> = {
-    app: t("logs.category.app"),
-    task: t("logs.category.task"),
-    aria2: t("logs.category.aria2"),
-    settings: t("logs.category.settings"),
-    storage: t("logs.category.storage"),
-    api: t("logs.category.api"),
-    runtime: t("logs.category.runtime"),
-  };
-  return labels[category] ?? category;
-}
 
 function levelType(level: DebugLogLevel) {
   const types: Record<DebugLogLevel, "info" | "warning" | "error"> = {
@@ -81,7 +70,7 @@ defineExpose({ scrollToBottom });
         <span v-if="repeatCount(log) > 1">{{ t("logs.repeated", { count: repeatCount(log) }) }}</span>
         <span v-if="repeatCount(log) > 1">{{ t("logs.lastSeen", { time: formatTime(lastTimestampMs(log)) }) }}</span>
         <NTag :type="levelType(log.level)" size="small" round>{{ levelLabel(log.level) }}</NTag>
-        <NTag size="small" round>{{ categoryLabel(log.category) }}</NTag>
+        <NTag size="small" round>{{ formatDebugLogCategory(log.category) }}</NTag>
         <code>{{ log.module }}</code>
       </div>
       <p>{{ log.message }}</p>
