@@ -29,7 +29,6 @@ body {
   :root {
     --app-motion-duration-fast: 0.01ms;
     --app-motion-duration-standard: 0.01ms;
-    --app-motion-duration-dialog: 0.01ms;
     --app-motion-duration-progress: 0.01ms;
   }
 

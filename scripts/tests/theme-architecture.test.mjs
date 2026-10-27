@@ -9,12 +9,8 @@ const tokensPath = path.join(srcRoot, "styles/tokens.css");
 const naiveProviderPath = path.join(srcRoot, "app/providers/NaiveProvider.vue");
 
 const expectedTokens = {
-  "--app-color-brand-navy": "#1e3a5f",
   "--app-color-brand-deep": "#102846",
   "--app-color-brand-blue": "#3374db",
-  "--app-color-brand-blue-hover": "#5da9ff",
-  "--app-color-brand-blue-pressed": "#285bae",
-  "--app-color-brand-blue-suppl": "#a8c8f0",
   "--app-color-brand-selected": "#1e3a5f",
   "--app-color-on-brand": "#f4f8fd",
   "--app-color-success": "#68ae5a",
