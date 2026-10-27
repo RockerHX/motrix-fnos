@@ -1,6 +1,26 @@
-# 前后端 HTTP / SSE / JSON-RPC API 契约
+# 前后端 HTTP / SSE / JSON-RPC API 契约（开发者参考）
+
+> **适用读者：** 前后端开发者和第三方客户端开发者。本文保留完整的接口参数、响应示例、错误处理、兼容规则及相关实现约束，供开发和联调时按需查阅。普通使用请看 [安装与使用](../README.md#安装与使用)，排障、远程接入和备份请看 [维护手册](maintenance.md)。
 
 > 本文定义 Rust server、Vue Web UI 与外部 JSON-RPC 调用方之间的接口。项目结构见 [架构](architecture.md)，未完成事项见 [开发计划](future-development-plan.md)，交互见 [UI 规范](design/DESIGN.md)，开发、打包与排障见 [维护手册](maintenance.md)。
+
+## 查阅目录
+
+- [运行时与监听器约定](#1-运行时约定)
+- [前端消费约定](#2-前端消费约定)
+- [通用错误响应](#3-错误响应)
+- [HTTP API](#4-http-api)
+  - [Web 管理鉴权](#41-web-管理鉴权)
+  - [应用信息与兼容状态](#42-应用信息)
+  - [Aria2 引擎控制](#43-aria2)
+  - [任务](#44-任务)
+  - [设置](#45-设置)
+  - [调试日志](#46-调试日志)
+  - [Aria2 详细日志模式](#47-aria2-详细日志模式)
+  - [日志占用、存储占用、清理与诊断包](#48-日志占用清理与诊断包)
+  - [授权目录](#49-存储目录)
+- [SSE 事件流](#5-sse-事件流)
+- [JSON-RPC 兼容入口](#6-json-rpc-兼容入口)
 
 ## 1. 运行时约定
 
@@ -721,7 +741,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/diagnostics/aria2-log-mode` | - | `Aria2LogModeStatus` |
-| `PUT` | `/api/diagnostics/aria2-log-mode` | `{ "detailed": true | false }` | `Aria2LogModeStatus` |
+| `PUT` | `/api/diagnostics/aria2-log-mode` | `{ "detailed": true }` 或 `{ "detailed": false }` | `Aria2LogModeStatus` |
 
 `Aria2LogModeStatus`：
 
@@ -836,7 +856,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 约定：
 
-- 三个接口都要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
+- 本节四个接口都要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
 - 占用统计只读取应用数据目录内固定的普通文件：Aria2 当前日志及兼容的新旧轮转命名、`logs/server.log(.1-.3)` 和 `logs/lifecycle.log(.1-.3)`。符号链接、未知文件和下载目录均不计入，也不返回应用数据目录的绝对路径。
 - 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
 - Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
@@ -928,6 +948,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
 - JWT 失效时连接终止；重新订阅未携带有效 JWT 时返回 `401 Unauthorized`，不会发送任务快照。
+- 已建立的连接每 15 秒及收到广播事件后重新校验鉴权，校验失败即结束事件流；空闲时每 15 秒发送一次 `keepalive` 注释，不作为业务事件。
 
 `app.compatibility` 的数据结构与 `/api/app/compatibility` 返回的 `AppCompatibility` 相同，用于同步引擎代际和受限管理状态。
 

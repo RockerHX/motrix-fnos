@@ -88,7 +88,18 @@ FPK 按设备 CPU 架构分别发布：
 
 FN Connect / 应用子域名依赖 fnOS 登录态，只适合作为管理入口；第三方解析站不会携带该登录态，公网 JSON-RPC 仍需通过 Lucky/Cloudflare 反向代理到回环 `17081`。
 
-## 常用开发命令
+## 使用帮助
+
+- [遇到问题：登录、启停、下载与日志排查](docs/maintenance.md#故障排查)
+- [升级前备份与回滚](docs/maintenance.md#备份与回滚)
+- [远程推送：JSON-RPC 接入](docs/maintenance.md#远程接入)
+- [发布记录](CHANGELOG.md)
+
+## 开发者参考
+
+以下命令和技术文档供开发维护或编写第三方客户端时查阅。日常使用请看上面的“安装与使用”和“使用帮助”。
+
+### 常用开发命令
 
 在仓库根目录执行；工具链版本和完整操作见[维护手册](docs/maintenance.md#开发与验证)。
 
@@ -100,11 +111,10 @@ pnpm run verify             # 完整源码测试与构建
 pnpm run build:fpk          # 完整验证、双架构打包与解包验收
 ```
 
-## 文档入口
+### 技术文档
 
 - [架构与职责边界](docs/architecture.md)
 - [开发计划与后续事项](docs/future-development-plan.md)
-- [HTTP、SSE 与 JSON-RPC 接口](docs/api-contract.md)
+- [完整接口契约：HTTP、SSE 与 JSON-RPC（开发者参考）](docs/api-contract.md)
 - [维护手册：开发、发布、备份回滚与故障排查](docs/maintenance.md)
 - [UI 交互与视觉规范](docs/design/DESIGN.md)
-- [发布记录](CHANGELOG.md)
