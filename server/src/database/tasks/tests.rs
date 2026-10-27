@@ -738,6 +738,49 @@ fn native_snapshot_task(id: u64) -> DownloadTask {
 }
 
 #[tokio::test]
+async fn task_refresh_survives_columns_added_by_another_connection() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    let path = std::env::temp_dir().join(format!(
+        "motrix-refresh-schema-{}-{}.sqlite",
+        std::process::id(),
+        now_ms()
+    ));
+    let database = connect_database(path.clone()).await.unwrap();
+    let original = native_snapshot_task(1);
+    upsert_download_task(&database.pool, &original)
+        .await
+        .unwrap();
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(SqliteConnectOptions::new().filename(&path))
+        .await
+        .unwrap();
+    let mut next = original.clone();
+    for progress in [50, 60] {
+        let previous = next.clone();
+        next.completed_length = progress;
+        next.files[0].completed_length = progress;
+        next.updated_at += 1;
+        let updates = vec![(previous, next.clone())];
+        assert_eq!(
+            persist_task_refreshes(&pool, &updates).await.unwrap(),
+            updates
+        );
+        if progress == 50 {
+            sqlx::query("ALTER TABLE download_tasks ADD COLUMN migration_extra TEXT")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+        }
+    }
+    assert_eq!(list_download_tasks(&pool).await.unwrap(), vec![next]);
+    pool.close().await;
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
 async fn file_snapshot_sync_only_writes_changed_indexes_and_preserves_check_time() {
     let database = connect_database(std::env::temp_dir().join(format!(
         "motrix-file-diff-{}-{}.sqlite",

@@ -441,7 +441,17 @@ pub(crate) async fn persist_task_refreshes(
         .map_err(|error| format!("启动监控快照事务失败：{error}"))?;
     let mut saved = Vec::new();
     for (original, next) in updates {
-        let row = sqlx::query("SELECT download_tasks.*, task_proxy_overrides.proxy_url AS proxy_override_url FROM download_tasks LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id WHERE download_tasks.id = ?")
+        // 显式列避免迁移后 SELECT * 的列数变化触发 SQLx SQLite 列缓存越界。
+        let row = sqlx::query(r#"
+            SELECT download_tasks.id, engine_generation, url, source_type, file_name, save_dir, owned_task_dir, gid, status,
+                   total_length, completed_length, category, download_speed, error_code, error_message,
+                   file_path, metadata_torrent_path, files_deleted, selected_file_indexes,
+                   confirmation_required, use_proxy, proxy_source, task_proxy_overrides.proxy_url AS proxy_override_url,
+                   created_at, download_tasks.updated_at, removed_from_status
+            FROM download_tasks
+            LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id
+            WHERE download_tasks.id = ?
+        "#)
             .bind(u64_to_i64(original.id, "任务 ID")?).fetch_optional(&mut *transaction).await
             .map_err(|error| format!("核对监控原快照失败：{error}"))?;
         let Some(row) = row else { continue };
