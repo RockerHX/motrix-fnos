@@ -114,6 +114,8 @@ GitHub `Verify` 只缓存 pnpm store 和 Cargo registry，不缓存 `server/targ
 
 server 位于 `server/target/<target>/release/motrix-fnos-server`；target 为 `x86_64-unknown-linux-gnu` 或 `aarch64-unknown-linux-gnu`。真实 fnpack 输入是 `.stage/<target>/`，不要直接对源码态 `packaging/fnos/` 执行 fnpack。
 
+Release 使用 Thin LTO，并保留单编译单元以控制二进制体积。构建参数改变后的首轮交叉编译会重建对应 Release 缓存，后续仍由 Cargo 复用；日常清理保留 `server/target/`。
+
 构建会清空源码 staging 的 `packaging/fnos/app/data/`，该目录只放占位内容，不能保存测试数据。`.stage/`、`dist/`、临时二进制、图标和 Web 产物不提交；`assets/aria2/aria2-next-*` 是 sidecar 源资产，不能当生成物删除。双架构以独立 stage / 最终包为准，不能根据共享 `app/bin/` 判断。
 
 引擎联网维护入口为 `assets:aria2:fetch`，固定资产在 `scripts/build/fetch-aria2-next.mjs`、`assets/aria2/aria2-next-2.8.6-checksums.sha256` 和 `assets/aria2/aria2-next-2.8.6-dependencies.env`。升级需审查版本、hash、双架构字节、许可证与设备兼容性，不是每次构建都下载。支持边界见 [应用信息](api-contract.md#42-应用信息)。
