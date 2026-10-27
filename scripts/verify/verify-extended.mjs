@@ -4,6 +4,7 @@ import process from "node:process";
 
 const steps = [
   ["完整源码验证", ["run", "verify"]],
+  ["Rust 完整稳定性专项", ["run", "test:stability"]],
   ["浏览器 E2E 冒烟", ["run", "test:e2e"]],
   ["真实 Aria2 sidecar 集成测试", ["run", "test:aria2"]],
 ];

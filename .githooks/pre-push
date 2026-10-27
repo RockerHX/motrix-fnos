@@ -34,6 +34,10 @@ for (const line of readFileSync(0, 'utf8').trim().split(/\r?\n/).filter(Boolean)
     else if (file.startsWith('scripts/extended/')) suites.add('aria2');
     else if (file.startsWith('e2e/')) suites.add('browser');
     else if (file.startsWith('src/test/') || /^src\/.*\.spec\.(?:ts|tsx|vue)$/.test(file)) suites.add('frontend');
+    else if (file === 'server/tests/runtime_stability.rs' || file.startsWith('server/tests/runtime_stability/')) {
+      suites.add('rust');
+      suites.add('stability');
+    }
     else if (file.startsWith('server/') && (file.startsWith('server/tests/')
       || file === 'server/src/test_support.rs' || /\/tests(?:\/|\.rs$)/.test(file))) suites.add('rust');
     else if (/^scripts\/verify\/test-fnos-[^/]+\.sh$/.test(file)) shellTests.add(file);
@@ -56,6 +60,7 @@ if (full) {
   console.log('仅测试相关改动，运行对应测试，不执行完整构建。');
   if (suites.has('scripts')) run(packageManager, ['run', 'test:scripts']);
   if (suites.has('rust')) run('node', ['scripts/verify/run-rust-tests.mjs']);
+  if (suites.has('stability')) run(packageManager, ['run', 'test:stability']);
   if (suites.has('frontend')) run(packageManager, ['run', 'test:unit']);
   if (suites.has('browser')) run(packageManager, ['run', 'test:e2e']);
   if (suites.has('aria2')) run(packageManager, ['run', 'test:aria2']);

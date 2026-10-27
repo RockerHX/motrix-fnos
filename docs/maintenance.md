@@ -34,7 +34,8 @@
 | `test:e2e` | Chromium 桌面 / 移动冒烟，写报告与失败 trace |
 | `test:aria2` | 真实 sidecar 测试，使用临时下载目录、session |
 | `test:filesystem` | Rust 文件系统故障专项，使用临时目录和 Rust 缓存 |
-| `verify:extended` | 完整 verify 后运行 E2E 与真实 sidecar 测试，不重复文件系统专项 |
+| `test:stability` | 运行完整稳定性专项：30 次正常退出、崩溃恢复、连接资源采样和真实退出超时；使用临时数据和端口 |
+| `verify:extended` | 完整 verify 后运行稳定性专项、E2E 与真实 sidecar 测试，不重复文件系统专项 |
 | `verify:fpk` | 解包检查已有且版本匹配的双架构 FPK，缺产物直接失败 |
 | `audit:deps` | 锁文件生产依赖审计，不自动升级；需 `cargo-audit 0.22.2`，高危 / 严重或工具错误时失败，中低危报告 |
 | `clean:dry-run` / `clean` | 预览 / 删除前端与 FPK 生成物，详见下方清理范围 |
@@ -54,6 +55,8 @@
 | `build:fpk:release` | 扩展 verify → 复用 Web 产物 → 双架构打包 → verify:fpk |
 
 Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完整验证成功时压缩输出，失败保留详情；非交互长步骤每 30 秒报告进度。
+
+日常 Rust 验证保留两次正常启停、崩溃恢复、任务与原生状态保留、SSE 退出和端口释放检查；完整重启次数、连接压力和 10 秒真实退出超时由 `test:stability` 执行。每周 / 手动 CI 与本地发布前 `build:fpk:release` 通过 `verify:extended` 包含该专项，不删除原有断言。仅修改该专项或其夹具的推送也会执行 `test:stability`。
 
 ### 验证触发与边界
 

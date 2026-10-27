@@ -17,6 +17,8 @@ for (const [title, changes, expected] of [
   ['Rust 模块测试只跑 Rust 测试', { 'server/src/tasks/tests.rs': 'test' }, [['node', 'scripts/verify/run-rust-tests.mjs']]],
   ['Rust 集成测试夹具只跑 Rust 测试', { 'server/tests/fixtures/task.json': '{}' }, [['node', 'scripts/verify/run-rust-tests.mjs']]],
   ['Rust 共享工具只跑 Rust 测试', { 'server/src/test_support.rs': 'fixture' }, [['node', 'scripts/verify/run-rust-tests.mjs']]],
+  ['稳定性夹具同时验证日常与完整专项', { 'server/tests/runtime_stability/resources.rs': 'test' },
+    [['node', 'scripts/verify/run-rust-tests.mjs'], ['pnpm', 'run', 'test:stability']]],
   ['脚本测试资源仍运行脚本测试', { 'scripts/tests/fixtures/readme.txt': 'fixture' }, [['pnpm', 'run', 'test:scripts']]],
   ['浏览器测试只跑 E2E', { 'e2e/browser.spec.ts': 'test' }, [['pnpm', 'run', 'test:e2e']]],
   ['引擎测试只跑 sidecar', { 'scripts/extended/aria2-sidecar.test.mjs': 'test' }, [['pnpm', 'run', 'test:aria2']]],
