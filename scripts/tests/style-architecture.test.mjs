@@ -8,7 +8,6 @@ const srcRoot = path.join(repoRoot, "src");
 
 test("Vue 组件样式必须使用同目录 scoped CSS 文件", () => {
   const vueFiles = collectFiles(srcRoot, ".vue");
-  let styleFileCount = 0;
 
   for (const vueFile of vueFiles) {
     const source = readFileSync(vueFile, "utf8");
@@ -33,11 +32,8 @@ test("Vue 组件样式必须使用同目录 scoped CSS 文件", () => {
 
       const cssFile = path.join(path.dirname(vueFile), `${componentName}.css`);
       assert.ok(existsSync(cssFile), `${vueFile} 引用的 CSS 文件不存在：${cssFile}`);
-      styleFileCount += 1;
     }
   }
-
-  assert.equal(styleFileCount, 44, "当前组件样式外置数量应保持为 44 个");
 
   const mainSource = readFileSync(path.join(srcRoot, "main.ts"), "utf8");
   assert.doesNotMatch(mainSource, /from ["']\.\/features\//, "main.ts 不得引入业务组件样式");

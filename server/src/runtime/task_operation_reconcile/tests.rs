@@ -1,7 +1,5 @@
 use super::*;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
+use crate::app::bootstrap_http_app_state;
 use crate::database::connect_database;
 use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
 use crate::database::tasks::upsert_download_task;
@@ -367,18 +365,7 @@ async fn finalized_permanent_delete_removes_task_and_operation_atomically() {
 #[tokio::test]
 async fn deferred_proxy_operation_reconciles_without_starting_aria2() {
     let app_data_dir = temp_dir("deferred-proxy");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::native_version_only_engine(
-            &app_data_dir,
-        )),
-        trusted_proxy_ips: Vec::new(),
-    };
+    let runtime = crate::test_support::test_runtime(&app_data_dir);
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { useTaskStatusActions } from "./useTaskStatusActions";
-import type { DownloadTask } from "../../../types/tasks";
+import { createTask } from "../../../test/tasks";
 
 describe("useTaskStatusActions", () => {
   it.each(["active", "pending"] as const)("pauses a %s task on double click", async (status) => {
@@ -83,28 +83,4 @@ function setup() {
 
 function mouseEvent(target: Element): MouseEvent {
   return { target } as unknown as MouseEvent;
-}
-
-function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
-  return {
-    id: 1,
-    url: "https://example.com/ubuntu.iso",
-    fileName: "ubuntu.iso",
-    saveDir: "/downloads",
-    category: "默认",
-    gid: "gid-1",
-    status: "active",
-    totalLength: 2000,
-    completedLength: 1000,
-    downloadSpeed: 1024,
-    errorCode: null,
-    errorMessage: null,
-    filePath: "/downloads/ubuntu.iso",
-    useProxy: false,
-    confirmationRequired: false,
-    files: [],
-    createdAt: 1,
-    updatedAt: 2,
-    ...overrides,
-  };
 }

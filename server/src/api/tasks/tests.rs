@@ -1,8 +1,6 @@
 use super::*;
 use crate::api::error::ErrorResponse;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
+use crate::app::bootstrap_http_app_state;
 use crate::config::aria2::Aria2BinarySource;
 use crate::runtime::ManagedAria2Process;
 use crate::tasks::{DownloadTask, DownloadTaskFile, DownloadTaskStatus};
@@ -1727,18 +1725,7 @@ fn test_router(state: Arc<HttpAppState>) -> Router {
 
 async fn test_state() -> Arc<HttpAppState> {
     let app_data_dir = temp_dir("tasks-api");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::native_version_only_engine(
-            &app_data_dir,
-        )),
-        trusted_proxy_ips: Vec::new(),
-    };
+    let runtime = crate::test_support::test_runtime(&app_data_dir);
 
     bootstrap_http_app_state(&runtime)
         .await

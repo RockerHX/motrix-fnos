@@ -109,9 +109,9 @@ Git hook 还会对暂存区执行空白检查。该阶段不执行前端类型�
 
 ### 扩展验证命令
 
-`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟、真实 Aria2 sidecar 集成测试和文件系统故障测试。它用于每周定时回归、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。每周定时安排在北京时间周日 02:17（UTC 周六 18:17），GitHub 调度可能延迟。
+`pnpm run verify:extended` 先运行一次 `pnpm run verify`，再依次运行 Playwright 浏览器冒烟和真实 Aria2 sidecar 集成测试。它用于每周定时回归、手动完整回归和本地发布前检查，不加入普通 `pnpm run build:fpk` 或 GitHub `Release FPK` workflow；Release 只构建和验收产物。每周定时安排在北京时间周日 02:17（UTC 周六 18:17），GitHub 调度可能延迟。
 
-浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；每周定时和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；测试预建 session 文件并等待 RPC 就绪，启动失败保留引擎输出。文件系统故障测试使用临时目录，是完整 Rust 测试中相关用例的定向重跑，无需 NAS 或浏览器。
+浏览器 E2E 可在本地和 CI 运行，首次运行或升级 Playwright 后需要执行 `pnpm exec playwright install --with-deps chromium`；每周定时和手动 `Verify` 已在扩展验证前安装浏览器。真实 Aria2 测试使用仓库内置的对应架构 Linux 二进制，非 Linux 平台会跳过；测试预建 session 文件并等待 RPC 就绪，启动失败保留引擎输出。文件系统故障用例已由完整 Rust 测试覆盖，扩展组合不重复执行；独立 `test:filesystem` 保留为定向排查入口，使用临时目录，无需 NAS 或浏览器。
 
 单独运行某个扩展测试时使用：
 

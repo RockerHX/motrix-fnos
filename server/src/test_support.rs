@@ -3,7 +3,106 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::fmt::MakeWriter;
 
+use crate::app::{
+    bootstrap_http_app_state, HttpAppState, ServerRuntimeConfig, DEFAULT_HTTP_ADDR,
+    DEFAULT_JSONRPC_ADDR,
+};
 use crate::auth::{AuthError, AuthService, AuthState};
+use crate::config::aria2::Aria2BinarySource;
+use crate::runtime::ManagedAria2Process;
+
+pub(crate) fn test_runtime(app_data_dir: &Path) -> ServerRuntimeConfig {
+    ServerRuntimeConfig {
+        database_path: app_data_dir.join("motrix-fnos.sqlite"),
+        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
+        app_data_dir: app_data_dir.to_path_buf(),
+        http_addr: DEFAULT_HTTP_ADDR.parse().unwrap(),
+        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().unwrap(),
+        lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+        aria2_path: Some(native_version_only_engine(app_data_dir)),
+        trusted_proxy_ips: Vec::new(),
+    }
+}
+
+pub(crate) fn test_path(label: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "motrix-fnos-owned-{label}-{}-{}",
+        std::process::id(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed),
+    ))
+}
+
+pub(crate) struct TestAppState {
+    state: Arc<HttpAppState>,
+    closed: bool,
+}
+
+impl TestAppState {
+    pub(crate) async fn new(label: &str) -> Self {
+        let root = test_path(label);
+        std::fs::create_dir(&root).expect("test must own a new directory");
+        Self {
+            state: bootstrap_http_app_state(&test_runtime(&root))
+                .await
+                .unwrap(),
+            closed: false,
+        }
+    }
+
+    pub(crate) async fn with_rpc(label: &str, port: u16) -> Self {
+        let fixture = Self::new(label).await;
+        let child = spawn_graceful_engine_child();
+        let config =
+            crate::aria2::runtime_config(&fixture.base_aria2_config, port, "secret".into());
+        fixture
+            .set_aria2_runtime(fixture.build_aria2_runtime_info(
+                child.id(),
+                &config,
+                Aria2BinarySource::ExternalPath,
+                vec!["--mock".into()],
+            ))
+            .unwrap();
+        *fixture.aria2_process.lock().unwrap() = Some(ManagedAria2Process::new(
+            child,
+            Aria2BinarySource::ExternalPath,
+        ));
+        fixture
+    }
+
+    pub(crate) async fn close(mut self) {
+        self.request_shutdown("测试资源回收");
+        crate::runtime::stop_process(&self.aria2_process, &self.core.debug_logs).unwrap();
+        self.clear_aria2_runtime().unwrap();
+        self.core.database.pool.close().await;
+        std::fs::remove_dir_all(&self.runtime.app_data_dir).unwrap();
+        self.closed = true;
+    }
+}
+
+impl std::ops::Deref for TestAppState {
+    type Target = Arc<HttpAppState>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl Drop for TestAppState {
+    fn drop(&mut self) {
+        if !self.closed {
+            self.request_shutdown("测试中止");
+            let _ = crate::runtime::stop_process(&self.aria2_process, &self.core.debug_logs);
+            // 失败时保留数据库诊断，不能在连接尚未关闭时删目录。
+            assert!(
+                std::thread::panicking(),
+                "test fixture must be closed: {}",
+                self.runtime.app_data_dir.display()
+            );
+        }
+    }
+}
 
 pub(crate) fn native_version_only_engine(app_data_dir: &Path) -> PathBuf {
     version_only_engine(app_data_dir, "2.8.6")
@@ -102,3 +201,6 @@ impl Write for TestTracingCapture {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

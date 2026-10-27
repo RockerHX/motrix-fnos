@@ -109,7 +109,7 @@ Vitest 使用 jsdom，覆盖：
 
 `pnpm run verify` 另有 4 组 Shell 场景，验证进程身份、启动孤儿进程对账、停止/卸载收敛和就绪脚本。`pnpm run verify:fpk` 负责解包检查双架构 FPK 的内容、入口、二进制和空运行目录。
 
-扩展测试不进入普通 `build:fpk`：`pnpm run verify:extended` 先执行一次 `verify`，再执行 E2E、sidecar 和文件系统测试；`pnpm run build:fpk:release` 调用它一次后再构建和验收双架构 FPK。
+扩展测试不进入普通 `build:fpk`：`pnpm run verify:extended` 先执行一次 `verify`，再执行 E2E 和 sidecar；文件系统用例已由 `verify` 的完整 Rust 测试覆盖，独立命令仅用于定向排查；`pnpm run build:fpk:release` 调用它一次后再构建和验收双架构 FPK。
 
 ## 覆盖矩阵
 

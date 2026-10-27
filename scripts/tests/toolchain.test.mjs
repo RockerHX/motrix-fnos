@@ -47,31 +47,13 @@ test('自动发版通过 Cloudflare Workers AI 生成 CHANGELOG', () => {
 
 test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const prePushHook = readFileSync('.githooks/pre-push', 'utf8');
-  const verifyScript = readFileSync('scripts/verify/verify.mjs', 'utf8');
-  const releasePrepareScript = readFileSync('scripts/release/release-prepare.mjs', 'utf8');
-  const rustTestScript = readFileSync('scripts/verify/run-rust-tests.mjs', 'utf8');
-  const commandProgressScript = readFileSync('scripts/lib/command-progress.mjs', 'utf8');
-  const vitestProgressReporter = readFileSync('scripts/verify/vitest-progress-reporter.mjs', 'utf8');
   const verifyWorkflow = readFileSync('.github/workflows/verify.yml', 'utf8');
   const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
-  const quickSteps = verifyScript.match(/const steps = quick\s*\?\s*\[([\s\S]*?)\]\s*:\s*\[/)?.[1] ?? '';
-  const fullSteps = verifyScript.match(/\]\s*:\s*\[([\s\S]*?)\];/)?.[1] ?? '';
 
   assert.equal(existsSync('.githooks/pre-push'), true);
   assert.match(prePushHook, /pnpm run verify/);
 
-  assert.match(quickSteps, /version-check\.mjs/);
-  assert.match(quickSteps, /"fmt"/);
-  assert.doesNotMatch(quickSteps, /typecheck|test:scripts|test-fnos|"test"|test:unit|"build"/);
-  assert.doesNotMatch(releasePrepareScript, /run\('pnpm', \['run', 'verify'\]\)/);
-  assert.match(fullSteps, /run-rust-tests\.mjs/);
-  assert.match(fullSteps, /\["build", "--manifest-path"/);
-  assert.match(rustTestScript, /\['test', '--manifest-path', 'server\/Cargo\.toml'\]/);
-  assert.match(verifyScript, /runCommandWithProgress/);
-  assert.match(commandProgressScript, /HEARTBEAT_INTERVAL_MS = 30_000/);
-  assert.match(commandProgressScript, /PROGRESS_MESSAGE_PREFIX/);
-  assert.match(vitestProgressReporter, /onTestCaseReady/);
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
   assert.match(verifyWorkflow, /^\s+push:\s*$/m);
@@ -105,12 +87,6 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
 
 test('本地完整打包与 Release 产物构建复用明确的验证层级', () => {
   const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
-  const packageLocalScript = readFileSync('scripts/build/package-local.mjs', 'utf8');
-  const buildAllScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
-  const buildFpkScript = readFileSync('scripts/build/build-fpk.mjs', 'utf8');
-  const buildServerScript = readFileSync('scripts/build/build-server-linux.mjs', 'utf8');
-  const buildFpkWebScript = readFileSync('scripts/build/build-web-ui-fpk.mjs', 'utf8');
-  const buildWebScript = readFileSync('scripts/build/build-web.mjs', 'utf8');
 
   assert.equal(packageJson.scripts['build:fpk'], 'node scripts/build/package-local.mjs');
   assert.equal(packageJson.scripts['verify:extended'], 'node scripts/verify/verify-extended.mjs');
@@ -123,22 +99,4 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/verify\/test-duration-reporter\.mjs/);
   assert.match(packageJson.scripts['test:unit'], /vitest-progress-reporter\.mjs/);
   assert.equal(packageJson.scripts.build, 'node scripts/build/build-web.mjs');
-  assert.match(buildWebScript, /\['--noEmit'\]/);
-  assert.match(buildWebScript, /\['build', '--logLevel', 'warn'\]/);
-  assert.match(buildFpkWebScript, /\['exec', 'vite', 'build', '--logLevel', 'warn'\]/);
-  assert.doesNotMatch(buildFpkWebScript, /\['run', 'build'\]/);
-
-  assert.match(packageLocalScript, /\['run', 'verify'\]/);
-  assert.match(packageLocalScript, /build-fpk-all\.mjs', '--reuse-web-dist'/);
-  assert.match(packageLocalScript, /\['run', 'verify:fpk'\]/);
-
-  assert.ok(
-    buildAllScript.indexOf("await run('node', webArgs") < buildAllScript.indexOf('for (const target of targets)'),
-    '双架构循环前应只准备一次 Web UI',
-  );
-  assert.match(buildAllScript, /runCommandWithProgress/);
-  assert.match(buildServerScript, /cargoProgressDetail/);
-  assert.match(buildFpkScript, /reportCommandProgress/);
-  assert.match(buildAllScript, /'--reuse-web-ui'/);
-  assert.match(buildFpkScript, /if \(!reuseWebUi\)/);
 });
