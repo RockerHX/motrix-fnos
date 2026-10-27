@@ -74,7 +74,7 @@ spacing:
 
 # Design System: Motrix fnOS
 
-> 状态：当前界面的视觉与组件规则；不规划整体 UI 重设计。
+> 状态：当前界面的视觉与组件设计约定；实现差异见第 2.5 节，不规划整体 UI 重设计。
 > 实现边界：Vue 3 + Naive UI；不得以视觉调整改变业务架构。
 
 ## 1. Visual Theme & Atmosphere
@@ -90,6 +90,8 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 ## 2. Color Palette & Roles
 
 颜色以语义 token 使用，不在组件内直接写主题色。明亮蓝是唯一品牌强调色，深海军蓝承担结构层级；成功、危险、警告、信息色仅表达状态。
+
+下表 `--color-*` 为设计语义名称；运行时使用 `src/styles/tokens.css` 中的 `--app-*` 及 `src/app/providers/NaiveProvider.vue` 的 Naive UI 主题覆盖。
 
 ### 2.1 Dark theme（默认）
 
@@ -144,6 +146,16 @@ Motrix fnOS 是安静、可靠、紧凑的原生工具型界面，而非营销�
 - 组件品牌色统一通过全局 token 与 Naive UI 主色覆盖消费；组件样式继续维护在同目录外部 scoped CSS 文件中。
 - 成功、警告、危险和信息色保持独立语义，不因品牌迁移改为蓝色。
 - 独立浏览器默认使用深色 Naive UI 主题；支持的平台中由全局 `NConfigProvider` 控制明暗主题，组件不得自行判断宿主或主题。桌面宿主监听主题变化，移动 WebView 只初始化一次。
+
+### 2.5 现有实现差异
+
+原设计数值保持不变，以下为尚未与设计一致的实现现状：
+
+| 项目 | 设计约定 | 运行时配置 |
+| --- | --- | --- |
+| 深色面板底色 | `#142236` | `--app-color-surface` 及 Naive UI card/modal 为 `#151515` |
+| 深色主文本 | `#F4F8FD` | `--app-text-primary` 及 Naive UI textColorBase 为 `#DCE8E2` |
+| 圆角 | 输入/按钮 `6px`、任务/小面板 `8px`、弹窗 `10px` | Naive UI 通用圆角 `7px`；全局 sm/md/lg/xl token 为 `12/14/16/18px`，组件另有局部覆盖 |
 
 ## 3. Typography Rules
 

@@ -2,9 +2,9 @@
 
 本文记录测试覆盖与自动化/人工边界，执行命令见[开发命令说明](development-scripts.md)。
 
-> 更新日期：2026-10-22（原评估日期：2026-10-03）
+> 更新日期：2026-10-27（原评估日期：2026-10-03）
 >
-> 业务源码基线：`42c8eaf`；固定 Aria2 Next 2.8.6；本次根据提交和现有验证结果更新覆盖说明，补跑浏览器与文档检查，未重复完整源码验证。
+> 历史验证基线：`42c8eaf`；固定 Aria2 Next 2.8.6。下方基线表保留当时的执行结果；覆盖说明随代码维护，历史数量不代表当前测试总数。
 >
 > 目标：先盘点功能，再盘点测试，最后判断自动化测试缺口；本次实现已补齐高价值扩展测试层。
 
@@ -25,7 +25,7 @@
 
 仍需保留真实设备验收：真实 fnOS/FPK 安装、升级、回滚、卸载、FN Connect、共享目录授权和 App WebView。这些不能由本地浏览器或 Linux fixture 完全替代。
 
-因此，项目现在采用分层策略：`verify` 和 `build:fpk` 保持快速；`verify:extended` 和 `build:fpk:release` 执行扩展测试；fnOS 设备测试单独作为发布前验收。
+项目采用分层策略：`verify` 执行完整源码门禁，`build:fpk` 在此基础上构建并验收双架构产物；`verify:extended` 和 `build:fpk:release` 追加扩展测试；fnOS 设备测试单独作为发布前验收。快速静态门禁为 `verify:pre-commit`。
 
 ## 验证基线
 
@@ -35,7 +35,7 @@
 | --- | --- |
 | Rust / 前端 / 脚本 | 分别 617 / 465 / 91 项通过；Rust 另有 1 项固定候选测试默认 ignored，已单独执行通过 |
 | Shell、严格编译、类型检查与构建 | 完整源码验证通过；不等于 FPK 或实机验收 |
-| 浏览器冒烟 | 本次桌面/移动 Chromium 共 14 项通过，覆盖登录、创建、JWT 失效、SSE 重连及实时进度；API 由 fixture 模拟，不连接真实 Rust server 或引擎 |
+| 浏览器冒烟 | 该基线桌面/移动 Chromium 共 14 项通过，覆盖登录、创建、JWT 失效、SSE 重连及实时进度；API 由 fixture 模拟，不连接真实 Rust server 或引擎 |
 | 原生引擎安全与恢复组合 | macOS ARM64：12 通过、1 个异常 Content-Range 普通暂停失败；安全强停/文件保全通过，上游缺陷未修复 |
 | 真实 Rust 管理 handler → 引擎 RPC → 异常 HTTP 源 | 固定候选专项单独通过；未走 TCP 管理 listener、浏览器或 SSE |
 | 双架构候选 FPK | 已构建、解包并核对 SBOM、校验和及实际引擎字节；当前非正式发布产物 |
@@ -71,7 +71,7 @@
 
 ### Rust 后端
 
-Rust 领域测试与 `server/tests/` 集成测试覆盖 API、任务、原生恢复、代际迁移、代理、文件清理和生命周期；最新执行总数见上方验证基线。
+Rust 领域测试与 `server/tests/` 集成测试覆盖 API、任务、原生恢复、代际迁移、代理、文件清理和生命周期；上方数量仅为历史验证基线。
 
 代表性测试文件包括：
 
@@ -132,7 +132,7 @@ Vitest 使用 jsdom，覆盖：
 | SQLite、迁移、CLI | A | `database/*/tests.rs`、`server/tests/database_cli.rs` | 迁移、完整性、备份和历史清理已有自动化 |
 | JSON-RPC HTTP/WS/multicall | A/B | `api/jsonrpc/tests.rs`、`api/tests.rs` | 协议、Token 隔离、消息大小、连接上限和 LAN 权限已有测试；真实外部客户端兼容矩阵未自动化 |
 | SSE 与任务实时状态 | A | `api/events/tests.rs`、`runtimeEvents.spec.ts`、`taskStore.spec.ts`、Playwright E2E | SSE 解析、失效、重连、revision、迟到响应和浏览器连接重连均有回归 |
-| 设置与运行时应用 | A/B | `api/settings/tests.rs`、`settings/service/tests.rs`、前端 settings specs | 失败语义和 Token/代理设置有测试；设置 service 分层仍是未来事项，复杂 Aria2 运行态组合还可加强 |
+| 设置与运行时应用 | A/B | `api/settings/tests.rs`、`settings/service/tests.rs`、前端 settings specs | 设置领域编排已归位；设置与 Token 并发、保存失败、即时应用失败契约及代理设置有回归，复杂 Aria2 运行态组合还可加强 |
 | 日志与诊断 | A | `debug_logs/tests.rs`、`diagnostics/*/tests.rs`、API tests、前端 specs | 脱敏、轮转、占用、ZIP 和并发生成已有测试 |
 | fnOS 开放 API | B/M | `fnos/tests.rs`、`api/storage/tests.rs` 的 Unix Socket mock | 协议解析和失败回退可自动化；真实 fnOS socket、Token 注入和权限目录必须实机 |
 | FPK 静态产物 | A | `scripts/tests/fpk-*`、`verify:fpk`、双架构构建 | 包内容、架构、入口、权限和运行残留已有自动化 |
