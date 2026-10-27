@@ -52,7 +52,7 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
 
   assert.equal(existsSync('.githooks/pre-push'), true);
-  assert.match(prePushHook, /pnpm run verify/);
+  assert.match(prePushHook, /run\(packageManager, \['run', 'verify'\]\)/);
 
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);

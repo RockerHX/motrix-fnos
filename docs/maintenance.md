@@ -58,7 +58,11 @@ Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完�
 ### 验证触发与边界
 
 - 提交 hook：暂存区空白检查后，只有文档 / 媒体资源时跳过版本与 Rust 格式检查，删除资源也同样处理；混有代码或没有暂存文件时执行快速检查。Markdown 允许两个行尾空格换行。
-- 推送 hook：推送分支源码时执行一次 `verify`；只推 tag 或删除远端引用时跳过。GitHub `Verify` 对面向 `main` / `develop` 的 PR/push 也执行源码门禁。
+- 推送 hook：按远端旧提交到本次推送提交的完整差异判断，包含删除和重命名前的路径；多个分支合并判断，不能仅检查最后一个 commit。
+  - 只有文档、图片、字体等静态资源或无文件变化时跳过；只推 tag 或删除远端引用也跳过。
+  - 只有测试及其专用夹具时，按类别运行前端、Rust、脚本、浏览器、sidecar 或变更的 Shell 测试，不做完整构建；同一类别只运行一次。
+  - 包含业务源码、依赖、配置、构建脚本或未识别文件时执行一次 `verify`；首次推送新分支或远端旧提交在本地不可读时也执行完整验证。
+  GitHub `Verify` 对面向 `main` / `develop` 的 PR/push 继续执行完整源码门禁。
 - 每周定时或手动 `Verify` 执行扩展验证；定时为北京时间周日 02:17，调度可能延迟。首次本地 E2E 或升级 Playwright 后执行 `pnpm exec playwright install --with-deps chromium`，CI 已配置安装。
 - `Dependency Audit` 独立在每周一北京时间 03:23 或手动执行，不属于 verify 或 Release。
 
