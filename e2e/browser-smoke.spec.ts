@@ -181,6 +181,52 @@ test.describe("browser smoke", () => {
     }
   });
 
+  for (const populated of [false, true]) {
+    test(`keeps category content in place throughout tab transitions with populated=${populated}`, async ({ page }) => {
+      const fixture = await installFixture(page);
+      const tasks = populated
+        ? [{ ...task, status: "active" }, { ...task, id: 2, gid: "completed-gid", status: "complete" }]
+        : [];
+      fixture.eventTasks = tasks;
+      await page.route("**/api/tasks**", (route) => {
+        const removed = new URL(route.request().url()).searchParams.get("status") === "removed";
+        return json(route, 200, removed && populated ? [{ ...task, status: "removed" }] : tasks);
+      });
+      await completeLogin(page);
+      if (populated) await expect(page.locator(".task-table")).toBeVisible();
+      else await expect(page.getByText("暂无任务", { exact: true })).toBeVisible();
+
+      for (const label of ["下载中", "已完成", "回收站", "扩展", "全部"]) {
+        const samples = await page.evaluate(async (label) => {
+          const body = document.querySelector<HTMLElement>(".main-content-body")!;
+          const stage = document.querySelector<HTMLElement>(".content-stage")!;
+          const outgoing = body.querySelector<HTMLElement>(".task-table, .empty-guide, .extensions-page")!;
+          const outgoingTop = outgoing.getBoundingClientRect().top;
+          const button = [...document.querySelectorAll<HTMLButtonElement>(".category-list button")]
+            .find((button) => button.getAttribute("aria-label") === label)!;
+          button.click();
+          const samples: { bottomGap: number; outgoingShift: number }[] = [];
+          const started = performance.now();
+          await new Promise<void>((resolve) => {
+            const sample = () => {
+              samples.push({
+                bottomGap: stage.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom,
+                outgoingShift: outgoing.isConnected ? outgoing.getBoundingClientRect().top - outgoingTop : 0,
+              });
+              if (performance.now() - started < 240) requestAnimationFrame(sample);
+              else resolve();
+            };
+            requestAnimationFrame(sample);
+          });
+          return samples;
+        }, label);
+
+        expect(samples.every(({ bottomGap }) => Math.abs(bottomGap) < 1), label).toBe(true);
+        expect(samples.every(({ outgoingShift }) => Math.abs(outgoingShift) <= 4), label).toBe(true);
+      }
+    });
+  }
+
   test("opens task details with the keyboard and closes with Escape", async ({ page }) => {
     const fixture = await installFixture(page);
     fixture.createdUrls.push(task.url);

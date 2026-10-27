@@ -5,21 +5,30 @@
     transform var(--app-transition-standard);
 }
 
-.main-content {
+.main-content,
+.main-content-view {
   height: 100%;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
 }
 
 .main-content-body {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main-content-panel {
+  flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 .task-status-filter {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
   padding: 12px 16px 0;
   background: var(--app-color-surface);
