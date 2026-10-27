@@ -25,15 +25,7 @@ pub(crate) fn apply_aria2_status_by_gid(
 pub(crate) fn apply_magnet_metadata_confirmation(
     task: &mut DownloadTask,
     status: &Aria2TaskStatus,
-    metadata_torrent_path: String,
 ) {
-    let same_gid = task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-        && task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
-        && status
-            .bittorrent
-            .as_ref()
-            .and_then(|bittorrent| bittorrent.file_selection_state.as_deref())
-            == Some("awaiting");
     let display_name = status
         .bittorrent
         .as_ref()
@@ -50,19 +42,11 @@ pub(crate) fn apply_magnet_metadata_confirmation(
         files.iter().map(|file| file.length).sum()
     };
 
-    if same_gid {
-        // aria2-next keeps metadata and the eventual download on one paused GID.
-        task.gid = status.gid.clone().or_else(|| task.gid.clone());
-        task.status = DownloadTaskStatus::Paused;
-        task.metadata_torrent_path = None;
-        task.selected_file_indexes.clear();
-    } else {
-        // Legacy aria2 creates a follow-up GID and still needs the saved torrent.
-        task.gid = None;
-        task.status = DownloadTaskStatus::Pending;
-        task.metadata_torrent_path =
-            (!metadata_torrent_path.trim().is_empty()).then_some(metadata_torrent_path);
-    }
+    // metadata 与内容下载保持同一暂停 GID。
+    task.gid = status.gid.clone().or_else(|| task.gid.clone());
+    task.status = DownloadTaskStatus::Paused;
+    task.metadata_torrent_path = None;
+    task.selected_file_indexes.clear();
     task.total_length = total_length;
     task.completed_length = 0;
     task.download_speed = 0;
@@ -76,50 +60,27 @@ pub(crate) fn apply_magnet_metadata_confirmation(
 }
 
 pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
+    update_aria2_status(task, status);
+    if task.status == DownloadTaskStatus::Complete {
+        cleanup_aria2_control_file(task);
+    }
+}
+
+pub(crate) fn update_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStatus) {
     if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
         && task.source_type == crate::tasks::DownloadTaskSourceType::Magnet
         && is_magnet_metadata_awaiting(status)
     {
-        apply_magnet_metadata_confirmation(task, status, String::new());
-        return;
-    }
-    if follow_magnet_metadata_task(task, status) {
+        apply_magnet_metadata_confirmation(task, status);
         return;
     }
     let is_pending_magnet_metadata = is_pending_magnet_metadata_task(task);
     let is_unconfirmed_magnet =
         task.url.to_ascii_lowercase().starts_with("magnet:?") && task.confirmation_required;
 
-    let next_total_length = parse_aria2_u64(&status.total_length);
-    let next_completed_length = parse_aria2_u64(&status.completed_length);
-    // Aria2 在切换状态或 session 恢复时可能暂时返回 0 长度，不能用瞬时空值抹掉已经持久化的进度。
-    let legacy = task.engine_generation == crate::config::aria2::EngineGeneration::LegacyV1;
-    let should_preserve_progress = legacy
-        && should_preserve_existing_progress(
-            &status.status,
-            next_total_length,
-            next_completed_length,
-            task.total_length,
-        );
-    // 活跃任务的 completedLength 偶尔会短暂回退；总长度未变化时保持单调递增，避免 UI 和数据库进度倒退。
-    let should_keep_completed_length = legacy
-        && should_keep_non_decreasing_completed_length(
-            &status.status,
-            next_total_length,
-            next_completed_length,
-            task.total_length,
-            task.completed_length,
-        );
-
     task.status = map_aria2_status(&status.status);
-    if !should_preserve_progress {
-        task.total_length = next_total_length;
-        task.completed_length = if should_keep_completed_length {
-            task.completed_length
-        } else {
-            next_completed_length
-        };
-    }
+    task.total_length = parse_aria2_u64(&status.total_length);
+    task.completed_length = parse_aria2_u64(&status.completed_length);
     task.download_speed = parse_aria2_u64(&status.download_speed);
     task.error_code = normalize_aria2_error_code(status.error_code.as_deref());
     task.error_message =
@@ -181,40 +142,7 @@ pub(crate) fn apply_aria2_status(task: &mut DownloadTask, status: &Aria2TaskStat
                 )
             });
     }
-    if task.status == DownloadTaskStatus::Complete {
-        cleanup_aria2_control_file(task);
-    }
     task.updated_at = current_timestamp_ms();
-}
-
-fn follow_magnet_metadata_task(task: &mut DownloadTask, status: &Aria2TaskStatus) -> bool {
-    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-        || !task.url.to_ascii_lowercase().starts_with("magnet:?")
-    {
-        return false;
-    }
-    let Some(next_gid) = status
-        .followed_by
-        .as_ref()
-        .and_then(|gids| gids.first())
-        .map(String::as_str)
-        .filter(|gid| !gid.trim().is_empty())
-    else {
-        return false;
-    };
-
-    // followedBy 是 metadata 临时任务生成的后继 GID，后续状态查询必须切换到它，不能继续轮询已经完成的旧 GID。
-    task.gid = Some(next_gid.to_string());
-    task.status = DownloadTaskStatus::Pending;
-    task.total_length = 0;
-    task.completed_length = 0;
-    task.download_speed = 0;
-    task.error_code = None;
-    task.error_message = None;
-    task.confirmation_required = false;
-    task.file_path = None;
-    task.updated_at = current_timestamp_ms();
-    true
 }
 
 fn is_magnet_metadata_awaiting(status: &Aria2TaskStatus) -> bool {
@@ -289,31 +217,6 @@ fn magnet_confirmation_files(
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn should_preserve_existing_progress(
-    status: &str,
-    next_total_length: u64,
-    next_completed_length: u64,
-    current_total_length: u64,
-) -> bool {
-    next_total_length == 0
-        && next_completed_length == 0
-        && current_total_length > 0
-        && matches!(status, "active" | "waiting" | "paused" | "error")
-}
-
-fn should_keep_non_decreasing_completed_length(
-    status: &str,
-    next_total_length: u64,
-    next_completed_length: u64,
-    current_total_length: u64,
-    current_completed_length: u64,
-) -> bool {
-    current_total_length > 0
-        && next_total_length == current_total_length
-        && next_completed_length < current_completed_length
-        && matches!(status, "active" | "waiting" | "paused")
 }
 
 pub(crate) fn is_aria2_status_error(status: &Aria2TaskStatus) -> bool {

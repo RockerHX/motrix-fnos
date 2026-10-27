@@ -1,13 +1,16 @@
 use super::*;
 
 #[test]
-fn aria2_runtime_paths_use_app_data_aria2_directory() {
+fn aria2_runtime_paths_use_private_native_directory() {
     let app_data_dir = PathBuf::from("/tmp/motrix-fnos-app-data");
-    let paths = aria2_runtime_paths(&app_data_dir);
+    let paths = native_aria2_runtime_paths(&app_data_dir);
 
-    assert_eq!(paths.runtime_dir, app_data_dir.join("aria2"));
-    assert_eq!(paths.session_path, app_data_dir.join("aria2/aria2.session"));
-    assert_eq!(paths.state_dir, app_data_dir.join("aria2/state"));
+    assert_eq!(paths.runtime_dir, app_data_dir.join("engine/native-v2"));
+    assert_eq!(
+        paths.session_path,
+        app_data_dir.join("engine/native-v2/session/aria2.session")
+    );
+    assert_eq!(paths.state_dir, app_data_dir.join("engine/native-v2/state"));
     assert_eq!(paths.log_path, app_data_dir.join("aria2/aria2.log"));
 }
 

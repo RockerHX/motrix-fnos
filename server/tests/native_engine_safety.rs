@@ -28,9 +28,29 @@ impl Drop for Installation {
 
 struct Engine(Arc<HttpAppState>);
 
+impl Engine {
+    fn terminate(&self) -> Result<(), String> {
+        if process_status(&self.0.aria2_process)?.running {
+            if let Some(child) = self.0.aria2_process.lock().unwrap().as_mut() {
+                child.kill()?;
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_status(&self.0.aria2_process)?.running {
+            if Instant::now() >= deadline {
+                return Err("test-owned engine did not exit after termination".to_string());
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        self.0.aria2_process.lock().unwrap().take();
+        Ok(())
+    }
+}
+
 impl Drop for Engine {
     fn drop(&mut self) {
         let _ = stop_process(&self.0.aria2_process, &self.0.core.debug_logs);
+        let _ = self.terminate();
     }
 }
 
@@ -174,7 +194,7 @@ async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_ta
     }
     for (method, path) in [
         ("POST", format!("/api/tasks/{id}/pause")),
-        ("DELETE", format!("/api/tasks/{id}?deleteFiles=true")),
+        ("DELETE", format!("/api/tasks/{id}")),
     ] {
         let started = Instant::now();
         let (status, error) = api(&state, &token, method, &path, Value::Null).await;
@@ -212,7 +232,7 @@ async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_ta
     assert!(started.elapsed() < Duration::from_secs(12));
     // Model the lifecycle script's final termination using only the owned Child handle.
     let forced = process_status(&state.aria2_process).unwrap().running;
-    stop_process(&state.aria2_process, &state.core.debug_logs).unwrap();
+    engine.terminate().unwrap();
     let bytes = fs::read(&file).unwrap();
     assert!(!bytes.is_empty());
     assert!(bytes.iter().all(|byte| *byte == 9));

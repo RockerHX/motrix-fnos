@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./TaskActionsContainer.vue", () => ({
   default: {
     name: "TaskActionsContainerStub",
-    props: ["task", "compact", "variant"],
-    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ variant }}</div>',
+    props: ["task", "mode"],
+    template: '<div data-test="task-actions">actions-{{ task.id }}-{{ mode }}</div>',
   },
 }));
 
@@ -26,7 +26,7 @@ vi.mock("./TaskStatusBadge.vue", () => ({
 
 import TaskDesktopCard from "./TaskDesktopCard.vue";
 import { mountWithPinia } from "../../../test/mount";
-import type { DownloadTask } from "../../../types/tasks";
+import { createTask } from "../../../test/tasks";
 
 describe("TaskDesktopCard", () => {
   it("renders task title, metrics, progress, status and actions", () => {
@@ -48,7 +48,7 @@ describe("TaskDesktopCard", () => {
     expect(wrapper.find(".task-card-meta").text()).toContain("速度");
     expect(wrapper.find('[data-test="task-progress"]').text()).toBe("1-true-card");
     expect(wrapper.find('[data-test="task-status"]').text()).toBe("active");
-    expect(wrapper.find('[data-test="task-actions"]').text()).toContain("actions-1-icon-pill");
+    expect(wrapper.find('[data-test="task-actions"]').text()).toContain("actions-1-desktop");
   });
 
   it("renders error message for failed task", () => {
@@ -97,27 +97,3 @@ describe("TaskDesktopCard", () => {
     expect(wrapper.find(".task-card-actions").exists()).toBe(true);
   });
 });
-
-function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
-  return {
-    id: 1,
-    url: "https://example.com/ubuntu.iso",
-    fileName: "ubuntu.iso",
-    saveDir: "/downloads",
-    category: "默认",
-    gid: "gid-1",
-    status: "active",
-    totalLength: 2000,
-    completedLength: 1000,
-    downloadSpeed: 1024,
-    errorCode: null,
-    errorMessage: null,
-    filePath: "/downloads/ubuntu.iso",
-    useProxy: false,
-    confirmationRequired: false,
-    files: [],
-    createdAt: 1,
-    updatedAt: 2,
-    ...overrides,
-  };
-}

@@ -160,7 +160,7 @@ fn bootstrap_http_app_state_restores_database_state() {
                 http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
                 jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
                 lan_jsonrpc_addr: DEFAULT_LAN_JSONRPC_ADDR.parse().expect("addr should parse"),
-                aria2_path: Some(crate::test_support::legacy_version_only_engine(
+                aria2_path: Some(crate::test_support::native_version_only_engine(
                     &app_data_dir,
                 )),
                 trusted_proxy_ips: Vec::new(),
@@ -206,7 +206,9 @@ async fn bootstrap_without_pending_file_cleanup_keeps_state_exclusively_owned() 
         http_addr: "127.0.0.1:0".parse().expect("address should parse"),
         jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::native_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -241,7 +243,9 @@ async fn bootstrap_trims_oversized_aria2_log_without_starting_aria2() {
         http_addr: "127.0.0.1:0".parse().expect("address should parse"),
         jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("address should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::native_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -279,7 +283,7 @@ async fn bootstrap_reconciles_prepared_operation_without_starting_aria2() {
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         ..runtime
@@ -329,7 +333,7 @@ async fn bootstrap_preserves_manual_review_after_restart_without_starting_aria2(
         app_data_dir: app_data_dir.clone(),
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
+        aria2_path: Some(crate::test_support::native_version_only_engine(
             &app_data_dir,
         )),
         ..runtime
@@ -858,149 +862,6 @@ async fn three_listeners_serve_isolated_routes_and_cleanup_once() {
     assert_eq!(cleanup_count, 1);
 }
 
-#[test]
-fn reconcile_magnet_metadata_dirs_keeps_pending_magnet_metadata_dir() {
-    let app_data_dir =
-        std::env::temp_dir().join(format!("motrix-fnos-reconcile-pending-{}", now_ms()));
-    let metadata_dir = app_data_dir.join("magnet-metadata").join("task-9");
-    std::fs::create_dir_all(&metadata_dir).expect("metadata dir should create");
-    std::fs::write(metadata_dir.join("pending.torrent"), b"torrent").expect("torrent should write");
-    let mut tasks = vec![DownloadTask {
-        id: 9,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
-        removed_from_status: None,
-        url: "magnet:?xt=urn:btih:test".to_string(),
-        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
-        file_name: "磁力链接任务".to_string(),
-        save_dir: "/downloads".to_string(),
-        owned_task_dir: None,
-        category: "默认".to_string(),
-        gid: Some("gid-9".to_string()),
-        status: DownloadTaskStatus::Pending,
-        total_length: 0,
-        completed_length: 0,
-        download_speed: 0,
-        error_code: None,
-        error_message: None,
-        file_path: None,
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
-        metadata_torrent_path: None,
-        files_deleted: false,
-        selected_file_indexes: Vec::new(),
-        confirmation_required: false,
-        files: Vec::new(),
-        created_at: 1,
-        updated_at: 1,
-    }];
-
-    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks).expect("reconcile should succeed");
-
-    assert!(metadata_dir.exists());
-    assert_eq!(tasks[0].status, DownloadTaskStatus::Pending);
-
-    let _ = std::fs::remove_dir_all(&app_data_dir);
-}
-
-#[test]
-fn reconcile_magnet_metadata_dirs_marks_pending_magnet_task_error_when_dir_missing() {
-    let app_data_dir =
-        std::env::temp_dir().join(format!("motrix-fnos-reconcile-missing-{}", now_ms()));
-    std::fs::create_dir_all(app_data_dir.join("magnet-metadata"))
-        .expect("metadata root should create");
-    let mut tasks = vec![DownloadTask {
-        id: 10,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
-        removed_from_status: None,
-        url: "magnet:?xt=urn:btih:test".to_string(),
-        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
-        file_name: "磁力链接任务".to_string(),
-        save_dir: "/downloads".to_string(),
-        owned_task_dir: None,
-        category: "默认".to_string(),
-        gid: Some("gid-10".to_string()),
-        status: DownloadTaskStatus::Pending,
-        total_length: 0,
-        completed_length: 0,
-        download_speed: 0,
-        error_code: None,
-        error_message: None,
-        file_path: None,
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
-        metadata_torrent_path: None,
-        files_deleted: false,
-        selected_file_indexes: Vec::new(),
-        confirmation_required: false,
-        files: Vec::new(),
-        created_at: 1,
-        updated_at: 1,
-    }];
-
-    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks).expect("reconcile should succeed");
-
-    assert_eq!(tasks[0].status, DownloadTaskStatus::Error);
-    assert!(tasks[0].gid.is_none());
-    assert_eq!(
-        tasks[0].error_message.as_deref(),
-        Some("磁链 metadata 临时目录丢失，请重新添加磁链")
-    );
-
-    let _ = std::fs::remove_dir_all(&app_data_dir);
-}
-
-#[test]
-fn reconcile_missing_magnet_metadata_preserves_user_download_files() {
-    let app_data_dir =
-        std::env::temp_dir().join(format!("motrix-fnos-reconcile-file-{}", now_ms()));
-    let download_dir = app_data_dir.join("downloads");
-    let download_file = download_dir.join("user-file.bin");
-    std::fs::create_dir_all(&download_dir).expect("download dir should create");
-    std::fs::write(&download_file, b"user data").expect("user file should write");
-    std::fs::create_dir_all(app_data_dir.join("magnet-metadata"))
-        .expect("metadata root should create");
-    let mut tasks = vec![DownloadTask {
-        id: 11,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
-        removed_from_status: None,
-        url: "magnet:?xt=urn:btih:test".to_string(),
-        source_type: crate::tasks::DownloadTaskSourceType::Magnet,
-        file_name: "磁力链接任务".to_string(),
-        save_dir: download_dir.display().to_string(),
-        owned_task_dir: None,
-        category: "默认".to_string(),
-        gid: Some("gid-11".to_string()),
-        status: DownloadTaskStatus::Pending,
-        total_length: 0,
-        completed_length: 0,
-        download_speed: 0,
-        error_code: None,
-        error_message: None,
-        file_path: None,
-        use_proxy: false,
-        proxy_binding: crate::tasks::TaskProxyBinding::default(),
-        metadata_torrent_path: None,
-        files_deleted: false,
-        selected_file_indexes: Vec::new(),
-        confirmation_required: false,
-        files: Vec::new(),
-        created_at: 1,
-        updated_at: 1,
-    }];
-
-    reconcile_magnet_metadata_dirs(&app_data_dir, &mut tasks)
-        .expect("reconcile should preserve the user file");
-
-    assert_eq!(tasks[0].status, DownloadTaskStatus::Error);
-    assert!(download_file.is_file());
-    assert_eq!(
-        std::fs::read(&download_file).expect("user file should remain readable"),
-        b"user data"
-    );
-
-    let _ = std::fs::remove_dir_all(&app_data_dir);
-}
-
 #[tokio::test]
 async fn reset_web_auth_requires_stopped_server_and_preserves_application_data() {
     let runtime = listener_runtime(
@@ -1179,56 +1040,10 @@ async fn run_cli_rejects_unknown_commands() {
     );
 }
 
-#[test]
-fn migrate_legacy_owned_task_dirs_uses_authorized_parent_without_trusting_root() {
-    let base_dir = std::env::temp_dir().join(format!("motrix-fnos-owned-dir-migrate-{}", now_ms()));
-    let task_dir = base_dir.join("torrent-file-name");
-    std::fs::create_dir_all(&task_dir).expect("legacy task dir should create");
-
-    let mut task = sample_task();
-    task.source_type = crate::tasks::DownloadTaskSourceType::Torrent;
-    task.url = "torrent:source.torrent".to_string();
-    task.file_name = "torrent-inner-root".to_string();
-    task.save_dir = task_dir.display().to_string();
-    task.file_path = Some(
-        task_dir
-            .join("torrent-inner-root/file.bin")
-            .display()
-            .to_string(),
-    );
-    task.owned_task_dir = None;
-
-    let mut pending_magnet = task.clone();
-    pending_magnet.id = 8;
-    pending_magnet.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
-    pending_magnet.url = "magnet:?xt=urn:btih:test".to_string();
-    pending_magnet.save_dir = base_dir.display().to_string();
-    pending_magnet.file_path = None;
-    pending_magnet.metadata_torrent_path = None;
-    pending_magnet.confirmation_required = false;
-
-    let mut tasks = vec![task, pending_magnet];
-    migrate_legacy_owned_task_dirs(&mut tasks, &[base_dir.display().to_string()]);
-
-    assert_eq!(
-        tasks[0].owned_task_dir.as_deref(),
-        Some(
-            task_dir
-                .canonicalize()
-                .expect("task dir should canonicalize")
-                .to_str()
-                .expect("task dir should be utf-8"),
-        )
-    );
-    assert!(tasks[1].owned_task_dir.is_none());
-
-    let _ = std::fs::remove_dir_all(base_dir);
-}
-
 fn sample_task() -> DownloadTask {
     DownloadTask {
         id: 7,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -1256,29 +1071,94 @@ fn sample_task() -> DownloadTask {
     }
 }
 
-#[test]
-fn legacy_metadata_reconcile_preserves_native_confirmation_and_original_gid() {
-    let root = std::env::temp_dir().join(format!("motrix-native-boot-{}", now_ms()));
-    std::fs::create_dir_all(root.join("magnet-metadata")).unwrap();
-    let mut task = sample_task();
-    task.engine_generation = crate::config::aria2::EngineGeneration::NativeV2;
-    task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
-    task.url = "magnet:?xt=urn:btih:test".into();
-    task.confirmation_required = true;
-    task.metadata_torrent_path = None;
-    task.files = vec![crate::tasks::DownloadTaskFile {
-        index: 1,
-        path: "/downloads/file.bin".into(),
-        name: "file.bin".into(),
-        length: 100,
-        completed_length: 0,
-        selected: false,
-    }];
-    let mut tasks = vec![task.clone()];
-    reconcile_magnet_metadata_dirs(&root, &mut tasks).unwrap();
-    migrate_legacy_owned_task_dirs(&mut tasks, &["/downloads".into()]);
-    assert_eq!(tasks, vec![task]);
-    std::fs::remove_dir_all(root).unwrap();
+#[tokio::test]
+async fn unavailable_engines_restrict_management_without_loading_or_changing_old_tasks() {
+    use std::os::unix::fs::PermissionsExt;
+    for (index, script, executable) in [
+        (0, None, false),
+        (1, Some("#!/bin/sh\nprintf 'unknown engine\\n'\n"), true),
+        (2, Some("#!/bin/sh\nexit 1\n"), true),
+        (
+            3,
+            Some("#!/bin/sh\nprintf 'aria2 version 2.8.6\\n'\n"),
+            false,
+        ),
+        (4, Some("#!/bin/sh\nexec sleep 4\n"), true),
+        (
+            5,
+            Some("#!/bin/sh\nprintf 'aria2 version 2.5.5\\n'\n"),
+            true,
+        ),
+    ] {
+        let root = std::env::temp_dir().join(format!(
+            "motrix-engine-gate-{}-{}-{index}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let binary = root.join("invalid-engine");
+        if let Some(script) = script {
+            std::fs::write(&binary, script).unwrap();
+            std::fs::set_permissions(
+                &binary,
+                std::fs::Permissions::from_mode(if executable { 0o700 } else { 0o600 }),
+            )
+            .unwrap();
+        }
+        let runtime = ServerRuntimeConfig {
+            database_path: root.join(DATABASE_FILE_NAME),
+            accessible_paths_path: root.join(ACCESSIBLE_PATHS_FILE_NAME),
+            app_data_dir: root.clone(),
+            http_addr: "127.0.0.1:0".parse().unwrap(),
+            jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            lan_jsonrpc_addr: "127.0.0.1:0".parse().unwrap(),
+            aria2_path: Some(binary),
+            trusted_proxy_ips: Vec::new(),
+        };
+        let database = connect_database(runtime.database_path.clone())
+            .await
+            .unwrap();
+        let task = sample_task();
+        upsert_download_task(&database.pool, &task).await.unwrap();
+        save_json_rpc_token(&database.pool, "preserved-token")
+            .await
+            .unwrap();
+        let private = root.join("magnet-metadata/unreferenced/keep.bin");
+        std::fs::create_dir_all(private.parent().unwrap()).unwrap();
+        std::fs::write(&private, b"preserved content").unwrap();
+        database.pool.close().await;
+        let state = bootstrap_http_app_state(&runtime).await.unwrap();
+        assert_eq!(state.compatibility_snapshot().mode, "restricted");
+        assert_eq!(
+            state.compatibility_snapshot().reason_code.as_deref(),
+            Some(if index == 5 {
+                "engine_unsupported"
+            } else {
+                "engine_unknown"
+            })
+        );
+        assert_eq!(
+            state.compatibility_snapshot().engine_generation,
+            if index == 5 {
+                crate::config::aria2::EngineGeneration::LegacyV1
+            } else {
+                crate::config::aria2::EngineGeneration::Unknown
+            }
+        );
+        assert!(state.ensure_download_available().is_err());
+        assert!(state.core.download_tasks.list().unwrap().is_empty());
+        assert_eq!(
+            list_download_tasks(&state.core.database.pool)
+                .await
+                .unwrap(),
+            vec![task]
+        );
+        assert_eq!(state.json_rpc_token(), "preserved-token");
+        assert_eq!(std::fs::read(&private).unwrap(), b"preserved content");
+        assert!(state.aria2_runtime_snapshot().is_none());
+        state.core.database.pool.close().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 async fn reserve_local_addr() -> SocketAddr {
@@ -1311,11 +1191,13 @@ fn listener_runtime(http_addr: SocketAddr, jsonrpc_addr: SocketAddr) -> ServerRu
     ServerRuntimeConfig {
         database_path: app_data_dir.join(DATABASE_FILE_NAME),
         accessible_paths_path: app_data_dir.join(ACCESSIBLE_PATHS_FILE_NAME),
-        app_data_dir,
+        app_data_dir: app_data_dir.clone(),
         http_addr,
         jsonrpc_addr,
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
+        aria2_path: Some(crate::test_support::native_version_only_engine(
+            &app_data_dir,
+        )),
         trusted_proxy_ips: Vec::new(),
     }
 }
@@ -1338,7 +1220,9 @@ async fn native_bootstrap_ignores_damaged_legacy_rows_but_preserves_data_and_ids
         let database = connect_database(runtime.database_path.clone())
             .await
             .unwrap();
-        upsert_download_task(&database.pool, &sample_task())
+        let mut legacy_task = sample_task();
+        legacy_task.engine_generation = crate::config::aria2::EngineGeneration::LegacyV1;
+        upsert_download_task(&database.pool, &legacy_task)
             .await
             .unwrap();
         let operation = TaskOperation::with_id(

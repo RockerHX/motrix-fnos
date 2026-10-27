@@ -1,12 +1,29 @@
 use super::*;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
+use crate::app::bootstrap_http_app_state;
 use crate::database::connect_database;
 use crate::database::task_operations::{begin_task_operation, list_unfinished_task_operations};
 use crate::database::tasks::upsert_download_task;
 use crate::tasks::{DownloadTaskFile, DownloadTaskSourceType, TaskOperationContext};
 use std::collections::HashMap;
+
+#[test]
+fn interrupted_permanent_file_deletion_keeps_the_task_for_manual_review() {
+    let mut operation = operation(
+        TaskOperationType::PermanentDelete,
+        "engine_released",
+        Some("old-gid"),
+        None,
+        vec!["delete_files_requested"],
+    );
+    let mut task = task_with_gid("old-gid");
+    task.status = DownloadTaskStatus::Removed;
+    operation.context.task_snapshot = Some(task.clone());
+    let presence = HashMap::from([("old-gid".to_string(), Aria2TaskPresence::Missing)]);
+    assert!(matches!(
+        decide_reconcile_action(&operation, &[task], &presence),
+        ReconcileAction::ManualReview(_)
+    ));
+}
 
 #[test]
 fn prepared_operation_is_marked_failed_without_starting_recovery() {
@@ -348,18 +365,7 @@ async fn finalized_permanent_delete_removes_task_and_operation_atomically() {
 #[tokio::test]
 async fn deferred_proxy_operation_reconciles_without_starting_aria2() {
     let app_data_dir = temp_dir("deferred-proxy");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
-            &app_data_dir,
-        )),
-        trusted_proxy_ips: Vec::new(),
-    };
+    let runtime = crate::test_support::test_runtime(&app_data_dir);
     let state = bootstrap_http_app_state(&runtime)
         .await
         .expect("state should bootstrap");
@@ -443,7 +449,7 @@ fn operation(
 fn task_with_gid(gid: &str) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,

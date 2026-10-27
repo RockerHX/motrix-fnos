@@ -1,6 +1,26 @@
-# 前后端 HTTP / SSE / JSON-RPC API 契约
+# 前后端 HTTP / SSE / JSON-RPC API 契约（开发者参考）
 
-> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；开发计划与后续候选事项见 `docs/future-development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
+> **适用读者：** 前后端开发者和第三方客户端开发者。本文保留完整的接口参数、响应示例、错误处理、兼容规则及相关实现约束，供开发和联调时按需查阅。普通使用请看 [安装与使用](../README.md#安装与使用)，排障、远程接入和备份请看 [维护手册](maintenance.md)。
+
+> 本文定义 Rust server、Vue Web UI 与外部 JSON-RPC 调用方之间的接口。项目结构见 [架构](architecture.md)，未完成事项见 [开发计划](future-development-plan.md)，交互见 [UI 规范](design/DESIGN.md)，开发、打包与排障见 [维护手册](maintenance.md)。
+
+## 查阅目录
+
+- [运行时与监听器约定](#1-运行时约定)
+- [前端消费约定](#2-前端消费约定)
+- [通用错误响应](#3-错误响应)
+- [HTTP API](#4-http-api)
+  - [Web 管理鉴权](#41-web-管理鉴权)
+  - [应用信息与兼容状态](#42-应用信息)
+  - [Aria2 引擎控制](#43-aria2)
+  - [任务](#44-任务)
+  - [设置](#45-设置)
+  - [调试日志](#46-调试日志)
+  - [Aria2 详细日志模式](#47-aria2-详细日志模式)
+  - [日志占用、存储占用、清理与诊断包](#48-日志占用清理与诊断包)
+  - [授权目录](#49-存储目录)
+- [SSE 事件流](#5-sse-事件流)
+- [JSON-RPC 兼容入口](#6-json-rpc-兼容入口)
 
 ## 1. 运行时约定
 
@@ -26,13 +46,13 @@
 - 局域网 JSON-RPC 监听器启动时始终尝试绑定 IPv4 `17082`；仅 `AddrInUse` 错误允许该入口降级不可用，保留管理和回环 RPC 服务。释放端口后须重启应用恢复，不自动换端口或重试。成功绑定后，入口关闭时精确路径也返回 `404`。开启后默认只接受 RFC1918 IPv4 真实对端；管理员显式启用 RFC 6598 共享地址支持后，额外接受 `100.64.0.0/10`，其他来源返回 `403`。该判断不得读取 `X-Forwarded-For`。
 - `MOTRIX_FNOS_JSONRPC_ADDR` 在 FPK 中必须解析为回环地址，且不得进入 manifest、`MotrixFNOS.sc` 或 fnOS 端口映射。
 - `MOTRIX_FNOS_LAN_JSONRPC_ADDR` 在 FPK 中固定为 `0.0.0.0:17082`，通过 `MotrixFNOS.sc` 与管理端口共同声明，但不得成为 manifest 或桌面入口端口。
-- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下同时绑定同端口 IPv6。除局域网 RPC 的 `AddrInUse` 降级外，任一实际地址绑定失败时 server 整体启动失败。
+- 三类入口共享业务状态和退出信号；管理入口在 IPv4 通配地址下以 IPv6-only socket 同时绑定同端口 IPv6。除局域网 RPC 的 `AddrInUse` 降级外，任一实际地址绑定失败时 server 整体启动失败。
 
 ## 2. 前端消费约定
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。`1.9.4` 的提交 `476a3bf` 将请求改为 `omit`；Issue #21 实机反馈从该版本起收到 FN Connect 的 HTML 403，而 `1.9.3` 正常。恢复同源凭据用于修复这一兼容风险，具体 fnOS 版本及安全补丁的影响仍待实机对照确认。
+- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。FN Connect 的凭据兼容与待验边界见 [故障排查](maintenance.md#常见问题)。
 - `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
@@ -203,7 +223,9 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 `AppCompatibility` 返回 `engineGeneration`（`legacy-v1` / `native-v2` / `unknown`）、`mode`（`normal` / `restricted`）、`reasonCode`、`unfinishedTaskCount`、`unresolvedOperationCount` 和脱敏 `message`。受限管理保留登录、读取、诊断和停服，拒绝下载写操作与引擎启动；HTTP 返回 `409 engine_upgrade_required`，外部 RPC 创建返回 `-32005`。`ready=true` 只代表管理服务就绪，不代表允许下载。
 
-2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [FPK 升级说明](fpk-packaging.md#升级前备份与回滚)。
+内置引擎及 `MOTRIX_FNOS_ARIA2_PATH` 外部路径仅支持已验证的 Aria2 Next 2.8.6。2.5.5 仍返回 `engineGeneration=legacy-v1`，但以 `reasonCode=engine_unsupported` 进入受限管理；未知或探测失败返回 `unknown` / `engine_unknown`。缺失、不可执行、探测超时均不降级运行旧引擎。受限启动不加载任务、不恢复或清理任务文件；历史记录、凭据、session 和文件保留，不能用更换路径接管旧任务。HTTP、SSE 与 RPC 的现有字段结构及上述错误响应保持不变。
+
+2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [备份与回滚](maintenance.md#备份与回滚)。
 
 `AppUpdateCheck` 示例：
 
@@ -268,8 +290,8 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | `POST` | `/api/tasks/:id/redownload` | 可选 `TaskProxyOverrideRequest` | `DownloadTask` |
 | `POST` | `/api/tasks/:id/restore` | 可选 `TaskRestoreRequest` | `DownloadTask` |
 | `PUT` | `/api/tasks/:id/proxy` | `UpdateTaskProxyRequest` | `DownloadTask` |
-| `DELETE` | `/api/tasks/:id?deleteFiles=true|false` | - | `DownloadTask` |
-| `DELETE` | `/api/tasks/:id/permanent` | - | `204 No Content` |
+| `DELETE` | `/api/tasks/:id`（兼容 `deleteFiles=false`） | - | `DownloadTask` |
+| `DELETE` | `/api/tasks/:id/permanent?deleteFiles=true\|false`（默认 `false`） | - | `204 No Content` 或 `202 DownloadTask` |
 
 约定：
 
@@ -288,8 +310,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 原生未完成任务保留文件恢复时复用原 ID/GID、路径、session 和原生状态，不重新创建下载。内容已删除时须显式提交 `restartFromZero=true`，否则返回 `409 task_restart_confirmation_required`；确认后创建从零开始的暂停尝试。文件未删除却要求从零恢复返回 `400 task_restore_options_invalid`。
 - 原生 GID/恢复状态无效或完整 metadata 缺失时返回 `409 task_resume_state_invalid` / `task_metadata_missing`，保留文件和回收站记录，不另建 GID 接管半成品。清理未完成时恢复和永久删除返回 `409 file_cleanup_pending`。旧代任务不在新版内存任务集中，旧 ID 按不存在处理，不能据此承诺统一返回 `409 task_engine_incompatible`。
 - 旧 ID 与任意不存在的 ID 使用相同响应：继续、文件确认和未提交代理覆盖的重新下载返回 `400 task_operation_failed`；暂停在引擎就绪后同样返回 `400 task_operation_failed`（启动失败可先返回引擎错误）。移入回收站、恢复、永久删除、任务代理及文件上下文查询返回 `404 task_not_found`。重新下载显式提交 `useProxy` 时会先查任务，缺失也返回 `404 task_not_found`。这些响应以认证、请求格式和运行状态等前置检查通过为前提；`task_engine_incompatible` 保留给实际加载任务的代际不匹配校验。
-- `DELETE /api/tasks/:id/permanent` 只允许永久删除已删除任务记录；该操作释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，不删除用户下载文件。
-- 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。
+- `DELETE /api/tasks/:id` 只移入回收站并保留原位置的下载文件、进度和恢复信息。2.0.1 起旧参数 `deleteFiles=true` 返回 `400 task_delete_files_moved`，不改变任务和文件，提示先移入回收站，再使用永久删除接口；省略或 `false` 保持兼容。
+- `DELETE /api/tasks/:id/permanent?deleteFiles=true|false` 只允许永久删除回收站任务；省略或 `false` 释放引擎记录、session 引用、无共享引用的私有恢复信息及数据库记录，保留用户下载文件，成功返回 `204 No Content`。
+- 永久删除显式 `deleteFiles=true` 时校验当前授权与任务文件归属，确认引擎停止写入后原子暂存文件并持久化 `file_cleanup_pending` 操作。需要后台清理时返回 `202 Accepted` 与 `DownloadTask`（`cleanupState=pending`），记录保留在回收站；清理成功后才移除记录。失败显示 `cleanupState=failed` 并自动重试，重启继续清理；清理期间恢复和重复永久删除返回 `409 file_cleanup_pending`。无文件需要清理或旧记录已为 `filesDeleted=true` 时不重复删除，立即完成返回 `204`。
+- 永久删除同时清理该任务位于应用私有目录的恢复 metadata；该清理不属于用户下载文件删除。尚在解析或等待确认、未进入内容下载的磁链即使收到 `deleteFiles=true` 也仅清理私有数据，不检查用户下载目录授权、不暂存或删除用户文件，成功返回 `204`；已确认并建立专属下载目录的磁链仍执行完整授权与归属检查，不能以进度为零跳过。
 - 磁链在应用私有目录解析 metadata，全程保持同一 GID；引擎 `bittorrent.fileSelectionState=awaiting` 时任务暂停并设置 `confirmationRequired=true`。前端展示 `files`，确认文件后才开始写入用户下载目录。
 - 磁链确认时在已授权父目录下设置任务专属目录；完整 metadata 和文件选择随原生状态持久化，不依赖导出 `.torrent`、`.aria2` 控制文件或后继 GID。
 - 当 `confirmationRequired=true` 时，普通 `/api/tasks/:id/resume` 会返回 `400 Bad Request`，提示先确认要下载的文件，避免绕过文件选择。
@@ -717,7 +741,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 | 方法 | 路径 | 请求 | 响应 |
 | --- | --- | --- | --- |
 | `GET` | `/api/diagnostics/aria2-log-mode` | - | `Aria2LogModeStatus` |
-| `PUT` | `/api/diagnostics/aria2-log-mode` | `{ "detailed": true | false }` | `Aria2LogModeStatus` |
+| `PUT` | `/api/diagnostics/aria2-log-mode` | `{ "detailed": true }` 或 `{ "detailed": false }` | `Aria2LogModeStatus` |
 
 `Aria2LogModeStatus`：
 
@@ -832,7 +856,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 约定：
 
-- 三个接口都要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
+- 本节四个接口都要求有效管理员 JWT，且不注册到任何 JSON-RPC listener。
 - 占用统计只读取应用数据目录内固定的普通文件：Aria2 当前日志及兼容的新旧轮转命名、`logs/server.log(.1-.3)` 和 `logs/lifecycle.log(.1-.3)`。符号链接、未知文件和下载目录均不计入，也不返回应用数据目录的绝对路径。
 - 手动清理只删除应用私有的 `aria2.log` 与已识别的新旧 Aria2 轮转日志，不停止或启动引擎，不删除 SQLite、session、设置、应用日志或用户下载文件。Aria2 运行中、生命周期切换中或进程归属无法确认时返回 `409 aria2_log_in_use`；服务退出中返回 `409 runtime_exiting`。
 - Rust bootstrap 在孤儿进程对账完成后、任何受控 Aria2 启动之前执行同一套安全门禁。确认 sidecar 未使用日志时，超过 10 MiB 的旧 `aria2.log` 只保留最后 10 MiB，并在新旧轮转命名中总计只保留两份历史文件；无法证明安全时跳过并记录警告。
@@ -924,6 +948,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 服务进入退出流程时推送 `runtime.exiting`。
 - 当前事件模型使用整包快照，不使用增量 diff。
 - JWT 失效时连接终止；重新订阅未携带有效 JWT 时返回 `401 Unauthorized`，不会发送任务快照。
+- 已建立的连接每 15 秒及收到广播事件后重新校验鉴权，校验失败即结束事件流；空闲时每 15 秒发送一次 `keepalive` 注释，不作为业务事件。
 
 `app.compatibility` 的数据结构与 `/api/app/compatibility` 返回的 `AppCompatibility` 相同，用于同步引擎代际和受限管理状态。
 
@@ -1008,5 +1033,5 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 普通 HTTP/HTTPS URL 始终下载原文件，不自动进入 HLS/DASH 媒体处理；只允许 `media=file`。
 - 不支持的方法返回 `-32601 Method not found`；参数错误返回 `-32602 Invalid params`；服务侧错误返回 `-32000`；token 错误返回 `-32001`，token 未配置返回 `-32002`；Aria2 正在停止时返回 `-32004`；兼容门禁禁止下载时返回 `-32005`。
 - 不要在公开网页、前端仓库或日志中记录 `jsonRpcToken`；公网反向代理只能指向回环 RPC 专用监听器的 `/jsonrpc`，根路径、`/api/*`、SSE 和静态资源在该监听器上必须保持 404。
-- 局域网入口关闭时所有新请求返回 404；开启时默认只接受 RFC1918 IPv4 真实对端，`allowSharedAddressSpace=true` 时额外接受 RFC 6598 的 `100.64.0.0/10`。配置关闭或收紧来源范围后，已有 WebSocket 连接也会被策略关闭；它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
+- 局域网入口的关闭响应与来源策略见[运行时约定](#1-运行时约定)，配置字段见[设置接口](#45-设置)。配置关闭或收紧来源范围后，已有 WebSocket 连接也会被策略关闭；它不支持 IPv6、链路本地、回环或通过代理 Header 扩展来源范围。
 - 回环和局域网 JSON-RPC WebSocket 共享 64 个连接配额；达到上限的新握手返回 `503 Service Unavailable`。连接连续 5 分钟没有文本或二进制业务消息会关闭，Ping/Pong 不延长该期限；发送响应超过 10 秒也关闭连接并释放配额。

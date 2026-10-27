@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mount } from "@vue/test-utils";
 import TaskErrorMessage from "./TaskErrorMessage.vue";
-import type { DownloadTask } from "../../../types/tasks";
+import { createTask } from "../../../test/tasks";
 
 describe("TaskErrorMessage", () => {
   it("renders formatted error with title for failed task", () => {
@@ -45,27 +45,3 @@ describe("TaskErrorMessage", () => {
     expect(error.text()).toBe(message);
   });
 });
-
-function createTask(overrides: Partial<DownloadTask> = {}): DownloadTask {
-  return {
-    id: 1,
-    url: "https://example.com/ubuntu.iso",
-    fileName: "ubuntu.iso",
-    saveDir: "/downloads",
-    category: "默认",
-    gid: "gid-1",
-    status: "active",
-    totalLength: 2000,
-    completedLength: 1000,
-    downloadSpeed: 1024,
-    errorCode: null,
-    errorMessage: null,
-    filePath: "/downloads/ubuntu.iso",
-    useProxy: false,
-    confirmationRequired: false,
-    files: [],
-    createdAt: 1,
-    updatedAt: 2,
-    ...overrides,
-  };
-}

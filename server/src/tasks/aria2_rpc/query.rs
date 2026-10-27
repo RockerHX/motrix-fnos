@@ -127,7 +127,7 @@ pub(crate) async fn tell_active_task_activity(
 pub(crate) fn build_tell_status_request(config: &Aria2Config, gid: &str) -> serde_json::Value {
     let mut params = rpc_params(config);
     params.push(serde_json::json!(gid));
-    params.push(status_fields_for_config(config));
+    params.push(status_fields());
 
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -143,7 +143,7 @@ pub(crate) fn build_tell_many_request(config: &Aria2Config, method: &str) -> ser
         params.push(serde_json::json!(0));
         params.push(serde_json::json!(1000));
     }
-    params.push(status_fields_for_config(config));
+    params.push(status_fields());
 
     serde_json::json!({
         "jsonrpc": "2.0",
@@ -168,7 +168,6 @@ fn status_fields() -> serde_json::Value {
         "seeder",
         "bittorrent",
         "infoHash",
-        "followedBy",
         "following",
         "belongsTo",
         "errorCode",
@@ -176,15 +175,6 @@ fn status_fields() -> serde_json::Value {
         "dir",
         "files"
     ])
-}
-
-fn status_fields_for_config(config: &Aria2Config) -> serde_json::Value {
-    if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
-        let mut fields = status_fields().as_array().cloned().unwrap_or_default();
-        fields.retain(|field| field != "followedBy");
-        return serde_json::Value::Array(fields);
-    }
-    status_fields()
 }
 
 #[cfg(test)]

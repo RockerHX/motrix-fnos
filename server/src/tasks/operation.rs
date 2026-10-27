@@ -199,8 +199,10 @@ impl TaskOperation {
     }
 
     pub fn is_file_cleanup_pending(&self) -> bool {
-        self.operation_type == TaskOperationType::Delete
-            && self.phase == FILE_CLEANUP_PENDING_PHASE
+        matches!(
+            self.operation_type,
+            TaskOperationType::Delete | TaskOperationType::PermanentDelete
+        ) && self.phase == FILE_CLEANUP_PENDING_PHASE
             && self.status.is_unfinished()
     }
 

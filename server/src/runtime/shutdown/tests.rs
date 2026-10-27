@@ -1,18 +1,13 @@
 use super::*;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
-use crate::config::aria2::Aria2BinarySource;
 use crate::database::tasks::list_download_tasks;
-use crate::runtime::ManagedAria2Process;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::test_support::{test_path as temp_dir, TestAppState};
 use axum::extract::State;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -20,7 +15,7 @@ use std::time::{Duration, Instant};
 #[tokio::test]
 async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_aria2() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .core
         .download_tasks
@@ -47,8 +42,10 @@ async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_ar
         mock.calls(),
         vec![
             "aria2.tellStatus".to_string(),
-            "aria2.pause".to_string(),
+            "aria2.forcePauseAll".to_string(),
             "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string(),
+            "aria2.tellActive".to_string(),
         ]
     );
     assert!(state.aria2_runtime_snapshot().is_none());
@@ -59,13 +56,14 @@ async fn shutdown_cleanup_pauses_tasks_persists_state_saves_session_and_stops_ar
         .expect("process lock should succeed")
         .is_none());
 
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     mock.fail_session();
 
     std::thread::scope(|scope| {
@@ -90,26 +88,28 @@ async fn shutdown_cleanup_preserves_runtime_when_session_and_stop_fail() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn shutdown_does_not_report_success_when_session_save_fails() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     mock.fail_session();
     state.request_shutdown("测试保存失败");
     assert!(
         !run_shutdown_cleanup_until(&state, tokio::time::Instant::now() + Duration::from_secs(2))
             .await
     );
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn shutdown_cleanup_stops_at_shared_deadline_when_aria2_rpc_hangs() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .core
         .download_tasks
@@ -137,13 +137,14 @@ async fn shutdown_cleanup_stops_at_shared_deadline_when_aria2_rpc_hangs() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn manual_stop_saves_session_once_before_stopping_idle_aria2() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -154,20 +155,28 @@ async fn manual_stop_saves_session_once_before_stopping_idle_aria2() {
         .expect("manual stop should succeed");
 
     assert_eq!(mock.save_session_calls(), 1);
-    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellActive".to_string(),
+            "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string()
+        ]
+    );
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(state
         .aria2_process
         .lock()
         .expect("process lock should succeed")
         .is_none());
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn manual_stop_preserves_runtime_when_session_save_fails() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -192,13 +201,14 @@ async fn manual_stop_preserves_runtime_when_session_save_fails() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn manual_stop_rejects_bt_seeding_activity() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -232,13 +242,14 @@ async fn manual_stop_rejects_bt_seeding_activity() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn shutdown_wins_over_auto_stop_and_keeps_pause_semantics() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .core
         .download_tasks
@@ -263,21 +274,24 @@ async fn shutdown_wins_over_auto_stop_and_keeps_pause_semantics() {
         mock.calls(),
         vec![
             "aria2.tellStatus".to_string(),
-            "aria2.pause".to_string(),
+            "aria2.forcePauseAll".to_string(),
             "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string(),
+            "aria2.tellActive".to_string(),
         ]
     );
     assert!(auto_stop_result
         .expect_err("auto stop should yield to application exit")
         .contains("服务正在退出"));
     assert!(state.aria2_runtime_snapshot().is_none());
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn auto_stop_preserves_runtime_when_session_save_fails() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -300,13 +314,14 @@ async fn auto_stop_preserves_runtime_when_session_save_fails() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn auto_stop_persists_task_state_before_saving_session() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -326,16 +341,23 @@ async fn auto_stop_persists_task_state_before_saving_session() {
         .expect("stored tasks should load");
     assert_eq!(stored_tasks.len(), 1);
     assert_eq!(stored_tasks[0].status, DownloadTaskStatus::Complete);
-    assert_eq!(mock.calls(), vec!["aria2.saveSession".to_string()]);
+    assert_eq!(
+        mock.calls(),
+        vec![
+            "aria2.tellActive".to_string(),
+            "aria2.saveSession".to_string(),
+            "aria2.tellActive".to_string()
+        ]
+    );
 
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
 async fn auto_stop_preserves_runtime_when_task_state_persist_fails() {
     let mock = MockAria2Server::spawn().await;
-    let state = ready_state(&mock).await;
+    let state = TestAppState::with_rpc("shutdown", mock.addr.port()).await;
     state
         .aria2_lifecycle
         .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
@@ -364,13 +386,14 @@ async fn auto_stop_preserves_runtime_when_task_state_persist_fails() {
     state
         .clear_aria2_runtime()
         .expect("runtime record should clear");
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -396,75 +419,6 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
         created_at: 1,
         updated_at: 2,
     }
-}
-
-async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
-    let app_data_dir = temp_dir("shutdown-state");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
-        trusted_proxy_ips: Vec::new(),
-    };
-    let state = bootstrap_http_app_state(&runtime)
-        .await
-        .expect("state should bootstrap");
-    let child = spawn_sleep_child();
-    let pid = child.id();
-    let config = crate::aria2::runtime_config(
-        &state.base_aria2_config,
-        mock.addr.port(),
-        "secret".to_string(),
-    );
-    state
-        .set_aria2_runtime(state.build_aria2_runtime_info(
-            pid,
-            &config,
-            Aria2BinarySource::ExternalPath,
-            vec!["--mock".to_string()],
-        ))
-        .expect("runtime should persist");
-    *state
-        .aria2_process
-        .lock()
-        .expect("process lock should succeed") = Some(ManagedAria2Process::new(
-        child,
-        Aria2BinarySource::ExternalPath,
-    ));
-    state
-}
-
-fn temp_dir(label: &str) -> PathBuf {
-    static NEXT_TEMP_DIR_ID: AtomicU64 = AtomicU64::new(0);
-    std::env::temp_dir().join(format!(
-        "motrix-fnos-{}-{}-{}",
-        label,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be valid")
-            .as_nanos(),
-        NEXT_TEMP_DIR_ID.fetch_add(1, Ordering::SeqCst),
-    ))
-}
-
-#[cfg(unix)]
-fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("sh")
-        .args(["-c", "sleep 30"])
-        .spawn()
-        .expect("sleep child should spawn")
-}
-
-#[cfg(windows)]
-fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
-        .spawn()
-        .expect("sleep child should spawn")
 }
 
 struct MockAria2Server {
@@ -521,8 +475,9 @@ impl MockAria2Server {
         self.state.bt_upload_active.store(true, Ordering::SeqCst);
     }
 
-    fn abort(self) {
+    async fn abort(self) {
         self.handle.abort();
+        let _ = self.handle.await;
     }
 }
 
@@ -614,13 +569,12 @@ async fn mock_aria2_rpc(
                 }
             })
         }
-        "aria2.pause" => {
-            let gid = gid_param(&params);
+        "aria2.forcePauseAll" => {
             state.pause_calls.fetch_add(1, Ordering::SeqCst);
-            if let Some(task) = state.tasks.lock().expect("tasks should lock").get_mut(&gid) {
+            for task in state.tasks.lock().expect("tasks should lock").values_mut() {
                 task.status = "paused".to_string();
             }
-            json!({ "result": gid })
+            json!({ "result": "OK" })
         }
         "aria2.saveSession" => {
             state.save_session_calls.fetch_add(1, Ordering::SeqCst);

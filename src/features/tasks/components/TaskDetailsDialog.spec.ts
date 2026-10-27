@@ -61,6 +61,7 @@ vi.mock("../../../app/utils/clipboard", () => ({
 }));
 
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
+import { defaultLabels } from "./taskActionTestFixtures";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import type { DownloadTask } from "../../../types/tasks";
 
@@ -70,6 +71,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: false,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask(),
         isOperating: false,
@@ -85,6 +87,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: {
           title: "任务详情",
           items: [
@@ -111,6 +114,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask(),
         isOperating: false,
@@ -128,6 +132,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: {
           title: "任务详情",
           items: [{ label: "保存路径", value: "存储空间1/下载" }],
@@ -166,6 +171,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: {
           title: "任务详情",
           items: [
@@ -199,6 +205,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask({ status: "complete" }),
         isOperating: false,
@@ -212,6 +219,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask({ status: "complete" }),
         isOperating: false,
@@ -246,6 +254,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: {
           title: "任务详情",
           items: [],
@@ -275,6 +284,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask(overrides as Partial<DownloadTask>),
         isOperating: false,
@@ -292,6 +302,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: { title: "任务详情", items: [] },
         task: createTask({ completedLength: 20, downloadSpeed: 10 }),
         isOperating: false,
@@ -316,6 +327,7 @@ describe("TaskDetailsDialog", () => {
       props: {
         show: true,
         closeLabel: "关闭",
+        labels: defaultLabels,
         details: {
           title: "任务详情",
           items: [{ label: "下载链接", value: url }],

@@ -15,8 +15,8 @@ pub(crate) use aria2_log_mode::{update_aria2_log_mode, Aria2LogModeUpdateError};
 pub(crate) use aria2_process::current_activity_snapshot;
 pub use aria2_process::{
     auto_stop_aria2, ensure_aria2_ready, process_status, resolve_aria2_binary, start_aria2,
-    start_process, stop_aria2, stop_process, stop_process_with_timeout, Aria2ProcessStatus,
-    Aria2StopError, ManagedAria2Process, ReadyAria2, ResolvedAria2Binary,
+    stop_aria2, stop_process, stop_process_with_timeout, Aria2ProcessStatus, Aria2StopError,
+    ManagedAria2Process, ReadyAria2, ResolvedAria2Binary,
 };
 pub(crate) use file_cleanup::spawn_file_cleanup_worker;
 pub use lifecycle::{

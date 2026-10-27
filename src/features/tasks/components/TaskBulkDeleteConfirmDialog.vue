@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { NCheckbox } from "naive-ui";
+import { ref, watch } from "vue";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { useI18n } from "../../../i18n";
 
@@ -6,6 +8,7 @@ const props = withDefaults(
   defineProps<{
     show: boolean;
     taskCount: number;
+    canDeleteFiles: boolean;
     isLoading?: boolean;
     mode?: "delete" | "clearTrash";
   }>(),
@@ -17,10 +20,14 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
-  confirm: [];
+  confirm: [deleteFiles: boolean];
 }>();
 
 const { t } = useI18n();
+const deleteFiles = ref(false);
+watch(() => [props.show, props.mode, props.canDeleteFiles], () => {
+  deleteFiles.value = false;
+});
 
 function updateShow(show: boolean) {
   if (!props.isLoading) {
@@ -30,7 +37,7 @@ function updateShow(show: boolean) {
 
 function confirm() {
   if (!props.isLoading) {
-    emit("confirm");
+    emit("confirm", props.mode === "clearTrash" && props.canDeleteFiles && deleteFiles.value);
   }
 }
 </script>
@@ -50,6 +57,9 @@ function confirm() {
       {{ t(props.mode === "clearTrash" ? "task.bulk.clearTrashConfirm" : "task.bulk.deleteConfirm", { count: props.taskCount }) }}
     </p>
 
+    <template #extra>
+      <NCheckbox v-if="props.mode === 'clearTrash' && props.canDeleteFiles" v-model:checked="deleteFiles" :disabled="props.isLoading">{{ t("task.delete.files") }}</NCheckbox>
+    </template>
     <template #confirm-label>{{ t(props.mode === "clearTrash" ? "task.bulk.clearTrash" : "task.actions.delete") }}</template>
   </AppConfirmDialog>
 </template>

@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { NCheckbox } from "naive-ui";
-import { ref, watch } from "vue";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import type { TaskActionConfirmTexts, TaskActionLabels, TaskActionState } from "./taskActionViewModel";
 
-const props = defineProps<{
+defineProps<{
   show: boolean;
   state: TaskActionState;
   labels: TaskActionLabels;
@@ -13,19 +11,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   "update:show": [show: boolean];
-  confirm: [deleteFiles: boolean];
+  confirm: [];
 }>();
-
-const deleteFiles = ref(false);
-
-watch(
-  () => props.show,
-  (show) => {
-    if (show) {
-      deleteFiles.value = false;
-    }
-  },
-);
 </script>
 
 <template>
@@ -38,11 +25,8 @@ watch(
     :confirm-text="confirmTexts.deleteConfirmText"
     confirm-type="error"
     @update:show="emit('update:show', $event)"
-    @confirm="emit('confirm', deleteFiles)"
+    @confirm="emit('confirm')"
   >
-    <template #extra>
-      <NCheckbox v-model:checked="deleteFiles">{{ confirmTexts.deleteFilesLabel }}</NCheckbox>
-    </template>
     <template #confirm-label>{{ labels.delete }}</template>
   </AppConfirmDialog>
 </template>

@@ -4,19 +4,17 @@ use crate::debug_logs::DebugLogStore;
 use crate::runtime::Aria2LifecycleCoordinator;
 use crate::state::ShutdownState;
 use crate::tasks::files::{
-    archive_task_torrent_metadata, cleanup_empty_torrent_task_dir, read_saved_torrent_metadata,
-    remove_restore_metadata, save_restore_torrent_metadata, task_download_dir,
+    cleanup_empty_torrent_task_dir, read_saved_torrent_metadata, remove_restore_metadata,
+    save_restore_torrent_metadata, task_download_dir,
 };
 use crate::tasks::operation::FILE_CLEANUP_PENDING_PHASE;
-use crate::tasks::prepare::{prepare_bt_download_task_with_logs, PrepareBtDownloadTaskRequest};
 use crate::tasks::{
     add_torrent_to_aria2, add_uri_to_aria2, find_aria2_task_for_request,
-    is_aria2_outcome_unknown_error, is_stale_aria2_gid_error, mark_magnet_task_reparsing,
-    mark_task_files_confirmed, mark_task_redownloaded, mark_task_removed, mark_task_restored,
-    mark_task_resumed, pause_task, pause_task_with_request_id, prepare_task_with_logs,
-    prepare_torrent_task_with_logs, readd_task_to_aria2, reconcile_task_proxy_option, remove_task,
-    remove_task_record, remove_task_result, remove_task_with_request_id, replace_task_snapshot,
-    set_task_metadata_torrent_path, should_readd_task_after_resume_error,
+    is_aria2_outcome_unknown_error, is_stale_aria2_gid_error, mark_task_files_confirmed,
+    mark_task_redownloaded, mark_task_removed, mark_task_restored, mark_task_resumed, pause_task,
+    pause_task_with_request_id, prepare_task_with_logs, prepare_torrent_task_with_logs,
+    reconcile_task_proxy_option, remove_task, remove_task_record, remove_task_result,
+    remove_task_with_request_id, replace_task_snapshot, set_task_metadata_torrent_path,
     store_created_task_with_id, sync_task_progress_after_pause_by_gid,
     sync_task_progress_from_aria2_by_gid, task_gid, task_snapshot, unpause_task,
     unpause_task_with_request_id, validate_task_files, validate_url_task_output_before_resume,
@@ -510,15 +508,9 @@ impl<'a> TaskService<'a> {
         query::get_download_task(self, task_id)
     }
 
-    fn ensure_task_engine_compatible(
-        &self,
-        config: &Aria2Config,
-        task_id: u64,
-    ) -> Result<(), String> {
+    fn ensure_task_engine_compatible(&self, task_id: u64) -> Result<(), String> {
         let task = task_snapshot(self.download_tasks, task_id)?;
-        if task.engine_generation == crate::config::aria2::EngineGeneration::Unknown
-            || task.engine_generation != config.engine_generation()
-        {
+        if task.engine_generation != crate::config::aria2::EngineGeneration::NativeV2 {
             return Err(
                 "task_engine_incompatible：任务与当前引擎代际不兼容，旧记录仅供查看".to_string(),
             );

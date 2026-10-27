@@ -74,15 +74,25 @@ pub struct DownloadProxyServiceContext<'a> {
 
 pub async fn load_download_proxy_status(
     pool: &SqlitePool,
+    lifecycle: &Aria2LifecycleCoordinator,
 ) -> Result<DownloadProxyStatus, DownloadProxyServiceError> {
     let config = get_download_proxy_config(pool)
         .await
         .map_err(DownloadProxyServiceError::Load)?;
-    config
+    let mut status = config
         .as_ref()
         .map(status_from_stored)
         .transpose()
-        .map(|status| status.unwrap_or_else(unconfigured_status))
+        .map(|status| status.unwrap_or_else(unconfigured_status))?;
+    if status.bt_runtime_apply != BtRuntimeApplyStatus::Blocked
+        && lifecycle
+            .snapshot()
+            .map(|snapshot| snapshot.phase != Aria2LifecyclePhase::Ready)
+            .unwrap_or(true)
+    {
+        status.bt_runtime_apply = BtRuntimeApplyStatus::Deferred;
+    }
+    Ok(status)
 }
 
 pub async fn update_download_proxy(
@@ -110,14 +120,6 @@ pub async fn update_download_proxy(
         .snapshot()
         .map_err(DownloadProxyServiceError::State)?
         .phase;
-    if target_bt_use_proxy
-        && phase == Aria2LifecyclePhase::Ready
-        && context.aria2_config.as_ref().is_some_and(|config| {
-            config.engine_generation() != crate::config::aria2::EngineGeneration::NativeV2
-        })
-    {
-        return Err(DownloadProxyServiceError::BtProxyEngineUnsupported);
-    }
     let mut previously_active_bt = Vec::new();
     let mut runtime_activity = None;
     let mut runtime_apply = if phase == Aria2LifecyclePhase::Ready {
@@ -201,7 +203,10 @@ pub async fn update_download_proxy(
     if bt_proxy_changed && phase == Aria2LifecyclePhase::Ready {
         let config = context.aria2_config.as_ref().expect("ready config checked");
         runtime_apply = apply_bt_proxy_config(
-            &SqliteTaskRepository::for_engine(context.pool, config.engine_generation()),
+            &SqliteTaskRepository::for_engine(
+                context.pool,
+                crate::config::aria2::EngineGeneration::NativeV2,
+            ),
             context.aria2_rpc,
             config,
             Some(&replaced.config),

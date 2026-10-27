@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
   isOperating: boolean;
   isActionDisabled: boolean;
   fileActions?: TaskFileActionView;
-  labels?: TaskActionLabels;
+  labels: TaskActionLabels;
   showProxy?: boolean;
 }>(), {
   showProxy: true,
@@ -55,35 +55,13 @@ const formattedSpeed = computed(() =>
   props.task.downloadSpeed > 0 ? `${formatTaskSize(props.task.downloadSpeed)}/s` : t("common.notAvailable"),
 );
 const titleId = computed(() => `task-detail-title-${props.task.id}`);
-const actionLabels = computed(() =>
-  props.labels ?? {
-    details: t("task.actions.details"),
-    pause: t("task.actions.pause"),
-    resume: t("task.actions.resume"),
-    confirmFiles: t("task.actions.confirmFiles"),
-    redownload: t("task.actions.redownload"),
-    delete: t("task.actions.delete"),
-    restore: t("task.actions.restore"),
-    permanentDelete: t("task.actions.permanentDelete"),
-    cancel: t("common.cancel"),
-    close: t("common.close"),
-    openFileManager: t("task.actions.openFileManager"),
-    openFile: t("task.actions.openFile"),
-    fileDetails: t("task.actions.fileDetails"),
-    hostOnly: t("task.fileOperations.hostOnly"),
-    technicalInfo: t("task.fileOperations.technicalInfo"),
-    copyPath: t("common.copy"),
-    copied: t("common.copied"),
-    copyFailed: t("task.fileOperations.copyFailed"),
-  } satisfies TaskActionLabels,
-);
 
 async function copyPath(path: string) {
   const result = await copyTextToClipboard(path);
   if (result.copied) {
-    message.success(actionLabels.value.copied);
+    message.success(props.labels.copied);
   } else {
-    message.warning(actionLabels.value.copyFailed);
+    message.warning(props.labels.copyFailed);
   }
 }
 
@@ -184,7 +162,7 @@ function confirmProxyUpdate() {
             :disabled="props.isActionDisabled || props.fileActions.loading"
             @click="emit('openFile')"
           >
-            {{ actionLabels.openFile }}
+            {{ props.labels.openFile }}
           </NButton>
           <NButton
             v-if="props.fileActions.context?.actions.detailPaths.length"
@@ -194,10 +172,10 @@ function confirmProxyUpdate() {
             :disabled="props.isActionDisabled || props.fileActions.loading"
             @click="emit('showFileDetails')"
           >
-            {{ actionLabels.fileDetails }}
+            {{ props.labels.fileDetails }}
           </NButton>
         </NSpace>
-        <p v-else-if="props.fileActions" class="task-file-host-hint">{{ actionLabels.hostOnly }}</p>
+        <p v-else-if="props.fileActions" class="task-file-host-hint">{{ props.labels.hostOnly }}</p>
       </section>
 
       <section v-if="props.showProxy !== false && !isBtTask" class="task-detail-section" data-test="task-detail-settings-section">
@@ -217,12 +195,12 @@ function confirmProxyUpdate() {
         data-test="task-detail-technical-section"
       >
         <NCollapse class="task-technical-info" :default-expanded-names="[]">
-          <NCollapseItem :title="actionLabels.technicalInfo" name="technical-info">
+          <NCollapseItem :title="props.labels.technicalInfo" name="technical-info">
             <NDescriptions :column="1" label-placement="left" bordered>
               <NDescriptionsItem v-for="item in props.details.technicalItems" :key="item.label" :label="item.label">
                 <NSpace align="center" justify="space-between" :size="8" wrap>
                   <span class="task-technical-path">{{ item.value }}</span>
-                  <NButton size="tiny" secondary @click="copyPath(item.value)">{{ actionLabels.copyPath }}</NButton>
+                  <NButton size="tiny" secondary @click="copyPath(item.value)">{{ props.labels.copyPath }}</NButton>
                 </NSpace>
               </NDescriptionsItem>
             </NDescriptions>

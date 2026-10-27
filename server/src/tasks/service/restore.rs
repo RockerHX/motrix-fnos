@@ -10,7 +10,7 @@ impl<'a> TaskService<'a> {
         restart_from_zero: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _proxy_update_guard = self.proxy_update_lock.lock().await;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
@@ -22,7 +22,6 @@ impl<'a> TaskService<'a> {
         }
         self.ensure_file_cleanup_not_pending(task_id).await?;
         self.validate_task_authorization(&snapshot)?;
-        let native = snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2;
         if restart_from_zero && !snapshot.files_deleted {
             return Err("task_restore_options_invalid：仅已删除内容的任务可以从头下载".to_string());
         }
@@ -33,7 +32,7 @@ impl<'a> TaskService<'a> {
         }
         let completed_history = !snapshot.files_deleted
             && snapshot.removed_from_status == Some(DownloadTaskStatus::Complete);
-        if native && !completed_history && snapshot.removed_from_status.is_none() {
+        if !completed_history && snapshot.removed_from_status.is_none() {
             return Err(
                 "task_resume_state_invalid：回收站任务缺少原始状态，已保留文件".to_string(),
             );
@@ -58,10 +57,10 @@ impl<'a> TaskService<'a> {
                 ),
             )
             .await?;
-        let retained = completed_history || (native && !restart_from_zero);
+        let retained = completed_history || !restart_from_zero;
         let mut created_gid = None;
         let result = async {
-            let (gid, reparsing_base_dir) = if retained {
+            let gid = if retained {
                 if !completed_history {
                     task_to_restore = self
                         .pause_retained_task(config, &task_to_restore, &mut operation)
@@ -83,70 +82,49 @@ impl<'a> TaskService<'a> {
                     self.update_task_operation(&mut operation, "aria2_proxy_reconciled", context)
                         .await?;
                 }
-                (task_to_restore.gid.clone(), None)
+                task_to_restore.gid.clone()
             } else {
-                let (gid, base_dir) = match snapshot.source_type {
-                    DownloadTaskSourceType::Url => self
-                        .restore_url_task(config, &task_to_restore, &mut operation)
-                        .await
-                        .map(|gid| (gid, None))?,
-                    DownloadTaskSourceType::Torrent => self
-                        .restore_bt_task(config, &task_to_restore, &mut operation)
-                        .await
-                        .map(|gid| (gid, None))?,
-                    DownloadTaskSourceType::Magnet
-                        if !native
-                            && (snapshot.confirmation_required || snapshot.file_path.is_none()) =>
-                    {
-                        self.restore_magnet_metadata_task(config, &task_to_restore, &mut operation)
-                            .await
-                            .map(|(gid, dir)| (gid, Some(dir)))?
-                    }
-                    DownloadTaskSourceType::Magnet => {
-                        match self
-                            .recreation_torrent_metadata(config, &task_to_restore)
-                            .await
-                        {
-                            Ok(data) => self
-                                .restore_bt_task_with_data(
-                                    config,
-                                    &task_to_restore,
-                                    &data,
-                                    &mut operation,
-                                )
+                let gid =
+                    match snapshot.source_type {
+                        DownloadTaskSourceType::Url => {
+                            self.restore_url_task(config, &task_to_restore, &mut operation)
+                                .await?
+                        }
+                        DownloadTaskSourceType::Torrent => {
+                            self.restore_bt_task(config, &task_to_restore, &mut operation)
+                                .await?
+                        }
+                        DownloadTaskSourceType::Magnet => {
+                            match self
+                                .recreation_torrent_metadata(config, &task_to_restore)
                                 .await
-                                .map(|gid| (gid, None))?,
-                            Err(_) if !native => self
-                                .restore_magnet_metadata_task(
-                                    config,
-                                    &task_to_restore,
-                                    &mut operation,
-                                )
-                                .await
-                                .map(|(gid, dir)| (gid, Some(dir)))?,
-                            Err(_) => {
-                                return Err(
+                            {
+                                Ok(data) => {
+                                    self.restore_bt_task_with_data(
+                                        config,
+                                        &task_to_restore,
+                                        &data,
+                                        &mut operation,
+                                    )
+                                    .await?
+                                }
+                                Err(_) => return Err(
                                     "task_metadata_missing：完整 metadata 缺失，已保留回收站记录"
                                         .to_string(),
-                                )
+                                ),
                             }
                         }
-                    }
-                };
+                    };
                 created_gid = Some(gid.clone());
                 self.record_aria2_task_created(&mut operation, gid.clone())
                     .await?;
-                (Some(gid), base_dir)
+                Some(gid)
             };
             replace_task_snapshot(self.download_tasks, task_to_restore.clone())?;
-            let restored = if let Some(base_dir) = reparsing_base_dir {
-                mark_magnet_task_reparsing(self.download_tasks, task_id, gid.unwrap(), base_dir)?
-            } else {
-                mark_task_restored(self.download_tasks, task_id, gid)?
-            };
+            let restored = mark_task_restored(self.download_tasks, task_id, gid)?;
             self.persist_task_with_operation(&restored, &mut operation, "task_restored")
                 .await?;
-            if native && restart_from_zero {
+            if restart_from_zero {
                 crate::aria2::save_session(self.aria2_rpc, config, Some(self.debug_logs)).await?;
                 self.release_retained_task(config, &snapshot, &mut operation)
                     .await?;
@@ -235,9 +213,7 @@ impl<'a> TaskService<'a> {
         let task_dir = task_download_dir(task).to_string();
         self.prepare_task_destination(task)?;
         let mut prepared = restored_task_options(task, task_dir);
-        if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-            && task.files_deleted
-        {
+        if task.files_deleted {
             prepared
                 .aria2_options
                 .insert("check-integrity".to_string(), serde_json::json!("true"));
@@ -255,47 +231,6 @@ impl<'a> TaskService<'a> {
         }
         self.add_torrent_for_task_operation(config, operation, &prepared, torrent_data)
             .await
-    }
-
-    async fn restore_magnet_metadata_task(
-        &self,
-        config: &Aria2Config,
-        task: &DownloadTask,
-        operation: &mut TaskOperation,
-    ) -> Result<(String, String), String> {
-        let base_save_dir = if task.file_path.is_some() {
-            Path::new(task_download_dir(task))
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new(&task.save_dir))
-                .display()
-                .to_string()
-        } else {
-            task.save_dir.clone()
-        };
-        let metadata_dir = magnet::magnet_metadata_task_dir(self.app_data_dir, task.id);
-        fs::create_dir_all(&metadata_dir).map_err(|error| {
-            format!(
-                "创建磁链 metadata 临时目录失败：{}（{}）",
-                metadata_dir.display(),
-                error
-            )
-        })?;
-        let mut prepared = restored_task_options(task, base_save_dir.clone());
-        prepared.aria2_save_dir = Some(metadata_dir.display().to_string());
-        match self
-            .add_uri_for_task_operation(config, operation, &prepared)
-            .await
-        {
-            Ok(gid) => Ok((gid, base_save_dir)),
-            Err(error) => {
-                if self.has_unknown_aria2_outcome(operation) {
-                    return Err(error);
-                }
-                let _ = fs::remove_dir_all(metadata_dir);
-                Err(error)
-            }
-        }
     }
 }
 

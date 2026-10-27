@@ -78,12 +78,12 @@ export function restoreDownloadTask(taskId: number, useProxy?: boolean, restartF
   return httpPost<DownloadTask>(`/api/tasks/${taskId}/restore`, { useProxy, restartFromZero });
 }
 
-export function deleteDownloadTask(taskId: number, deleteFiles: boolean): Promise<DownloadTask> {
-  return httpDelete<DownloadTask>(`/api/tasks/${taskId}?deleteFiles=${deleteFiles ? "true" : "false"}`);
+export function deleteDownloadTask(taskId: number): Promise<DownloadTask> {
+  return httpDelete<DownloadTask>(`/api/tasks/${taskId}`);
 }
 
-export function permanentlyDeleteDownloadTask(taskId: number): Promise<void> {
-  return httpDelete<void>(`/api/tasks/${taskId}/permanent`);
+export function permanentlyDeleteDownloadTask(taskId: number, deleteFiles = false): Promise<DownloadTask | undefined> {
+  return httpDelete<DownloadTask | undefined>(`/api/tasks/${taskId}/permanent?deleteFiles=${deleteFiles}`);
 }
 
 export function getTaskFileContext(taskId: number, language: string): Promise<TaskFileContextResponse> {

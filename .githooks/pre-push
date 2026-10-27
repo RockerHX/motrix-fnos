@@ -1,26 +1,69 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env node
+import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-has_branch_update=0
-zero_oid="0000000000000000000000000000000000000000"
+const suites = new Set();
+const shellTests = new Set();
+let hasBranchUpdate = false;
+let full = false;
 
-while read -r _local_ref local_oid remote_ref _remote_oid; do
-  case "$remote_ref" in
-    refs/heads/*)
-      if [ "$local_oid" != "$zero_oid" ]; then
-        has_branch_update=1
-      fi
-      ;;
-  esac
-done
+for (const line of readFileSync(0, 'utf8').trim().split(/\r?\n/).filter(Boolean)) {
+  const fields = line.trim().split(/\s+/);
+  if (fields.length !== 4) {
+    full = true;
+    continue;
+  }
+  const [, localOid, remoteRef, remoteOid] = fields;
+  if (!remoteRef.startsWith('refs/heads/') || /^0+$/.test(localOid)) continue;
+  hasBranchUpdate = true;
+  // 新分支没有远端基线，不能只检查最后一个提交就跳过验证。
+  if (/^0+$/.test(remoteOid)) {
+    full = true;
+    continue;
+  }
+  let files;
+  try {
+    files = execFileSync('git', ['diff', '--name-only', '--no-renames', '-z', remoteOid, localOid, '--'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).split('\0').filter(Boolean);
+  } catch {
+    full = true;
+    continue;
+  }
+  for (const file of files) {
+    if (file.startsWith('scripts/tests/')) suites.add('scripts');
+    else if (file.startsWith('scripts/extended/')) suites.add('aria2');
+    else if (file.startsWith('e2e/')) suites.add('browser');
+    else if (file.startsWith('src/test/') || /^src\/.*\.spec\.(?:ts|tsx|vue)$/.test(file)) suites.add('frontend');
+    else if (file.startsWith('server/') && (file.startsWith('server/tests/')
+      || file === 'server/src/test_support.rs' || /\/tests(?:\/|\.rs$)/.test(file))) suites.add('rust');
+    else if (/^scripts\/verify\/test-fnos-[^/]+\.sh$/.test(file)) shellTests.add(file);
+    else if (/(?:^|\/)(?:LICENSE|NOTICE)$/.test(file)
+      || /\.(?:md|mdx|txt|rst|adoc|png|jpg|jpeg|gif|webp|avif|ico|bmp|tif|tiff|svg|pdf|woff|woff2|ttf|otf|mp3|wav|mp4|webm)$/i.test(file)) continue;
+    else full = true;
+  }
+}
 
-if [ "$has_branch_update" -eq 0 ]; then
-  echo "未推送分支源码，跳过完整验证。"
-  exit 0
-fi
+if (!full && suites.size === 0 && shellTests.size === 0) {
+  console.log(hasBranchUpdate ? '仅文档、静态资源或无文件变化，跳过完整验证。' : '未推送分支源码，跳过完整验证。');
+  process.exit(0);
+}
 
-if command -v pnpm >/dev/null 2>&1; then
-  pnpm run verify
-else
-  npm run verify
-fi
+const packageManager = spawnSync('pnpm', ['--version'], { stdio: 'ignore' }).status === 0 ? 'pnpm' : 'npm';
+if (full) {
+  console.log('包含源码、配置或无法确认的推送范围，执行完整验证。');
+  run(packageManager, ['run', 'verify']);
+} else {
+  console.log('仅测试相关改动，运行对应测试，不执行完整构建。');
+  if (suites.has('scripts')) run(packageManager, ['run', 'test:scripts']);
+  if (suites.has('rust')) run('node', ['scripts/verify/run-rust-tests.mjs']);
+  if (suites.has('frontend')) run(packageManager, ['run', 'test:unit']);
+  if (suites.has('browser')) run(packageManager, ['run', 'test:e2e']);
+  if (suites.has('aria2')) run(packageManager, ['run', 'test:aria2']);
+  for (const file of shellTests) run('sh', [file]);
+}
+
+function run(command, args) {
+  const result = spawnSync(command, args, { stdio: 'inherit' });
+  if (result.error) console.error(result.error.message);
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}

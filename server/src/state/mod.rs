@@ -87,16 +87,6 @@ pub fn aria2_runtime_path(database_path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(ARIA2_RUNTIME_FILE_NAME))
 }
 
-pub fn aria2_runtime_paths(app_data_dir: &Path) -> Aria2RuntimePaths {
-    let runtime_dir = app_data_dir.join(ARIA2_RUNTIME_DIR_NAME);
-    Aria2RuntimePaths {
-        session_path: runtime_dir.join(ARIA2_SESSION_FILE_NAME),
-        state_dir: runtime_dir.join("state"),
-        log_path: runtime_dir.join(ARIA2_LOG_FILE_NAME),
-        runtime_dir,
-    }
-}
-
 pub fn native_aria2_runtime_paths(app_data_dir: &Path) -> Aria2RuntimePaths {
     let runtime_dir = app_data_dir.join("engine/native-v2");
     Aria2RuntimePaths {
@@ -337,23 +327,19 @@ impl ServerState {
 
     pub fn aria2_config(&self) -> Aria2Config {
         let mut config = Aria2Config::from_env();
+        let paths = native_aria2_runtime_paths(&self.app_data_dir);
+        config.state_dir = Some(paths.state_dir.display().to_string());
+        config.session_path = Some(paths.session_path.display().to_string());
         if let Some(runtime) = self.aria2_runtime_snapshot() {
             config.rpc_port = runtime.actual_port;
             config.rpc_secret = runtime.rpc_secret;
-            config.session_path = runtime.aria2_session_path.clone();
-            config.state_dir = runtime.aria2_state_path.clone();
             config.log_path = runtime.aria2_log_path.clone();
         }
         config
     }
 
     pub fn with_aria2_runtime_paths(&self, mut config: Aria2Config) -> Result<Aria2Config, String> {
-        let native = config.state_dir.is_some();
-        let paths = if native {
-            native_aria2_runtime_paths(&self.app_data_dir)
-        } else {
-            aria2_runtime_paths(&self.app_data_dir)
-        };
+        let paths = native_aria2_runtime_paths(&self.app_data_dir);
         for directory in [
             paths.session_path.parent().unwrap(),
             paths.log_path.parent().unwrap(),
@@ -365,11 +351,9 @@ impl ServerState {
                     .map_err(|_| "Aria2 目录不属于应用数据目录".to_string())?,
             )?;
         }
-        if native {
-            ensure_private_directory(&self.app_data_dir, Path::new("engine/native-v2/state"))?;
-            validate_native_state_tree(&paths.state_dir)?;
-            config.state_dir = Some(paths.state_dir.display().to_string());
-        }
+        ensure_private_directory(&self.app_data_dir, Path::new("engine/native-v2/state"))?;
+        validate_native_state_tree(&paths.state_dir)?;
+        config.state_dir = Some(paths.state_dir.display().to_string());
         ensure_aria2_session_file(&paths.session_path)?;
         self.debug_logs.info(
             "aria2.runtime",

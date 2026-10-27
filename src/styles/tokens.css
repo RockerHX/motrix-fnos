@@ -23,12 +23,8 @@
   --app-text-danger: #ff8d8d;
   --app-color-success: #68ae5a;
 
-  --app-color-brand-navy: #1e3a5f;
   --app-color-brand-deep: #102846;
   --app-color-brand-blue: #3374db;
-  --app-color-brand-blue-hover: #5da9ff;
-  --app-color-brand-blue-pressed: #285bae;
-  --app-color-brand-blue-suppl: #a8c8f0;
   --app-color-brand-selected: #1e3a5f;
   --app-color-on-brand: #f4f8fd;
 
@@ -44,7 +40,6 @@
 
   --app-motion-duration-fast: 120ms;
   --app-motion-duration-standard: 160ms;
-  --app-motion-duration-dialog: 200ms;
   --app-motion-duration-progress: 360ms;
   --app-motion-ease-out: cubic-bezier(0, 0, 0.2, 1);
   --app-transition-fast: var(--app-motion-duration-fast) var(--app-motion-ease-out);
@@ -56,7 +51,6 @@
   --app-desktop-content-gutter-x: 36px;
   --app-toolbar-button-size: 30px;
   --app-toolbar-primary-button-size: 38px;
-  --app-task-card-radius: 10px;
   --app-task-progress-rail: rgba(255, 255, 255, 0.1);
 
   --app-dialog-width: 720px;
@@ -88,12 +82,8 @@
   --app-text-danger: #b64040;
   --app-color-success: #4f9145;
 
-  --app-color-brand-navy: #dce9fa;
   --app-color-brand-deep: #e8eff8;
   --app-color-brand-blue: #285fbc;
-  --app-color-brand-blue-hover: #3374db;
-  --app-color-brand-blue-pressed: #204d98;
-  --app-color-brand-blue-suppl: #3374db;
   --app-color-brand-selected: #dce9fa;
   --app-color-on-brand: #ffffff;
 

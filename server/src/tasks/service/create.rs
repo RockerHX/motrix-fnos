@@ -46,7 +46,7 @@ impl<'a> TaskService<'a> {
                 TaskOperationType::Create,
                 "prepared",
                 TaskOperationContext {
-                    engine_generation: Some(config.engine_generation()),
+                    engine_generation: Some(crate::config::aria2::EngineGeneration::NativeV2),
                     ..task_operation_context(None, critical_paths)
                 },
             )
@@ -90,7 +90,7 @@ impl<'a> TaskService<'a> {
                 task_id,
                 prepared,
                 gid,
-                config.engine_generation(),
+                crate::config::aria2::EngineGeneration::NativeV2,
             ) {
                 Ok(task) => task,
                 Err(error) => {
@@ -166,7 +166,7 @@ impl<'a> TaskService<'a> {
                 TaskOperationType::Create,
                 "prepared",
                 TaskOperationContext {
-                    engine_generation: Some(config.engine_generation()),
+                    engine_generation: Some(crate::config::aria2::EngineGeneration::NativeV2),
                     ..task_operation_context(None, vec![prepared.save_dir.clone()])
                 },
             )
@@ -228,7 +228,7 @@ impl<'a> TaskService<'a> {
             task_id,
             prepared,
             gid,
-            config.engine_generation(),
+            crate::config::aria2::EngineGeneration::NativeV2,
         ) {
             let gid = operation.context.new_gid.as_deref().unwrap_or_default();
             let _ = remove_task(self.aria2_rpc, config, gid, Some(self.debug_logs)).await;

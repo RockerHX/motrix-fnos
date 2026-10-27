@@ -13,6 +13,14 @@ pub struct AppCompatibility {
 }
 
 impl AppCompatibility {
+    pub(crate) fn for_engine(generation: EngineGeneration) -> Self {
+        match generation {
+            EngineGeneration::NativeV2 => Self::normal(generation),
+            EngineGeneration::LegacyV1 => Self::restricted(generation, "engine_unsupported"),
+            EngineGeneration::Unknown => Self::restricted(generation, "engine_unknown"),
+        }
+    }
+
     pub fn normal(generation: EngineGeneration) -> Self {
         Self {
             engine_generation: generation,

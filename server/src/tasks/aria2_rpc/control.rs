@@ -53,11 +53,7 @@ pub async fn pause_task_with_request_id(
     )
     .await
     .map_err(|error| {
-        if config.state_dir.is_some() {
-            format!("task_pause_unconfirmed：{error}；未确认引擎停止写入，已保留原任务和文件，请停止并重启应用后核对")
-        } else {
-            error
-        }
+        format!("task_pause_unconfirmed：{error}；未确认引擎停止写入，已保留原任务和文件，请停止并重启应用后核对")
     })
 }
 
@@ -290,9 +286,7 @@ pub(crate) async fn send_gid_control_request(
     {
         Ok(result_gid)
             if !result_gid.trim().is_empty()
-                && (config.engine_generation()
-                    != crate::config::aria2::EngineGeneration::NativeV2
-                    || result_gid == gid
+                && (result_gid == gid
                     || (method == "aria2.removeDownloadResult" && result_gid == "OK")) =>
         {
             result_gid

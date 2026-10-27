@@ -1,4 +1,4 @@
-import { defineComponent, h } from "vue";
+import { defineComponent, h, nextTick } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { naiveUiStubs } from "../../../test/mount";
@@ -20,6 +20,7 @@ vi.mock("naive-ui", () => ({
 }));
 
 import DebugLogList from "./DebugLogList.vue";
+import { setLanguage } from "../../../i18n";
 
 const repeatedLog: DebugLogEntry = {
   id: 1,
@@ -33,6 +34,23 @@ const repeatedLog: DebugLogEntry = {
 };
 
 describe("DebugLogList", () => {
+  it("updates category labels with the language and preserves unknown categories", async () => {
+    const wrapper = mount(DebugLogList, {
+      props: { logs: [{ ...repeatedLog, category: "settings" }, { ...repeatedLog, id: 2, category: "constructor" as DebugLogEntry["category"] }], totalCount: 2, active: true },
+    });
+    expect(wrapper.text()).toContain("设置");
+    expect(wrapper.text()).toContain("constructor");
+    try {
+      setLanguage("en-US");
+      await nextTick();
+      expect(wrapper.text()).toContain("Settings");
+      expect(wrapper.text()).toContain("constructor");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
+  });
+
   it("renders level, category, repeat metadata and message", () => {
     const wrapper = mount(DebugLogList, {
       props: { logs: [repeatedLog], totalCount: 1, active: true },

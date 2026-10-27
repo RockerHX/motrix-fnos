@@ -432,34 +432,11 @@ pub(crate) fn save_restore_torrent_metadata(
     Ok(path)
 }
 
-pub(crate) fn archive_task_torrent_metadata(
-    app_data_dir: &Path,
-    task: &DownloadTask,
-) -> Result<PathBuf, String> {
-    let target = restore_torrent_path(app_data_dir, task.id);
-    if target.is_file() {
-        return Ok(target);
-    }
-    let source = find_saved_torrent_metadata_path(task)?;
-    let data = fs::read(&source).map_err(|error| {
-        format!(
-            "读取待归档种子 metadata 失败：{}（{}）",
-            source.display(),
-            error
-        )
-    })?;
-    save_restore_torrent_metadata(app_data_dir, task.id, &data)
-}
-
 pub(crate) fn remove_restore_metadata(app_data_dir: &Path, task_id: u64) {
     let metadata_dir = restore_metadata_dir(app_data_dir, task_id);
     if metadata_dir.is_dir() {
         let _ = fs::remove_dir_all(metadata_dir);
     }
-}
-
-pub(crate) fn restore_torrent_path(app_data_dir: &Path, task_id: u64) -> PathBuf {
-    restore_metadata_dir(app_data_dir, task_id).join(RESTORE_TORRENT_FILE)
 }
 
 fn restore_metadata_dir(app_data_dir: &Path, task_id: u64) -> PathBuf {

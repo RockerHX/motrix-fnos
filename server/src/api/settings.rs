@@ -1,22 +1,20 @@
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
-use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::settings::proxy::{
     delete_download_proxy_for_engine, load_download_proxy_status, update_download_proxy,
     DownloadProxyMutationResponse, DownloadProxyServiceContext, DownloadProxyServiceError,
     DownloadProxyStatus,
 };
 use crate::settings::service::{
-    save_app_config, save_json_rpc_token, save_lan_json_rpc_config, AppConfig, LanJsonRpcConfig,
+    update_app_config, update_lan_json_rpc_config, update_public_rpc_token, AppConfig,
+    AppConfigUpdateError, LanJsonRpcConfig, LanJsonRpcUpdate, LanJsonRpcUpdateError,
+    RuntimeApplyStatus,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -82,14 +80,6 @@ pub struct LanJsonRpcMutationResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum RuntimeApplyStatus {
-    Applied,
-    Deferred,
-    Failed,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateSettingsResponse {
     #[serde(flatten)]
     pub config: AppConfig,
@@ -104,19 +94,10 @@ async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
 async fn get_download_proxy(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<DownloadProxyStatus>, ApiError> {
-    let mut status = load_download_proxy_status(&state.core.database.pool)
+    load_download_proxy_status(&state.core.database.pool, &state.aria2_lifecycle)
         .await
-        .map_err(classify_download_proxy_error)?;
-    if status.bt_runtime_apply != crate::database::settings::BtRuntimeApplyStatus::Blocked
-        && state
-            .aria2_lifecycle
-            .snapshot()
-            .map(|snapshot| snapshot.phase != crate::runtime::Aria2LifecyclePhase::Ready)
-            .unwrap_or(true)
-    {
-        status.bt_runtime_apply = crate::database::settings::BtRuntimeApplyStatus::Deferred;
-    }
-    Ok(Json(status))
+        .map(Json)
+        .map_err(classify_download_proxy_error)
 }
 
 async fn put_download_proxy(
@@ -125,7 +106,7 @@ async fn put_download_proxy(
 ) -> Result<Json<DownloadProxyMutationResponse>, ApiError> {
     let (proxy_url, bt_use_proxy) = parse_download_proxy_update(payload)?;
     let aria2_config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
-    let task_service = crate::api::build_task_service(&state);
+    let task_service = state.task_service();
     update_download_proxy(
         DownloadProxyServiceContext {
             pool: &state.core.database.pool,
@@ -153,7 +134,7 @@ async fn clear_download_proxy(
         &state.core.download_tasks,
         &state.download_proxy_update_lock,
         &state.core.debug_logs,
-        Some(state.aria2_config().engine_generation()),
+        Some(crate::config::aria2::EngineGeneration::NativeV2),
     )
     .await
     .map(|()| StatusCode::NO_CONTENT)
@@ -166,24 +147,15 @@ async fn update_settings(
 ) -> Result<Json<UpdateSettingsResponse>, ApiError> {
     let payload = crate::settings::service::parse_app_config_request(payload)
         .map_err(classify_settings_save_error)?;
-    let accessible_paths = accessible_paths(&state)?;
-    let default_download_dir =
-        crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
-            .display()
-            .to_string();
-    let config = save_app_config(
-        &state.core.database.pool,
-        payload,
-        &default_download_dir,
-        &accessible_paths,
-        &state.runtime.app_data_dir,
-    )
-    .await
-    .map_err(classify_settings_save_error)?;
-    state.set_app_config(config.clone()).await;
-    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
-    state.core.debug_logs.info("settings", "应用配置已保存");
-    let runtime_apply = apply_runtime_download_config(&state, &config).await;
+    let (config, runtime_apply) =
+        update_app_config(&state, payload)
+            .await
+            .map_err(|error| match error {
+                AppConfigUpdateError::AccessiblePaths(message) => {
+                    ApiError::internal("accessible_paths_load_failed", message)
+                }
+                AppConfigUpdateError::Save(message) => classify_settings_save_error(message),
+            })?;
     Ok(Json(UpdateSettingsResponse {
         config,
         runtime_apply: Some(runtime_apply),
@@ -205,32 +177,15 @@ async fn update_lan_json_rpc(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<UpdateLanJsonRpcRequest>,
 ) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
-    let mut current = state.lan_json_rpc_config.write().await;
-    let mut next = current.clone();
-    let issued_token = if payload.enabled && next.token.is_empty() {
-        let token = generate_lan_json_rpc_token()?;
-        next.token = token.clone();
-        Some(token)
-    } else {
-        None
-    };
-    next.enabled = payload.enabled;
-    if let Some(allow_shared_address_space) = payload.allow_shared_address_space {
-        next.allow_shared_address_space = allow_shared_address_space;
-    }
-    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
-        .await
-        .map_err(|error| ApiError::internal("lan_jsonrpc_save_failed", error))?;
-    *current = persisted.clone();
-    state.notify_lan_json_rpc_config_changed();
-    state.core.debug_logs.info(
-        "settings.jsonrpc_lan",
-        if persisted.enabled {
-            "局域网 JSON-RPC 入口已启用"
-        } else {
-            "局域网 JSON-RPC 入口已关闭"
+    let (persisted, issued_token) = update_lan_json_rpc_config(
+        &state,
+        LanJsonRpcUpdate::Settings {
+            enabled: payload.enabled,
+            allow_shared_address_space: payload.allow_shared_address_space,
         },
-    );
+    )
+    .await
+    .map_err(|error| classify_lan_json_rpc_error(error, "lan_jsonrpc_save_failed"))?;
     Ok(Json(LanJsonRpcMutationResponse {
         status: lan_json_rpc_status(&state, &persisted),
         issued_token,
@@ -240,25 +195,13 @@ async fn update_lan_json_rpc(
 async fn rotate_lan_json_rpc_token(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
-    let mut current = state.lan_json_rpc_config.write().await;
-    let token = generate_lan_json_rpc_token()?;
-    let next = LanJsonRpcConfig {
-        enabled: current.enabled,
-        token: token.clone(),
-        allow_shared_address_space: current.allow_shared_address_space,
-    };
-    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
-        .await
-        .map_err(|error| ApiError::internal("lan_jsonrpc_token_save_failed", error))?;
-    *current = persisted.clone();
-    state.notify_lan_json_rpc_config_changed();
-    state
-        .core
-        .debug_logs
-        .info("settings.jsonrpc_lan", "局域网 JSON-RPC Token 已轮换");
+    let (persisted, issued_token) =
+        update_lan_json_rpc_config(&state, LanJsonRpcUpdate::RotateToken)
+            .await
+            .map_err(|error| classify_lan_json_rpc_error(error, "lan_jsonrpc_token_save_failed"))?;
     Ok(Json(LanJsonRpcMutationResponse {
         status: lan_json_rpc_status(&state, &persisted),
-        issued_token: Some(token),
+        issued_token,
     }))
 }
 
@@ -266,14 +209,9 @@ async fn update_json_rpc_token(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<UpdateJsonRpcTokenRequest>,
 ) -> Result<Json<JsonRpcTokenStatus>, ApiError> {
-    let token = save_json_rpc_token(&state.core.database.pool, &payload.token)
+    let token = update_public_rpc_token(&state, &payload.token)
         .await
         .map_err(|error| ApiError::internal("jsonrpc_token_save_failed", error))?;
-    state.remember_json_rpc_token(&token);
-    state
-        .core
-        .debug_logs
-        .info("settings.jsonrpc", "JSON-RPC Token 已更新");
     Ok(Json(json_rpc_token_status(&token)))
 }
 
@@ -308,21 +246,17 @@ fn lan_json_rpc_status(state: &HttpAppState, config: &LanJsonRpcConfig) -> LanJs
     }
 }
 
-fn generate_lan_json_rpc_token() -> Result<String, ApiError> {
-    let mut bytes = [0_u8; 32];
-    OsRng.try_fill_bytes(&mut bytes).map_err(|error| {
-        ApiError::internal("lan_jsonrpc_token_generate_failed", error.to_string())
-    })?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
+fn classify_lan_json_rpc_error(error: LanJsonRpcUpdateError, save_code: &'static str) -> ApiError {
+    match error {
+        LanJsonRpcUpdateError::Generate(message) => {
+            ApiError::internal("lan_jsonrpc_token_generate_failed", message)
+        }
+        LanJsonRpcUpdateError::Save(message) => ApiError::internal(save_code, message),
+    }
 }
 
 #[cfg(test)]
 mod tests;
-
-fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
-    crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
-        .map_err(|error| ApiError::internal("accessible_paths_load_failed", error))
-}
 
 fn classify_settings_save_error(error: String) -> ApiError {
     for code in [
@@ -417,60 +351,4 @@ fn parse_download_proxy_update(
         None
     };
     Ok((proxy_url, bt_use_proxy))
-}
-
-async fn apply_runtime_download_config(
-    state: &HttpAppState,
-    config: &AppConfig,
-) -> RuntimeApplyStatus {
-    let _activity = match state.aria2_lifecycle.acquire_activity() {
-        Ok(activity) => activity,
-        Err(error) => {
-            state.core.debug_logs.warn(
-                "settings",
-                format!(
-                    "Aria2 生命周期正在转换，下载配置将在下次启动后生效：{}",
-                    error
-                ),
-            );
-            return RuntimeApplyStatus::Deferred;
-        }
-    };
-    let aria2_config = state.aria2_config();
-    let status = ping_rpc(&state.aria2_rpc, &aria2_config, None).await;
-    if !status.connected {
-        state.core.debug_logs.warn(
-            "settings",
-            format!(
-                "Aria2 RPC 未就绪，下载配置将在下次启动后生效：{}",
-                status.message
-            ),
-        );
-        return RuntimeApplyStatus::Deferred;
-    }
-
-    let options = global_options_from_values(
-        config.max_concurrent_downloads,
-        config.download_limit,
-        config.upload_limit,
-        config.http_max_connections,
-        config.connect_timeout,
-        config.max_tries,
-    );
-    if let Err(error) = apply_global_options(
-        &state.aria2_rpc,
-        &aria2_config,
-        &options,
-        Some(&state.core.debug_logs),
-    )
-    .await
-    {
-        state
-            .core
-            .debug_logs
-            .warn("settings", format!("即时应用下载配置失败：{}", error));
-        RuntimeApplyStatus::Failed
-    } else {
-        RuntimeApplyStatus::Applied
-    }
 }

@@ -1,17 +1,12 @@
 use super::*;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
-use crate::config::aria2::Aria2BinarySource;
-use crate::runtime::ManagedAria2Process;
 use crate::tasks::{DownloadTask, DownloadTaskStatus};
+use crate::test_support::{test_path as temp_dir, TestAppState};
 use axum::extract::State;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -96,9 +91,8 @@ async fn rpc_failure_enters_backoff_and_logs_one_summary_per_window() {
         .iter()
         .any(|entry| entry.module == "aria2.tellActive"));
 
-    cleanup_state(&state);
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
@@ -139,9 +133,8 @@ async fn auto_stop_session_failure_uses_same_backoff_and_silent_rpc_path() {
     );
     assert!(!logs.iter().any(|entry| entry.module == "aria2.session"));
 
-    cleanup_state(&state);
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
@@ -176,8 +169,8 @@ async fn retry_attempt_does_not_repeat_the_idle_debounce_window() {
         .iter()
         .any(|entry| entry.module == "aria2" || entry.module == "aria2.session"));
 
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
@@ -209,9 +202,8 @@ async fn monitor_recovery_clears_failure_and_logs_once() {
     assert_eq!(recovery_logs.len(), 1);
     assert_eq!(recovery_logs[0].repeat_count, 1);
 
-    cleanup_state(&state);
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
@@ -223,6 +215,12 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(sample_task(DownloadTaskStatus::Active)))
         .expect("tasks should lock");
+    crate::database::tasks::persist_download_task_states(
+        &state.core.database.pool,
+        &state.core.download_tasks.list().unwrap(),
+    )
+    .await
+    .unwrap();
     let mut receiver = state.runtime_events.subscribe();
 
     monitor_tasks_once(&state)
@@ -241,8 +239,8 @@ async fn monitor_tasks_once_broadcasts_snapshot_when_visible_tasks_change() {
         }
     }
 
-    cleanup_state(&state);
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[tokio::test]
@@ -277,8 +275,8 @@ async fn task_snapshot_revisions_strictly_increase() {
     assert_eq!(first_revision, 1);
     assert_eq!(second_revision, 2);
 
-    cleanup_state(&state);
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 #[test]
@@ -306,20 +304,7 @@ fn monitor_matrix_only_accepts_pending_or_active_tasks_with_a_gid() {
 
 #[tokio::test]
 async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
-    let app_data_dir = temp_dir("monitor-static-tasks");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
-        trusted_proxy_ips: Vec::new(),
-    };
-    let state = bootstrap_http_app_state(&runtime)
-        .await
-        .expect("state should bootstrap");
+    let state = TestAppState::new("monitor-static-tasks").await;
 
     state
         .core
@@ -351,8 +336,7 @@ async fn static_tasks_do_not_start_aria2_without_session_or_runtime() {
         .expect("process lock should succeed")
         .is_none());
 
-    state.core.database.pool.close().await;
-    let _ = std::fs::remove_dir_all(app_data_dir);
+    state.close().await;
 }
 
 #[tokio::test]
@@ -385,14 +369,14 @@ async fn auto_stop_allows_missing_metadata_record_and_clears_runtime() {
         .expect("process lock should succeed")
         .is_none());
 
-    state.core.database.pool.close().await;
-    mock.abort();
+    mock.abort().await;
+    state.close().await;
 }
 
 fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/archive.zip".to_string(),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -420,83 +404,13 @@ fn sample_task(status: DownloadTaskStatus) -> DownloadTask {
     }
 }
 
-async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
-    let app_data_dir = temp_dir("monitor-state");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
-        trusted_proxy_ips: Vec::new(),
-    };
-    let state = bootstrap_http_app_state(&runtime)
-        .await
-        .expect("state should bootstrap");
-    let child = spawn_sleep_child();
-    let pid = child.id();
-    let config = crate::aria2::runtime_config(
-        &state.base_aria2_config,
-        mock.addr.port(),
-        "secret".to_string(),
-    );
+async fn ready_state(mock: &MockAria2Server) -> TestAppState {
+    let state = TestAppState::with_rpc("task_monitor", mock.addr.port()).await;
     state
-        .set_aria2_runtime(state.build_aria2_runtime_info(
-            pid,
-            &config,
-            Aria2BinarySource::ExternalPath,
-            vec!["--mock".to_string()],
-        ))
-        .expect("runtime should persist");
-    *state
-        .aria2_process
-        .lock()
-        .expect("process lock should succeed") = Some(ManagedAria2Process::new(
-        child,
-        Aria2BinarySource::ExternalPath,
-    ));
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .unwrap();
     state
-}
-
-fn cleanup_state(state: &Arc<HttpAppState>) {
-    let _ = crate::runtime::stop_process(&state.aria2_process, &state.core.debug_logs);
-    state
-        .clear_aria2_runtime()
-        .expect("runtime record should clear");
-}
-
-fn temp_dir(label: &str) -> PathBuf {
-    let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "motrix-fnos-{}-{}-{}-{}",
-        label,
-        std::process::id(),
-        counter,
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time should be valid")
-            .as_nanos()
-    ))
-}
-
-static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(unix)]
-fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("sh")
-        .args(["-c", "sleep 30"])
-        .spawn()
-        .expect("sleep child should spawn")
-}
-
-#[cfg(windows)]
-fn spawn_sleep_child() -> std::process::Child {
-    std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "Start-Sleep -Seconds 30"])
-        .spawn()
-        .expect("sleep child should spawn")
 }
 
 struct MockAria2Server {
@@ -548,8 +462,9 @@ impl MockAria2Server {
             .unwrap_or_default()
     }
 
-    fn abort(self) {
+    async fn abort(self) {
         self.handle.abort();
+        let _ = self.handle.await;
     }
 }
 
@@ -615,7 +530,7 @@ async fn mock_aria2_rpc(
         .unwrap_or_default();
 
     Json(match method {
-        "aria2.getVersion" => json!({ "result": { "version": "1.37.0" } }),
+        "aria2.getVersion" => json!({ "result": { "version": "2.8.6" } }),
         "aria2.tellStatus" => {
             let gid = gid_param(&params);
             let task = state
@@ -645,6 +560,7 @@ async fn mock_aria2_rpc(
             json!({ "result": gid })
         }
         "aria2.saveSession" => json!({ "result": "OK" }),
+        "aria2.tellActive" => json!({ "result": [] }),
         _ => json!({ "result": "ok" }),
     })
 }

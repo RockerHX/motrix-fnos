@@ -6,10 +6,8 @@ use super::methods::{
 };
 use super::types::RpcFault;
 use super::JsonRpcAccess;
+use crate::app::bootstrap_http_app_state;
 use crate::app::HttpAppState;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
 use crate::debug_logs::DebugLogLevel;
 use crate::runtime::{auto_stop_aria2, stop_aria2, stop_process, ManagedAria2Process};
 use crate::settings::service::save_json_rpc_token;
@@ -20,6 +18,7 @@ use axum::http::{Request, StatusCode};
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+#[cfg(windows)]
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -544,7 +543,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
                 axum::Json(json!({
                     "jsonrpc": "2.0",
                     "id": "motrix-fnos-version-check",
-                    "result": { "version": "2.5.5" }
+                    "result": { "version": "2.8.6" }
                 }))
             }),
         );
@@ -580,7 +579,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
         let result = execute_method(&state, "aria2.getVersion", &json!([]))
             .await
             .expect("running Aria2 should return its version");
-        assert_eq!(result["version"], "2.5.5");
+        assert_eq!(result["version"], "2.8.6");
         assert_eq!(result["enabledFeatures"], json!([]));
     }
     assert_eq!(capture.contents(), "");
@@ -595,7 +594,7 @@ async fn get_version_returns_real_version_for_confirmed_running_aria2() {
     let cached_result = execute_method(&state, "aria2.getVersion", &json!([]))
         .await
         .expect("stopped Aria2 should return the last observed version");
-    assert_eq!(cached_result["version"], "2.5.5");
+    assert_eq!(cached_result["version"], "2.8.6");
     assert_eq!(cached_result["enabledFeatures"], json!([]));
 
     server.abort();
@@ -1054,7 +1053,7 @@ async fn stopped_get_version_keeps_http_websocket_and_multicall_contract_consist
                 let requests = requests_for_handler.clone();
                 async move {
                     requests.fetch_add(1, Ordering::SeqCst);
-                    axum::Json(json!({ "result": { "version": "2.5.5" } }))
+                    axum::Json(json!({ "result": { "version": "2.8.6" } }))
                 }
             }),
         );
@@ -1518,16 +1517,7 @@ async fn websocket_shutdown_closes_idle_connections_and_returns_their_quota() {
 
 async fn test_state() -> Arc<HttpAppState> {
     let app_data_dir = temp_dir("jsonrpc-api");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: None,
-        trusted_proxy_ips: Vec::new(),
-    };
+    let runtime = crate::test_support::test_runtime(&app_data_dir);
 
     bootstrap_http_app_state(&runtime)
         .await
@@ -1547,13 +1537,14 @@ async fn lifecycle_race_rpc(
 ) -> axum::Json<Value> {
     match payload.get("method").and_then(Value::as_str) {
         Some("aria2.getVersion") => axum::Json(json!({
-            "result": { "version": "2.5.5" }
+            "result": { "version": "2.8.6" }
         })),
         Some("aria2.addUri") => {
             state.add_uri_started.notify_one();
             state.release_add_uri.notified().await;
             axum::Json(json!({ "result": "gid-race" }))
         }
+        Some("aria2.tellActive") => axum::Json(json!({"result": []})),
         Some("aria2.saveSession") => {
             state.save_session_started.notify_one();
             state.release_save_session.notified().await;
@@ -1567,7 +1558,7 @@ async fn protocol_regression_rpc(axum::Json(payload): axum::Json<Value>) -> axum
     match payload.get("method").and_then(Value::as_str) {
         Some("aria2.addUri") => axum::Json(json!({ "result": "gid-protocol" })),
         Some("aria2.getVersion") => axum::Json(json!({
-            "result": { "version": "2.5.5" }
+            "result": { "version": "2.8.6" }
         })),
         Some(method) => axum::Json(json!({
             "error": { "message": format!("unexpected method: {method}") }
@@ -1750,11 +1741,8 @@ fn temp_dir(label: &str) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn spawn_long_running_child() -> Child {
-    Command::new("sh")
-        .args(["-c", "sleep 10"])
-        .spawn()
-        .expect("shell should spawn")
+fn spawn_long_running_child() -> std::process::Child {
+    crate::test_support::spawn_graceful_engine_child()
 }
 
 #[cfg(windows)]

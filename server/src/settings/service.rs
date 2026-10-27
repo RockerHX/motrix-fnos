@@ -1,7 +1,12 @@
+use crate::app::HttpAppState;
+use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::database::settings::{get_app_config_value, set_app_config_value};
 use crate::storage::validate_default_download_dir;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use sqlx::{Executor, Sqlite, SqlitePool};
 use std::path::Path;
 
 const APP_CONFIG_KEY: &str = "download";
@@ -87,15 +92,23 @@ pub async fn save_app_config(
 ) -> Result<AppConfig, String> {
     let config = normalize_app_config(payload, default_download_dir)?;
     validate_default_download_dir(&config.default_download_dir, accessible_paths, app_data_dir)?;
-    let json_rpc_token = load_stored_app_config(pool, default_download_dir)
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| format!("启动下载配置更新事务失败：{error}"))?;
+    let json_rpc_token = load_stored_app_config(&mut *transaction, default_download_dir)
         .await?
         .json_rpc_token;
     set_app_config_value(
-        pool,
+        &mut *transaction,
         APP_CONFIG_KEY,
         &StoredAppConfig::from_public(config.clone(), json_rpc_token),
     )
     .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交下载配置更新失败：{error}"))?;
     Ok(config)
 }
 
@@ -106,9 +119,17 @@ pub async fn load_json_rpc_token(pool: &SqlitePool) -> Result<String, String> {
 }
 
 pub async fn save_json_rpc_token(pool: &SqlitePool, token: &str) -> Result<String, String> {
-    let mut config = load_stored_app_config(pool, "").await?;
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| format!("启动 RPC Token 更新事务失败：{error}"))?;
+    let mut config = load_stored_app_config(&mut *transaction, "").await?;
     config.json_rpc_token = token.trim().to_string();
-    set_app_config_value(pool, APP_CONFIG_KEY, &config).await?;
+    set_app_config_value(&mut *transaction, APP_CONFIG_KEY, &config).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交 RPC Token 更新失败：{error}"))?;
     Ok(config.json_rpc_token)
 }
 
@@ -167,11 +188,11 @@ fn default_app_config(default_download_dir: &str) -> Result<AppConfig, String> {
     })
 }
 
-async fn load_stored_app_config(
-    pool: &SqlitePool,
+async fn load_stored_app_config<'e>(
+    executor: impl Executor<'e, Database = Sqlite>,
     default_download_dir: &str,
 ) -> Result<StoredAppConfig, String> {
-    match get_app_config_value::<serde_json::Value>(pool, APP_CONFIG_KEY).await? {
+    match get_app_config_value::<serde_json::Value>(executor, APP_CONFIG_KEY).await? {
         Some(mut value) => {
             migrate_connection_settings(&mut value)?;
             let config =
@@ -289,3 +310,175 @@ fn normalize_language(language: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum RuntimeApplyStatus {
+    Applied,
+    Deferred,
+    Failed,
+}
+
+pub(crate) async fn update_app_config(
+    state: &HttpAppState,
+    payload: AppConfig,
+) -> Result<(AppConfig, RuntimeApplyStatus), AppConfigUpdateError> {
+    let accessible_paths =
+        crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+            .map_err(AppConfigUpdateError::AccessiblePaths)?;
+    let default_download_dir =
+        crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
+            .display()
+            .to_string();
+    let _update = state.settings_update_lock.lock().await;
+    let config = save_app_config(
+        &state.core.database.pool,
+        payload,
+        &default_download_dir,
+        &accessible_paths,
+        &state.runtime.app_data_dir,
+    )
+    .await
+    .map_err(AppConfigUpdateError::Save)?;
+    state.set_app_config(config.clone()).await;
+    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
+    state.core.debug_logs.info("settings", "应用配置已保存");
+    let runtime_apply = apply_runtime_download_config(state, &config).await;
+    Ok((config, runtime_apply))
+}
+
+#[derive(Debug)]
+pub(crate) enum AppConfigUpdateError {
+    AccessiblePaths(String),
+    Save(String),
+}
+
+pub(crate) async fn update_public_rpc_token(
+    state: &HttpAppState,
+    token: &str,
+) -> Result<String, String> {
+    let _update = state.settings_update_lock.lock().await;
+    let token = save_json_rpc_token(&state.core.database.pool, token).await?;
+    state.remember_json_rpc_token(&token);
+    state
+        .core
+        .debug_logs
+        .info("settings.jsonrpc", "JSON-RPC Token 已更新");
+    Ok(token)
+}
+
+pub(crate) enum LanJsonRpcUpdate {
+    Settings {
+        enabled: bool,
+        allow_shared_address_space: Option<bool>,
+    },
+    RotateToken,
+}
+
+#[derive(Debug)]
+pub(crate) enum LanJsonRpcUpdateError {
+    Generate(String),
+    Save(String),
+}
+
+pub(crate) async fn update_lan_json_rpc_config(
+    state: &HttpAppState,
+    update: LanJsonRpcUpdate,
+) -> Result<(LanJsonRpcConfig, Option<String>), LanJsonRpcUpdateError> {
+    let mut current = state.lan_json_rpc_config.write().await;
+    let mut next = current.clone();
+    let (issue_token, message) = match update {
+        LanJsonRpcUpdate::Settings {
+            enabled,
+            allow_shared_address_space,
+        } => {
+            next.enabled = enabled;
+            if let Some(allow) = allow_shared_address_space {
+                next.allow_shared_address_space = allow;
+            }
+            (
+                enabled && next.token.is_empty(),
+                if enabled {
+                    "局域网 JSON-RPC 入口已启用"
+                } else {
+                    "局域网 JSON-RPC 入口已关闭"
+                },
+            )
+        }
+        LanJsonRpcUpdate::RotateToken => (true, "局域网 JSON-RPC Token 已轮换"),
+    };
+    let issued_token = if issue_token {
+        let mut bytes = [0_u8; 32];
+        OsRng
+            .try_fill_bytes(&mut bytes)
+            .map_err(|error| LanJsonRpcUpdateError::Generate(error.to_string()))?;
+        let token = URL_SAFE_NO_PAD.encode(bytes);
+        next.token = token.clone();
+        Some(token)
+    } else {
+        None
+    };
+    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
+        .await
+        .map_err(LanJsonRpcUpdateError::Save)?;
+    *current = persisted.clone();
+    state.notify_lan_json_rpc_config_changed();
+    state.core.debug_logs.info("settings.jsonrpc_lan", message);
+    Ok((persisted, issued_token))
+}
+
+async fn apply_runtime_download_config(
+    state: &HttpAppState,
+    config: &AppConfig,
+) -> RuntimeApplyStatus {
+    let _activity = match state.aria2_lifecycle.acquire_activity() {
+        Ok(activity) => activity,
+        Err(error) => {
+            state.core.debug_logs.warn(
+                "settings",
+                format!(
+                    "Aria2 生命周期正在转换，下载配置将在下次启动后生效：{}",
+                    error
+                ),
+            );
+            return RuntimeApplyStatus::Deferred;
+        }
+    };
+    let aria2_config = state.aria2_config();
+    let status = ping_rpc(&state.aria2_rpc, &aria2_config, None).await;
+    if !status.connected {
+        state.core.debug_logs.warn(
+            "settings",
+            format!(
+                "Aria2 RPC 未就绪，下载配置将在下次启动后生效：{}",
+                status.message
+            ),
+        );
+        return RuntimeApplyStatus::Deferred;
+    }
+
+    let options = global_options_from_values(
+        config.max_concurrent_downloads,
+        config.download_limit,
+        config.upload_limit,
+        config.http_max_connections,
+        config.connect_timeout,
+        config.max_tries,
+    );
+    if let Err(error) = apply_global_options(
+        &state.aria2_rpc,
+        &aria2_config,
+        &options,
+        Some(&state.core.debug_logs),
+    )
+    .await
+    {
+        state
+            .core
+            .debug_logs
+            .warn("settings", format!("即时应用下载配置失败：{}", error));
+        RuntimeApplyStatus::Failed
+    } else {
+        RuntimeApplyStatus::Applied
+    }
+}

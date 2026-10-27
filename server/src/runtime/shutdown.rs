@@ -1,10 +1,7 @@
 use crate::app::HttpAppState;
 use crate::aria2::save_session;
 use crate::database::tasks::persist_download_task_states;
-use crate::tasks::{
-    list_tasks, mark_unfinished_tasks_paused, pause_task, refresh_tasks_from_aria2,
-    should_pause_task_on_exit,
-};
+use crate::tasks::{list_tasks, mark_unfinished_tasks_paused, refresh_tasks_from_aria2};
 use std::sync::Arc;
 use tokio::time::{timeout_at, Duration, Instant};
 
@@ -117,8 +114,7 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String>
     let config = state.aria2_config();
     match refresh_tasks_from_aria2(
         &state.core.download_tasks,
-        &state.runtime.app_data_dir,
-        &state.runtime.accessible_paths_path,
+        &state.core.database.pool,
         &state.aria2_rpc,
         &config,
         Some(&state.core.debug_logs),
@@ -136,12 +132,9 @@ async fn sync_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String>
 }
 
 async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) -> Result<(), String> {
-    let tasks = list_tasks(&state.core.download_tasks)?;
     let config = state.aria2_config();
     let has_runtime = state.aria2_runtime_snapshot().is_some();
-    let native = config.state_dir.is_some();
-    let mut errors = Vec::new();
-    if has_runtime && native {
+    if has_runtime {
         let body = serde_json::json!({
             "jsonrpc": "2.0", "id": "motrix-fnos-exit-pause-all", "method": "aria2.forcePauseAll",
             "params": [format!("token:{}", config.rpc_secret)],
@@ -155,28 +148,11 @@ async fn pause_unfinished_tasks_before_exit(state: &Arc<HttpAppState>) -> Result
         if paused != "OK" {
             return Err("退出前无法确认引擎已暂停，保留最后状态".to_string());
         }
-    } else if has_runtime {
-        for task in tasks.iter().filter(|task| should_pause_task_on_exit(task)) {
-            if let Some(gid) = task.gid.as_deref() {
-                if let Err(error) =
-                    pause_task(&state.aria2_rpc, &config, gid, Some(&state.core.debug_logs)).await
-                {
-                    errors.push(format!(
-                        "退出前 RPC 暂停任务失败，仍会把任务保存为暂停态，ID {}：{error}",
-                        task.id
-                    ));
-                }
-            }
-        }
     }
     mark_unfinished_tasks_paused(&state.core.download_tasks)?;
     persist_last_known_tasks(state).await?;
     let _ = super::task_monitor::broadcast_tasks_snapshot(state);
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("；"))
-    }
+    Ok(())
 }
 
 async fn save_aria2_session_before_exit(state: &Arc<HttpAppState>) -> Result<(), String> {
@@ -201,7 +177,7 @@ async fn persist_compatible_tasks(
     state: &Arc<HttpAppState>,
     tasks: &[crate::tasks::DownloadTask],
 ) -> Result<(), String> {
-    let generation = state.aria2_config().engine_generation();
+    let generation = crate::config::aria2::EngineGeneration::NativeV2;
     let compatible = tasks
         .iter()
         .filter(|task| task.engine_generation == generation)

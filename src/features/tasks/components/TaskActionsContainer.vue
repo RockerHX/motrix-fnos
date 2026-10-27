@@ -22,17 +22,10 @@ import type {
 } from "./taskActionViewModel";
 import type { TaskFileAvailability, TaskFileContextResponse } from "../../../types/tasks";
 
-const props = withDefaults(
-  defineProps<{
-    task: DownloadTask;
-    compact?: boolean;
-    variant?: "text" | "icon-pill";
-  }>(),
-  {
-    compact: false,
-    variant: "text",
-  },
-);
+const props = defineProps<{
+  task: DownloadTask;
+  mode: "desktop" | "mobile";
+}>();
 
 const taskStore = useTaskStore();
 const message = useMessage();
@@ -168,21 +161,21 @@ async function confirmRedownloadTask(useProxy: boolean) {
   }
 }
 
-async function confirmDeleteTask(deleteFiles: boolean) {
+async function confirmDeleteTask() {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.deleteTask(props.task.id, deleteFiles);
-    message.success(deleteFiles ? t("task.actions.deletedWithFiles") : t("task.actions.deleted"));
+    await taskStore.deleteTask(props.task.id);
+    message.success(t("task.actions.deleted"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
   }
 }
 
-async function confirmPermanentDeleteTask() {
+async function confirmPermanentDeleteTask(deleteFiles: boolean) {
   if (!ensureCanOperate()) return;
   try {
-    await taskStore.permanentlyDeleteTask(props.task.id);
-    message.success(t("task.actions.permanentlyDeleted"));
+    const pending = await taskStore.permanentlyDeleteTask(props.task.id, deleteFiles);
+    message.success(t(pending ? "task.actions.cleanupSubmitted" : "task.actions.permanentlyDeleted"));
   } catch (error) {
     message.error(getErrorMessage(error, t("task.operationFailed")));
   }
@@ -287,8 +280,7 @@ function formatTimestamp(timestamp: number) {
 <template>
   <TaskActions
     :task="props.task"
-    :compact="props.compact"
-    :variant="props.variant"
+    :mode="props.mode"
     :state="actionState"
     :permissions="permissions"
     :labels="labels"

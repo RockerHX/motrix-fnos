@@ -1,4 +1,3 @@
-use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
@@ -11,6 +10,7 @@ use crate::tasks::{
 use axum::body::Bytes;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use std::sync::Arc;
@@ -52,7 +52,8 @@ async fn get_task_file_context(
     Query(query): Query<request::TaskFileContextQuery>,
 ) -> Result<Json<TaskFileContextResponse>, ApiError> {
     let language = super::storage::parse_display_language(query.language.as_deref())?;
-    let task = build_task_service(&state)
+    let task = state
+        .task_service()
         .get_download_task(task_id)
         .map_err(|error| ApiError::internal("task_file_context_failed", error))?
         .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
@@ -105,7 +106,7 @@ async fn list_tasks(
     State(state): State<Arc<HttpAppState>>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<PublicDownloadTask>>, ApiError> {
-    let service = build_task_service(&state);
+    let service = state.task_service();
     if matches!(query.filter()?, ListTasksFilter::Removed) {
         let tasks = service
             .list_removed_download_tasks()
@@ -113,7 +114,7 @@ async fn list_tasks(
         let operations =
             crate::database::task_operations::list_unfinished_task_operations_for_engine(
                 &state.core.database.pool,
-                state.aria2_config().engine_generation(),
+                crate::config::aria2::EngineGeneration::NativeV2,
             )
             .await
             .map_err(classify_task_error)?;
@@ -155,7 +156,8 @@ async fn create_task(
     ApiJson(payload): ApiJson<CreateDownloadTaskRequest>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     validate_create_preconditions(&state, payload.save_dir.as_deref())?;
-    build_task_service(&state)
+    state
+        .task_service()
         .validate_create_task_proxy(
             payload.source_type,
             &payload.advanced_options,
@@ -201,7 +203,8 @@ async fn create_batch_tasks(
             Json(CreateBatchDownloadTasksResponse { created, failed }),
         ));
     }
-    if let Err(error) = build_task_service(&state)
+    if let Err(error) = state
+        .task_service()
         .validate_create_task_proxy(
             DownloadTaskSourceType::Url,
             &payload.advanced_options,
@@ -273,7 +276,8 @@ async fn create_torrent_task(
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     let upload = parse_torrent_multipart(multipart, &state).await?;
     validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
-    build_task_service(&state)
+    state
+        .task_service()
         .validate_create_task_proxy(
             DownloadTaskSourceType::Torrent,
             &upload.request.advanced_options,
@@ -319,7 +323,7 @@ async fn update_task_proxy(
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<UpdateTaskProxyRequest>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let service = build_task_service(&state);
+    let service = state.task_service();
     let config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
     let task = service
         .update_download_task_proxy(config.as_ref(), task_id, payload.enabled)
@@ -414,41 +418,27 @@ async fn delete_task(
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
+    if query.delete_files == Some(true) {
+        return Err(ApiError::bad_request(
+            "task_delete_files_moved",
+            "移入回收站会保留下载文件；如需删除文件，请先移入回收站，再调用永久删除接口并设置 deleteFiles=true",
+        ));
+    }
     let context = TaskMutationContext::prepare_for_recycle(&state, task_id, false).await?;
     let task = context
         .service
-        .delete_download_task(
-            &context.config,
-            task_id,
-            query.delete_files.unwrap_or(false),
-        )
+        .delete_download_task(&context.config, task_id)
         .await
         .map_err(classify_task_error)?;
-    let mut response = context.finish(task)?;
-    if query.delete_files.unwrap_or(false) {
-        let operations =
-            crate::database::task_operations::list_unfinished_task_operations_for_engine(
-                &state.core.database.pool,
-                state.aria2_config().engine_generation(),
-            )
-            .await
-            .map_err(classify_task_error)?;
-        if operations
-            .iter()
-            .any(|operation| operation.task_id == task_id && operation.is_file_cleanup_pending())
-        {
-            response.0.cleanup_state = "pending".to_string();
-        }
-        spawn_file_cleanup_worker(Arc::clone(&state)).await;
-    }
-    Ok(response)
+    context.finish(task)
 }
 
 async fn permanently_delete_task(
     State(state): State<Arc<HttpAppState>>,
     Path(task_id): Path<u64>,
-) -> Result<StatusCode, ApiError> {
-    let service = build_task_service(&state);
+    Query(query): Query<DeleteTaskQuery>,
+) -> Result<Response, ApiError> {
+    let service = state.task_service();
     service
         .ensure_file_cleanup_not_pending(task_id)
         .await
@@ -461,6 +451,12 @@ async fn permanently_delete_task(
         return Err(classify_task_error(
             "只有已删除任务可以永久删除".to_string(),
         ));
+    }
+    let delete_files = query.delete_files.unwrap_or(false) && task.can_delete_download_files();
+    if delete_files {
+        service
+            .ensure_task_authorized(task_id)
+            .map_err(classify_task_error)?;
     }
     let has_gid = task
         .gid
@@ -479,18 +475,25 @@ async fn permanently_delete_task(
         .as_deref()
         .cloned()
         .unwrap_or_else(|| state.aria2_config());
-    service
-        .permanently_delete_removed_task(&config, task_id)
+    let pending = service
+        .permanently_delete_removed_task(&config, task_id, delete_files)
         .await
         .map_err(classify_task_error)?;
-    Ok(StatusCode::NO_CONTENT)
+    if let Some(task) = pending {
+        let mut public = state.public_task(task);
+        public.cleanup_state = "pending".to_string();
+        spawn_file_cleanup_worker(Arc::clone(&state)).await;
+        return Ok((StatusCode::ACCEPTED, Json(public)).into_response());
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 fn validate_create_preconditions(
     state: &HttpAppState,
     save_dir: Option<&str>,
 ) -> Result<(), ApiError> {
-    build_task_service(state)
+    state
+        .task_service()
         .ensure_not_exiting()
         .map_err(classify_task_error)?;
     validate_authorized_save_dir(state, save_dir)
@@ -504,7 +507,8 @@ fn reject_bt_task_proxy_override(
     if !proxy_field_present {
         return Ok(());
     }
-    let task = build_task_service(state)
+    let task = state
+        .task_service()
         .get_download_task(task_id)
         .map_err(classify_task_error)?
         .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;

@@ -49,7 +49,8 @@ export function useTaskToolbar({
   const clearTrashCandidates = computed(() =>
     activeCategory.value === "trash"
       ? (clearTrashTasks?.value ?? visibleTasks?.value ?? []).filter(
-          (task) => !task.readOnly && task.status === "removed" && !isTaskOperating(task.id),
+          (task) => !task.readOnly && task.status === "removed" && !isTaskOperating(task.id)
+            && (!task.cleanupState || task.cleanupState === "none"),
         )
       : [],
   );

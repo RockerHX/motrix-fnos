@@ -40,7 +40,7 @@ const { handleTaskDoubleClick } = useTaskStatusActions({ taskStore, message, t }
       <TaskErrorMessage :task="task" variant="multi-line" />
 
       <footer class="task-card-actions">
-        <TaskActionsContainer :task="task" compact />
+        <TaskActionsContainer :task="task" mode="mobile" />
       </footer>
     </article>
   </section>

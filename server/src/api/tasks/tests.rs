@@ -1,8 +1,6 @@
 use super::*;
 use crate::api::error::ErrorResponse;
-use crate::app::{
-    bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
-};
+use crate::app::bootstrap_http_app_state;
 use crate::config::aria2::Aria2BinarySource;
 use crate::runtime::ManagedAria2Process;
 use crate::tasks::{DownloadTask, DownloadTaskFile, DownloadTaskStatus};
@@ -201,8 +199,8 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
                 "POST",
                 "/api/tasks",
                 &json!({
-                    "url": "https://example.com/archive.zip",
-                    "fileName": "archive.zip",
+                    "url": "magnet:?xt=urn:btih:test",
+                    "sourceType": "magnet",
                     "saveDir": save_dir
                 }),
             ))
@@ -220,18 +218,12 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
                 .iter_mut()
                 .find(|task| task.id == created.id)
                 .expect("created task should exist");
-            std::fs::create_dir_all(&task.save_dir).expect("task dir should create");
-            std::fs::write(
-                std::path::Path::new(&task.save_dir).join("metadata.torrent"),
-                b"torrent-bytes",
-            )
-            .expect("metadata torrent should write");
-            task.gid = None;
-            task.status = DownloadTaskStatus::Pending;
+            task.status = DownloadTaskStatus::Paused;
+            task.file_name = "archive.zip".to_string();
             task.confirmation_required = true;
             task.files = vec![DownloadTaskFile {
                 index: 1,
-                path: format!("{}/archive.zip", task.save_dir),
+                path: format!("{}/archive.zip/archive.zip", task.save_dir),
                 name: "archive.zip".to_string(),
                 length: 1024,
                 completed_length: 0,
@@ -268,7 +260,7 @@ async fn confirm_task_files_route_validates_selection_and_starts_task() {
     .await;
 
     assert_eq!(confirmed.status, DownloadTaskStatus::Active);
-    assert_eq!(confirmed.gid.as_deref(), Some("gid-2"));
+    assert_eq!(confirmed.gid.as_deref(), Some("gid-1"));
     assert!(!confirmed.confirmation_required);
 
     cleanup_state(&state);
@@ -1227,6 +1219,241 @@ async fn list_tasks_rejects_unsupported_status_filter() {
 }
 
 #[tokio::test]
+async fn old_delete_files_parameter_returns_migration_error_without_changing_task_or_file() {
+    let state = test_state().await;
+    let root = temp_dir("old-delete-files");
+    std::fs::create_dir_all(&root).unwrap();
+    let file = root.join("payload.bin");
+    std::fs::write(&file, b"preserved").unwrap();
+    let mut task = sample_task(1, DownloadTaskStatus::Active);
+    task.file_path = Some(file.display().to_string());
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task.clone()))
+        .unwrap();
+    let response = test_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/tasks/1?deleteFiles=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let error = response_json::<ErrorResponse>(response, StatusCode::BAD_REQUEST).await;
+    assert_eq!(error.code, "task_delete_files_moved");
+    assert_eq!(state.core.download_tasks.list().unwrap(), vec![task]);
+    assert_eq!(std::fs::read(&file).unwrap(), b"preserved");
+    assert!(state.aria2_runtime_snapshot().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+    cleanup_state(&state);
+}
+
+#[tokio::test]
+async fn permanent_delete_defaults_to_keeping_files_and_can_submit_background_cleanup() {
+    for delete_files in [false, true] {
+        let state = test_state().await;
+        let root = temp_dir("permanent-delete-files-api");
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("payload.bin");
+        std::fs::write(&file, b"preserved").unwrap();
+        let mut task = sample_task(1, DownloadTaskStatus::Removed);
+        task.gid = None;
+        task.save_dir = root.display().to_string();
+        task.file_path = Some(file.display().to_string());
+        write_accessible_paths(&state, &[root.display().to_string()]);
+        crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+            .await
+            .unwrap();
+        state
+            .core
+            .download_tasks
+            .with_tasks_mut(|tasks| tasks.push(task))
+            .unwrap();
+        assert!(state.try_start_file_cleanup_worker());
+        let app = test_router(state.clone());
+        let path = if delete_files {
+            "/api/tasks/1/permanent?deleteFiles=true"
+        } else {
+            "/api/tasks/1/permanent"
+        };
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        if delete_files {
+            let pending = response_json::<PublicDownloadTask>(response, StatusCode::ACCEPTED).await;
+            assert_eq!(pending.cleanup_state, "pending");
+            assert!(!file.exists());
+            assert_eq!(state.core.download_tasks.list().unwrap().len(), 1);
+            for path in ["/api/tasks/1/permanent", "/api/tasks/1/restore"] {
+                let method = if path.ends_with("restore") {
+                    "POST"
+                } else {
+                    "DELETE"
+                };
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let error = response_json::<ErrorResponse>(response, StatusCode::CONFLICT).await;
+                assert_eq!(error.code, "file_cleanup_pending");
+            }
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/tasks?status=removed")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let tasks = response_json::<Vec<PublicDownloadTask>>(response, StatusCode::OK).await;
+            assert_eq!(tasks[0].cleanup_state, "pending");
+        } else {
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert_eq!(std::fs::read(&file).unwrap(), b"preserved");
+            assert!(state.core.download_tasks.list().unwrap().is_empty());
+        }
+        assert!(state.aria2_runtime_snapshot().is_none());
+        state.finish_file_cleanup_worker();
+        std::fs::remove_dir_all(root).unwrap();
+        cleanup_state(&state);
+    }
+}
+
+#[tokio::test]
+async fn permanent_delete_unconfirmed_magnets_cleans_private_data_without_download_authorization() {
+    for awaiting_confirmation in [false, true] {
+        for delete_files in [false, true] {
+            let state = test_state().await;
+            let root = temp_dir("permanent-delete-magnet-private-only");
+            std::fs::create_dir_all(&root).unwrap();
+            let unrelated = root.join("unrelated.bin");
+            std::fs::write(&unrelated, b"keep user data").unwrap();
+            let metadata_dir = state.runtime.app_data_dir.join("magnet-metadata/task-1");
+            std::fs::create_dir_all(&metadata_dir).unwrap();
+            std::fs::write(metadata_dir.join("metadata.torrent"), b"private metadata").unwrap();
+            let restore_path = crate::tasks::files::save_restore_torrent_metadata(
+                &state.runtime.app_data_dir,
+                1,
+                b"restore metadata",
+            )
+            .unwrap();
+            let mut task = sample_task(1, DownloadTaskStatus::Removed);
+            task.gid = None;
+            task.url = "magnet:?xt=urn:btih:test".to_string();
+            task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+            task.save_dir = root.display().to_string();
+            task.file_path = None;
+            task.confirmation_required = awaiting_confirmation;
+            if awaiting_confirmation {
+                task.files = vec![DownloadTaskFile {
+                    index: 1,
+                    path: root.join("preview.bin").display().to_string(),
+                    name: "preview.bin".to_string(),
+                    length: 100,
+                    completed_length: 0,
+                    selected: true,
+                }];
+            }
+            write_accessible_paths(&state, &[]);
+            crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+                .await
+                .unwrap();
+            state
+                .core
+                .download_tasks
+                .with_tasks_mut(|tasks| tasks.push(task))
+                .unwrap();
+
+            let response = test_router(state.clone())
+                .oneshot(
+                    Request::builder()
+                        .method("DELETE")
+                        .uri(format!("/api/tasks/1/permanent?deleteFiles={delete_files}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+            assert!(state.core.download_tasks.list().unwrap().is_empty());
+            assert!(
+                crate::database::tasks::list_download_tasks(&state.core.database.pool)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            assert!(!metadata_dir.exists());
+            assert!(!restore_path.exists());
+            assert_eq!(std::fs::read(&unrelated).unwrap(), b"keep user data");
+            assert!(state.aria2_runtime_snapshot().is_none());
+            std::fs::remove_dir_all(root).unwrap();
+            cleanup_state(&state);
+        }
+    }
+}
+
+#[tokio::test]
+async fn permanent_delete_confirmed_magnet_requires_authorization_even_at_zero_progress() {
+    let state = test_state().await;
+    let root = temp_dir("permanent-delete-confirmed-magnet");
+    let owned = root.join("owned");
+    std::fs::create_dir_all(&owned).unwrap();
+    let payload = owned.join("payload.bin");
+    std::fs::write(&payload, b"preallocated content").unwrap();
+    let mut task = sample_task(1, DownloadTaskStatus::Removed);
+    task.url = "magnet:?xt=urn:btih:test".to_string();
+    task.source_type = crate::tasks::DownloadTaskSourceType::Magnet;
+    task.gid = None;
+    task.save_dir = root.display().to_string();
+    task.owned_task_dir = Some(owned.display().to_string());
+    task.file_path = None;
+    task.completed_length = 0;
+    write_accessible_paths(&state, &[]);
+    state
+        .core
+        .download_tasks
+        .with_tasks_mut(|tasks| tasks.push(task.clone()))
+        .unwrap();
+
+    let response = test_router(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/tasks/1/permanent?deleteFiles=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let error = response_json::<ErrorResponse>(response, StatusCode::FORBIDDEN).await;
+    assert_eq!(error.code, "save_dir_not_authorized");
+    assert_eq!(state.core.download_tasks.list().unwrap(), vec![task]);
+    assert_eq!(std::fs::read(&payload).unwrap(), b"preallocated content");
+    assert!(state.aria2_runtime_snapshot().is_none());
+    std::fs::remove_dir_all(root).unwrap();
+    cleanup_state(&state);
+}
+
+#[tokio::test]
 async fn permanent_delete_rejects_non_removed_task() {
     let state = test_state().await;
     state
@@ -1498,18 +1725,7 @@ fn test_router(state: Arc<HttpAppState>) -> Router {
 
 async fn test_state() -> Arc<HttpAppState> {
     let app_data_dir = temp_dir("tasks-api");
-    let runtime = ServerRuntimeConfig {
-        database_path: app_data_dir.join("motrix-fnos.sqlite"),
-        accessible_paths_path: app_data_dir.join("accessible-paths.json"),
-        app_data_dir: app_data_dir.clone(),
-        http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
-        jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
-        lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: Some(crate::test_support::legacy_version_only_engine(
-            &app_data_dir,
-        )),
-        trusted_proxy_ips: Vec::new(),
-    };
+    let runtime = crate::test_support::test_runtime(&app_data_dir);
 
     bootstrap_http_app_state(&runtime)
         .await
@@ -1548,6 +1764,10 @@ async fn ready_state(mock: &MockAria2Server) -> Arc<HttpAppState> {
         child,
         Aria2BinarySource::ExternalPath,
     ));
+    state
+        .aria2_lifecycle
+        .set_phase(crate::runtime::Aria2LifecyclePhase::Ready)
+        .expect("ready fixture should be ready");
 
     state
 }
@@ -1634,7 +1854,7 @@ fn multipart_torrent_request(
 fn sample_task(id: u64, status: DownloadTaskStatus) -> DownloadTask {
     DownloadTask {
         id,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: format!("https://example.com/archive-{id}.zip"),
         source_type: crate::tasks::DownloadTaskSourceType::Url,
@@ -1743,6 +1963,7 @@ struct MockTask {
     status: String,
     dir: String,
     file_name: String,
+    file_selection_state: Option<String>,
 }
 
 async fn mock_aria2_rpc(
@@ -1763,10 +1984,11 @@ async fn mock_aria2_rpc(
     Json(match method {
         "aria2.getVersion" => json!({
             "result": {
-                "version": "1.37.0"
+                "version": "2.8.6"
             }
         }),
-        "aria2.saveSession" => json!({ "result": "OK" }),
+        "aria2.saveSession" | "aria2.changeGlobalOption" => json!({ "result": "OK" }),
+        "aria2.getGlobalOption" => json!({"result":{"bt-proxy":""}}),
         "aria2.addUri" => {
             let options_index = if first_param_is_token(&params) { 2 } else { 1 };
             let options = params
@@ -1785,12 +2007,19 @@ async fn mock_aria2_rpc(
                 .unwrap_or("archive.zip")
                 .to_string();
             let gid = format!("gid-{}", state.next_gid.fetch_add(1, Ordering::SeqCst) + 1);
+            let is_magnet = params
+                .iter()
+                .find_map(Value::as_array)
+                .and_then(|urls| urls.first())
+                .and_then(Value::as_str)
+                .is_some_and(|url| url.starts_with("magnet:"));
             state.tasks.lock().expect("tasks should lock").insert(
                 gid.clone(),
                 MockTask {
-                    status: "active".to_string(),
+                    status: if is_magnet { "paused" } else { "active" }.to_string(),
                     dir,
                     file_name,
+                    file_selection_state: is_magnet.then(|| "awaiting".to_string()),
                 },
             );
             json!({ "result": gid })
@@ -1814,6 +2043,7 @@ async fn mock_aria2_rpc(
                     status: "active".to_string(),
                     dir,
                     file_name: "example".to_string(),
+                    file_selection_state: Some("ready".to_string()),
                 },
             );
             json!({ "result": gid })
@@ -1837,6 +2067,15 @@ async fn mock_aria2_rpc(
             if state.fail_change_option.load(Ordering::SeqCst) {
                 json!({ "error": { "code": 1, "message": "cannot change option" } })
             } else {
+                let options = params.last().and_then(Value::as_object).unwrap();
+                if let Some(task) = state.tasks.lock().unwrap().get_mut(&gid) {
+                    if let Some(dir) = options.get("dir").and_then(Value::as_str) {
+                        task.dir = dir.to_string();
+                    }
+                    if options.contains_key("select-file") {
+                        task.file_selection_state = Some("ready".to_string());
+                    }
+                }
                 json!({ "result": gid })
             }
         }
@@ -1878,6 +2117,7 @@ async fn mock_aria2_rpc(
                         "completedLength": "256",
                         "downloadSpeed": "128",
                         "dir": task.dir,
+                        "bittorrent": task.file_selection_state.as_ref().map(|selection| json!({"fileSelectionState":selection,"info":{"name":task.file_name}})),
                         "files": [
                             {
                                 "index": 1,
@@ -1893,7 +2133,7 @@ async fn mock_aria2_rpc(
             } else {
                 json!({
                     "error": {
-                        "message": "GID not found"
+                        "message": format!("GID {gid} is not found")
                     }
                 })
             }

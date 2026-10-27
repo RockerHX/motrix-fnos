@@ -28,7 +28,7 @@ Motrix FNOS 的远程能力主要用于把下载任务直接推送到家中的 N
 
 因此，使用 Aria2 Explorer 时因调用未实现方法而出现 `Method not found`、配置同步失败或状态显示异常，属于超出项目支持范围的预期结果，不作为 Motrix FNOS 的兼容缺陷。
 
-现有 `aria2.getGlobalOption` 仅返回受控的授权下载目录子集，不代表支持 Aria2 Explorer 的完整配置管理。需要远程推送任务时，应使用项目文档中声明的 JSON-RPC 地址和对应 Token；需要查看或控制任务时，应使用 Motrix Web UI。
+现有 `aria2.getGlobalOption` 仅返回受控的授权下载目录子集，不代表支持 Aria2 Explorer 的完整配置管理。
 
 ## Issue 与支持范围
 
@@ -76,19 +76,45 @@ FPK 按设备 CPU 架构分别发布：
 
 管理页面使用安装时设置的密码登录，保留数据重装或升级时沿用原密码。忘记密码时先停止应用，再通过 NAS SSH 终端运行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，按提示隐藏输入并确认新密码，成功后启动应用；下载任务、设置、RPC Token 和下载文件均保留。
 
-同一 `appname=motrix` 身份下升级保留数据，但 **2.0.0 不导入、不展示、不继续或恢复旧任务，新版任务列表重新开始**。旧任务记录及下载文件保留原处，密码、设置、目录授权和 RPC Token 沿用；旧任务及旧操作未完成也不会阻止升级。若需要保留旧任务进度，请先在旧版完成下载（包括回收站中需要恢复的任务）。升级脚本只确认应用和引擎已停止，不携带独立 checker，也不自动备份或迁移旧任务状态。
+同一 `appname=motrix` 身份下升级保留数据，但 **2.0.0 不导入、不展示、不继续或恢复旧任务，新版任务列表重新开始**。旧任务记录及下载文件保留原处，密码、设置、目录授权和 RPC Token 沿用；旧任务及旧操作未完成也不会阻止升级。需要旧任务进度时先在旧版完成下载，包括回收站中需要恢复的任务。
 
-升级前应停止应用并手工备份整个应用私有数据目录；回滚须先停止新版，配套恢复旧 FPK 和升级前一致的完整备份，不能让旧版直接读取新版数据。下载文件位于私有目录外时须另行保护，私有数据备份不能还原升级后被改动的下载文件。详见[升级前备份与回滚](docs/fpk-packaging.md#升级前备份与回滚)。当前开发目标为 2.0.0，内置引擎固定 Aria2 Next 2.8.6；候选仍待真机验收，尚未正式发布。旧 `motrix.fnos` 包切换到 `motrix` 属于新应用安装，旧任务、设置和 JSON-RPC Token 不会自动迁移；安装前应停止旧应用，避免 `17080`、`17081`、`17082` 端口冲突。
+升级不自动备份或迁移旧任务。升级前停服并完整备份私有数据，外部下载文件另行保护；回滚须恢复配套旧 FPK 和完整备份，不能让旧版直接读取新版数据。步骤见[备份与回滚](docs/maintenance.md#备份与回滚)。
+
+当前开发目标为 2.0.0，候选待真机验收，尚未正式发布；内置及外部引擎仅支持已验证的 Aria2 Next 2.8.6，其他引擎进入受限管理，旧数据保留且不接管旧任务，详见[支持边界](docs/api-contract.md#42-应用信息)。
+
+旧 `motrix.fnos` 包切换到 `motrix` 属于新应用安装，旧任务、设置和 JSON-RPC Token 不会自动迁移；安装前应停止旧应用，避免 `17080`、`17081`、`17082` 端口冲突。
 
 启用 FN Connect 后，当前入口可通过 `https://motrix.<account>.fnos.net/` 打开。卸载时只有明确选择“同时删除 Motrix 应用数据”才会清理应用私有数据，用户下载文件不在清理范围内。
 
 FN Connect / 应用子域名依赖 fnOS 登录态，只适合作为管理入口；第三方解析站不会携带该登录态，公网 JSON-RPC 仍需通过 Lucky/Cloudflare 反向代理到回环 `17081`。
 
-## 技术文档
+## 使用帮助
+
+- [遇到问题：登录、启停、下载与日志排查](docs/maintenance.md#故障排查)
+- [升级前备份与回滚](docs/maintenance.md#备份与回滚)
+- [远程推送：JSON-RPC 接入](docs/maintenance.md#远程接入)
+- [发布记录](CHANGELOG.md)
+
+## 开发者参考
+
+以下命令和技术文档供开发维护或编写第三方客户端时查阅。日常使用请看上面的“安装与使用”和“使用帮助”。
+
+### 常用开发命令
+
+在仓库根目录执行；工具链版本和完整操作见[维护手册](docs/maintenance.md#开发与验证)。
+
+```bash
+pnpm install                  # 安装依赖
+pnpm run dev                 # 只启动前端，后端需另行启动
+pnpm run verify:pre-commit   # 提交前快速检查
+pnpm run verify             # 完整源码测试与构建
+pnpm run build:fpk          # 完整验证、双架构打包与解包验收
+```
+
+### 技术文档
 
 - [架构与职责边界](docs/architecture.md)
 - [开发计划与后续事项](docs/future-development-plan.md)
-- [HTTP、SSE 与 JSON-RPC 接口](docs/api-contract.md)
-- [开发脚本与命令说明](docs/development-scripts.md)
-- [FPK 构建、验证与发布](docs/fpk-packaging.md)
-- [发布记录](CHANGELOG.md)
+- [完整接口契约：HTTP、SSE 与 JSON-RPC（开发者参考）](docs/api-contract.md)
+- [维护手册：开发、发布、备份回滚与故障排查](docs/maintenance.md)
+- [UI 交互与视觉规范](docs/design/DESIGN.md)

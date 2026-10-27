@@ -5,8 +5,7 @@ use crate::api::diagnostics::{
 };
 use crate::api::error::ErrorResponse;
 use crate::api::settings::{
-    JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus, RuntimeApplyStatus,
-    UpdateSettingsResponse,
+    JsonRpcTokenStatus, LanJsonRpcMutationResponse, LanJsonRpcStatus, UpdateSettingsResponse,
 };
 use crate::api::storage::AccessiblePathsResponse;
 use crate::app::{
@@ -19,6 +18,7 @@ use crate::aria2::{
 use crate::debug_logs::DebugLogEntry;
 use crate::runtime::Aria2ProcessStatus;
 use crate::settings::service::AppConfig;
+use crate::settings::service::RuntimeApplyStatus;
 use crate::tasks::{DownloadTask, DownloadTaskSourceType, DownloadTaskStatus};
 use crate::test_support::{AuthServiceTestExt, TestTracingCapture};
 use axum::body::to_bytes;
@@ -2295,7 +2295,11 @@ async fn raw_test_state(aria2_path: Option<String>) -> Arc<HttpAppState> {
         http_addr: DEFAULT_HTTP_ADDR.parse().expect("addr should parse"),
         jsonrpc_addr: DEFAULT_JSONRPC_ADDR.parse().expect("addr should parse"),
         lan_jsonrpc_addr: "127.0.0.1:0".parse().expect("addr should parse"),
-        aria2_path: aria2_path.map(PathBuf::from),
+        aria2_path: Some(
+            aria2_path
+                .map(PathBuf::from)
+                .unwrap_or_else(|| crate::test_support::native_version_only_engine(&app_data_dir)),
+        ),
         trusted_proxy_ips: Vec::new(),
     };
 
@@ -2468,7 +2472,7 @@ fn spawn_sleep_child() -> std::process::Child {
 fn active_task_for_stop() -> DownloadTask {
     DownloadTask {
         id: 1,
-        engine_generation: crate::config::aria2::EngineGeneration::LegacyV1,
+        engine_generation: crate::config::aria2::EngineGeneration::NativeV2,
         removed_from_status: None,
         url: "https://example.com/active.zip".to_string(),
         source_type: DownloadTaskSourceType::Url,

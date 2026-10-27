@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, watch, ref } from "vue";
 import AppIcon from "../../../components/AppIcon.vue";
-import { NButton, NSpace } from "naive-ui";
+import { NButton } from "naive-ui";
 import TaskDetailsDialog from "./TaskDetailsDialog.vue";
-import TaskRedownloadConfirmDialog from "./TaskRedownloadConfirmDialog.vue";
+import TaskDownloadConfirmDialog from "./TaskDownloadConfirmDialog.vue";
 import TaskDeleteConfirmDialog from "./TaskDeleteConfirmDialog.vue";
 import TaskPermanentDeleteConfirmDialog from "./TaskPermanentDeleteConfirmDialog.vue";
-import TaskRestoreConfirmDialog from "./TaskRestoreConfirmDialog.vue";
 import type { DownloadTask } from "../../../types/tasks";
 import type {
   TaskActionConfirmTexts,
@@ -16,12 +15,11 @@ import type {
   TaskActionState,
   TaskFileActionView,
 } from "./taskActionViewModel";
-import { getTaskSourceType } from "../utils/taskFormat";
+import { canDeleteTaskFiles, getTaskSourceType } from "../utils/taskFormat";
 
 const props = withDefaults(
   defineProps<{
-    compact?: boolean;
-    variant?: "text" | "icon-pill";
+    mode: "desktop" | "mobile";
     task: DownloadTask;
     state: TaskActionState;
     permissions: TaskActionPermissions;
@@ -31,8 +29,6 @@ const props = withDefaults(
     fileActions?: TaskFileActionView;
   }>(),
   {
-    compact: false,
-    variant: "text",
     fileActions: () => ({ hostSupported: false, loading: false, context: null }),
   },
 );
@@ -42,10 +38,10 @@ const emit = defineEmits<{
   resume: [];
   confirmFiles: [];
   confirmRedownload: [useProxy: boolean];
-  confirmDelete: [deleteFiles: boolean];
+  confirmDelete: [];
   restore: [useProxy: boolean];
   updateProxy: [enabled: boolean];
-  confirmPermanentDelete: [];
+  confirmPermanentDelete: [deleteFiles: boolean];
   detailsOpened: [];
   openFileManager: [];
   openFile: [];
@@ -83,10 +79,11 @@ watch(
 );
 
 watch(
-  () => [props.permissions.canRedownload, props.permissions.canRestore] as const,
-  ([canRedownload, canRestore]) => {
+  () => [props.permissions.canRedownload, props.permissions.canRestore, props.permissions.canPermanentDelete] as const,
+  ([canRedownload, canRestore, canPermanentDelete]) => {
     if (!canRedownload) showRedownloadConfirm.value = false;
     if (!canRestore) showRestoreConfirm.value = false;
+    if (!canPermanentDelete) showPermanentDeleteConfirm.value = false;
   },
 );
 
@@ -106,7 +103,7 @@ function openRestoreConfirm() {
 </script>
 
 <template>
-  <div v-if="props.variant === 'icon-pill'" class="icon-pill-actions" role="toolbar" :aria-label="props.labels.details">
+  <div v-if="props.mode === 'desktop'" class="icon-pill-actions" role="toolbar" :aria-label="props.labels.details">
     <NButton
       quaternary
       circle
@@ -238,7 +235,7 @@ function openRestoreConfirm() {
       <AppIcon name="permanentDelete" :size="14" />
     </NButton>
   </div>
-  <div v-else-if="props.compact" class="compact-actions">
+  <div v-else class="compact-actions">
     <NButton
       size="small"
       secondary
@@ -356,102 +353,6 @@ function openRestoreConfirm() {
       {{ props.labels.permanentDelete }}
     </NButton>
   </div>
-  <NSpace v-else :size="6" wrap>
-    <NButton class="task-action-button" size="small" secondary :disabled="props.state.isActionDisabled" @click="openDetails">
-      {{ props.labels.details }}
-    </NButton>
-    <NButton
-      v-if="canOpenFileManager"
-      size="small"
-      secondary
-      class="task-action-button"
-      :title="props.labels.openFileManager"
-      :aria-label="props.labels.openFileManager"
-      :loading="props.fileActions?.loading"
-      :disabled="props.state.isActionDisabled"
-      @click="emit('openFileManager')"
-    >
-      {{ props.labels.openFileManager }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canPause"
-      size="small"
-      secondary
-      class="task-action-button"
-      :loading="props.state.isOperating"
-      :disabled="props.state.isActionDisabled"
-      @click="emit('pause')"
-    >
-      {{ props.labels.pause }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canResume"
-      size="small"
-      secondary
-      class="task-action-button"
-      :loading="props.state.isOperating"
-      :disabled="props.state.isActionDisabled"
-      @click="emit('resume')"
-    >
-      {{ props.labels.resume }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canConfirmFiles"
-      size="small"
-      secondary
-      type="primary"
-      class="task-action-button"
-      :loading="props.state.isOperating"
-      :disabled="props.state.isActionDisabled"
-      @click="emit('confirmFiles')"
-    >
-      {{ props.labels.confirmFiles }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canRedownload"
-      size="small"
-      secondary
-      class="task-action-button"
-      :disabled="props.state.isActionDisabled"
-      @click="openRedownloadConfirm"
-    >
-      {{ props.labels.redownload }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canDelete"
-      size="small"
-      secondary
-      type="error"
-      class="task-action-button"
-      :disabled="props.state.isActionDisabled"
-      @click="openDeleteConfirm"
-    >
-      {{ props.labels.delete }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canRestore"
-      size="small"
-      secondary
-      class="task-action-button"
-      :loading="props.state.isOperating"
-      :disabled="props.state.isActionDisabled"
-      @click="openRestoreConfirm"
-    >
-      {{ props.labels.restore }}
-    </NButton>
-    <NButton
-      v-if="props.permissions.canPermanentDelete"
-      size="small"
-      secondary
-      type="error"
-      class="task-action-button"
-      :loading="props.state.isOperating"
-      :disabled="props.state.isActionDisabled"
-      @click="showPermanentDeleteConfirm = true"
-    >
-      {{ props.labels.permanentDelete }}
-    </NButton>
-  </NSpace>
 
   <TaskDetailsDialog
     v-model:show="showDetails"
@@ -468,22 +369,24 @@ function openRestoreConfirm() {
     @show-file-details="emit('showFileDetails')"
   />
 
-  <TaskRedownloadConfirmDialog
+  <TaskDownloadConfirmDialog
     v-model:show="showRedownloadConfirm"
     v-model:use-proxy="redownloadUseProxy"
     :state="props.state"
-    :labels="props.labels"
-    :confirm-texts="props.confirmTexts"
+    :title="props.confirmTexts.redownloadTitle"
+    :text="props.confirmTexts.redownloadConfirmText"
+    :confirm-label="props.labels.redownload"
     :show-proxy="!isBtTask"
     @confirm="emit('confirmRedownload', $event)"
   />
 
-  <TaskRestoreConfirmDialog
+  <TaskDownloadConfirmDialog
     v-model:show="showRestoreConfirm"
     v-model:use-proxy="restoreUseProxy"
     :state="props.state"
-    :labels="props.labels"
-    :confirm-texts="props.confirmTexts"
+    :title="props.confirmTexts.restoreTitle"
+    :text="props.confirmTexts.restoreConfirmText"
+    :confirm-label="props.labels.restore"
     :show-proxy="!isBtTask"
     @confirm="emit('restore', $event)"
   />
@@ -493,15 +396,16 @@ function openRestoreConfirm() {
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
-    @confirm="emit('confirmDelete', $event)"
+    @confirm="emit('confirmDelete')"
   />
 
   <TaskPermanentDeleteConfirmDialog
     v-model:show="showPermanentDeleteConfirm"
+    :can-delete-files="canDeleteTaskFiles(props.task)"
     :state="props.state"
     :labels="props.labels"
     :confirm-texts="props.confirmTexts"
-    @confirm="emit('confirmPermanentDelete')"
+    @confirm="emit('confirmPermanentDelete', $event)"
   />
 </template>
 

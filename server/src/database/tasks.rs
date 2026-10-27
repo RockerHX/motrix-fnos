@@ -1,3 +1,4 @@
+use super::{i64_to_u64, u64_to_i64};
 use crate::database::settings::get_download_proxy_config;
 use crate::tasks::{
     DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStatus, TaskProxyBinding,
@@ -116,8 +117,23 @@ async fn persist_task_files_in_transaction(
     task: &DownloadTask,
 ) -> Result<(), String> {
     let task_id = u64_to_i64(task.id, "任务 ID")?;
-    sqlx::query("DELETE FROM task_file_snapshots WHERE task_id = ?")
+    let indexes: Vec<_> = task.files.iter().map(|file| file.index).collect();
+    if indexes
+        .iter()
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        != indexes.len()
+    {
+        return Err("任务文件快照包含重复索引".to_string());
+    }
+    let existing = sqlx::query("SELECT file_index, path, name, length, completed_length, selected FROM task_file_snapshots WHERE task_id = ?")
+        .bind(task_id).fetch_all(&mut **transaction).await
+        .map_err(|error| format!("读取已有文件快照失败：{error}"))?
+        .into_iter().map(row_to_file).collect::<Result<Vec<_>, _>>()?
+        .into_iter().map(|file| (file.index, file)).collect::<std::collections::HashMap<_, _>>();
+    sqlx::query("DELETE FROM task_file_snapshots WHERE task_id = ? AND file_index NOT IN (SELECT value FROM json_each(?))")
         .bind(task_id)
+        .bind(serde_json::to_string(&indexes).map_err(|error| format!("序列化文件索引失败：{error}"))?)
         .execute(&mut **transaction)
         .await
         .map_err(|error| format!("更新任务文件快照失败：{error}"))?;
@@ -137,7 +153,15 @@ async fn persist_task_files_in_transaction(
         } else {
             file.path.clone()
         };
-        sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        let mut next = file.clone();
+        next.path = path.clone();
+        if task.files_deleted {
+            next.completed_length = 0;
+        }
+        if existing.get(&file.index) == Some(&next) {
+            continue;
+        }
+        sqlx::query("INSERT INTO task_file_snapshots (task_id, file_index, path, name, length, completed_length, selected, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_id, file_index) DO UPDATE SET path = excluded.path, name = excluded.name, length = excluded.length, completed_length = excluded.completed_length, selected = excluded.selected, checked_at = excluded.checked_at WHERE task_file_snapshots.path IS NOT excluded.path OR task_file_snapshots.name IS NOT excluded.name OR task_file_snapshots.length IS NOT excluded.length OR task_file_snapshots.completed_length IS NOT excluded.completed_length OR task_file_snapshots.selected IS NOT excluded.selected")
             .bind(task_id)
             .bind(i64::from(file.index))
             .bind(path)
@@ -404,6 +428,52 @@ pub async fn persist_download_task_states(
     Ok(())
 }
 
+pub(crate) async fn persist_task_refreshes(
+    pool: &SqlitePool,
+    updates: &[(DownloadTask, DownloadTask)],
+) -> Result<Vec<(DownloadTask, DownloadTask)>, String> {
+    if updates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| format!("启动监控快照事务失败：{error}"))?;
+    let mut saved = Vec::new();
+    for (original, next) in updates {
+        // 显式列避免迁移后 SELECT * 的列数变化触发 SQLx SQLite 列缓存越界。
+        let row = sqlx::query(r#"
+            SELECT download_tasks.id, engine_generation, url, source_type, file_name, save_dir, owned_task_dir, gid, status,
+                   total_length, completed_length, category, download_speed, error_code, error_message,
+                   file_path, metadata_torrent_path, files_deleted, selected_file_indexes,
+                   confirmation_required, use_proxy, proxy_source, task_proxy_overrides.proxy_url AS proxy_override_url,
+                   created_at, download_tasks.updated_at, removed_from_status
+            FROM download_tasks
+            LEFT JOIN task_proxy_overrides ON task_proxy_overrides.task_id = download_tasks.id
+            WHERE download_tasks.id = ?
+        "#)
+            .bind(u64_to_i64(original.id, "任务 ID")?).fetch_optional(&mut *transaction).await
+            .map_err(|error| format!("核对监控原快照失败：{error}"))?;
+        let Some(row) = row else { continue };
+        let mut stored = row_to_task(row, original.proxy_binding.effective_proxy_url())?;
+        stored.files = sqlx::query("SELECT file_index, path, name, length, completed_length, selected FROM task_file_snapshots WHERE task_id = ? ORDER BY file_index")
+            .bind(u64_to_i64(original.id, "任务 ID")?).fetch_all(&mut *transaction).await
+            .map_err(|error| format!("核对监控文件快照失败：{error}"))?
+            .into_iter().map(row_to_file).collect::<Result<_, _>>()?;
+        restore_task_file_paths(&mut stored)?;
+        if stored != original.persisted_snapshot() {
+            continue;
+        }
+        persist_download_task_state_in_transaction(&mut transaction, next).await?;
+        saved.push((original.clone(), next.clone()));
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("提交监控快照失败：{error}"))?;
+    Ok(saved)
+}
+
 pub async fn list_download_tasks(pool: &SqlitePool) -> Result<Vec<DownloadTask>, String> {
     read_download_tasks(pool, false).await
 }
@@ -488,41 +558,47 @@ async fn read_download_tasks(
         .map_err(|error| format!("读取任务文件快照失败：{error}"))?;
     let mut by_task = std::collections::HashMap::<u64, Vec<DownloadTaskFile>>::new();
     for row in files {
-        let index = u32::try_from(get::<i64>(&row, "file_index")?)
-            .map_err(|_| "文件索引超出范围".to_string())?;
-        by_task
-            .entry(i64_to_u64(get(&row, "task_id")?, "任务 ID")?)
-            .or_default()
-            .push(DownloadTaskFile {
-                index,
-                path: get(&row, "path")?,
-                name: get(&row, "name")?,
-                length: i64_to_u64(get(&row, "length")?, "文件大小")?,
-                completed_length: i64_to_u64(get(&row, "completed_length")?, "文件有效进度")?,
-                selected: get(&row, "selected")?,
-            });
+        let task_id = i64_to_u64(get(&row, "task_id")?, "任务 ID")?;
+        by_task.entry(task_id).or_default().push(row_to_file(row)?);
     }
     for task in &mut tasks {
         task.files = by_task.remove(&task.id).unwrap_or_default();
-        if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
-            let root = Path::new(crate::tasks::files::task_download_dir(task)).to_path_buf();
-            for file in &mut task.files {
-                let relative = Path::new(&file.path);
-                if relative.as_os_str().is_empty()
-                    || relative
-                        .components()
-                        .any(|part| !matches!(part, std::path::Component::Normal(_)))
-                {
-                    return Err("原生任务文件快照路径不安全".to_string());
-                }
-                file.path = root.join(relative).display().to_string();
-            }
-        }
+        restore_task_file_paths(task)?;
     }
     if isolate_legacy && !by_task.is_empty() {
         return Err("任务文件快照归属无法核对，已保留状态".to_string());
     }
     Ok(tasks)
+}
+
+fn row_to_file(row: sqlx::sqlite::SqliteRow) -> Result<DownloadTaskFile, String> {
+    Ok(DownloadTaskFile {
+        index: u32::try_from(get::<i64>(&row, "file_index")?)
+            .map_err(|_| "文件索引超出范围".to_string())?,
+        path: get(&row, "path")?,
+        name: get(&row, "name")?,
+        length: i64_to_u64(get(&row, "length")?, "文件大小")?,
+        completed_length: i64_to_u64(get(&row, "completed_length")?, "文件有效进度")?,
+        selected: get(&row, "selected")?,
+    })
+}
+
+fn restore_task_file_paths(task: &mut DownloadTask) -> Result<(), String> {
+    if task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2 {
+        let root = Path::new(crate::tasks::files::task_download_dir(task)).to_path_buf();
+        for file in &mut task.files {
+            let relative = Path::new(&file.path);
+            if relative.as_os_str().is_empty()
+                || relative
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("原生任务文件快照路径不安全".to_string());
+            }
+            file.path = root.join(relative).display().to_string();
+        }
+    }
+    Ok(())
 }
 
 pub async fn max_download_task_id(pool: &SqlitePool) -> Result<u64, String> {
@@ -785,14 +861,6 @@ where
 {
     row.try_get(column)
         .map_err(|error| format!("读取下载任务字段 {} 失败：{}", column, error))
-}
-
-fn u64_to_i64(value: u64, label: &str) -> Result<i64, String> {
-    i64::try_from(value).map_err(|_| format!("{} 超出 SQLite INTEGER 范围", label))
-}
-
-fn i64_to_u64(value: i64, label: &str) -> Result<u64, String> {
-    u64::try_from(value).map_err(|_| format!("{} 不能为负数", label))
 }
 
 #[cfg(test)]

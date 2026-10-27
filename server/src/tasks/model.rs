@@ -50,13 +50,14 @@ pub fn should_pause_task_on_exit(task: &DownloadTask) -> bool {
     )
 }
 
-pub fn should_force_pause_task_on_startup(task: &DownloadTask) -> bool {
-    should_pause_task_on_exit(task)
-}
-
 pub fn is_pending_magnet_metadata_task(task: &DownloadTask) -> bool {
     task.url.to_ascii_lowercase().starts_with("magnet:?")
         && !task.confirmation_required
+        && task
+            .owned_task_dir
+            .as_deref()
+            .map(|path| path.trim().is_empty())
+            .unwrap_or(true)
         && task
             .metadata_torrent_path
             .as_deref()
@@ -117,6 +118,38 @@ pub struct DownloadTask {
     pub files: Vec<DownloadTaskFile>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+impl DownloadTask {
+    pub(crate) fn persisted_snapshot(&self) -> Self {
+        let mut task = self.clone();
+        if task.files_deleted {
+            task.completed_length = 0;
+            for file in &mut task.files {
+                file.completed_length = 0;
+            }
+        }
+        if task.source_type != DownloadTaskSourceType::Url || !task.use_proxy {
+            task.use_proxy = false;
+            task.proxy_binding = TaskProxyBinding::default();
+        }
+        task.files.sort_by_key(|file| file.index);
+        task
+    }
+
+    pub fn can_delete_download_files(&self) -> bool {
+        !self.files_deleted
+            && (self.source_type != DownloadTaskSourceType::Magnet
+                || self
+                    .owned_task_dir
+                    .as_deref()
+                    .is_some_and(|path| !path.trim().is_empty())
+                || (!self.confirmation_required
+                    && self
+                        .file_path
+                        .as_deref()
+                        .is_some_and(|path| !path.trim().is_empty())))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

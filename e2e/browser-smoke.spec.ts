@@ -81,6 +81,62 @@ test.describe("browser smoke", () => {
     await expect(page.getByText("file.iso", { exact: true })).toBeVisible();
   });
 
+  for (const deleteFiles of [false, true]) {
+    test(`moves a task to Trash and permanently deletes it with deleteFiles=${deleteFiles}`, async ({ page }, testInfo) => {
+      const fixture = await installFixture(page);
+      fixture.createdUrls.push(task.url);
+      fixture.eventTasks = [{ ...task }];
+      let removed: (typeof task)[] = [];
+      let cleanupDone = false;
+      const deleteRequests: string[] = [];
+      await page.route("**/api/tasks**", async (route) => {
+        const url = new URL(route.request().url());
+        if (url.pathname === "/api/tasks" && url.searchParams.get("status") === "removed") {
+          await json(route, 200, cleanupDone ? [] : removed);
+        } else if (url.pathname === "/api/tasks/1" && route.request().method() === "DELETE") {
+          deleteRequests.push(url.pathname + url.search);
+          fixture.createdUrls = [];
+          fixture.eventTasks = [];
+          removed = [{ ...task, status: "removed" }];
+          await json(route, 200, removed[0]);
+        } else if (url.pathname === "/api/tasks/1/permanent") {
+          deleteRequests.push(url.pathname + url.search);
+          if (url.searchParams.get("deleteFiles") === "true") {
+            removed = [{ ...removed[0], cleanupState: "pending", filesDeleted: true }];
+            await json(route, 202, removed[0]);
+          } else {
+            removed = [];
+            await route.fulfill({ status: 204 });
+          }
+        } else {
+          await route.fallback();
+        }
+      });
+      await completeLogin(page);
+      await page.getByRole("button", { name: "移入回收站", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+      await expect(dialog).toContainText("此操作不会释放磁盘空间");
+      await dialog.getByRole("button", { name: "移入回收站", exact: true }).click();
+      await expect(page.getByText("file.iso", { exact: true })).toHaveCount(0);
+      await page.getByRole("button", { name: "回收站", exact: true }).click();
+      await page.getByRole("button", { name: "永久删除", exact: true }).click();
+      const checkbox = dialog.getByRole("checkbox");
+      await expect(checkbox).not.toBeChecked();
+      if (deleteFiles) await checkbox.check();
+      await page.screenshot({ path: testInfo.outputPath("permanent-delete.png"), fullPage: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      if (deleteFiles) {
+        await expect(page.getByText("文件清理中", { exact: true })).toBeVisible();
+        cleanupDone = true;
+      }
+      await expect(page.getByText("file.iso", { exact: true })).toHaveCount(0);
+      expect(deleteRequests).toEqual(["/api/tasks/1", `/api/tasks/1/permanent?deleteFiles=${deleteFiles}`]);
+    });
+  }
+
   test("handles an expired API token by returning to the login gate", async ({ page }) => {
     const fixture = await installFixture(page);
     await completeLogin(page);
@@ -124,6 +180,66 @@ test.describe("browser smoke", () => {
       await expect(page.locator(".desktop-actions")).toBeVisible();
     }
   });
+
+  for (const populated of [false, true]) {
+    test(`keeps category content in place throughout tab transitions with populated=${populated}`, async ({ page }) => {
+      const fixture = await installFixture(page);
+      const tasks = populated
+        ? [{ ...task, status: "active" }, { ...task, id: 2, gid: "completed-gid", status: "complete" }]
+        : [];
+      fixture.eventTasks = tasks;
+      await page.route("**/api/tasks**", (route) => {
+        const removed = new URL(route.request().url()).searchParams.get("status") === "removed";
+        return json(route, 200, removed && populated ? [{ ...task, status: "removed" }] : tasks);
+      });
+      await completeLogin(page);
+      if (populated) await expect(page.locator(".task-table")).toBeVisible();
+      else await expect(page.getByText("暂无任务", { exact: true })).toBeVisible();
+
+      for (const label of ["下载中", "已完成", "回收站", "扩展", "全部"]) {
+        const samples = await page.evaluate(async (label) => {
+          const body = document.querySelector<HTMLElement>(".main-content-body")!;
+          const stage = document.querySelector<HTMLElement>(".content-stage")!;
+          const outgoing = body.querySelector<HTMLElement>(".task-table, .empty-guide, .extensions-page")!;
+          const outgoingTop = outgoing.getBoundingClientRect().top;
+          const button = [...document.querySelectorAll<HTMLButtonElement>(".category-list button")]
+            .find((button) => button.getAttribute("aria-label") === label)!;
+          button.click();
+          const samples: { bottomGap: number; outgoingShift: number }[] = [];
+          const started = performance.now();
+          await new Promise<void>((resolve) => {
+            const sample = () => {
+              samples.push({
+                bottomGap: stage.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom,
+                outgoingShift: outgoing.isConnected ? outgoing.getBoundingClientRect().top - outgoingTop : 0,
+              });
+              if (performance.now() - started < 240) requestAnimationFrame(sample);
+              else resolve();
+            };
+            requestAnimationFrame(sample);
+          });
+          return samples;
+        }, label);
+
+        expect(samples.every(({ bottomGap }) => Math.abs(bottomGap) < 1), label).toBe(true);
+        expect(samples.every(({ outgoingShift }) => Math.abs(outgoingShift) <= 4), label).toBe(true);
+      }
+    });
+  }
+
+  test("opens task details with the keyboard and closes with Escape", async ({ page }) => {
+    const fixture = await installFixture(page);
+    fixture.createdUrls.push(task.url);
+    fixture.eventTasks = [{ ...task }];
+    await completeLogin(page);
+    const details = page.getByRole("button", { name: "详情", exact: true });
+    await expect(details).toHaveAttribute("aria-label", "详情");
+    await details.focus();
+    await details.press("Enter");
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
 });
 
 async function completeLogin(page: Page) {
@@ -131,7 +247,7 @@ async function completeLogin(page: Page) {
   await expect(page.locator('[data-test="auth-password"]')).toBeVisible();
   await page.locator('[data-test="auth-password"] input').fill(password);
   await page.locator('[data-test="auth-submit"]').click();
-  await expect(page.locator(".window-shell")).toBeVisible();
+  await expect(page.locator(".window-shell")).toBeVisible({ timeout: 10_000 });
 }
 
 async function installFixture(page: Page) {

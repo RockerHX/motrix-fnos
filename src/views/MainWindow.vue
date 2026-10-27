@@ -165,49 +165,51 @@ async function logout() {
   >
     <div class="main-content">
       <TaskCompatibilityNotice />
-      <div
-        v-if="activeCategory === 'all'"
-        class="task-status-filter"
-        role="group"
-        :aria-label="t('task.statusFilter.label')"
-      >
-        <button
-          v-for="option in taskStatusFilterOptions"
-          :key="option.value"
-          type="button"
-          :class="{ active: taskStatusFilter === option.value }"
-          :aria-pressed="taskStatusFilter === option.value"
-          @click="taskStatusFilter = option.value"
-        >
-          {{ t(option.labelKey) }}
-        </button>
-      </div>
-
       <div class="main-content-body">
         <Transition name="app-content-switch">
-          <ExtensionsPlaceholder v-if="isExtensionsCategory" :key="contentViewKey" />
-          <TaskEmptyState
-            v-else-if="!hasVisibleTasks"
-            :key="contentViewKey"
-            :title="t(emptyState.titleKey)"
-            :description="t(emptyState.descriptionKey)"
-            :show-create-action="emptyState.showCreateAction"
-            :disable-create-action="taskStore.isRuntimeExiting || taskStore.isDownloadBlocked"
-            :show-settings-action="emptyState.showSettingsAction"
-            @create="dialogs.openCreateDialog"
-            @open-settings="dialogs.openSettings"
-          />
-          <TaskTable
-            v-else
-            :key="contentViewKey"
-            :tasks="pagination.pagedTasks.value"
-            :page="pagination.page.value"
-            :page-size="pagination.pageSize.value"
-            :item-count="pagination.itemCount.value"
-            :show-pagination="pagination.showPagination.value"
-            @update:page="pagination.page.value = $event"
-            @update:page-size="pagination.pageSize.value = $event"
-          />
+          <div :key="contentViewKey" class="main-content-view">
+            <div
+              v-if="activeCategory === 'all'"
+              class="task-status-filter"
+              role="group"
+              :aria-label="t('task.statusFilter.label')"
+            >
+              <button
+                v-for="option in taskStatusFilterOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: taskStatusFilter === option.value }"
+                :aria-pressed="taskStatusFilter === option.value"
+                @click="taskStatusFilter = option.value"
+              >
+                {{ t(option.labelKey) }}
+              </button>
+            </div>
+
+            <div class="main-content-panel">
+              <ExtensionsPlaceholder v-if="isExtensionsCategory" />
+              <TaskEmptyState
+                v-else-if="!hasVisibleTasks"
+                :title="t(emptyState.titleKey)"
+                :description="t(emptyState.descriptionKey)"
+                :show-create-action="emptyState.showCreateAction"
+                :disable-create-action="taskStore.isRuntimeExiting || taskStore.isDownloadBlocked"
+                :show-settings-action="emptyState.showSettingsAction"
+                @create="dialogs.openCreateDialog"
+                @open-settings="dialogs.openSettings"
+              />
+              <TaskTable
+                v-else
+                :tasks="pagination.pagedTasks.value"
+                :page="pagination.page.value"
+                :page-size="pagination.pageSize.value"
+                :item-count="pagination.itemCount.value"
+                :show-pagination="pagination.showPagination.value"
+                @update:page="pagination.page.value = $event"
+                @update:page-size="pagination.pageSize.value = $event"
+              />
+            </div>
+          </div>
         </Transition>
       </div>
     </div>
@@ -229,6 +231,7 @@ async function logout() {
       <TaskBulkDeleteConfirmDialog
         :show="bulkActions.showBulkDeleteConfirm.value"
         :task-count="bulkActions.bulkDeleteTaskCount.value"
+        :can-delete-files="bulkActions.canBulkDeleteFiles.value"
         :is-loading="bulkActions.isBulkOperating.value"
         :mode="bulkActions.bulkDeleteMode.value"
         @update:show="bulkActions.showBulkDeleteConfirm.value = $event"

@@ -169,21 +169,6 @@ pub(crate) fn should_refresh_task(task: &DownloadTask) -> bool {
     )
 }
 
-pub(crate) fn apply_readded_gid(task: &mut DownloadTask, new_gid: &str) {
-    task.gid = Some(new_gid.to_string());
-    task.status = DownloadTaskStatus::Active;
-    task.download_speed = 0;
-    task.error_code = None;
-    task.error_message = None;
-    task.file_path = Some(
-        Path::new(task.owned_task_dir.as_deref().unwrap_or(&task.save_dir))
-            .join(&task.file_name)
-            .display()
-            .to_string(),
-    );
-    task.updated_at = current_timestamp_ms();
-}
-
 pub fn list_tasks(tasks: &TaskMemoryState) -> Result<Vec<DownloadTask>, String> {
     tasks.list()
 }
@@ -375,35 +360,6 @@ pub fn mark_task_restored(
                 file.completed_length = 0;
             }
         }
-        task.files_deleted = false;
-        Ok(())
-    })
-}
-
-pub fn mark_magnet_task_reparsing(
-    tasks: &TaskMemoryState,
-    task_id: u64,
-    gid: String,
-    base_save_dir: String,
-) -> Result<DownloadTask, String> {
-    update_task(tasks, task_id, |task| {
-        if task.status != DownloadTaskStatus::Removed {
-            return Err("只有回收站任务可以恢复".to_string());
-        }
-        task.gid = Some(gid);
-        task.save_dir = base_save_dir;
-        task.removed_from_status = None;
-        task.owned_task_dir = None;
-        task.status = DownloadTaskStatus::Pending;
-        task.total_length = 0;
-        task.completed_length = 0;
-        task.download_speed = 0;
-        task.error_code = None;
-        task.error_message = None;
-        task.file_path = None;
-        task.metadata_torrent_path = None;
-        task.confirmation_required = false;
-        task.files.clear();
         task.files_deleted = false;
         Ok(())
     })

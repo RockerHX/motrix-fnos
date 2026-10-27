@@ -2,12 +2,30 @@ import { defineComponent, h } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 
+vi.mock("naive-ui", () => ({
+  NCheckbox: defineComponent({
+    props: { checked: Boolean },
+    emits: ["update:checked"],
+    setup(props, { emit, slots }) {
+      return () => h("label", [
+        h("input", {
+          type: "checkbox",
+          checked: props.checked,
+          onChange: (event: Event) => emit("update:checked", (event.target as HTMLInputElement).checked),
+        }),
+        slots.default?.(),
+      ]);
+    },
+  }),
+}));
+
 vi.mock("../../../components/ui/AppConfirmDialog.vue", () => ({
   default: defineComponent({
     props: { show: Boolean },
     emits: ["update:show", "confirm"],
     setup(props, { emit, slots }) {
       return () => props.show ? h("div", [
+        slots.extra?.(),
         h("button", { onClick: () => emit("update:show", false) }, "取消"),
         h("button", { onClick: () => emit("confirm") }, slots["confirm-label"]?.()),
       ]) : null;
@@ -21,12 +39,37 @@ import { defaultConfirmTexts, defaultLabels, defaultState } from "./taskActionTe
 describe("TaskPermanentDeleteConfirmDialog", () => {
   it("emits only close and permanent delete confirmation", async () => {
     const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
-      props: { show: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
     });
 
     await wrapper.findAll("button")[0].trigger("click");
     await wrapper.findAll("button")[1].trigger("click");
     expect(wrapper.emitted("update:show")).toEqual([[false]]);
-    expect(wrapper.emitted("confirm")).toHaveLength(1);
+    expect(wrapper.emitted("confirm")).toEqual([[false]]);
+  });
+  it("deletes files only when selected and resets the choice on reopening", async () => {
+    const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+    });
+    const checkbox = wrapper.get<HTMLInputElement>('input[type="checkbox"]');
+    expect(checkbox.element.checked).toBe(false);
+    await checkbox.setValue(true);
+    await wrapper.findAll("button")[1].trigger("click");
+    expect(wrapper.emitted("confirm")).toEqual([[true]]);
+    await wrapper.setProps({ show: false });
+    await wrapper.setProps({ show: true });
+    expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
+  });
+  it("hides an unavailable file choice and clears a previous selection", async () => {
+    const wrapper = mount(TaskPermanentDeleteConfirmDialog, {
+      props: { show: true, canDeleteFiles: true, state: defaultState, labels: defaultLabels, confirmTexts: defaultConfirmTexts },
+    });
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.setProps({ canDeleteFiles: false });
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false);
+    await wrapper.findAll("button")[1].trigger("click");
+    expect(wrapper.emitted("confirm")).toEqual([[false]]);
+    await wrapper.setProps({ canDeleteFiles: true });
+    expect(wrapper.get<HTMLInputElement>('input[type="checkbox"]').element.checked).toBe(false);
   });
 });

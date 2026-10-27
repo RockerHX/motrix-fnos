@@ -13,7 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 argon2 = "0.5"
 async-stream = "0.3"
-axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
+axum = { version = "0.7", features = ["multipart", "ws"] }
 base64 = "0.22"
 fs2 = "0.4"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
@@ -39,6 +39,8 @@ zip = { version = "=7.2.0", default-features = false }
 
 [profile.release]
 strip = true
+lto = "fat"
+codegen-units = 1
 
 [profile.dev]
 debug = "line-tables-only"

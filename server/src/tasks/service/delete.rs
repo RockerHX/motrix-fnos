@@ -7,19 +7,13 @@ impl<'a> TaskService<'a> {
         &self,
         config: &Aria2Config,
         task_id: u64,
-        delete_files: bool,
     ) -> Result<DownloadTask, String> {
         self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
+        self.ensure_task_engine_compatible(task_id)?;
         let _operation = self.download_tasks.begin_operation(task_id)?;
         let snapshot = task_snapshot(self.download_tasks, task_id)?;
         if snapshot.status == DownloadTaskStatus::Removed {
             return Err("任务已在回收站中".to_string());
-        }
-        if delete_files {
-            self.validate_task_authorization(&snapshot)?;
-            self.prepare_existing_task_destination(&snapshot)?;
-            self.validate_payload_ownership(&snapshot)?;
         }
         self.ensure_file_cleanup_not_pending(task_id).await?;
         let mut operation = self
@@ -37,35 +31,11 @@ impl<'a> TaskService<'a> {
             )
             .await?;
         let mut task_before_delete = snapshot.clone();
-        let native = snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2;
-        if !native
-            && matches!(
-                task_before_delete.source_type,
-                DownloadTaskSourceType::Torrent | DownloadTaskSourceType::Magnet
-            )
-        {
-            match archive_task_torrent_metadata(self.app_data_dir, &task_before_delete) {
-                Ok(path) => {
-                    task_before_delete = set_task_metadata_torrent_path(
-                        self.download_tasks,
-                        task_id,
-                        path.display().to_string(),
-                    )?;
-                }
-                Err(error) => self.debug_logs.warn(
-                    "tasks.restore",
-                    format!(
-                        "删除任务前未能归档 BT metadata，后续恢复可能受限：{}",
-                        error
-                    ),
-                ),
-            }
-        }
         let gid = task_before_delete
             .gid
             .clone()
             .filter(|gid| !gid.trim().is_empty());
-        if native && snapshot.status != DownloadTaskStatus::Complete {
+        if snapshot.status != DownloadTaskStatus::Complete {
             match self
                 .pause_retained_task(config, &snapshot, &mut operation)
                 .await
@@ -93,105 +63,114 @@ impl<'a> TaskService<'a> {
                         .await);
                 }
             }
-        } else if snapshot.status != DownloadTaskStatus::Complete {
-            if let Some(gid) = gid.as_deref() {
-                if delete_files {
-                    self.validate_task_authorization(&task_before_delete)?;
-                }
-                let request_id = operation.id.clone();
-                if let Err(error) = remove_task_with_request_id(
-                    self.aria2_rpc,
-                    config,
-                    gid,
-                    Some(&request_id),
-                    Some(self.debug_logs),
-                )
-                .await
-                {
-                    if is_aria2_outcome_unknown_error(&error) {
-                        self.record_unknown_aria2_outcome(&mut operation, error.clone())
-                            .await?;
-                        return Err(error);
-                    }
-                    if is_stale_aria2_gid_error(&error) {
-                        self.debug_logs.warn(
-                            "tasks.control",
-                            format!(
-                            "删除任务时 Aria2 已无此 GID，继续删除本地任务记录，ID {}，GID {}：{}",
-                            task_id, gid, error
-                        ),
-                        );
-                    } else {
-                        return Err(self
-                            .rollback_task_operation_state(
-                                snapshot,
-                                &mut operation,
-                                "aria2_remove_failed",
-                                error,
-                            )
-                            .await);
-                    }
-                }
-            }
         }
         let mut context = operation.context.clone();
-        context.completed_side_effects.push(
-            if native {
-                "aria2_task_retained"
-            } else {
-                "aria2_task_removed"
-            }
-            .to_string(),
-        );
+        context
+            .completed_side_effects
+            .push("aria2_task_retained".to_string());
         if let Err(error) = self
-            .update_task_operation(
-                &mut operation,
-                if native {
-                    "aria2_retained"
-                } else {
-                    "aria2_removed"
-                },
-                context,
-            )
+            .update_task_operation(&mut operation, "aria2_retained", context)
             .await
         {
             return Err(self
                 .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                 .await);
         }
-        if native
-            && delete_files
-            && task_before_delete.source_type == DownloadTaskSourceType::Magnet
-            && !task_before_delete.confirmation_required
-            && !task_before_delete.files.is_empty()
-        {
-            if let Err(error) = self
-                .recreation_torrent_metadata(config, &task_before_delete)
-                .await
-            {
+        let task = match mark_task_removed(self.download_tasks, task_id, false) {
+            Ok(task) => task,
+            Err(error) => {
                 return Err(self
                     .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
                     .await);
+            }
+        };
+        if let Err(error) = self
+            .persist_task_with_operation(&task, &mut operation, "task_removed")
+            .await
+        {
+            return Err(self
+                .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
+                .await);
+        }
+        self.complete_task_operation(&mut operation, "completed")
+            .await;
+        self.debug_logs.info(
+            "tasks.control",
+            format!(
+                "任务已移入回收站并保留下载文件，ID {}，GID {}",
+                task_id,
+                gid.as_deref().unwrap_or("-")
+            ),
+        );
+        Ok(task)
+    }
+
+    pub async fn permanently_delete_removed_task(
+        &self,
+        config: &Aria2Config,
+        task_id: u64,
+        delete_files: bool,
+    ) -> Result<Option<DownloadTask>, String> {
+        self.ensure_not_exiting()?;
+        self.ensure_task_engine_compatible(task_id)?;
+        let _operation = self.download_tasks.begin_operation(task_id)?;
+        let snapshot = task_snapshot(self.download_tasks, task_id)?;
+        if snapshot.status != DownloadTaskStatus::Removed {
+            return Err("只有回收站任务可以永久删除".to_string());
+        }
+        self.ensure_file_cleanup_not_pending(task_id).await?;
+        let delete_files = delete_files && snapshot.can_delete_download_files();
+        if delete_files {
+            self.validate_task_authorization(&snapshot)?;
+            self.prepare_existing_task_destination(&snapshot)?;
+            self.validate_payload_ownership(&snapshot)?;
+            if self.download_tasks.list()?.iter().any(|other| {
+                other.id != task_id && snapshot.gid.is_some() && other.gid == snapshot.gid
+            }) {
+                return Err(
+                    "task_shared_resource_conflict：引擎任务由其他记录引用，已保留文件".to_string(),
+                );
             }
         }
         let mut staged = if delete_files {
-            if let Err(error) = self.prepare_existing_task_destination(&task_before_delete) {
-                return Err(self
-                    .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
-                    .await);
-            }
-            match prepare_task_file_staging(&task_before_delete) {
-                Ok(staged) => staged,
-                Err(error) => {
-                    return Err(self
-                        .rollback_delete_after_aria2_removal(snapshot, None, &mut operation, error)
-                        .await);
-                }
-            }
+            prepare_task_file_staging(&snapshot)?
         } else {
             None
         };
+        let mut context = task_operation_context(Some(snapshot.clone()), Vec::new());
+        if delete_files {
+            context
+                .completed_side_effects
+                .push("delete_files_requested".to_string());
+        }
+        let mut operation = self
+            .begin_task_operation(
+                task_id,
+                TaskOperationType::PermanentDelete,
+                "prepared",
+                context,
+            )
+            .await?;
+        if let Err(error) = self
+            .release_retained_task(config, &snapshot, &mut operation)
+            .await
+        {
+            if !self.has_unknown_aria2_outcome(&operation) {
+                operation.require_manual_review("engine_release_failed", error.clone());
+                self.repository.update_operation(&operation).await?;
+            }
+            return Err(error);
+        }
         if let Some(staged_files) = staged.as_mut() {
+            if let Err(error) = self
+                .validate_task_authorization(&snapshot)
+                .and_then(|_| self.prepare_existing_task_destination(&snapshot))
+                .and_then(|_| self.validate_payload_ownership(&snapshot))
+            {
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
+                    .await);
+            }
             let mut context = operation.context.clone();
             let backup_path = staged_files.backup_dir().display().to_string();
             context.critical_paths.push(backup_path);
@@ -225,122 +204,44 @@ impl<'a> TaskService<'a> {
                     .await);
             }
         }
-        let mut task = match mark_task_removed(self.download_tasks, task_id, false) {
-            Ok(task) => task,
-            Err(error) => {
-                return Err(self
-                    .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
-                    .await);
-            }
-        };
-        task.files_deleted = delete_files;
-        if delete_files {
+        if staged.is_some() {
+            let mut task = snapshot.clone();
+            task.gid = None;
+            task.files_deleted = true;
             task.completed_length = 0;
             for file in &mut task.files {
                 file.completed_length = 0;
             }
-        }
-        if let Err(error) = replace_task_snapshot(self.download_tasks, task.clone()) {
-            return Err(self
-                .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
-                .await);
-        }
-        if let Err(error) = self
-            .persist_task_with_operation(
-                &task,
-                &mut operation,
-                if staged.is_some() {
-                    FILE_CLEANUP_PENDING_PHASE
-                } else {
-                    "task_removed"
-                },
-            )
-            .await
-        {
-            return Err(self
-                .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
-                .await);
-        }
-        if !native {
-            remove_magnet_metadata_dir(self.app_data_dir, &task_before_delete);
-        }
-        if staged.is_some() {
-            self.debug_logs.info(
-                "tasks.control",
-                format!(
-                    "任务文件已暂存，交由后台清理，ID {}，暂存目录 {}",
-                    task_id,
-                    operation
-                        .context
-                        .file_cleanup_paths
-                        .first()
-                        .map(String::as_str)
-                        .unwrap_or("-")
-                ),
-            );
-        } else {
-            self.complete_task_operation(&mut operation, "completed")
-                .await;
-        }
-        self.debug_logs.info(
-            "tasks.control",
-            format!(
-                "任务已删除，ID {}，GID {}，删除本地文件 {}",
-                task_id,
-                gid.as_deref().unwrap_or("-"),
-                if delete_files { "是" } else { "否" }
-            ),
-        );
-        Ok(task)
-    }
-
-    pub async fn permanently_delete_removed_task(
-        &self,
-        config: &Aria2Config,
-        task_id: u64,
-    ) -> Result<(), String> {
-        self.ensure_not_exiting()?;
-        self.ensure_task_engine_compatible(config, task_id)?;
-        let _operation = self.download_tasks.begin_operation(task_id)?;
-        let task = task_snapshot(self.download_tasks, task_id)?;
-        if task.status != DownloadTaskStatus::Removed {
-            return Err("只有已删除任务可以永久删除".to_string());
-        }
-        self.ensure_file_cleanup_not_pending(task_id).await?;
-
-        let mut operation = self
-            .begin_task_operation(
-                task_id,
-                TaskOperationType::PermanentDelete,
-                "prepared",
-                task_operation_context(Some(task.clone()), Vec::new()),
-            )
-            .await?;
-        if task
-            .gid
-            .as_deref()
-            .is_some_and(|gid| !gid.trim().is_empty())
-        {
             if let Err(error) = self
-                .release_retained_task(config, &task, &mut operation)
+                .persist_task_with_operation(&task, &mut operation, FILE_CLEANUP_PENDING_PHASE)
                 .await
             {
-                if !self.has_unknown_aria2_outcome(&operation) {
-                    operation.require_manual_review("engine_release_failed", error.clone());
-                    self.repository.update_operation(&operation).await?;
-                }
-                return Err(error);
+                return Err(self
+                    .rollback_delete_after_aria2_removal(snapshot, staged, &mut operation, error)
+                    .await);
             }
+            replace_task_snapshot(self.download_tasks, task.clone())?;
+            return Ok(Some(task));
         }
+        self.finish_permanent_delete(&snapshot, &mut operation)
+            .await?;
+        Ok(None)
+    }
+
+    pub(crate) async fn finish_permanent_delete(
+        &self,
+        task: &DownloadTask,
+        operation: &mut TaskOperation,
+    ) -> Result<(), String> {
         operation.complete("record_deleted");
         if !self
             .repository
-            .delete_task_record_with_operation(task_id, &operation)
+            .delete_task_record_with_operation(task.id, &operation)
             .await?
         {
-            return Err(format!("下载任务不存在：{}", task_id));
+            return Err(format!("下载任务不存在：{}", task.id));
         }
-        if let Err(error) = remove_task_record(self.download_tasks, task_id) {
+        if let Err(error) = remove_task_record(self.download_tasks, task.id) {
             operation.require_manual_review("memory_record_cleanup_failed", error.clone());
             let _ = self.repository.update_operation(&operation).await;
             return Err(error);
@@ -348,19 +249,19 @@ impl<'a> TaskService<'a> {
         let metadata_dir = self
             .app_data_dir
             .join("task-metadata")
-            .join(format!("task-{task_id}"));
+            .join(format!("task-{}", task.id));
         if !self.download_tasks.list()?.iter().any(|other| {
             other
                 .metadata_torrent_path
                 .as_deref()
                 .is_some_and(|path| Path::new(path).starts_with(&metadata_dir))
         }) {
-            remove_restore_metadata(self.app_data_dir, task_id);
+            remove_restore_metadata(self.app_data_dir, task.id);
         }
         remove_magnet_metadata_dir(self.app_data_dir, &task);
         self.debug_logs.info(
             "tasks.control",
-            format!("已永久删除回收站任务记录，ID {}", task_id),
+            format!("已永久删除回收站任务记录，ID {}", task.id),
         );
         Ok(())
     }
@@ -373,9 +274,10 @@ impl<'a> TaskService<'a> {
         reason: impl Into<String>,
     ) -> String {
         let mut errors = vec![reason.into()];
-        if snapshot.engine_generation == crate::config::aria2::EngineGeneration::NativeV2
-            && snapshot.status != DownloadTaskStatus::Complete
-        {
+        if !matches!(
+            snapshot.status,
+            DownloadTaskStatus::Complete | DownloadTaskStatus::Removed
+        ) {
             if let Ok(paused) = task_snapshot(self.download_tasks, snapshot.id) {
                 if paused.status == DownloadTaskStatus::Paused
                     || paused.status == DownloadTaskStatus::Complete
@@ -540,31 +442,28 @@ impl<'a> TaskService<'a> {
             }
         }
         crate::aria2::save_session(self.aria2_rpc, config, Some(self.debug_logs)).await?;
-        if config.engine_generation() == crate::config::aria2::EngineGeneration::NativeV2 {
-            let still_present =
-                crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs))
-                    .await?;
-            if still_present {
-                remove_task_result(
-                    self.aria2_rpc,
-                    config,
-                    gid,
-                    Some(&format!("{}:remove-result", operation.id)),
-                    Some(self.debug_logs),
-                )
-                .await
-                .map_err(|error| {
-                    if is_aria2_outcome_unknown_error(&error) {
-                        format!("task_outcome_unknown：原 GID 结果清理未确认：{error}")
-                    } else {
-                        error
-                    }
-                })?;
-            }
-            if crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await?
-            {
-                return Err("task_outcome_unknown：原 GID 尚未移除，保留任务记录".to_string());
-            }
+
+        let still_present =
+            crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await?;
+        if still_present {
+            remove_task_result(
+                self.aria2_rpc,
+                config,
+                gid,
+                Some(&format!("{}:remove-result", operation.id)),
+                Some(self.debug_logs),
+            )
+            .await
+            .map_err(|error| {
+                if is_aria2_outcome_unknown_error(&error) {
+                    format!("task_outcome_unknown：原 GID 结果清理未确认：{error}")
+                } else {
+                    error
+                }
+            })?;
+        }
+        if crate::tasks::task_exists(self.aria2_rpc, config, gid, Some(self.debug_logs)).await? {
+            return Err("task_outcome_unknown：原 GID 尚未移除，保留任务记录".to_string());
         }
         let mut context = operation.context.clone();
         context
@@ -599,11 +498,14 @@ impl<'a> TaskService<'a> {
         ) {
             PathBuf::from(task_download_dir(task))
         } else {
-            task.file_path
+            let Some(path) = task
+                .file_path
                 .as_deref()
                 .filter(|path| !path.trim().is_empty())
-                .map(PathBuf::from)
-                .ok_or_else(|| "任务缺少可删除的文件路径".to_string())?
+            else {
+                return Ok(());
+            };
+            PathBuf::from(path)
         };
         let target = canonical_or_original(&target);
         let accessible = self.accessible_paths()?;

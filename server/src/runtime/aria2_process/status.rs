@@ -28,7 +28,10 @@ pub fn process_status(
 
     let pid = child.id();
     let source = child.source();
-    let _ = guard.take();
+    // 正常停止的退出结果由生命周期协调器确认，状态查询不能先丢弃。
+    if !child.stop_requested {
+        let _ = guard.take();
+    }
     Ok(Aria2ProcessStatus {
         running: false,
         pid: Some(pid),

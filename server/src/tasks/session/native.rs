@@ -1,6 +1,7 @@
 use super::*;
 use crate::config::aria2::EngineGeneration;
 use crate::tasks::is_pending_magnet_metadata_task;
+use crate::tasks::{files::task_download_dir, progress::apply_aria2_status, DownloadTaskStatus};
 use std::path::PathBuf;
 
 pub(super) fn sync_native_session(
@@ -50,6 +51,9 @@ pub(super) fn sync_native_session(
     {
         if task.status == DownloadTaskStatus::Complete
             || task.removed_from_status == Some(DownloadTaskStatus::Complete)
+            || (task.status == DownloadTaskStatus::Removed
+                && task.files_deleted
+                && task.gid.is_none())
         {
             continue;
         }

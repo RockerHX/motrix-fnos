@@ -616,6 +616,7 @@ async fn snapshot_failure_and_generation_change_roll_back_the_entire_task_update
         .unwrap_err()
         .contains("代际"));
     changed.engine_generation = task.engine_generation;
+    changed.files[0].completed_length += 1;
     sqlx::query("CREATE TRIGGER fail_snapshot BEFORE INSERT ON task_file_snapshots BEGIN SELECT RAISE(FAIL, 'snapshot failure'); END").execute(&database.pool).await.unwrap();
     assert!(upsert_download_task(&database.pool, &changed)
         .await
@@ -734,6 +735,119 @@ fn native_snapshot_task(id: u64) -> DownloadTask {
     }];
     task.selected_file_indexes = vec![1];
     task
+}
+
+#[tokio::test]
+async fn task_refresh_survives_columns_added_by_another_connection() {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    let path = std::env::temp_dir().join(format!(
+        "motrix-refresh-schema-{}-{}.sqlite",
+        std::process::id(),
+        now_ms()
+    ));
+    let database = connect_database(path.clone()).await.unwrap();
+    let original = native_snapshot_task(1);
+    upsert_download_task(&database.pool, &original)
+        .await
+        .unwrap();
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(SqliteConnectOptions::new().filename(&path))
+        .await
+        .unwrap();
+    let mut next = original.clone();
+    for progress in [50, 60] {
+        let previous = next.clone();
+        next.completed_length = progress;
+        next.files[0].completed_length = progress;
+        next.updated_at += 1;
+        let updates = vec![(previous, next.clone())];
+        assert_eq!(
+            persist_task_refreshes(&pool, &updates).await.unwrap(),
+            updates
+        );
+        if progress == 50 {
+            sqlx::query("ALTER TABLE download_tasks ADD COLUMN migration_extra TEXT")
+                .execute(&database.pool)
+                .await
+                .unwrap();
+        }
+    }
+    assert_eq!(list_download_tasks(&pool).await.unwrap(), vec![next]);
+    pool.close().await;
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
+}
+
+#[tokio::test]
+async fn file_snapshot_sync_only_writes_changed_indexes_and_preserves_check_time() {
+    let database = connect_database(std::env::temp_dir().join(format!(
+        "motrix-file-diff-{}-{}.sqlite",
+        std::process::id(),
+        now_ms()
+    )))
+    .await
+    .unwrap();
+    let mut task = native_snapshot_task(1);
+    task.files.push(DownloadTaskFile {
+        index: 2,
+        path: "/downloads/second.bin".into(),
+        name: "second.bin".into(),
+        ..task.files[0].clone()
+    });
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    sqlx::query("CREATE TABLE writes (action TEXT, file_index INTEGER)")
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    for action in ["INSERT", "UPDATE", "DELETE"] {
+        let source = if action == "DELETE" { "old" } else { "new" };
+        sqlx::query(&format!("CREATE TRIGGER count_{action} AFTER {action} ON task_file_snapshots BEGIN INSERT INTO writes VALUES ('{action}', {source}.file_index); END")).execute(&database.pool).await.unwrap();
+    }
+    task.completed_length += 1;
+    task.updated_at += 10;
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM writes")
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+    let checked: i64 =
+        sqlx::query_scalar("SELECT checked_at FROM task_file_snapshots WHERE file_index = 1")
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(checked, 1);
+    task.files[0].selected = false;
+    task.files.remove(1);
+    task.files.push(DownloadTaskFile {
+        index: 3,
+        path: "/downloads/third.bin".into(),
+        name: "third.bin".into(),
+        ..task.files[0].clone()
+    });
+    upsert_download_task(&database.pool, &task).await.unwrap();
+    let writes: Vec<(String, i64)> =
+        sqlx::query_as("SELECT action, file_index FROM writes ORDER BY action")
+            .fetch_all(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        writes,
+        [
+            ("DELETE".into(), 2),
+            ("INSERT".into(), 3),
+            ("UPDATE".into(), 1)
+        ]
+    );
+    assert_eq!(
+        list_download_tasks(&database.pool).await.unwrap()[0].files,
+        task.files
+    );
+    let path = database.path.clone();
+    database.pool.close().await;
+    std::fs::remove_file(path).unwrap();
 }
 
 #[tokio::test]

@@ -54,15 +54,6 @@ pub fn process_args_with_log_level(config: &Aria2Config, log_level: Aria2LogLeve
     if let Some(session_path) = config.session_path.as_deref() {
         args.push(format!("--input-file={session_path}"));
         args.push(format!("--save-session={session_path}"));
-        if let Some(runtime_dir) = PathBuf::from(session_path)
-            .parent()
-            .filter(|_| config.state_dir.is_none())
-        {
-            args.push(format!(
-                "--dht-file-path={}",
-                runtime_dir.join("dht.dat").display()
-            ));
-        }
     }
 
     if let Some(state_dir) = config.state_dir.as_deref() {

@@ -3,6 +3,7 @@ import { useTaskStore } from "../stores/taskStore";
 import { runTaskToolbarBatch, useTaskToolbar } from "./useTaskToolbar";
 import type { TranslationKey, TranslationParams } from "../../../i18n";
 import type { DownloadTask } from "../../../types/tasks";
+import { canDeleteTaskFiles } from "../utils/taskFormat";
 
 type TaskToolbar = ReturnType<typeof useTaskToolbar>;
 type Translate = (key: TranslationKey, params?: TranslationParams) => string;
@@ -28,6 +29,9 @@ export function useTaskBulkActions({ taskStore, toolbar, message, t }: UseTaskBu
     bulkDeleteMode.value === "clearTrash"
       ? toolbar.clearTrashCandidates.value.length
       : toolbar.deleteCandidates.value.length,
+  );
+  const canBulkDeleteFiles = computed(() =>
+    bulkDeleteMode.value === "clearTrash" && toolbar.clearTrashCandidates.value.some(canDeleteTaskFiles),
   );
 
   async function pauseVisibleTasks() {
@@ -56,13 +60,13 @@ export function useTaskBulkActions({ taskStore, toolbar, message, t }: UseTaskBu
     showBulkDeleteConfirm.value = true;
   }
 
-  async function confirmDeleteVisibleTasks() {
+  async function confirmDeleteVisibleTasks(deleteFiles = false) {
     try {
       if (bulkDeleteMode.value === "clearTrash") {
-        await runBatch(toolbar.clearTrashCandidates.value, (task) => taskStore.permanentlyDeleteTask(task.id), "task.bulk.clearTrashSuccess", "task.bulk.trashEmpty");
+        await runBatch(toolbar.clearTrashCandidates.value, (task) => taskStore.permanentlyDeleteTask(task.id, deleteFiles && canDeleteTaskFiles(task)), "task.bulk.clearTrashSuccess", "task.bulk.trashEmpty");
         return;
       }
-      await runBatch(toolbar.deleteCandidates.value, (task) => taskStore.deleteTask(task.id, false), "task.bulk.deleteSuccess", "task.bulk.noDeletable");
+      await runBatch(toolbar.deleteCandidates.value, (task) => taskStore.deleteTask(task.id), "task.bulk.deleteSuccess", "task.bulk.noDeletable");
     } finally {
       showBulkDeleteConfirm.value = false;
     }
@@ -93,6 +97,7 @@ export function useTaskBulkActions({ taskStore, toolbar, message, t }: UseTaskBu
     bulkDeleteMode,
     isBulkOperating,
     bulkDeleteTaskCount,
+    canBulkDeleteFiles,
     pauseVisibleTasks,
     resumeVisibleTasks,
     requestDeleteVisibleTasks,

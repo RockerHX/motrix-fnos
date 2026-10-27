@@ -45,6 +45,11 @@ describe("taskFormat", () => {
     expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: 120 }))).toBe("100.00%");
   });
 
+  it("shows pending and failed file cleanup on Trash tasks", () => {
+    expect(formatTaskStatusLabel(createTask({ status: "removed", cleanupState: "pending" }))).toBe("文件清理中");
+    expect(formatTaskStatusLabel(createTask({ status: "removed", cleanupState: "failed" }))).toBe("文件清理失败，将自动重试");
+  });
+
   it("formats every task status label", () => {
     const labels: Record<DownloadTaskStatus, string> = {
       pending: "排队",

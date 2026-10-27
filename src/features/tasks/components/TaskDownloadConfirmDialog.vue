@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { NSpace } from "naive-ui";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
-import type { TaskActionConfirmTexts, TaskActionLabels, TaskActionState } from "./taskActionViewModel";
+import type { TaskActionState } from "./taskActionViewModel";
 import TaskProxyToggle from "./TaskProxyToggle.vue";
 
 withDefaults(defineProps<{
   show: boolean;
   state: TaskActionState;
-  labels: TaskActionLabels;
-  confirmTexts: TaskActionConfirmTexts;
+  title: string;
+  text: string;
+  confirmLabel: string;
   useProxy: boolean;
   showProxy?: boolean;
 }>(), { showProxy: true });
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 <template>
   <AppConfirmDialog
     :show="show"
-    :title="confirmTexts.redownloadTitle"
+    :title="title"
     :mask-closable="!state.isOperating"
     :loading="state.isOperating"
     :disabled="state.isActionDisabled"
@@ -32,7 +33,7 @@ const emit = defineEmits<{
     @confirm="emit('confirm', useProxy)"
   >
     <NSpace vertical>
-      <p>{{ confirmTexts.redownloadConfirmText }}</p>
+      <p>{{ text }}</p>
       <TaskProxyToggle
         v-if="showProxy !== false"
         :value="useProxy"
@@ -41,6 +42,6 @@ const emit = defineEmits<{
         @update:value="emit('update:useProxy', $event)"
       />
     </NSpace>
-    <template #confirm-label>{{ labels.redownload }}</template>
+    <template #confirm-label>{{ confirmLabel }}</template>
   </AppConfirmDialog>
 </template>

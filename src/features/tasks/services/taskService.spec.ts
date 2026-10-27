@@ -87,13 +87,13 @@ describe("taskService", () => {
   });
 
   it("encodes soft and permanent delete endpoints", () => {
-    deleteDownloadTask(9, true);
-    deleteDownloadTask(10, false);
+    deleteDownloadTask(9);
+    permanentlyDeleteDownloadTask(10, true);
     permanentlyDeleteDownloadTask(11);
 
-    expect(httpDelete).toHaveBeenNthCalledWith(1, "/api/tasks/9?deleteFiles=true");
-    expect(httpDelete).toHaveBeenNthCalledWith(2, "/api/tasks/10?deleteFiles=false");
-    expect(httpDelete).toHaveBeenNthCalledWith(3, "/api/tasks/11/permanent");
+    expect(httpDelete).toHaveBeenNthCalledWith(1, "/api/tasks/9");
+    expect(httpDelete).toHaveBeenNthCalledWith(2, "/api/tasks/10/permanent?deleteFiles=true");
+    expect(httpDelete).toHaveBeenNthCalledWith(3, "/api/tasks/11/permanent?deleteFiles=false");
   });
 
   it("requests task file context with the selected language", () => {

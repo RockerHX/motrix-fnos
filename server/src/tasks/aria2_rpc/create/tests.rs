@@ -52,9 +52,12 @@ fn add_uri_request_contains_url_and_options() {
     assert_eq!(request["params"][0][0], "https://example.com/file.zip");
     assert_eq!(request["params"][1]["dir"], "/downloads");
     assert_eq!(request["params"][1]["out"], "custom.zip");
-    assert_eq!(request["params"][1]["split"], "8");
-    assert_eq!(request["params"][1]["max-connection-per-server"], "8");
-    assert!(request["params"][1].get("stream-max-connections").is_none());
+    assert_eq!(request["params"][1]["stream-max-connections"], "8");
+    assert_eq!(request["params"][1]["media"], "file");
+    assert!(request["params"][1].get("split").is_none());
+    assert!(request["params"][1]
+        .get("max-connection-per-server")
+        .is_none());
     assert_eq!(request["params"][1]["max-download-limit"], "524288");
     assert_eq!(request["params"][1]["all-proxy"], "http://127.0.0.1:7890");
     assert_eq!(request["params"][1]["pause"], "false");
@@ -199,7 +202,7 @@ fn add_uri_request_keeps_paused_magnet_metadata_resolution_running() {
     );
     assert_eq!(request["params"][1]["pause"], "false");
     assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
+    assert!(request["params"][1].get("bt-save-metadata").is_none());
     assert!(request["params"][1].get("all-proxy").is_none());
     assert!(request["params"][1]["bt-tracker"]
         .as_str()
@@ -238,7 +241,7 @@ fn add_uri_request_sets_pause_metadata_for_started_magnet() {
     let request = build_add_uri_request_with_id(&test_config(), &task, "test-magnet-running");
 
     assert_eq!(request["params"][1]["pause-metadata"], "true");
-    assert_eq!(request["params"][1]["bt-save-metadata"], "true");
+    assert!(request["params"][1].get("bt-save-metadata").is_none());
     assert_eq!(request["params"][1]["pause"], "false");
     assert!(request["params"][1]["bt-tracker"]
         .as_str()
