@@ -1,6 +1,6 @@
 # 前后端 HTTP / SSE / JSON-RPC API 契约
 
-> 本文档定义 Rust server、Vue Web UI 与外部 JSON-RPC 兼容调用方之间的接口边界。总体架构见 `docs/architecture.md`；开发计划与后续候选事项见 `docs/future-development-plan.md`；UI 产品需求见 `docs/design/ui-product-requirements.md`；FPK 构建与产物见 `docs/fpk-packaging.md`。
+> 本文定义 Rust server、Vue Web UI 与外部 JSON-RPC 调用方之间的接口。项目结构见 [架构](architecture.md)，未完成事项见 [开发计划](future-development-plan.md)，交互见 [UI 规范](design/DESIGN.md)，开发、打包与排障见 [维护手册](maintenance.md)。
 
 ## 1. 运行时约定
 
@@ -32,7 +32,7 @@
 
 - FPK Web UI 从 manifest `service_port` 对应的管理端口访问后端，API 与 SSE 使用同源 `/api/*` 和 `/api/events`。
 - FPK 桌面入口与 Rust server 使用同一端口；不得再同时声明统一网关字段并把该端口限制成仅 JSON-RPC。
-- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。`1.9.4` 的提交 `476a3bf` 将请求改为 `omit`；Issue #21 实机反馈从该版本起收到 FN Connect 的 HTML 403，而 `1.9.3` 正常。恢复同源凭据用于修复这一兼容风险，具体 fnOS 版本及安全补丁的影响仍待实机对照确认。
+- 浏览器管理请求使用 `Authorization: Bearer <JWT>`；统一 HTTP client 与 SSE 使用 `credentials: "same-origin"`，保留上游网关的同源 Cookie 传输，Motrix 自身仍只依据 JWT 校验管理权限。FN Connect 的凭据兼容与待验边界见 [故障排查](maintenance.md#常见问题)。
 - `/jsonrpc` 只存在于两个 RPC listener，不与 Web UI 共用监听器；回环反代和局域网写操作分别要求独立 Token。
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
@@ -205,7 +205,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 
 内置引擎及 `MOTRIX_FNOS_ARIA2_PATH` 外部路径仅支持已验证的 Aria2 Next 2.8.6。2.5.5 仍返回 `engineGeneration=legacy-v1`，但以 `reasonCode=engine_unsupported` 进入受限管理；未知或探测失败返回 `unknown` / `engine_unknown`。缺失、不可执行、探测超时均不降级运行旧引擎。受限启动不加载任务、不恢复或清理任务文件；历史记录、凭据、session 和文件保留，不能用更换路径接管旧任务。HTTP、SSE 与 RPC 的现有字段结构及上述错误响应保持不变。
 
-2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [FPK 升级说明](fpk-packaging.md#升级前备份与回滚)。
+2.0.0 不导入、展示、继续或恢复旧代任务，任务列表从空列表开始，旧记录及下载文件保留原处，任务编号跨代不复用。读取边界在解析内容前排除可确定属于旧代的任务、文件快照和未完成操作，旧任务损坏或未完成也不阻止升级。当前代或归属不明的损坏数据仍安全阻断，当前引擎无法确认时仍拒绝下载。密码、设置、目录授权和 RPC Token 沿用；新引擎不加载旧 session 或执行旧操作。升级脚本仅确认停服，不自动备份或迁移旧任务；回滚条件见 [备份与回滚](maintenance.md#备份与回滚)。
 
 `AppUpdateCheck` 示例：
 

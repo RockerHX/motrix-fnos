@@ -76,9 +76,9 @@ FPK 按设备 CPU 架构分别发布：
 
 管理页面使用安装时设置的密码登录，保留数据重装或升级时沿用原密码。忘记密码时先停止应用，再通过 NAS SSH 终端运行 `sudo -u motrix_fnos /var/apps/motrix/cmd/reset-web-auth`，按提示隐藏输入并确认新密码，成功后启动应用；下载任务、设置、RPC Token 和下载文件均保留。
 
-同一 `appname=motrix` 身份下升级保留数据，但 **2.0.0 不导入、不展示、不继续或恢复旧任务，新版任务列表重新开始**。旧任务记录及下载文件保留原处，密码、设置、目录授权和 RPC Token 沿用；旧任务及旧操作未完成也不会阻止升级。若需要保留旧任务进度，请先在旧版完成下载（包括回收站中需要恢复的任务）。升级不会自动备份或迁移旧任务状态；升级流程见[FPK 说明](docs/fpk-packaging.md#升级前备份与回滚)。
+同一 `appname=motrix` 身份下升级保留数据，但 **2.0.0 不导入、不展示、不继续或恢复旧任务，新版任务列表重新开始**。旧任务记录及下载文件保留原处，密码、设置、目录授权和 RPC Token 沿用；旧任务及旧操作未完成也不会阻止升级。需要旧任务进度时先在旧版完成下载，包括回收站中需要恢复的任务。
 
-升级前应停止应用并手工备份整个应用私有数据目录；回滚须先停止新版，配套恢复旧 FPK 和升级前一致的完整备份，不能让旧版直接读取新版数据。下载文件位于私有目录外时须另行保护，私有数据备份不能还原升级后被改动的下载文件。详见[升级前备份与回滚](docs/fpk-packaging.md#升级前备份与回滚)。
+升级不自动备份或迁移旧任务。升级前停服并完整备份私有数据，外部下载文件另行保护；回滚须恢复配套旧 FPK 和完整备份，不能让旧版直接读取新版数据。步骤见[备份与回滚](docs/maintenance.md#备份与回滚)。
 
 当前开发目标为 2.0.0，候选待真机验收，尚未正式发布；内置及外部引擎仅支持已验证的 Aria2 Next 2.8.6，其他引擎进入受限管理，旧数据保留且不接管旧任务，详见[支持边界](docs/api-contract.md#42-应用信息)。
 
@@ -88,11 +88,23 @@ FPK 按设备 CPU 架构分别发布：
 
 FN Connect / 应用子域名依赖 fnOS 登录态，只适合作为管理入口；第三方解析站不会携带该登录态，公网 JSON-RPC 仍需通过 Lucky/Cloudflare 反向代理到回环 `17081`。
 
-## 技术文档
+## 常用开发命令
+
+在仓库根目录执行；工具链版本和完整操作见[维护手册](docs/maintenance.md#开发与验证)。
+
+```bash
+pnpm install                  # 安装依赖
+pnpm run dev                 # 只启动前端，后端需另行启动
+pnpm run verify:pre-commit   # 提交前快速检查
+pnpm run verify             # 完整源码测试与构建
+pnpm run build:fpk          # 完整验证、双架构打包与解包验收
+```
+
+## 文档入口
 
 - [架构与职责边界](docs/architecture.md)
 - [开发计划与后续事项](docs/future-development-plan.md)
 - [HTTP、SSE 与 JSON-RPC 接口](docs/api-contract.md)
-- [开发脚本与命令说明](docs/development-scripts.md)
-- [FPK 构建、验证与发布](docs/fpk-packaging.md)
+- [维护手册：开发、发布、备份回滚与故障排查](docs/maintenance.md)
+- [UI 交互与视觉规范](docs/design/DESIGN.md)
 - [发布记录](CHANGELOG.md)

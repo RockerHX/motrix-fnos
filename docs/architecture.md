@@ -1,282 +1,103 @@
-# 飞牛版 Motrix 架构文档
+# 飞牛版 Motrix 架构说明
 
-> 本文档只维护已确认的最新长期架构、职责边界、目录组织和运行模型。实现进度、与实现的差距、版本目标、优先级和启动门禁统一见 `docs/future-development-plan.md`；接口细节见 `docs/api-contract.md`；开发命令见 `docs/development-scripts.md`；FPK 打包与实机检查见 `docs/fpk-packaging.md`；当前 UI 产品需求与视觉规则见 `docs/design/ui-product-requirements.md` 和 `docs/design/DESIGN.md`。
+本文只讲长期结构和关键底线。阶段事项见 [开发计划](future-development-plan.md)，开发规则见 [AGENTS.md](../AGENTS.md)，操作步骤见 [维护手册](maintenance.md)。
 
-## 1. 架构边界
+## 1. 项目与技术栈
 
-本项目交付 **fnOS FPK 下载管理应用**。
+Motrix 是交付为 `.fpk` 的 fnOS 下载管理应用，维护主线为 `server/`、`src/` 和 `packaging/fnos/`。
 
-固定边界：
-
-- 交付形态：`.fpk`。
-- 运行模型：fnOS 服务启动 Rust server，server 托管 Web UI 并管理 Aria2 Next sidecar。
-- 前后端通信：同一 Rust server 共享业务状态并启动三个服务入口；管理入口承载 Web UI、HTTP API 与 SSE，并同时监听 IPv4/IPv6，回环 RPC 入口和局域网 RPC 入口分别承载使用独立 token 的 JSON-RPC 兼容入口。
-- 长期状态：应用 SQLite、Aria2 session、引擎原生恢复状态和种子备份持久化到 FPK 应用数据目录。
-- 维护主线：`server/`、`src/`、`packaging/fnos/`。
-
-## 2. 技术栈
-
-| 层级 | 选型 |
+| 层级 | 选型与职责 |
 | --- | --- |
-| FPK | `packaging/fnos/`、`cmd/start`、`cmd/stop`、`cmd/status` |
-| 后端 | Rust、Tokio、Axum、Serde、SQLx、SQLite、tracing |
-| 下载引擎 | Aria2 Next sidecar，通过 JSON-RPC 控制 |
-| 前端 | Vue 3、TypeScript、Vite、Naive UI、Pinia |
-| 通信 | HTTP API、SSE |
+| FPK | 元数据、权限、入口、生命周期脚本和产物组装 |
+| Rust server | Tokio、Axum、Serde、SQLx、SQLite、tracing；业务、路径安全、引擎协调、HTTP/SSE |
+| Aria2 Next | 独立 sidecar；HTTP/HTTPS、BT、磁力、续传、限速和状态上报 |
+| Web UI | Vue 3、TypeScript、Vite、Naive UI；页面交互与展示 |
+| Pinia | 前端任务快照、筛选、选中项、事件和配置缓存，不代替后端持久化 |
 
-## 3. 运行拓扑
-
-```text
-fnOS FPK
-  ├─ manifest / config / cmd / wizard / icons
-  ├─ Rust server
-  │   ├─ 管理监听器（Web UI、HTTP API、SSE）
-  │   ├─ 回环 RPC 监听器（仅 /jsonrpc）
-  │   ├─ 局域网 RPC 监听器（仅 /jsonrpc）
-  │   ├─ Aria2 Next 进程管理
-  │   ├─ SQLite 持久化
-  │   └─ 调试日志与运行状态
-  ├─ Web UI
-  │   └─ Vue 3 + Naive UI + Pinia
-  └─ Aria2 Next Linux sidecar
-```
-
-### 3.1 fnOS 开放 API 边界
-
-正式包使用 fnOS 开放 API 查询共享目录授权，并以服务端确认的目录快照作为授权事实；SDK 返回值、浏览器提交路径和语义化展示路径都不能绕过 Rust server 的授权与归属校验。SDK 只在 fnOS 桌面或飞牛 App WebView 中由用户操作触发，独立浏览器只显示降级提示。
-
-独立 Probe 仅用于验证平台机制，现已归档，不属于正式 Motrix 拓扑。正式包继续使用 `17080`、`17081`、`17082` 三类入口，管理端口同时覆盖 IPv4/IPv6；正式身份的 fnOS 实机验收要求见 `docs/fpk-packaging.md`。
-
-### 3.2 交付与运行约束
-
-- `packaging/fnos/` 承担 FPK 元数据、权限、生命周期脚本和产物组装；x86_64、ARM64 分别构建，安装包须匹配设备架构。
-- fnOS 脚本负责启动、停止和状态查询；停止和状态查询须核对 PID、启动时间及可执行文件。
-- 启动时清理孤儿进程须核对 PID、启动时间、UID 和可执行文件归属；不得按宽泛进程名或端口终止其他进程。
-- 停止超时须有界升级信号。只有确认 server 与所属 sidecar 均已退出，才允许删除包文件或应用数据；无法确认时失败关闭并保留运行态和用户文件。
-- 管理、回环 RPC 和局域网 RPC 入口共享 `HttpAppState`、SQLite、Aria2 运行态和退出信号。除局域网 RPC 端口占用允许明确降级外，任一地址绑定失败都应整体启动失败；退出时只执行一次引擎保存与清理。
-- 管理入口承载 Web UI、HTTP API 与 SSE，回环入口仅供本机反向代理，局域网入口使用独立 Token 和真实对端来源限制。入口不得混用，凭据不能跨入口复用。
-- Aria2 的端口、secret、进程句柄、RPC ready、运行态记录和启停决策统一由 Rust 生命周期协调器管理；任务操作、外部创建、启动恢复和监控不得绕过协调器。空闲与退出规则见[第 8 节](#8-生命周期与安全边界)。
-- 桌面入口默认仅管理员，可切换为设备内所有用户。端口服务不提供可信 fnOS 登录态 Header，管理面必须使用自身密码和 JWT。
-
-默认监听地址、路径、来源策略、连接配额及失败响应见[接口契约](api-contract.md#1-运行时约定)和[JSON-RPC 约定](api-contract.md#6-json-rpc-兼容入口)；平台声明、信号升级、安装及回滚细节见[FPK 打包说明](fpk-packaging.md)。
-
-## 4. 分层职责
-
-| 层级 | 职责 | 不承担 |
-| --- | --- | --- |
-| FPK 打包层 | manifest、权限、图标、Web 入口、服务脚本、产物组装 | 下载业务、页面交互、业务数据持久化 |
-| Rust server | 任务生命周期、配置校验、路径安全、Aria2 生命周期协调、进程与 RPC、SQLite、日志、HTTP/SSE | 页面布局、组件交互、前端临时状态 |
-| Aria2 Next | HTTP/HTTPS/BT/磁力下载、断点续传、限速、状态上报 | UI、配置/历史存储、fnOS 生命周期 |
-| Vue Web UI | 页面展示、用户交互、轻量输入反馈、调用 service/store | 下载执行、文件系统权限判断、数据库读写 |
-| Pinia | 前端任务状态、筛选、选中项、事件订阅状态、配置缓存、UI 偏好 | SQLite 持久化、Aria2 RPC、复杂后端判断 |
-| SQLite | 任务记录、配置、历史、错误记录、需长期保存的 UI 偏好 | 实时下载执行、页面临时状态 |
-
-## 5. 前端约束
-
-目标目录：
+## 2. 运行模型
 
 ```text
-src/
-  app/providers/
-  layouts/
-  views/
-  features/
-    tasks/
-      composables/  # 任务分类、分页、批量操作和顶部操作状态
-    diagnostics/
-    settings/
-  services/
-  types/
+fnOS FPK 生命周期脚本
+  └─ Rust server（共享业务状态、SQLite 和退出信号）
+       ├─ 管理入口：Web UI / HTTP API / SSE，IPv4 + IPv6
+       ├─ 回环 RPC：仅 /jsonrpc，供 NAS 本机反向代理
+       ├─ 局域网 RPC：仅 /jsonrpc，独立 Token 和真实来源限制
+       └─ Aria2 Next sidecar：由生命周期协调器统一管理
 ```
 
-约束：
+三类入口不得混用凭据；默认地址、来源策略、配额和失败响应统一见 [接口运行约定](api-contract.md#1-运行时约定)。局域网 RPC 端口占用允许明确降级，其他地址绑定失败须整体启动失败，不留下半可用服务。
 
-- `views/` 只放页面入口，负责组合布局和功能模块。
-- `layouts/` 放通用页面结构。
-- `features/` 按业务领域拆分组件、store、service、composable 和类型。
-- `services/` 放 HTTP client 和运行时事件订阅封装。
-- `MainWindow.vue` 只承担页面编排，不直接实现任务表、复杂弹窗、Toast 队列、任务轮询或后端接口调用。
-- 主窗口弹窗状态与启动/退出刷新编排放在 `src/views/composables/`；跨页面复用的任务操作仍放在 `features/tasks/composables/`。
-- 桌面 Web、手机浏览器和飞牛 App WebView 共用同一套 Vue Web UI 源码、Pinia store、service、HTTP API 和 SSE 数据流；不得为手机端另建独立前端工程、独立业务状态或独立后端接口。
-- 响应式适配优先在 `layouts/` 和 `features/*` 展示组件内完成：布局外壳可按桌面/移动拆分组件，信息结构差异明显的功能组件可拆桌面/移动展示组件，但业务操作必须复用同一 store/service。
-- UI 优先使用 Naive UI；自定义 CSS 仅用于整体主题、侧栏、shell、颜色、间距和圆角。
-- 组件样式与组件同目录维护：`Component.vue` 的 scoped 样式放在同目录 `Component.css`，Vue 文件只保留 `<style scoped src="./Component.css"></style>` 声明；迁移时不得改变选择器、声明或视觉表现。
-- `src/styles/` 只保存全局 token、基础重置、弹窗公共样式和移动端基线；业务组件样式不得重新集中堆入全局样式文件。
-- UnoCSS 作为构建期原子布局补充，当前仅允许使用通过试点验证的静态 utility safelist；不得启用全局 preflight/reset、默认 extractor、attributify、shortcuts 或图标 preset。主题 token、语义 class、复杂响应式、`:deep()`、伪元素和状态样式继续使用外部 scoped CSS。
+正式包使用端口入口；独立 Probe 不属于正式拓扑。FPK 身份、双架构构建和平台依据见 [维护手册](maintenance.md#打包与发布)。
 
-## 6. 后端约束
+## 3. 目录与职责
 
-目标目录：
+| 目录 | 职责 |
+| --- | --- |
+| `src/views/`、`layouts/` | 页面入口和布局；`MainWindow.vue` 只编排，不直接做接口调用、轮询、任务表或复杂弹窗 |
+| `src/views/composables/` | 主窗口弹窗、启动与退出刷新编排 |
+| `src/features/*/` | 按领域组织组件、store、service、composable 和类型；跨页面任务操作放 tasks 领域 |
+| `src/services/` | 统一 HTTP client 与 SSE 订阅封装 |
+| `src/app/providers/`、`src/styles/` | 全局主题、基础样式和公共 UI 约定 |
+| `server/src/api/` | HTTP handler 与请求响应转换，不堆业务逻辑 |
+| `server/src/auth/` | 密码、JWT、限速和认证中间件，独立于下载设置 `AppConfig` |
+| `server/src/tasks/` | 任务业务；`service.rs` 注入依赖、共享守卫、创建对账和回滚辅助，`service/` 子模块承载各流程 |
+| `server/src/aria2/`、`runtime/` | 引擎 RPC、进程和运行态协调 |
+| `server/src/settings/`、`storage/`、`database/`、`debug_logs/` | 设置、授权与文件、持久化、日志领域 |
+| `packaging/fnos/` | FPK manifest、权限、入口、向导和生命周期脚本，不承载下载业务 |
+
+后端新增能力按 `api -> 领域 service -> domain -> persistence` 分层，不另建脱离领域的通用业务层。
+
+## 4. 前端与数据流
+
+桌面浏览器、手机浏览器和飞牛 App WebView 共用 Vue、Pinia、service、HTTP API 和 SSE。布局及展示可按屏幕拆分，业务状态和操作必须复用。
 
 ```text
-server/
-  src/
-    main.rs
-    app/
-    state/
-    api/
-    auth/
-    runtime/
-    tasks/
-      service.rs
-      service/
-        create.rs
-        query.rs
-        control.rs
-        delete.rs
-        magnet.rs
-        proxy.rs
-        restore.rs
-    aria2/
-    config/
-    database/
-    debug_logs/
-    settings/
-    storage/
+Vue Component -> Pinia -> Feature Service -> HTTP client（JWT Bearer）
+  -> 管理入口 Axum Route -> Rust Service / Repository -> Aria2 / SQLite
+Rust Runtime Event -> SSE -> runtime event service -> Pinia -> Component
 ```
 
-约束：
+- 不在组件散落后端请求，不在前端拼装复杂 Aria2 RPC，不混用页面临时状态与持久状态。
+- UI 优先使用 Naive UI；主题、样式文件及 UnoCSS 使用规则见 [开发指令](../AGENTS.md#实现与文档)，产品交互和视觉要求见 [UI 规范](design/DESIGN.md)。
+- HTTP 与 SSE 使用同源请求和 `Authorization: Bearer <JWT>`；上游网关 Cookie 只用于网关访问，不作为 Motrix 授权依据。
+- fnOS SDK 只在宿主内由用户操作触发；独立浏览器显示降级提示。授权事实始终来自服务端官方 API 快照，SDK 返回值和语义化路径不能绕过真实路径校验。
 
-- `api/` 只负责 HTTP handler 和请求/响应转换。
-- `auth/` 负责 Web 管理密码、JWT 签发与校验、登录限速和认证中间件；鉴权状态不得并入下载设置 `AppConfig`。
-- 业务编排由各领域的 service 承担，不建立脱离领域的通用业务层。
-- `tasks/`、`aria2/`、`settings/`、`storage/`、`database/` 和 `debug_logs/` 保持领域边界。
-- `tasks/service.rs` 负责 `TaskService` 依赖注入、运行态守卫，以及跨流程共享的任务操作记录、Aria2 创建与未知结果对账、回滚辅助；创建、查询、控制、删除、磁链确认、代理切换与回收站恢复流程分别由 `tasks/service/` 子模块承载。
-- 新增后端能力按 `api -> service -> domain -> persistence` 分层。
+## 5. 持久化与任务安全
 
-## 7. 数据流与事件流
+- SQLite 保存任务身份、目录授权、文件选择、代理意图、回收站及操作事实；session 只作恢复输入，不能反向覆盖应用事实。
+- 引擎负责 HTTP 恢复记录、BT fast-resume、完整 metadata 和 session；应用不修改或复制运行中的引擎数据库行。BT partfile 等实际数据按下载内容管理。
+- SQLite、私有 `state-dir`、session、种子备份、日志和运行态文件都放 FPK 应用数据目录，不依赖临时目录或用户下载目录。
+- 内置与外部路径只运行已验证的 Aria2 Next 2.8.6，统一使用 NativeV2；旧版、未知或不可用引擎进入受限管理，保留旧状态和用户文件。
+- 2.0.0 不接管旧代任务或半成品；密码、设置、授权和 RPC Token 沿用。兼容边界见 [应用信息契约](api-contract.md#42-应用信息)，升级操作见 [备份与回滚](maintenance.md#备份与回滚)。
+- 保留已发布 schema 迁移、旧代存储值与历史数据，不再维护旧代引擎的执行算法。
+- 单条、批量 URL、种子和磁链复用校验、选项映射与持久化；批量允许部分成功，不回滚已成功任务。
+- 磁链在私有目录解析完整 metadata，保持原 GID，确认文件后才向授权下载目录写内容；种子与确认后的磁链使用任务专属目录。
+- 暂停和回收站恢复必须保留原身份、文件选择与有效恢复信息，重启先暂停对账；状态缺失时保留文件并报错，不新建 GID 接管半成品。
+- 普通删除保留文件；永久删除才按明确选择清理下载内容。写入、暂存、删除前重新校验当前授权和可证明的文件归属，禁止删除授权根目录。
+- 暂停未确认不得暂存或删除文件。永久删除使用原子暂存和有界后台清理，成功前保留记录；重新下载先可靠建立新暂停任务，失败须恢复旧任务和文件。
+- 原始种子、metadata 和恢复信息关联应用任务；回收站未清空时不自动过期，共享 metadata 无其他引用后才清理。
+- HTTP 代理意图按任务保存，BT 使用应用总开关；代理未配置、应用失败或结果未知时保持暂停，不静默直连。详细事务、兼容覆盖及连接参数见 [任务](api-contract.md#44-任务)和 [设置契约](api-contract.md#45-设置)。
+- BT 代理须在任何网络活动前核对，覆盖 peer、tracker、web-seed、DNS 和发现渠道。
+- 普通 HTTP/HTTPS 按原文件下载，不自动媒体解析；敏感 Authorization/Cookie 不跨来源转发，自定义 HTTP Header 不传给 BT tracker/web-seed。
 
-标准数据流：
+## 6. 认证与边界
 
-```text
-Vue Component
-  -> Pinia Store
-  -> Feature Service
-  -> HTTP client（JWT Bearer 请求头）
-  -> 管理监听器 Axum Route
-  -> Rust Service / Repository
-  -> Aria2 JSON-RPC / SQLite
-```
+- Web 管理始终使用自身密码和 JWT，不依赖端口入口中的 fnOS 身份 Header，也不提供关闭密码保护的配置。
+- 管理密码在安装向导初始化；网页只提供登录、恢复提示及脱敏诊断。本机停服后才能重置密码。哈希、JWT 和限速细节见 [鉴权契约](api-contract.md#41-web-管理鉴权)。
+- 密码不得进入命令参数、日志或应用持久化明文文件；安装向导字段的平台保留行为须另行实机核验。
+- Web 管理密码、公网 RPC Token、局域网 RPC Token 相互独立；Aria2 内部 secret 只能由服务端生成和持有。
+- 公网反代只指向回环 RPC 入口，不用来源 IP、Host 或可伪造 Header 区分管理面与公网 RPC 面；局域网来源只按真实 TCP 对端判断。
+- 日志、SSE、操作记录和诊断不暴露密码、JWT、Token、私密 URL 或代理凭据；原生恢复状态不进入日志清理和诊断导出。
 
-### 7.1 任务创建、回收站与恢复
+## 7. 生命周期
 
-- 单链接、批量 URL、磁力和种子入口可以在 API / service 层分流，但必须复用统一的校验、Aria2 option 映射、内存写入和 SQLite 持久化链路。
-- 批量 URL 按独立任务逐条创建，允许部分成功；单条失败不回滚已创建任务。
-- 磁力任务先在应用私有目录获取完整 metadata，保持同一 GID，通过 `bittorrent.fileSelectionState` 和 RPC 文件列表进入确认流程；不依赖独立 `.torrent` 文件或后继 GID。确认前不向用户下载目录写实际下载内容；确认后对原任务设置已授权目录及文件选择，再开始下载。
-- 种子任务与确认后的磁力任务使用任务专属目录保存下载产物，原生恢复状态保存在应用私有数据目录。删除文件只能针对可证明归属的任务目录或私有目录，不得删除授权目录根，也不得根据用户输入拼接任意删除路径。
-- HTTP、种子和磁力的未完成任务移入回收站时，必须确认原引擎任务暂停并完成状态持久化，保留原 GID、session 和有效原生恢复信息；SQLite 保存回收站事实。恢复统一以暂停状态回到正常列表，继续原任务，不以新 GID 重新创建下载。已完成历史保持完成语义，不重新激活下载。
-- 回收站和暂停任务在应用或设备重启后先暂停恢复并与 SQLite 对账，不自动下载或做种。GID 丢失时只允许按原身份加载有效恢复状态；无法确认状态或文件归属时保留文件并返回可诊断错误，不自动改名重下或覆盖半成品。
-- 普通删除只移入回收站，保留原位置的下载文件、进度和恢复信息，不释放下载文件占用的空间。普通列表不提供删除文件选项；旧 HTTP 调用的 `deleteFiles=true` 明确拒绝并提示迁移到回收站永久删除接口。
-- 永久删除时才清理引擎记录、session 引用和无共享引用的私有恢复信息；单任务永久删除和清空回收站均提供默认不勾选的“同时删除下载文件”选项，未选择时保留用户下载内容。尚在解析或等待确认、未进入内容下载的磁力任务及内容已删除的记录不提供该选项；其永久删除仅清理私有数据，不要求用户下载目录授权。清空回收站仅在存在可删除下载内容的任务时显示该选项，并逐任务应用，允许部分成功。
-- 删除下载文件前必须确认引擎停止写入并校验当前目录授权与文件归属。HTTP 请求只负责把任务文件原子暂存、持久化回收站状态和创建永久删除的 `file_cleanup_pending` 操作；递归清理由有界后台工作器执行，不得在异步请求内同步调用长时间目录删除。清理成功后才移除任务记录；失败或服务重启后保留回收站记录并继续重试。清理未完成时恢复和重复永久删除必须返回明确冲突。旧版本已删除内容的记录仍须明确确认从头下载，不能恢复已删除的文件。
-- 暂停确认使用包含 RPC 等待的总时间预算，必须在管理请求超时前返回可诊断错误。原生任务暂停结果未确认时不得自动发送继续请求，不得据此暂存或删除文件；保留原 GID 和状态，提示通过应用停服恢复，强制终止不等于原生状态已成功提交。
-- 已完成任务重新下载时，必须先按原来源创建暂停的 Aria2 任务并持久化新 GID，再把旧文件原子移动到同一文件系统的临时目录；新任务恢复成功后才清理暂存文件。任一步失败必须移除新 GID、恢复旧任务快照和原文件，不得在新任务可靠建立前直接删除用户文件。
-- 用户上传的原始种子按任务备份到应用私有目录；磁链完整 metadata 可以随原生恢复状态保存，不强制导出独立 `.torrent`。完整种子信息、文件选择和有效下载进度必须关联应用任务，支持跨重启及回收站恢复，不能仅保存文件名称、大小或 info-hash。
-- 磁链 metadata 尚未完成时可以继续解析；原生任务完整 metadata 或原身份恢复状态丢失时必须保留文件并明确拒绝恢复，不以重新解析或新 GID 接管半成品。具体请求字段、状态和错误响应见 `docs/api-contract.md`。
-
-### 7.2 下载状态存储
-
-- 应用 SQLite 保存任务身份、目录授权、文件选择、代理意图、回收站和操作事实；引擎管理 HTTP 范围/资源校验记录、BT fast-resume/完整 metadata 及 session。应用不自行修改或复制运行中的引擎数据库行。
-- `state-dir` 必须显式指定到应用私有数据目录；引擎状态、session 与种子备份不得依赖临时目录或用户下载目录长期存在。原生状态不得作为日志清理对象或进入诊断导出；BT partfile 等实际下载数据按下载内容管理。
-- 内置及外部路径仅允许运行已验证的 Aria2 Next 2.8.6，启动和按需启动使用同一身份门禁，运行配置统一使用 NativeV2 及私有 `state-dir`。2.5.5 仅识别为 `legacy-v1`，以 `engine_unsupported` 进入受限管理；缺失、探测失败或未知身份同样拒绝下载，不读取、恢复或清理旧任务。旧代际存储值、已发布 schema 迁移与历史数据继续保留，不再维护旧代引擎的执行算法。
-- 2.0.0 不导入、展示、继续或恢复旧代任务；新版任务列表从空列表开始。旧任务记录、session、恢复状态和用户下载文件保留原处，新引擎只加载自身代际的任务、操作和私有状态，禁止自动接管旧半成品。
-- 不兼容升级通过升级向导和发布说明告知用户，旧任务不阻止升级。FPK 升级脚本只确认 server/sidecar 已停止，不携带独立 checker，不自动复制、备份或迁移旧任务状态；应用正常启动时保留密码、设置、目录授权及 RPC Token，并执行常规数据库 schema 更新。未知引擎或不可读取的当前任务状态仍进入受限管理。
-- 回收站存在期间不自动过期删除恢复信息；共享 metadata 只在没有其他任务引用时清理。备份须在引擎完全停止后包含一致的应用 SQLite、session、原生状态和种子备份。
-
-### 7.3 下载代理
-
-- 应用只保存一个下载代理配置，使用独立的 `app_config.download_proxy` 记录规范化 URL、revision 和更新时间；该配置不并入普通 `AppConfig`，普通设置读取不得返回代理原文。
-- HTTP/HTTPS 保留任务级代理开关，创建表单每次打开默认关闭。SQLite `download_tasks.use_proxy` 是 HTTP 任务是否要求代理的长期事实；`proxy_source` 只用于内部区分应用配置来源与兼容来源。Aria2 option 和 session 不能反向覆盖应用代理意图。
-- HTTP/HTTPS 的 `advancedOptions.proxy` 与外部 JSON-RPC `all-proxy` 继续兼容，原始 URL 只能保存到以任务 ID 关联的私密覆盖记录。任务 API、SSE、调试日志、操作记录和普通 `Debug` 输出不得暴露代理 URL、来源、revision 或凭据。
-- HTTP 应用配置来源任务在创建、运行中切换、继续、session 恢复、回收站恢复和重新下载时解析当前配置；兼容来源使用自身私密覆盖。恢复及重新下载省略覆盖值时继承完整代理绑定，显式改变开关时改用应用配置来源；关闭兼容来源任务时删除私密覆盖，之后重新开启使用应用配置。
-- HTTP 运行中任务切换先向 Aria2 应用 option，再持久化 SQLite；SQLite 失败时补偿旧 option。RPC 结果未知时保留旧 SQLite 事实和未完成操作，由对账收敛。完成和回收站任务只更新 SQLite 意图，不为设置操作启动引擎。
-- BT（种子和磁链）使用持久化的应用级“BT 使用代理”总开关，默认关闭，复用应用唯一代理地址；不提供任务级代理开关或私密覆盖。开启后全部 BT 任务的 metadata 获取、下载和做种使用全局 `bt-proxy`，关闭后全部直连，不改变 HTTP 各任务意图。
-- 开启 BT 总开关前必须校验代理存在且协议受支持；BT 接受 HTTP/SOCKS4/SOCKS5，HTTPS 代理地址不得静默转换或回退直连。高级选项和外部 RPC 提交 BT 任务级代理时明确拒绝并提示使用总开关，不修改全局设置。
-- 引擎启动恢复先保持暂停，HTTP 在继续前应用目标 `all-proxy`，BT 在任何网络活动前应用全局 `bt-proxy`。代理未配置、应用失败或结果未知时保持暂停或进入可诊断错误状态，不得静默直连；BT 网络边界包含 peer、tracker、web-seed、DNS 及发现渠道。
-- 修改 BT 总开关或共享代理地址必须协调受影响任务暂停、连接切换和状态对账；失败或结果未知时阻止受影响 BT 继续。无引擎活动时只保存配置，在下次受控启动应用；相同规范化代理 URL 不增加 revision，也不触发重连。
-- BT 总开关开启，或仍有引用应用代理且 `use_proxy=true` 的 HTTP 任务（包含完成及回收站）时，不得清除应用代理地址；HTTP 私密覆盖不阻止清除。
-
-### 7.4 HTTP 下载选项
-
-- 下载设置只公开一个 HTTP 连接上限 `httpMaxConnections`（1–64），原生引擎映射 `stream-max-connections`；旧连接字段仅用于受控兼容迁移，不再公开分片大小选项。
-- HTTP API 与外部 JSON-RPC 复用选项校验；新旧连接参数混用、废弃参数和生命周期/状态/secret 等服务管理选项明确拒绝，不能借高级选项改变状态归属。
-- 普通 HTTP/HTTPS URL 按原文件下载，不隐式启用媒体解析。敏感 Authorization/Cookie 不跨来源转发；自定义 HTTP Header 不传给 BT tracker/web-seed。
-
-标准事件流：
-
-```text
-Rust Runtime Event
-  -> SSE
-  -> frontend runtime event service
-  -> Pinia Store
-  -> Components
-```
-
-禁止：
-
-- Vue 组件散落直接调用后端接口。
-- 前端直接拼装复杂 Aria2 RPC 请求。
-- Rust handler 内堆积业务逻辑。
-- 混用 UI 临时状态和后端持久状态。
-
-## 8. 生命周期与安全边界
-
-- 应用启动、停止和状态查询以 fnOS `start` / `stop` / `status` 为准。
-- 管理入口的 IPv4/IPv6 socket、回环 RPC 入口与可用的局域网 RPC 入口必须在业务服务就绪后共同启动；局域网 RPC 端口占用允许明确降级，其他启动失败不得留下半可用进程。降级不修改已保存的局域网 RPC 开关、Token 或来源策略。
-- PID 运行态记录必须包含进程启动时间；停止服务前必须确认 PID 仍属于当前 server 实例。
-- 后端启动时准备数据目录、初始化 SQLite；Aria2 仅在恢复工作或其他引擎活动需要时按需启动或连接。
-- Rust server 收到退出信号后立即标记不可就绪并停止接受新请求。HTTP 排空、任务持久化、Aria2 RPC、session 和原生恢复状态保存、所属 sidecar 停止共享一个有界总预算；预算耗尽时记录未完成阶段并退出，不得无限等待在途 HTTP、文件清理或逐任务 RPC。
-- Aria2 日常空闲停止不复用完整应用退出的任务暂停语义；手动停止在有活动任务或在途操作时返回冲突，不隐式暂停任务；只有确认 session 保存和进程退出后才清除运行态。
-- 显式手动启动（`POST /api/aria2/start`）属于生命周期操作，即使当前没有任务也允许启动 Aria2；普通读取接口仍不得因查询唤醒引擎。
-- Aria2 仅在下载、metadata 解析、BT 做种、未排空 I/O、引擎操作或排队请求需要时保持运行；仅保留确认等待、暂停、完成、错误或回收站任务的 GID 不算活动，无上述工作时按防抖策略保存状态并停止引擎。
-- 自动停止必须由协调器二次确认空闲，依次完成状态持久化、session 保存、进程退出确认和运行态清理；停止期间的新请求必须取消停止、等待重启或收到明确可重试错误。
-- 原生引擎收到正常退出信号后即停止接受新业务；退出超时须保留所属进程句柄和退出结果，不重复发送信号或等待已关闭的 RPC。后台监控及新请求在生命周期锁内核对迟到的退出结果：仅正常退出后清除运行态并允许按需重启，仍在退出时返回可重试提示，异常退出保留状态并明确报错。
-- Aria2 session 只作为恢复输入，SQLite 任务和操作记录仍是长期事实；未知 RPC 结果、未知 GID、暂存文件或 metadata 缺失时保留用户文件并转人工处理。
-- 代理恢复以 SQLite 保存的 HTTP 任务意图和 BT 全局配置为准；session/option 中的代理只作为待核对运行值，不得反向覆盖应用配置或任务记录。
-- 前端页面关闭、刷新或重新进入不等于应用退出。
-- 应用 SQLite、Aria2 session、原生恢复状态、种子备份、Aria2 log 和运行态文件必须放在 FPK 应用数据目录。
-- 下载目录不能写死桌面用户目录，必须使用 fnOS 可访问目录或应用数据目录下的默认下载区。
-- Aria2 RPC secret 只能由服务端生成和持有，不暴露给前端。
-- Web 管理密码使用 Argon2id 和随机 salt 保存不可逆哈希；JWT 签名密钥为 SQLite 中持久化的 32 字节随机值。明文密码、密码哈希和 JWT 原文不得通过普通设置接口返回或写入日志。
-- 除明确匿名的认证与就绪探测接口外，管理 API 与 SSE 始终要求有效管理员 JWT。JWT 使用 HS256，固定 12 小时有效期，并包含 `auth_version`；密码修改、本地重置和升级时恢复旧版关闭状态均递增版本，使旧 JWT 失效。不提供关闭管理密码保护的配置或 API。
-- 全新安装必须在 fnOS 安装向导中输入并确认管理密码，由 `install_callback` 调用 Rust 本机初始化命令，在首次启动前完成校验与哈希写入。已配置实例重装或升级保留原密码；密码不得进入命令参数、日志或应用持久化明文文件。平台向导字段的保留行为需按 `docs/fpk-packaging.md` 在实机验收。
-- Web 不提供密码初始化接口、表单或 bootstrap token。缺少密码时所有管理功能拒绝访问，仅保留恢复提示与脱敏登录诊断。NAS 本机 `reset-web-auth` 必须在应用停止后，通过终端隐藏输入并确认新密码，直接完成重置，保留任务、配置、RPC Token 与下载文件。
-- 登录限速默认使用管理 listener 注入的真实对端 IP。只有对端 IP 命中 `MOTRIX_TRUSTED_PROXY_IPS`（逗号分隔的可信代理 IP allowlist）时，才读取 `X-Forwarded-For` 的第一个合法 IP；未配置或未命中时忽略该 Header。
-- Motrix Web 管理鉴权不使用 Cookie、服务端 Session 或 CSRF；前端以 `Authorization: Bearer <JWT>` 调用 HTTP API 与 SSE，JWT 不得放入 URL、日志或跨标签页消息。HTTP 与 SSE 请求使用 `credentials: "same-origin"`，允许浏览器按自身策略携带上游网关的同源 Cookie；这些 Cookie 不作为 Motrix 的管理授权依据。
-- 公网 JSON-RPC Token、局域网 JSON-RPC Token 与 Web 管理密码是三套独立凭据。JSON-RPC 写操作按入口校验对应 Token，Web 管理认证变更不得影响 RPC 鉴权。
-- 公网 JSON-RPC 反向代理只能指向回环 RPC 专用监听器；不得依赖来源 IP、`Host`、`X-Forwarded-For` 或其他客户端可伪造 Header 区分管理面与公网 RPC 面。
-- 局域网 JSON-RPC 入口只按 TCP 真实对端判断 IPv4 来源；默认允许 RFC1918，管理员显式启用后额外允许 RFC 6598 的 `100.64.0.0/10`。回环、公网、链路本地与 IPv6 来源均不得通过，也不得通过 `X-Forwarded-For` 扩大允许范围。
-- 日志必须隐藏私密 URL query 和敏感配置；下载代理的完整 URL、userinfo、私密覆盖值及其错误上下文不得进入文件日志、内存调试日志或诊断导出。
-
-## 9. fnOS 平台查证规则
-
-涉及 fnOS / FPK / 应用中心 / manifest / `config/resource` / `config/privilege` / `cmd/*` 生命周期 / `TRIM_*` 环境变量 / 文件夹授权 / 端口入口 / 安装、升级、卸载行为时，必须先查证资料或实机验证，不能只凭通用 Linux、NAS 或既有记忆下结论。
-
-资料优先级：
-
-1. 飞牛官方资料，优先查看飞牛应用开放平台开发文档：https://developer.fnnas.com/docs/guide/
-2. 可验证第三方 FPK 仓库、社区指南、论坛排障记录。
-3. 本仓库实证：解包、实机日志、`fnpack` 行为、安装目录和环境变量。
-4. 推断：仅在前三者不足时使用，并必须说明验证步骤。
-
-修改涉及 fnOS 平台行为的实现或文档时，应同步记录查证来源或验证方式。
-
-## 10. 开发约束
-
-- `docs/` 只保留长期维护的架构、接口、开发计划、产品与操作文档；一次性审计、体积测量、执行报告和验证日志存放仓库外，不提交，也不得成为仓库文档的引用依赖。
-- 分支按 `feature/<版本或功能> -> develop -> main` 流转。功能开发在独立分支进行，准备集成测试时合入 `develop`，测试和发布验收通过后才合入 `main`；`main` 保持可发布状态，不直接承载未验收的版本开发。
-- 所有 Git commit 必须采用 Conventional Commits 格式 `type(scope): 中文说明`；`type` 使用 `feat`、`fix`、`docs`、`refactor`、`test`、`chore` 等规范类型，`scope` 按改动模块填写（跨模块时可省略）。标题与可选正文必须使用中文描述改动目的，代码标识符和专有名词可保留原文；自动生成的合并或回退提交也必须调整为中文说明。每次提交只包含当前任务相关改动，不混入用户已有的无关修改；用户要求按任务测试后提交时，必须先通过该任务的相关测试。
-- 新增前端交互进入 `features/*`，不得重新向入口页面堆叠。
-- 新增通信能力默认走 HTTP API / SSE。
-- 新增长期状态必须考虑 SQLite 持久化路径和迁移策略。
-- 日常提交只执行版本一致性、暂存区空白和 Rust 格式等快速静态检查；分支推送前对该批业务源码执行唯一一次完整测试与构建验证。
-- Release 只允许修改受发布白名单约束的版本文件和 CHANGELOG；这些发布元数据变化与已验证业务源码视为等价，不重复运行源码测试。出现白名单外改动时必须中止发布。
-- Release 只构建并验证新产生的双架构 FPK、SBOM、校验和与构建证明；本地完整打包必须先执行一次完整源码验证，再构建并验收 FPK。
-- 依赖安全审计使用独立的每周定时任务，不并入日常推送验证或 Release。
-- 测试实现必须与业务代码物理分离，不得在 `.rs`、`.ts` 或 `.vue` 业务文件内编写测试函数、测试夹具或内联 `mod tests { ... }`。
-- Rust 单元测试使用独立测试文件：模块文件只允许保留 `#[cfg(test)] mod tests;` 声明，测试实现放在对应的 `tests.rs` 或 `<module>/tests.rs`；跨模块集成测试放在 `server/tests/`。
-- 业务 Rust 文件中的 `#[cfg(test)]` 只能用于上述 `mod tests;` 模块声明；不得借此保留测试专用导出、重导出、包装函数、检查方法、mock 或 fixture。需要共享的测试工具只能放在 `server/src/test_support.rs`。
-- 测试若需访问模块私有实现，必须放在该模块的测试子模块中；不得为了测试扩大生产 API 的可见性，也不得向业务模块加入测试专用接口。
-- `scripts/tests/` 必须有静态守卫测试上述目录与声明约束，新建测试或调整目录时必须同步通过该守卫。
-- 前端测试使用独立的 `*.spec.ts` 文件；构建与发布脚本测试统一放在 `scripts/tests/`。
-- 若本文档与实际演进不匹配，先更新本文档，再继续实现。
+- fnOS `start` / `stop` / `status` 是应用生命周期入口；关闭或刷新前端页面不等于应用退出。
+- 启停及状态核验 PID、启动时间和可执行文件；孤儿清理还须核验 UID 与归属，禁止按宽泛进程名或端口杀进程。
+- Aria2 端口、secret、句柄、RPC ready、运行态和启停都由同一协调器管理；任务、外部创建、恢复和监控不能绕过它。
+- server 启动先准备目录与 SQLite，引擎按需启动；读取接口不唤醒引擎，显式手动启动允许无任务启动。
+- 下载、metadata、做种、未排空 I/O、引擎操作和排队请求才算活动；只有暂停、完成、错误、待确认或回收站 GID 时，协调器防抖并二次确认空闲后保存状态、session、停止进程，再清运行态。
+- 手动停止遇活动任务或在途操作返回冲突，不隐式暂停；空闲停止不复用完整应用退出的暂停语义。停止期间新请求须取消停止、等待重启或得到明确可重试错误。
+- server 退出立即标记不可就绪并停止接新请求；HTTP 排空、任务持久化、RPC、session / 原生状态保存和 sidecar 停止共享有界总预算，超时记录未完成阶段。
+- 引擎退出超时保留句柄和结果，不重复发信号或等待已关闭 RPC；在生命周期锁内核对迟到结果，正常退出才清状态并允许重启，未退出可重试，异常退出明确报错。
+- fnOS 停止脚本有界升级信号；只有确认 server 和所属 sidecar 都退出才允许删包或应用数据，否则保留状态和文件并失败关闭。
+- 未知 RPC 结果、GID、暂存文件或 metadata 问题保留用户文件并转诊断处理；操作方法见 [维护手册](maintenance.md#故障排查)。
