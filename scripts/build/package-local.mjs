@@ -4,7 +4,7 @@ import { performance } from 'node:perf_hooks';
 import process from 'node:process';
 
 const startedAt = performance.now();
-run('pnpm', ['run', 'verify']);
+run('pnpm', ['run', 'verify', '--reuse']);
 run('node', ['scripts/build/build-fpk-all.mjs', '--reuse-web-dist']);
 run('pnpm', ['run', 'verify:fpk']);
 

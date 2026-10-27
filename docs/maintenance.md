@@ -30,7 +30,7 @@
 | `test:unit` | 前端独立 `*.spec.ts`，可能写测试缓存 |
 | `test:scripts` | Node 脚本测试，使用临时目录，不修改真实版本与发布状态 |
 | `verify:pre-commit` | 版本一致性、Rust 格式检查；hook 另查暂存区空白 |
-| `verify` | 一次完整源码测试与编译，包含前端类型检查及生产构建，保留编译缓存 |
+| `verify` | 强制执行一次完整源码测试与编译，包含前端类型检查及生产构建；本地成功后保存可复用记录，保留编译缓存 |
 | `test:e2e` | Chromium 桌面 / 移动冒烟，写报告与失败 trace |
 | `test:aria2` | 真实 sidecar 测试，使用临时下载目录、session |
 | `test:filesystem` | Rust 文件系统故障专项，使用临时目录和 Rust 缓存 |
@@ -50,12 +50,14 @@
 | `build:fpk:x64` / `build:fpk:arm64` | 单架构编译、Web 构建、staging、预检及 fnpack；默认清空已有 FPK 输出 |
 | `build:fpk:prepare` | 双架构编译、Web 构建一次、独立 staging 与静态预检，不生成 FPK |
 | `build:fpk:artifacts` | 仅构建双架构产物，清空输出目录；供 Release 使用，不跑源码测试或类型检查 |
-| `build:fpk` | 完整 verify → 复用已验证 Web 产物 → 双架构打包 → verify:fpk |
+| `build:fpk` | 核对或执行完整 verify → 复用已验证 Web 产物 → 双架构打包 → verify:fpk |
 | `build:fpk:release` | 扩展 verify → 复用 Web 产物 → 双架构打包 → verify:fpk |
 
 Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完整验证成功时压缩输出，失败保留详情；非交互长步骤每 30 秒报告进度。
 
 ### 验证触发与边界
+
+本地推送和 `build:fpk` 使用 `verify --reuse`：以 Git 跟踪及未忽略的新文件的实际内容、权限、依赖安装记录、生产 `.env`、工具链版本、编译环境和 Web 产物摘要核对 `.cache/verification.json`。未提交的修改、删除、新文件、工具链变化、记录损坏或 `dist/` 缺失 / 改变都会重新验证；验证失败先清除旧记录，验证期间输入变化则中止。Git 提交本身不使内容相同的结果失效。`pnpm run verify`、CI 和发布前扩展验证始终完整运行，FPK 每次重新组装并验收。删除 `.cache/verification.json` 可清除复用记录。
 
 - 提交 hook：暂存区空白检查后，只有文档 / 媒体资源时跳过版本与 Rust 格式检查，删除资源也同样处理；混有代码或没有暂存文件时执行快速检查。Markdown 允许两个行尾空格换行。
 - 推送 hook：按远端旧提交到本次推送提交的完整差异判断，包含删除和重命名前的路径；多个分支合并判断，不能仅检查最后一个 commit。

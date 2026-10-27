@@ -51,7 +51,7 @@ if (!full && suites.size === 0 && shellTests.size === 0) {
 const packageManager = spawnSync('pnpm', ['--version'], { stdio: 'ignore' }).status === 0 ? 'pnpm' : 'npm';
 if (full) {
   console.log('包含源码、配置或无法确认的推送范围，执行完整验证。');
-  run(packageManager, ['run', 'verify']);
+  run(packageManager, ['run', 'verify', '--', '--reuse']);
 } else {
   console.log('仅测试相关改动，运行对应测试，不执行完整构建。');
   if (suites.has('scripts')) run(packageManager, ['run', 'test:scripts']);

@@ -28,7 +28,7 @@ const flows = [
     ['verify', 'test:e2e', 'test:aria2'].map((command) => ['pnpm', 'run', command])],
   ...['local', 'release'].map((mode) => [
     `${mode} 打包`, `build/package-${mode}.mjs`, [], [
-      ['pnpm', 'run', mode === 'local' ? 'verify' : 'verify:extended'],
+      ['pnpm', 'run', mode === 'local' ? 'verify' : 'verify:extended', ...(mode === 'local' ? ['--reuse'] : [])],
       ['node', 'scripts/build/build-fpk-all.mjs', '--reuse-web-dist'],
       ['pnpm', 'run', 'verify:fpk'],
     ],

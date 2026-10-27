@@ -2,9 +2,16 @@
 import { performance } from "node:perf_hooks";
 import process from "node:process";
 import { cargoProgressDetail, runCommandWithProgress } from "../lib/command-progress.mjs";
+import { clearVerificationCache, hasVerifiedBuild, saveVerification, verificationFingerprint } from "../lib/verification-cache.mjs";
 
 const quick = process.argv.includes("--quick");
 const packageManager = resolvePackageManager();
+const inputs = !quick && !process.env.CI ? verificationFingerprint() : null;
+if (process.argv.includes("--reuse") && hasVerifiedBuild(inputs)) {
+  console.log("源码、依赖、配置、工具链及 Web 产物一致，复用本地已通过的完整验证。");
+  process.exit(0);
+}
+if (!quick) clearVerificationCache();
 
 const steps = quick
   ? [
@@ -30,6 +37,11 @@ for (const step of steps) {
   const stepStartedAt = performance.now();
   await runStep(step);
   console.log(`<== ${step.title}通过（${formatDuration(performance.now() - stepStartedAt)}）`);
+}
+
+if (inputs) {
+  if (inputs !== verificationFingerprint()) throw new Error("验证期间源码或工具链发生变化，请重新执行验证。");
+  saveVerification(inputs);
 }
 
 console.log(`${quick ? "快速验证" : "完整验证"}通过，总耗时 ${formatDuration(performance.now() - verificationStartedAt)}。`);

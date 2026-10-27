@@ -7,7 +7,7 @@ import test from 'node:test';
 
 const hook = path.resolve(import.meta.dirname, '../../.githooks/pre-push');
 const zero = '0'.repeat(40);
-const verify = [['pnpm', 'run', 'verify']];
+const verify = [['pnpm', 'run', 'verify', '--', '--reuse']];
 
 for (const [title, changes, expected] of [
   ['中文文档和图片跳过', { 'docs/中文说明.md': '说明', 'public/logo.svg': '<svg/>' }, []],
@@ -104,7 +104,7 @@ test('pre-push：pnpm 不可用时使用 npm，完整验证失败阻止推送', 
   const fixture = repository(t);
   fixture.commit({ 'src/app.ts': 'changed' });
   assert.equal(fixture.push({ env: { PUSH_NO_PNPM: '1', PUSH_FAIL_AT: '1' } }).status, 19);
-  assert.deepEqual(fixture.calls(), [['npm', 'run', 'verify']]);
+  assert.deepEqual(fixture.calls(), [['npm', 'run', 'verify', '--', '--reuse']]);
 });
 
 function repository(t) {
