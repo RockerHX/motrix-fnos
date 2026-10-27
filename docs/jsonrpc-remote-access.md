@@ -34,7 +34,9 @@
 - 如果家庭 IPv4 不支持入站连接，DNS 只维护可入站的 AAAA 记录。
 - `17081` 绑定回环地址；NAS 局域网客户端不能直接访问它，这是预期行为。
 
-2.0.0 仍保留这些入口和 Token。HTTP 连接建议用 `stream-max-connections`，旧 `split` / `max-connection-per-server` 兼容归并，新旧不可混用；废弃/服务管理选项明确报错。HTTP 的 `all-proxy` 仍兼容，磁链禁止任务级代理，改用设置页 BT 总开关。磁链仍需在 Web UI 确认文件；兼容门禁受限时创建返回 `-32005`，应根据 `/api/app/compatibility` 的具体原因检查引擎及当前状态。旧任务不阻止升级，也不会由新引擎接管，详见 [接口契约](api-contract.md#6-json-rpc-兼容入口)。
+2.0.0 保留这些入口和 Token。连接参数的新旧兼容、HTTP `all-proxy` 及废弃/服务管理选项的拒绝规则见[接口契约](api-contract.md#6-json-rpc-兼容入口)。
+
+磁链仍须在 Web UI 确认文件；BT 代理使用设置页总开关，不提交任务级代理。创建返回 `-32005` 时，按 `/api/app/compatibility` 的原因检查引擎及当前状态；旧任务不阻止升级，也不会由新引擎接管。
 
 ## 3. 配置前检查
 

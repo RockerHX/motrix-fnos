@@ -82,6 +82,8 @@
 
 ## 测试与验证
 
+Rust 后端可单独执行 `rtk cargo test --manifest-path server/Cargo.toml`。
+
 ### `pnpm run test:unit`
 
 使用 Vitest 运行全部前端 `*.spec.ts` 单元测试。自定义 reporter 继承 minimal reporter，不打印成功文件和 queued 状态；交互终端的第二行进度实时显示刚开始执行的测试文件和用例。失败详情、warning、error 与最终统计仍正常输出。适合前端 service、store、组件和启动编排变更。
@@ -236,8 +238,7 @@ pnpm run release:prepare 1.7.4 --dry-run
 
 - 命令会拒绝接管无关的脏工作区；执行前先提交、暂存到安全位置或恢复无关改动。
 - 已有合法目标版本条目时直接复用，不调用模型。GitHub Actions 默认通过 Cloudflare Workers AI 生成日志；模型、凭证或配额异常会中止发布，避免静默生成逐 commit 的冗长日志。可提前人工写入目标版本条目绕过模型调用。
-- 仓库 Secrets 需要 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。先在 Cloudflare 控制台手动创建 ID 为 `motrix-fnos-release`、Workers AI Billing 为 Standard billing 的 AI Gateway，再给 Actions 使用的自定义 Token 授予目标账户的 Workers AI Read 权限；创建或修改 Gateway 时使用另一个临时 Token，并额外授予 AI Gateway Edit。Actions 会把每次请求路由到该 Gateway，强制保留调用元数据，同时禁止保存 commit prompt 或模型响应正文。
-- AI 生成结束后，Actions 的 Job summary 会显示版本号、CHANGELOG、下载链接、SHA256 校验文件和 SBOM。脚本不读取 AI Gateway Logs，也不推算 token、神经元或剩余额度；账户级实际用量和余额请以 Workers AI Dashboard 为准。
+- Actions 的 Secrets、Gateway 权限、元数据保留、禁存请求正文及 Job summary 说明统一见[自动发版流程](fpk-packaging.md#github-actions-自动发版流程)。账户用量和余额以 Cloudflare Workers AI Dashboard 为准。
 - 本地需要 AI 总结时设置相同凭证，并设置 `MOTRIX_RELEASE_CHANGELOG_PROVIDER=cloudflare-workers-ai`；需要通过 Gateway 路由时再设置 `CLOUDFLARE_AI_GATEWAY_ID=motrix-fnos-release`。
 - 该命令只用于正式版本，不接受 `-beta`。
 - GitHub Actions 的 Release workflow 仍是远程正式发版入口；本地命令不能替代 Actions 权限、产物上传和双架构发布检查。
@@ -267,7 +268,7 @@ git config core.hooksPath .githooks
 - 没有暂存文件时采用保守策略，仍执行 `verify:pre-commit`。
 - `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 或删除远端引用时跳过源码验证。
 
-因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在 PR/push 自动运行快速门禁，每周定时或手动触发时运行扩展验证。
+因此只提交文档或图片通常会很快完成；代码提交只做快速静态检查，推送前再集中执行一次完整测试和构建。GitHub `Verify` 会在面向 `main`/`develop` 的 PR/push 自动运行完整源码门禁，每周定时或手动触发时运行扩展验证。
 
 ## FPK 构建与资产命令
 
@@ -322,7 +323,7 @@ packaging/fnos/.stage/x86/
 packaging/fnos/.stage/arm/
 ```
 
-FPK 图标由 `scripts/build/build-fpk.mjs` 从包根资源同步到 `app/ui/images/`，并在预检阶段统一校验为 256×256。当前项目保留 `icon_64.png` 这个官方入口文件名，但文件内容仍使用 256×256，以保证高清显示；具体文件清单、官方 64/256 规范和浏览器缓存排查见 [FPK 打包说明](fpk-packaging.md) 的“图标尺寸与高清显示”。
+该入口还会同步并校验 FPK 图标；尺寸、兼容文件名及缓存排查见[图标交付约定](fpk-packaging.md#图标尺寸与高清显示)。
 
 ### `pnpm run build:fpk:artifacts`
 

@@ -53,8 +53,7 @@ desktop_applaunchname =
   - 缺少 `config_init` 或 `config_callback` 时，`fnpack build` 仍可成功。
   - `fnpack build` 在打印 `Packing failed` 时**仍可能返回退出码 0**，因此仓库构建脚本必须额外校验产物和日志，不能只信退出码。
   - 对用户提供的 Lucky 2.27.2 FPK 进行只读解包后确认：它使用 `appname=Lucky`、`desktop_appname=Lucky.Application`、空 `desktop_applaunchname` 和唯一 `Lucky.Application` 入口。Motrix 按同一规则配置后，已在 fnOS 实机验证 `motrix.<account>.fnos.net` 可用。
-- 2026-07-14 Release 产物与 ARM 实机回归确认：`1.6.4` 使用端口入口且可打开；commit `8f74bf7` 从 `1.6.5` 起切换到统一网关，并把 TCP 端口限制为仅 JSON-RPC，但打包脚本直到 `1.7.1` 仍向最终入口注入 `port=17080`。该混合模型使桌面入口与 Web UI listener 不一致，是首次引入 404 的回归。
-- 2026-07-14 ARM 实机进一步确认：移除入口 `port` 的本地测试包中，Unix Socket 根 HTML 与 API 直连均为 `200`，但 fnOS nginx 对桌面入口仍返回 `404 9`，请求没有进入应用 Socket。因此当前交付恢复 `1.6.4` 已验证的端口入口，不再注册统一网关。
+- 端口入口依据（2026-07-14 ARM 实机）：`1.6.4` 可用；`8f74bf7` 从 `1.6.5` 切换统一网关，但直到 `1.7.1` 仍注入 `port=17080`，造成入口与 listener 不一致并返回 404。移除 `port` 后，Socket 直连 HTML/API 为 200、fnOS nginx 入口仍为 `404 9`，请求未进入 Socket。因此继续使用已验证的端口入口，不注册统一网关。
 - Web UI 构建保持相对基址 `./`，确保从端口入口根路径加载静态资源。
 - 桌面入口默认 `allUsers=false`，但 `control.accessPerm=editable`，允许管理员在应用设置中切换“仅管理员 / 设备内所有用户”。端口模式不提供可信 `X-Trim-*` Header，后端不得依赖统一网关身份。
 - `config_callback` 保留为空操作脚本以满足既有生命周期布局，不再同步授权目录；`config_init` 只有在完成配置流程验证后才可评估是否移除。
@@ -101,13 +100,11 @@ FPK 启动脚本必须向同一个 Rust server 注入三个入口地址；管理
 
 固定规则：
 
-- `manifest.service_port` 与唯一 `app/ui/config` iframe 入口端口必须都是 `17080`；`MotrixFNOS.sc` 的源/目标端口必须精确声明 `17080/tcp,17082/tcp`。`desktop_applaunchname` 留空时，构建脚本必须确认 `.url` 中恰好只有一个入口并自动选取它。
-- `config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
-- `17081` 不监听 NAS 局域网或公网地址；Lucky 只能在 NAS 本机反向代理到 `http://127.0.0.1:17081`。
-- `17082` 启动时始终尝试监听，由服务端开关和 IPv4 来源检查共同保护；仅端口占用（`AddrInUse`）时降级为局域网 RPC 不可用，`17080` 和 `17081` 继续启动。日志、设置和诊断页显示冲突；释放端口后重启恢复，不自动换端口。其他监听错误仍使启动失败。默认只允许 RFC1918，管理员显式启用后额外允许 `100.64.0.0/10`。局域网 Token 不得在 `17081` 使用。
-- 显式覆盖 `MOTRIX_FNOS_JSONRPC_ADDR` 时，Rust server 仍会拒绝任何非回环地址。
-- FPK 日志可以记录三个监听地址，但不得记录 Web 密码、JWT、JSON-RPC Token 或 Aria2 secret。
-- 管理 listener 直连时，客户端提交的 `X-Forwarded-For` 不参与登录限速；只有实际对端地址命中 `MOTRIX_TRUSTED_PROXY_IPS` 才能使用该 Header 的第一个合法 IP。
+- manifest、桌面入口和 `.sc` 按[应用身份](#应用身份与-fn-connect-域名)保持一致；`config/resource` 只引用管理端口协议文件，不得额外注册 `17081`。
+- `desktop_applaunchname` 留空时，构建脚本须确认 `.url` 恰好只有一个入口并自动选取它。
+- `17081` 仅供 NAS 本机反向代理，显式覆盖地址时 server 仍拒绝非回环地址；Lucky 指向 `http://127.0.0.1:17081`。
+- 局域网开关、来源限制、端口冲突降级及独立 Token 规则见[接口契约](api-contract.md#1-运行时约定)。管理登录只信任明确配置的代理来源 Header，详见[管理鉴权](api-contract.md#41-web-管理鉴权)。
+- FPK 日志可记录监听地址，不得记录 Web 密码、JWT、JSON-RPC Token 或 Aria2 secret。
 
 多端口声明查证：飞牛官方 manifest 文档目前只定义单个 `service_port`；可验证第三方 FPK 仓库 `conversun/fnos-apps` 的 AdGuardHome 与 Forgejo 分别使用同一 `.sc` 文件声明 `3080/tcp,53/tcp,53/udp` 和 `3005/tcp,2223/tcp`。本项目据此只扩展协议文件，不增加第二桌面入口；正式发布前仍须在目标 fnOS 实机确认安装、防火墙、局域网 TCP 对端地址和卸载清理行为。
 
@@ -147,99 +144,24 @@ FPK 启动脚本必须向同一个 Rust server 注入三个入口地址；管理
 
 ## 常用命令
 
-安装依赖：
+完整命令、工具链要求及副作用见[开发脚本](development-scripts.md)。在仓库根目录安装依赖后，按目标选择：
 
-```bash
-rtk pnpm install
-```
+| 目标 | 命令 |
+| --- | --- |
+| 安装依赖 | `rtk pnpm install` |
+| 完整源码验证、双架构打包及解包验收 | `rtk pnpm run build:fpk` |
+| 双架构预组装与静态预检，不运行 fnpack | `rtk pnpm run build:fpk:prepare` |
+| 仅构建指定架构 | `rtk pnpm run build:fpk:x64` 或 `rtk pnpm run build:fpk:arm64` |
 
-只做预组装，不执行 `fnpack build`：
+Release workflow 使用内部的 `build:fpk:artifacts` 构建发布产物，不重复源码验证。
 
-```bash
-rtk pnpm run build:fpk:prepare
-```
+内置及外部路径仅允许运行已验证的 **2.8.6**；2.5.5 仅识别为 `legacy-v1`，以 `engine_unsupported` 进入受限管理。未知、缺失及探测失败同样拒绝下载。旧数据、session、文件与凭据保留，不迁移或接管旧任务；完整运行边界见[接口契约](api-contract.md#42-应用信息)，回滚须恢复升级前完整备份。
 
-同时构建 x86 与 ARM：
-
-```bash
-rtk pnpm run build:fpk
-```
-
-该本地入口会先运行一次完整源码验证，再复用已验证的 Web UI 构建双架构 FPK，并在完成后解包验收两个产物。Release workflow 使用内部的 `build:fpk:artifacts`，只构建发布产物。
-
-只构建 x86：
-
-```bash
-rtk pnpm run build:fpk:x64
-```
-
-只构建 ARM：
-
-```bash
-rtk pnpm run build:fpk:arm64
-```
-
-升级或重新校验仓库内置的 Aria2 Next 源资产：
-
-```bash
-rtk pnpm run assets:aria2:fetch
-```
-
-运行边界：内置及外部路径仅允许运行已验证的 **2.8.6**，统一设置应用私有 `state-dir`。2.5.5 仅可识别为 `legacy-v1`，以 `engine_unsupported` 进入受限管理；未知、缺失及探测失败同样拒绝下载。旧数据、session、下载文件和凭据保留，不迁移或接管旧任务；回滚仍须配套恢复升级前完整备份。
-
-当前固定为 Aria2 Next **2.8.6**；版本、固定校验和及依赖基线分别见 `scripts/build/fetch-aria2-next.mjs`、`assets/aria2/aria2-next-2.8.6-checksums.sha256` 和 `assets/aria2/aria2-next-2.8.6-dependencies.env`。该命令只用于维护双架构 sidecar，会从对应 GitHub Release 下载 checksum，校验现有或新下载的二进制并设置可执行权限。它不是日常构建步骤；升级版本时还需审查脚本中的版本号、checksum 文件和两个二进制的变更。
-
-清理本地构建输出和 staged 产物：
-
-```bash
-rtk pnpm run clean
-```
-
-如需先查看会删除哪些内容：
-
-```bash
-rtk pnpm run clean:dry-run
-```
-
-彻底清理 Rust 构建缓存：
-
-```bash
-rtk pnpm run clean:rust
-```
-
-`pnpm run verify` 会保留 Rust 编译缓存；`pnpm run verify:pre-commit` 只做版本、暂存区空白与 Rust 格式等快速静态检查，不执行前端类型检查，也不写 Rust 构建产物。磁盘空间不足时再执行 `pnpm run clean:rust`。
+固定资产为 `scripts/build/fetch-aria2-next.mjs`、`assets/aria2/aria2-next-2.8.6-checksums.sha256` 和 `assets/aria2/aria2-next-2.8.6-dependencies.env`。`assets:aria2:fetch` 是联网维护入口，升级时须审查版本、固定校验和及双架构二进制，具体行为见[资产命令](development-scripts.md#fpk-构建与资产命令)。本地输出和缓存的删除范围见[清理命令](development-scripts.md#清理命令)。
 
 ## 开发与验证
 
-Web UI 类型检查：
-
-```bash
-rtk pnpm run typecheck
-```
-
-Web UI 生产构建：
-
-```bash
-rtk pnpm run build
-```
-
-Rust server 测试：
-
-```bash
-rtk cargo test --manifest-path server/Cargo.toml
-```
-
-提交前快速验证：
-
-```bash
-rtk pnpm run verify:pre-commit
-```
-
-完整源码验证：
-
-```bash
-rtk pnpm run verify
-```
+类型检查、Web 构建、Rust 测试和提交前验证统一见[测试与验证](development-scripts.md#测试与验证)。预组装及解包检查如下。
 
 执行上节的 `build:fpk:prepare` 后，应分别检查 `.stage/x86` 和 `.stage/arm`：
 
@@ -292,18 +214,7 @@ packaging/fnos/
 
 ## 本地调试
 
-先执行：
-
-```bash
-rtk pnpm run build:fpk:prepare
-```
-
-需要检查预组装结果时，查看：
-
-```text
-packaging/fnos/.stage/x86/
-packaging/fnos/.stage/arm/
-```
+先按[常用命令](#常用命令)执行 `build:fpk:prepare`，检查 `.stage/x86/` 和 `.stage/arm/`。
 
 本地调试源码态脚本时，再执行：
 
@@ -497,9 +408,7 @@ packaging/fnos/app/ui/config
 
 ### 验证触发策略
 
-- `pre-commit` 只执行版本、暂存区空白和 Rust 格式检查，不运行前端类型检查、单元测试或生产构建。
-- `pre-push` 只在推送分支源码时执行完整 `pnpm run verify`；只推送 tag 时跳过。正常分支推送必须在本地通过全部脚本、Rust、前端测试和构建。
-- GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动执行完整源码验证 `pnpm run verify`；每周日北京时间 02:17 定时或手动 dispatch 执行 `pnpm run verify:extended`。
+- 本地 hooks、完整源码门禁及扩展验证触发时机统一见[开发脚本](development-scripts.md#git-hooks)和[扩展验证命令](development-scripts.md#扩展验证命令)。
 - Release 只允许修改 `CHANGELOG.md` 和固定版本文件；这些发布元数据变化与已经通过本地验证的业务源码视为等价，出现白名单外改动时立即中止。
 - `Release FPK` 只构建双架构 FPK，并解包验证、签署和发布产物，不重复执行源码或扩展测试；浏览器 E2E、真实 Aria2 集成与文件系统故障测试由每周定时或手动 `Verify` 执行。
 - 自动生成的版本提交和内部推送都使用 `--no-verify`，避免 GitHub runner 因安装本地 hooks 而隐藏重复完整验证。

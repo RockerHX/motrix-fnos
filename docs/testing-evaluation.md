@@ -6,26 +6,15 @@
 >
 > 历史验证基线：`42c8eaf`；固定 Aria2 Next 2.8.6。下方基线表保留当时的执行结果；覆盖说明随代码维护，历史数量不代表当前测试总数。
 >
-> 目标：先盘点功能，再盘点测试，最后判断自动化测试缺口；本次实现已补齐高价值扩展测试层。
+> 用途：维护覆盖矩阵、自动化缺口与真实设备验收边界。
 
 ## 结论
 
-当前项目已经有一套分层测试体系，并非只有单元测试：
+现有 Rust 领域/API/SQLite/进程测试、Vue service/store/composable/组件测试、构建发布脚本与 Shell 场景、类型检查和生产构建覆盖主要可自动化功能。剩余缺口集中在 API 契约细化、前端薄 service 与组合组件、可量化覆盖率，以及真实 fnOS/FPK 验收。
 
-- Rust 领域测试、Axum API 场景测试、SQLite 测试、进程生命周期测试和外部集成测试。
-- Vue/TypeScript 的 service、store、composable 和组件测试。
-- Node 构建与发布脚本测试、FPK 生命周期 Shell 场景测试、FPK 解包产物校验。
-- 类型检查、生产构建和严格 Rust 编译检查。
+扩展层包含桌面/移动 Chromium E2E、Linux 真实 sidecar 和文件系统故障矩阵：浏览器使用模拟 API；sidecar 覆盖 HTTP fixture、RPC、下载、暂停继续、session 恢复及异常退出；文件系统覆盖暂存、回滚、后台清理、删除、恢复及重新下载。它们不能替代真实 fnOS、WebView、共享目录和设备行为。
 
-本次实现已经补齐三类高价值自动化：
-
-1. Playwright 独立 E2E：桌面和移动 Chromium 冒烟，覆盖登录、操作与实时状态；浏览器测试不代表真实引擎或 fnOS 已通过。
-2. Linux 真实 Aria2 Next sidecar：本地 HTTP fixture、RPC、下载、暂停/继续、session 恢复和异常退出。
-3. 文件系统故障矩阵：文件暂存、回滚、清理 worker、删除、恢复和重新下载调用链。
-
-仍需保留真实设备验收：真实 fnOS/FPK 安装、升级、回滚、卸载、FN Connect、共享目录授权和 App WebView。这些不能由本地浏览器或 Linux fixture 完全替代。
-
-项目采用分层策略：`verify` 执行完整源码门禁，`build:fpk` 在此基础上构建并验收双架构产物；`verify:extended` 和 `build:fpk:release` 追加扩展测试；fnOS 设备测试单独作为发布前验收。快速静态门禁为 `verify:pre-commit`。
+验证入口及组合关系见[开发命令](development-scripts.md#测试与验证)，当前覆盖证据见下方矩阵。
 
 ## 验证基线
 
@@ -43,73 +32,11 @@
 
 普通 `verify` 不包含浏览器、全部真实引擎组合或 FPK 解包；不能由其通过推导这些检查通过。必要补验、已知限制及延期范围见[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)，不再要求将长时压测或完整网络抓包作为本次门槛。
 
-## 功能清单
+## 测试组织
 
-| 功能域 | 功能范围 |
-| --- | --- |
-| Web 管理鉴权 | 安装向导初始化、本机隐藏输入重置与取消、登录、登出、改密、JWT、认证版本、登录限速、哈希并发限制、诊断下载 |
-| 应用与就绪 | 应用信息、后端 ping、就绪探测、版本更新检查、双栈管理 listener |
-| Aria2 生命周期 | 启动、停止、状态、RPC 状态、按需启动、空闲停止、session 保存、停止排空、进程归属校验 |
-| URL 下载 | 单 URL、文件名和输出路径校验、保存目录授权、暂停/继续、限速和连接数 |
-| 批量下载 | 逐 URL 创建、部分成功、部分失败、批量代理预检 |
-| BT 下载 | multipart 上传、任务专属目录、metadata 保存、暂停、恢复、重新下载 |
-| 磁力下载 | 同 GID metadata 解析、文件确认、原生完整 metadata 与选择恢复、确认前不写用户目录、缺失状态明确报错 |
-| 任务管理 | 列表、状态筛选、详情、文件上下文、错误状态、SSE 快照、任务监控 |
-| 回收站 | 删除、保留文件、删除文件、永久删除记录、恢复、清空、部分失败和操作对账 |
-| 下载代理 | HTTP 任务代理及兼容私密覆盖、BT 全局代理、运行时切换、失败阻断、脱敏；HTTP/SOCKS4 域名解析限制保留 |
-| 存储授权 | fnOS 共享目录刷新、快照持久化、路径显示转换、授权撤销、目录安全校验 |
-| JSON-RPC | HTTP、WebSocket、OPTIONS、Token 隔离、`aria2.addUri`、`getVersion`、`getGlobalOption`、multicall |
-| SSE | 引擎兼容与任务快照、退出事件、JWT 失效、断线重连、连接代际和 revision 基线 |
-| 设置 | 默认目录、语言、并发、单一 HTTP 连接上限、超时、重试、下载代理、JSON-RPC Token、LAN RPC 开关和轮换 |
-| 诊断与日志 | 调试日志列表/清理、Aria2 日志模式、日志轮转、日志占用、session/metadata/原生状态占用、诊断 ZIP、敏感信息脱敏 |
-| 数据库 | schema 迁移、任务/设置/历史/错误/操作记录、备份、完整性检查、历史清理 CLI |
-| FPK 交付 | manifest、权限、端口、图标、生命周期脚本、双架构 server/sidecar、产物命名、空运行数据目录 |
-| Web UI | 鉴权门禁、任务列表和分类、创建/操作弹窗、设置、诊断、帮助、关于、扩展占位、桌面/移动布局 |
-| 平台集成 | fnOS 文件 API、FN Connect 入口、真实共享目录、桌面入口、App WebView、手机浏览器 |
-
-## 现有测试清单
-
-### Rust 后端
-
-Rust 领域测试与 `server/tests/` 集成测试覆盖 API、任务、原生恢复、代际迁移、代理、文件清理和生命周期；上方数量仅为历史验证基线。
-
-代表性测试文件包括：
-
-- [`server/src/api/tasks/tests.rs`](../server/src/api/tasks/tests.rs)：任务 HTTP 入口和授权边界。
-- [`server/src/api/jsonrpc/tests.rs`](../server/src/api/jsonrpc/tests.rs)：HTTP/WebSocket、多入口 Token、multicall、连接资源和 LAN 权限。
-- [`server/src/tasks/service/tests.rs`](../server/src/tasks/service/tests.rs)：创建、控制、代理、恢复、重下载、回滚和对账。
-- [`server/src/runtime/lifecycle/tests.rs`](../server/src/runtime/lifecycle/tests.rs)：生命周期转换、取消代际和资源收敛。
-- [`server/tests/idle_file_stability.rs`](../server/tests/idle_file_stability.rs)：只读请求和空闲监控不产生运行态文件变化。
-
-### 前端
-
-Vitest 使用 jsdom，覆盖：
-
-- 认证组件、认证 service、认证 store、跨标签页通信。
-- HTTP 错误和认证代际、SSE 解析和重连。
-- 任务 store、任务 service、创建表单、批量操作、分类、分页、代理、恢复/删除/重新下载交互。
-- 设置、代理、JSON-RPC Token、LAN RPC、诊断、日志、关于、帮助和更新检查。
-- 任务表、任务卡、操作菜单、弹窗、状态徽章、进度、移动布局和主窗口编排。
-
-测试文件示例：
-
-- [`src/features/tasks/stores/taskStore.spec.ts`](../src/features/tasks/stores/taskStore.spec.ts)
-- [`src/features/auth/stores/authStore.spec.ts`](../src/features/auth/stores/authStore.spec.ts)
-- [`src/services/runtimeEvents.spec.ts`](../src/services/runtimeEvents.spec.ts)
-- [`src/views/MainWindow.spec.ts`](../src/views/MainWindow.spec.ts)
-
-### 脚本、FPK 与构建
-
-`scripts/tests/` 的 Node 测试覆盖：
-
-- 版本、CHANGELOG、发布准备、SBOM、动作 SHA 固定和依赖审计。
-- FPK 身份、产物、构建预检和静态架构约束。
-- Rust 测试运行器、命令进度和测试 reporter。
-- 测试代码隔离、样式架构、主题架构、日志文档和启动首屏。
-
-`pnpm run verify` 另有 4 组 Shell 场景，验证进程身份、启动孤儿进程对账、停止/卸载收敛和就绪脚本。`pnpm run verify:fpk` 负责解包检查双架构 FPK 的内容、入口、二进制和空运行目录。
-
-扩展测试不进入普通 `build:fpk`：`pnpm run verify:extended` 先执行一次 `verify`，再执行 E2E 和 sidecar；文件系统用例已由 `verify` 的完整 Rust 测试覆盖，独立命令仅用于定向排查；`pnpm run build:fpk:release` 调用它一次后再构建和验收双架构 FPK。
+- Rust 领域与 API 测试使用模块内独立 `tests.rs`，外部集成测试位于 `server/tests/`。除矩阵列出的业务测试外，[空闲文件稳定性](../server/tests/idle_file_stability.rs)验证只读请求和空闲监控不改变运行态文件。
+- 前端 `*.spec.ts` 使用 jsdom，覆盖鉴权与跨标签页通信、HTTP/SSE、任务与设置编排、组件和移动布局；代表入口包括 [taskStore](../src/features/tasks/stores/taskStore.spec.ts)、[authStore](../src/features/auth/stores/authStore.spec.ts)、[runtimeEvents](../src/services/runtimeEvents.spec.ts) 和 [MainWindow](../src/views/MainWindow.spec.ts)。
+- `scripts/tests/` 覆盖版本/CHANGELOG/发布、SBOM、动作 SHA 与依赖审计、FPK 身份/预检/产物、Rust runner、进度与 reporter，以及测试隔离、样式、主题、日志文档和启动首屏守卫。4 组 Shell 场景覆盖进程归属、信号升级、孤儿回收和就绪；FPK 解包检查另由 `verify:fpk` 执行。
 
 ## 覆盖矩阵
 
@@ -163,16 +90,11 @@ Vitest 使用 jsdom，覆盖：
 
 这些场景仍然可以自动采集日志、端口、进程、HTTP 响应和文件快照；“需要人工”不等于每次都靠肉眼或手工记录。
 
-## 测试流程方面的发现
+## 验证边界与后续顺序
 
-- 本地 `verify` 是完整源码门禁，GitHub `Verify` 在 `main`/`develop` 的 push 和 PR 上自动运行；每周定时或手动 dispatch 运行 `verify:extended`。
-- `verify` 不包含 FPK 构建和解包；`build:fpk` 才串联完整源码验证、双架构构建和 `verify:fpk`。发布 workflow 按当前架构决策只构建新产物，不重复源码验证，因此需要保证发布前已有同一提交的 verify 证据。
-- 当前仍没有真实 fnOS 测试和代码覆盖率门槛。测试数量很高，但不能据此推导功能覆盖率百分比；真实设备验收和覆盖率应继续单独管理。
-- 本次只执行 [引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级) 中的关键实机与 Linux 补验；已有自动化不重复转为手工测试，延期项目不记为通过。
+源码、扩展测试及 FPK 验包的职责和触发方式以[开发脚本](development-scripts.md#测试与验证)为准。Release 不重复源码验证，发布前须有同一业务源码提交的 verify 证据。当前没有真实 fnOS 测试和覆盖率门槛，测试数量不能推导覆盖率百分比。
 
-## 评估结论
-
-现有单元、服务级和扩展自动化基础已经覆盖主要可自动化功能；剩余缺口集中在 API 契约细化、前端薄 service、真实 fnOS/FPK 设备和可量化覆盖率。
+必要 Linux/真机补验及延期范围以[引擎升级待验项](future-development-plan.md#6-engine-upgrade-290motrix-200-下载引擎升级)为准；已有自动化不重复转成手工测试，延期项目不记为通过。
 
 推荐后续顺序：
 
