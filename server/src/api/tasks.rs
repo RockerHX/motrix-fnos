@@ -1,4 +1,3 @@
-use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::api::extract::ApiJson;
 use crate::app::HttpAppState;
@@ -53,7 +52,8 @@ async fn get_task_file_context(
     Query(query): Query<request::TaskFileContextQuery>,
 ) -> Result<Json<TaskFileContextResponse>, ApiError> {
     let language = super::storage::parse_display_language(query.language.as_deref())?;
-    let task = build_task_service(&state)
+    let task = state
+        .task_service()
         .get_download_task(task_id)
         .map_err(|error| ApiError::internal("task_file_context_failed", error))?
         .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;
@@ -106,7 +106,7 @@ async fn list_tasks(
     State(state): State<Arc<HttpAppState>>,
     Query(query): Query<ListTasksQuery>,
 ) -> Result<Json<Vec<PublicDownloadTask>>, ApiError> {
-    let service = build_task_service(&state);
+    let service = state.task_service();
     if matches!(query.filter()?, ListTasksFilter::Removed) {
         let tasks = service
             .list_removed_download_tasks()
@@ -156,7 +156,8 @@ async fn create_task(
     ApiJson(payload): ApiJson<CreateDownloadTaskRequest>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     validate_create_preconditions(&state, payload.save_dir.as_deref())?;
-    build_task_service(&state)
+    state
+        .task_service()
         .validate_create_task_proxy(
             payload.source_type,
             &payload.advanced_options,
@@ -202,7 +203,8 @@ async fn create_batch_tasks(
             Json(CreateBatchDownloadTasksResponse { created, failed }),
         ));
     }
-    if let Err(error) = build_task_service(&state)
+    if let Err(error) = state
+        .task_service()
         .validate_create_task_proxy(
             DownloadTaskSourceType::Url,
             &payload.advanced_options,
@@ -274,7 +276,8 @@ async fn create_torrent_task(
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
     let upload = parse_torrent_multipart(multipart, &state).await?;
     validate_create_preconditions(&state, Some(&upload.request.save_dir))?;
-    build_task_service(&state)
+    state
+        .task_service()
         .validate_create_task_proxy(
             DownloadTaskSourceType::Torrent,
             &upload.request.advanced_options,
@@ -320,7 +323,7 @@ async fn update_task_proxy(
     Path(task_id): Path<u64>,
     ApiJson(payload): ApiJson<UpdateTaskProxyRequest>,
 ) -> Result<Json<PublicDownloadTask>, ApiError> {
-    let service = build_task_service(&state);
+    let service = state.task_service();
     let config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
     let task = service
         .update_download_task_proxy(config.as_ref(), task_id, payload.enabled)
@@ -435,7 +438,7 @@ async fn permanently_delete_task(
     Path(task_id): Path<u64>,
     Query(query): Query<DeleteTaskQuery>,
 ) -> Result<Response, ApiError> {
-    let service = build_task_service(&state);
+    let service = state.task_service();
     service
         .ensure_file_cleanup_not_pending(task_id)
         .await
@@ -489,7 +492,8 @@ fn validate_create_preconditions(
     state: &HttpAppState,
     save_dir: Option<&str>,
 ) -> Result<(), ApiError> {
-    build_task_service(state)
+    state
+        .task_service()
         .ensure_not_exiting()
         .map_err(classify_task_error)?;
     validate_authorized_save_dir(state, save_dir)
@@ -503,7 +507,8 @@ fn reject_bt_task_proxy_override(
     if !proxy_field_present {
         return Ok(());
     }
-    let task = build_task_service(state)
+    let task = state
+        .task_service()
         .get_download_task(task_id)
         .map_err(classify_task_error)?
         .ok_or_else(|| ApiError::not_found("task_not_found", "下载任务不存在"))?;

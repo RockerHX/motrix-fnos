@@ -1,5 +1,6 @@
 use super::*;
-use crate::settings::service::apply_runtime_download_config;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
 
 use crate::app::{
     bootstrap_http_app_state, ServerRuntimeConfig, DEFAULT_HTTP_ADDR, DEFAULT_JSONRPC_ADDR,
@@ -44,9 +45,8 @@ async fn concurrent_public_settings_updates_publish_in_database_order_and_keep_f
     first.await.unwrap().unwrap();
     second.await.unwrap().unwrap();
     assert_eq!(state.json_rpc_token(), "");
-    let paths = vec![directory.clone()];
     let (saved, token) = tokio::join!(
-        update_app_config(&state, config.clone(), &directory, &paths),
+        update_app_config(&state, config.clone()),
         update_public_rpc_token(&state, "new-token"),
     );
     assert_eq!(
@@ -91,8 +91,6 @@ async fn concurrent_public_settings_updates_publish_in_database_order_and_keep_f
             max_concurrent_downloads: 20,
             ..config.clone()
         },
-        &directory,
-        &paths
     )
     .await
     .is_err());
@@ -176,7 +174,18 @@ async fn runtime_apply_reports_deferred_when_lifecycle_is_transitioning() {
         .set_phase(Aria2LifecyclePhase::Stopping)
         .expect("lifecycle should enter stopping");
 
-    let status = apply_runtime_download_config(&state, &test_app_config()).await;
+    let config = AppConfig {
+        default_download_dir: runtime.app_data_dir.display().to_string(),
+        ..test_app_config()
+    };
+    let response = update_settings(
+        State(state.clone()),
+        ApiJson(serde_json::to_value(config).unwrap()),
+    )
+    .await
+    .unwrap()
+    .0;
+    let status = response.runtime_apply.unwrap();
 
     assert_eq!(status, RuntimeApplyStatus::Deferred);
     cleanup_test_state(&state, runtime).await;
@@ -188,7 +197,18 @@ async fn runtime_apply_reports_applied_when_rpc_accepts_options() {
     let (mut state, runtime) = lan_test_state("runtime-applied").await;
     configure_rpc_runtime(&mut state, port);
 
-    let status = apply_runtime_download_config(&state, &test_app_config()).await;
+    let config = AppConfig {
+        default_download_dir: runtime.app_data_dir.display().to_string(),
+        ..test_app_config()
+    };
+    let response = update_settings(
+        State(state.clone()),
+        ApiJson(serde_json::to_value(config).unwrap()),
+    )
+    .await
+    .unwrap()
+    .0;
+    let status = response.runtime_apply.unwrap();
 
     assert_eq!(status, RuntimeApplyStatus::Applied);
     server.abort();
@@ -201,18 +221,20 @@ async fn runtime_apply_reports_failed_when_rpc_rejects_options() {
     let (mut state, runtime) = lan_test_state("runtime-failed").await;
     configure_rpc_runtime(&mut state, port);
 
-    let status = apply_runtime_download_config(&state, &test_app_config()).await;
-
-    assert_eq!(status, RuntimeApplyStatus::Failed);
     let directory = runtime.app_data_dir.display().to_string();
     let config = AppConfig {
         default_download_dir: directory.clone(),
         ..test_app_config()
     };
-    let result = update_app_config(&state, config.clone(), &directory, &[directory.clone()])
-        .await
-        .unwrap();
-    assert_eq!(result, (config.clone(), RuntimeApplyStatus::Failed));
+    let response = update_settings(
+        State(state.clone()),
+        ApiJson(serde_json::to_value(&config).unwrap()),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(response.config, config);
+    assert_eq!(response.runtime_apply, Some(RuntimeApplyStatus::Failed));
     assert_eq!(state.current_app_config().await, config);
     assert_eq!(
         crate::settings::service::load_app_config_from_pool(&state.core.database.pool, &directory)
@@ -688,6 +710,58 @@ async fn lan_json_rpc_first_enable_preserves_token_and_rotation_invalidates_old_
     assert_eq!(restored_config.token, second_token);
     restored.core.database.pool.close().await;
     let _ = std::fs::remove_dir_all(runtime.app_data_dir);
+}
+
+#[tokio::test]
+async fn inaccessible_path_snapshot_keeps_saved_settings_and_error_contract() {
+    let (state, runtime) = lan_test_state("invalid-path-snapshot").await;
+    let before = state.current_app_config().await;
+    std::fs::write(&runtime.accessible_paths_path, "invalid json").unwrap();
+    let error = update_settings(
+        State(state.clone()),
+        ApiJson(serde_json::to_value(&before).unwrap()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = error
+        .into_response()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "accessible_paths_load_failed");
+    assert_eq!(state.current_app_config().await, before);
+    cleanup_test_state(&state, runtime).await;
+}
+
+#[tokio::test]
+async fn concurrent_lan_settings_and_rotation_preserve_policy_and_persisted_token() {
+    let (state, runtime) = lan_test_state("concurrent-lan-settings").await;
+    let (settings, rotated) = tokio::join!(
+        update_lan_json_rpc(
+            State(state.clone()),
+            ApiJson(UpdateLanJsonRpcRequest {
+                enabled: true,
+                allow_shared_address_space: Some(true),
+            }),
+        ),
+        rotate_lan_json_rpc_token(State(state.clone())),
+    );
+    assert!(settings.unwrap().0.status.enabled);
+    let token = rotated.unwrap().0.issued_token.unwrap();
+    let current = state.lan_json_rpc_config().await;
+    assert!(current.enabled && current.allow_shared_address_space);
+    assert_eq!(current.token, token);
+    assert_eq!(
+        crate::settings::service::load_lan_json_rpc_config(&state.core.database.pool)
+            .await
+            .unwrap(),
+        current,
+    );
+    cleanup_test_state(&state, runtime).await;
 }
 
 #[tokio::test]

@@ -2,6 +2,9 @@ use crate::app::HttpAppState;
 use crate::aria2::{apply_global_options, global_options_from_values, ping_rpc};
 use crate::database::settings::{get_app_config_value, set_app_config_value};
 use crate::storage::validate_default_download_dir;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine;
+use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sqlx::{Executor, Sqlite, SqlitePool};
 use std::path::Path;
@@ -319,23 +322,35 @@ pub(crate) enum RuntimeApplyStatus {
 pub(crate) async fn update_app_config(
     state: &HttpAppState,
     payload: AppConfig,
-    default_download_dir: &str,
-    accessible_paths: &[String],
-) -> Result<(AppConfig, RuntimeApplyStatus), String> {
+) -> Result<(AppConfig, RuntimeApplyStatus), AppConfigUpdateError> {
+    let accessible_paths =
+        crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
+            .map_err(AppConfigUpdateError::AccessiblePaths)?;
+    let default_download_dir =
+        crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
+            .display()
+            .to_string();
     let _update = state.settings_update_lock.lock().await;
     let config = save_app_config(
         &state.core.database.pool,
         payload,
-        default_download_dir,
-        accessible_paths,
+        &default_download_dir,
+        &accessible_paths,
         &state.runtime.app_data_dir,
     )
-    .await?;
+    .await
+    .map_err(AppConfigUpdateError::Save)?;
     state.set_app_config(config.clone()).await;
-    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, accessible_paths);
+    state.refresh_json_rpc_default_download_dir(&config.default_download_dir, &accessible_paths);
     state.core.debug_logs.info("settings", "应用配置已保存");
     let runtime_apply = apply_runtime_download_config(state, &config).await;
     Ok((config, runtime_apply))
+}
+
+#[derive(Debug)]
+pub(crate) enum AppConfigUpdateError {
+    AccessiblePaths(String),
+    Save(String),
 }
 
 pub(crate) async fn update_public_rpc_token(
@@ -345,10 +360,74 @@ pub(crate) async fn update_public_rpc_token(
     let _update = state.settings_update_lock.lock().await;
     let token = save_json_rpc_token(&state.core.database.pool, token).await?;
     state.remember_json_rpc_token(&token);
+    state
+        .core
+        .debug_logs
+        .info("settings.jsonrpc", "JSON-RPC Token 已更新");
     Ok(token)
 }
 
-pub(crate) async fn apply_runtime_download_config(
+pub(crate) enum LanJsonRpcUpdate {
+    Settings {
+        enabled: bool,
+        allow_shared_address_space: Option<bool>,
+    },
+    RotateToken,
+}
+
+#[derive(Debug)]
+pub(crate) enum LanJsonRpcUpdateError {
+    Generate(String),
+    Save(String),
+}
+
+pub(crate) async fn update_lan_json_rpc_config(
+    state: &HttpAppState,
+    update: LanJsonRpcUpdate,
+) -> Result<(LanJsonRpcConfig, Option<String>), LanJsonRpcUpdateError> {
+    let mut current = state.lan_json_rpc_config.write().await;
+    let mut next = current.clone();
+    let (issue_token, message) = match update {
+        LanJsonRpcUpdate::Settings {
+            enabled,
+            allow_shared_address_space,
+        } => {
+            next.enabled = enabled;
+            if let Some(allow) = allow_shared_address_space {
+                next.allow_shared_address_space = allow;
+            }
+            (
+                enabled && next.token.is_empty(),
+                if enabled {
+                    "局域网 JSON-RPC 入口已启用"
+                } else {
+                    "局域网 JSON-RPC 入口已关闭"
+                },
+            )
+        }
+        LanJsonRpcUpdate::RotateToken => (true, "局域网 JSON-RPC Token 已轮换"),
+    };
+    let issued_token = if issue_token {
+        let mut bytes = [0_u8; 32];
+        OsRng
+            .try_fill_bytes(&mut bytes)
+            .map_err(|error| LanJsonRpcUpdateError::Generate(error.to_string()))?;
+        let token = URL_SAFE_NO_PAD.encode(bytes);
+        next.token = token.clone();
+        Some(token)
+    } else {
+        None
+    };
+    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
+        .await
+        .map_err(LanJsonRpcUpdateError::Save)?;
+    *current = persisted.clone();
+    state.notify_lan_json_rpc_config_changed();
+    state.core.debug_logs.info("settings.jsonrpc_lan", message);
+    Ok((persisted, issued_token))
+}
+
+async fn apply_runtime_download_config(
     state: &HttpAppState,
     config: &AppConfig,
 ) -> RuntimeApplyStatus {

@@ -12,8 +12,6 @@ mod storage;
 mod tasks;
 
 use crate::app::HttpAppState;
-use crate::tasks::repository::SqliteTaskRepository;
-use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use axum::body::Body;
 use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
 use axum::http::header::{CACHE_CONTROL, EXPIRES, PRAGMA};
@@ -92,24 +90,6 @@ pub fn lan_jsonrpc_router(state: Arc<HttpAppState>) -> Router {
         .with_state(state)
 }
 
-pub(crate) fn build_task_service(state: &HttpAppState) -> TaskService<'_> {
-    TaskService::new(TaskServiceDependencies {
-        repository: Box::new(SqliteTaskRepository::for_engine(
-            &state.core.database.pool,
-            crate::config::aria2::EngineGeneration::NativeV2,
-        )),
-        download_tasks: &state.core.download_tasks,
-        next_task_id: &state.core.next_task_id,
-        app_data_dir: &state.core.app_data_dir,
-        accessible_paths_path: &state.runtime.accessible_paths_path,
-        debug_logs: &state.core.debug_logs,
-        aria2_rpc: &state.aria2_rpc,
-        aria2_lifecycle: &state.aria2_lifecycle,
-        proxy_update_lock: &state.download_proxy_update_lock,
-        runtime_guard: RuntimeGuard::with_compatibility(&state.core.shutdown, &state.compatibility),
-    })
-}
-
 fn ensure_compatible_management_request(
     state: &HttpAppState,
     request: &Request<Body>,
@@ -134,7 +114,8 @@ fn ensure_compatible_management_request(
             .and_then(|tail| tail.split('/').next())
             .and_then(|id| id.parse::<u64>().ok())
         {
-            if let Some(task) = build_task_service(state)
+            if let Some(task) = state
+                .task_service()
                 .get_download_task(id)
                 .map_err(|message| error::ApiError::internal("task_snapshot_failed", message))?
             {

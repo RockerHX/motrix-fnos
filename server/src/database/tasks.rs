@@ -1,3 +1,4 @@
+use super::{i64_to_u64, u64_to_i64};
 use crate::database::settings::get_download_proxy_config;
 use crate::tasks::{
     DownloadTask, DownloadTaskFile, DownloadTaskSourceType, DownloadTaskStatus, TaskProxyBinding,
@@ -850,14 +851,6 @@ where
 {
     row.try_get(column)
         .map_err(|error| format!("读取下载任务字段 {} 失败：{}", column, error))
-}
-
-fn u64_to_i64(value: u64, label: &str) -> Result<i64, String> {
-    i64::try_from(value).map_err(|_| format!("{} 超出 SQLite INTEGER 范围", label))
-}
-
-fn i64_to_u64(value: i64, label: &str) -> Result<u64, String> {
-    u64::try_from(value).map_err(|_| format!("{} 不能为负数", label))
 }
 
 #[cfg(test)]

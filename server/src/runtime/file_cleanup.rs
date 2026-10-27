@@ -174,7 +174,8 @@ async fn process_file_cleanup_operation(
                 .task_snapshot
                 .clone()
                 .ok_or_else(|| "永久删除清理缺少任务快照，已保留任务记录".to_string())?;
-            if let Err(error) = crate::api::build_task_service(state)
+            if let Err(error) = state
+                .task_service()
                 .finish_permanent_delete(&task, &mut operation)
                 .await
             {

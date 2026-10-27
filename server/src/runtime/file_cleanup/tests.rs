@@ -160,7 +160,7 @@ async fn permanent_delete_keeps_failed_record_and_finishes_after_restart() {
     assert!(unfinished[0].is_file_cleanup_pending());
     assert!(unfinished[0].error_message.is_some());
     let config = state.aria2_config();
-    let service = crate::api::build_task_service(&state);
+    let service = state.task_service();
     assert!(service
         .restore_removed_task(&config, 17, None, false)
         .await
@@ -265,7 +265,8 @@ async fn pending_permanent_delete(root: &Path) -> (Arc<HttpAppState>, PathBuf) {
         .download_tasks
         .with_tasks_mut(|tasks| tasks.push(task))
         .unwrap();
-    let pending = crate::api::build_task_service(&state)
+    let pending = state
+        .task_service()
         .permanently_delete_removed_task(&state.aria2_config(), 17, true)
         .await
         .unwrap()

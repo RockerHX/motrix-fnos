@@ -74,15 +74,25 @@ pub struct DownloadProxyServiceContext<'a> {
 
 pub async fn load_download_proxy_status(
     pool: &SqlitePool,
+    lifecycle: &Aria2LifecycleCoordinator,
 ) -> Result<DownloadProxyStatus, DownloadProxyServiceError> {
     let config = get_download_proxy_config(pool)
         .await
         .map_err(DownloadProxyServiceError::Load)?;
-    config
+    let mut status = config
         .as_ref()
         .map(status_from_stored)
         .transpose()
-        .map(|status| status.unwrap_or_else(unconfigured_status))
+        .map(|status| status.unwrap_or_else(unconfigured_status))?;
+    if status.bt_runtime_apply != BtRuntimeApplyStatus::Blocked
+        && lifecycle
+            .snapshot()
+            .map(|snapshot| snapshot.phase != Aria2LifecyclePhase::Ready)
+            .unwrap_or(true)
+    {
+        status.bt_runtime_apply = BtRuntimeApplyStatus::Deferred;
+    }
+    Ok(status)
 }
 
 pub async fn update_download_proxy(

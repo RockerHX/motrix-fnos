@@ -153,12 +153,6 @@ pub async fn set_download_proxy_runtime_apply_status(
     Ok(())
 }
 
-pub async fn delete_download_proxy_config_if_unused(
-    pool: &SqlitePool,
-) -> Result<DeleteDownloadProxyConfigResult, String> {
-    delete_download_proxy_config_for_engine_if_unused(pool, None).await
-}
-
 pub(crate) async fn delete_download_proxy_config_for_engine_if_unused(
     pool: &SqlitePool,
     generation: Option<crate::config::aria2::EngineGeneration>,

@@ -18,6 +18,8 @@ use crate::storage::{
     default_download_dir, load_accessible_paths, refresh_accessible_paths_from_fnos,
     AccessiblePathsRefreshError,
 };
+use crate::tasks::repository::SqliteTaskRepository;
+use crate::tasks::service::{RuntimeGuard, TaskService, TaskServiceDependencies};
 use crate::tasks::{DownloadTask, PublicDownloadTask};
 use serde::Serialize;
 use socket2::{Domain, Protocol, Socket, Type};
@@ -195,6 +197,27 @@ pub struct HttpAppState {
 }
 
 impl HttpAppState {
+    pub(crate) fn task_service(&self) -> TaskService<'_> {
+        TaskService::new(TaskServiceDependencies {
+            repository: Box::new(SqliteTaskRepository::for_engine(
+                &self.core.database.pool,
+                crate::config::aria2::EngineGeneration::NativeV2,
+            )),
+            download_tasks: &self.core.download_tasks,
+            next_task_id: &self.core.next_task_id,
+            app_data_dir: &self.core.app_data_dir,
+            accessible_paths_path: &self.runtime.accessible_paths_path,
+            debug_logs: &self.core.debug_logs,
+            aria2_rpc: &self.aria2_rpc,
+            aria2_lifecycle: &self.aria2_lifecycle,
+            proxy_update_lock: &self.download_proxy_update_lock,
+            runtime_guard: RuntimeGuard::with_compatibility(
+                &self.core.shutdown,
+                &self.compatibility,
+            ),
+        })
+    }
+
     pub fn new(core: ServerState, runtime: ServerRuntimeConfig) -> Self {
         let (lan_json_rpc_config_revision, _) = watch::channel(0);
         let mut base_aria2_config = Aria2Config::from_env();

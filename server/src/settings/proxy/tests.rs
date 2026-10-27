@@ -166,7 +166,7 @@ async fn concurrent_proxy_saves_have_monotonic_revisions() {
     revisions.sort_unstable();
     assert_eq!(revisions, [1, 2]);
     assert_eq!(
-        load_download_proxy_status(&database.pool)
+        load_download_proxy_status(&database.pool, &lifecycle)
             .await
             .expect("status should load")
             .revision,

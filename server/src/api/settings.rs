@@ -7,16 +7,14 @@ use crate::settings::proxy::{
     DownloadProxyStatus,
 };
 use crate::settings::service::{
-    save_lan_json_rpc_config, update_app_config, update_public_rpc_token, AppConfig,
-    LanJsonRpcConfig, RuntimeApplyStatus,
+    update_app_config, update_lan_json_rpc_config, update_public_rpc_token, AppConfig,
+    AppConfigUpdateError, LanJsonRpcConfig, LanJsonRpcUpdate, LanJsonRpcUpdateError,
+    RuntimeApplyStatus,
 };
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -96,19 +94,10 @@ async fn get_settings(State(state): State<Arc<HttpAppState>>) -> Result<Json<App
 async fn get_download_proxy(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<DownloadProxyStatus>, ApiError> {
-    let mut status = load_download_proxy_status(&state.core.database.pool)
+    load_download_proxy_status(&state.core.database.pool, &state.aria2_lifecycle)
         .await
-        .map_err(classify_download_proxy_error)?;
-    if status.bt_runtime_apply != crate::database::settings::BtRuntimeApplyStatus::Blocked
-        && state
-            .aria2_lifecycle
-            .snapshot()
-            .map(|snapshot| snapshot.phase != crate::runtime::Aria2LifecyclePhase::Ready)
-            .unwrap_or(true)
-    {
-        status.bt_runtime_apply = crate::database::settings::BtRuntimeApplyStatus::Deferred;
-    }
-    Ok(Json(status))
+        .map(Json)
+        .map_err(classify_download_proxy_error)
 }
 
 async fn put_download_proxy(
@@ -117,7 +106,7 @@ async fn put_download_proxy(
 ) -> Result<Json<DownloadProxyMutationResponse>, ApiError> {
     let (proxy_url, bt_use_proxy) = parse_download_proxy_update(payload)?;
     let aria2_config = state.aria2_runtime_snapshot().map(|_| state.aria2_config());
-    let task_service = crate::api::build_task_service(&state);
+    let task_service = state.task_service();
     update_download_proxy(
         DownloadProxyServiceContext {
             pool: &state.core.database.pool,
@@ -158,15 +147,15 @@ async fn update_settings(
 ) -> Result<Json<UpdateSettingsResponse>, ApiError> {
     let payload = crate::settings::service::parse_app_config_request(payload)
         .map_err(classify_settings_save_error)?;
-    let accessible_paths = accessible_paths(&state)?;
-    let default_download_dir =
-        crate::storage::default_download_dir(&accessible_paths, &state.runtime.app_data_dir)
-            .display()
-            .to_string();
     let (config, runtime_apply) =
-        update_app_config(&state, payload, &default_download_dir, &accessible_paths)
+        update_app_config(&state, payload)
             .await
-            .map_err(classify_settings_save_error)?;
+            .map_err(|error| match error {
+                AppConfigUpdateError::AccessiblePaths(message) => {
+                    ApiError::internal("accessible_paths_load_failed", message)
+                }
+                AppConfigUpdateError::Save(message) => classify_settings_save_error(message),
+            })?;
     Ok(Json(UpdateSettingsResponse {
         config,
         runtime_apply: Some(runtime_apply),
@@ -188,32 +177,15 @@ async fn update_lan_json_rpc(
     State(state): State<Arc<HttpAppState>>,
     ApiJson(payload): ApiJson<UpdateLanJsonRpcRequest>,
 ) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
-    let mut current = state.lan_json_rpc_config.write().await;
-    let mut next = current.clone();
-    let issued_token = if payload.enabled && next.token.is_empty() {
-        let token = generate_lan_json_rpc_token()?;
-        next.token = token.clone();
-        Some(token)
-    } else {
-        None
-    };
-    next.enabled = payload.enabled;
-    if let Some(allow_shared_address_space) = payload.allow_shared_address_space {
-        next.allow_shared_address_space = allow_shared_address_space;
-    }
-    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
-        .await
-        .map_err(|error| ApiError::internal("lan_jsonrpc_save_failed", error))?;
-    *current = persisted.clone();
-    state.notify_lan_json_rpc_config_changed();
-    state.core.debug_logs.info(
-        "settings.jsonrpc_lan",
-        if persisted.enabled {
-            "局域网 JSON-RPC 入口已启用"
-        } else {
-            "局域网 JSON-RPC 入口已关闭"
+    let (persisted, issued_token) = update_lan_json_rpc_config(
+        &state,
+        LanJsonRpcUpdate::Settings {
+            enabled: payload.enabled,
+            allow_shared_address_space: payload.allow_shared_address_space,
         },
-    );
+    )
+    .await
+    .map_err(|error| classify_lan_json_rpc_error(error, "lan_jsonrpc_save_failed"))?;
     Ok(Json(LanJsonRpcMutationResponse {
         status: lan_json_rpc_status(&state, &persisted),
         issued_token,
@@ -223,25 +195,13 @@ async fn update_lan_json_rpc(
 async fn rotate_lan_json_rpc_token(
     State(state): State<Arc<HttpAppState>>,
 ) -> Result<Json<LanJsonRpcMutationResponse>, ApiError> {
-    let mut current = state.lan_json_rpc_config.write().await;
-    let token = generate_lan_json_rpc_token()?;
-    let next = LanJsonRpcConfig {
-        enabled: current.enabled,
-        token: token.clone(),
-        allow_shared_address_space: current.allow_shared_address_space,
-    };
-    let persisted = save_lan_json_rpc_config(&state.core.database.pool, &next)
-        .await
-        .map_err(|error| ApiError::internal("lan_jsonrpc_token_save_failed", error))?;
-    *current = persisted.clone();
-    state.notify_lan_json_rpc_config_changed();
-    state
-        .core
-        .debug_logs
-        .info("settings.jsonrpc_lan", "局域网 JSON-RPC Token 已轮换");
+    let (persisted, issued_token) =
+        update_lan_json_rpc_config(&state, LanJsonRpcUpdate::RotateToken)
+            .await
+            .map_err(|error| classify_lan_json_rpc_error(error, "lan_jsonrpc_token_save_failed"))?;
     Ok(Json(LanJsonRpcMutationResponse {
         status: lan_json_rpc_status(&state, &persisted),
-        issued_token: Some(token),
+        issued_token,
     }))
 }
 
@@ -252,10 +212,6 @@ async fn update_json_rpc_token(
     let token = update_public_rpc_token(&state, &payload.token)
         .await
         .map_err(|error| ApiError::internal("jsonrpc_token_save_failed", error))?;
-    state
-        .core
-        .debug_logs
-        .info("settings.jsonrpc", "JSON-RPC Token 已更新");
     Ok(Json(json_rpc_token_status(&token)))
 }
 
@@ -290,21 +246,17 @@ fn lan_json_rpc_status(state: &HttpAppState, config: &LanJsonRpcConfig) -> LanJs
     }
 }
 
-fn generate_lan_json_rpc_token() -> Result<String, ApiError> {
-    let mut bytes = [0_u8; 32];
-    OsRng.try_fill_bytes(&mut bytes).map_err(|error| {
-        ApiError::internal("lan_jsonrpc_token_generate_failed", error.to_string())
-    })?;
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
+fn classify_lan_json_rpc_error(error: LanJsonRpcUpdateError, save_code: &'static str) -> ApiError {
+    match error {
+        LanJsonRpcUpdateError::Generate(message) => {
+            ApiError::internal("lan_jsonrpc_token_generate_failed", message)
+        }
+        LanJsonRpcUpdateError::Save(message) => ApiError::internal(save_code, message),
+    }
 }
 
 #[cfg(test)]
 mod tests;
-
-fn accessible_paths(state: &HttpAppState) -> Result<Vec<String>, ApiError> {
-    crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
-        .map_err(|error| ApiError::internal("accessible_paths_load_failed", error))
-}
 
 fn classify_settings_save_error(error: String) -> ApiError {
     for code in [

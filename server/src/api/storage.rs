@@ -1,4 +1,3 @@
-use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::fnos::FnosApiError;
@@ -84,7 +83,8 @@ async fn refresh_accessible_paths(
             .aria2_lifecycle
             .acquire_activity()
             .map_err(|error| ApiError::service_unavailable("aria2_busy", error))?;
-        let result = build_task_service(&state)
+        let result = state
+            .task_service()
             .pause_unauthorized_tasks(&state.aria2_config())
             .await;
         if result.as_ref().is_err() || matches!(result.as_ref(), Ok(true)) {

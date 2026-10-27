@@ -11,6 +11,14 @@ pub mod task_operations;
 pub mod tasks;
 pub(crate) mod web_auth;
 
+fn u64_to_i64(value: u64, label: &str) -> Result<i64, String> {
+    i64::try_from(value).map_err(|_| format!("{} 超出 SQLite INTEGER 范围", label))
+}
+
+fn i64_to_u64(value: i64, label: &str) -> Result<u64, String> {
+    u64::try_from(value).map_err(|_| format!("{} 不能为负数", label))
+}
+
 pub const DATABASE_FILE_NAME: &str = "motrix-fnos.sqlite";
 
 pub(crate) async fn open_existing_database(path: PathBuf) -> Result<AppDatabase, String> {

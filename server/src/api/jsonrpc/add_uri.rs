@@ -1,7 +1,6 @@
 use super::auth::ensure_add_uri_token;
 use super::types::{positional_params, strip_token_param, RpcFault};
 use super::JsonRpcAccess;
-use crate::api::build_task_service;
 use crate::app::HttpAppState;
 use crate::runtime::{broadcast_tasks_snapshot, ensure_aria2_ready};
 use crate::tasks::{
@@ -54,7 +53,7 @@ pub(super) async fn add_uri(
         None => default_save_dir(state)?,
     };
 
-    let service = build_task_service(state);
+    let service = state.task_service();
     service
         .ensure_not_exiting()
         .map_err(RpcFault::server_error)?;

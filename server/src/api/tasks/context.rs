@@ -2,7 +2,6 @@ use super::{
     classify_aria2_ready_error, classify_task_error, ensure_authorized_save_dir,
     validate_authorized_save_dir,
 };
-use crate::api::build_task_service;
 use crate::api::error::ApiError;
 use crate::app::HttpAppState;
 use crate::config::aria2::Aria2Config;
@@ -33,7 +32,7 @@ impl<'a> TaskMutationContext<'a> {
         state: &'a HttpAppState,
         task_id: u64,
     ) -> Result<Self, ApiError> {
-        let service = build_task_service(state);
+        let service = state.task_service();
         service.ensure_not_exiting().map_err(classify_task_error)?;
         service
             .ensure_task_authorized(task_id)
@@ -53,7 +52,7 @@ impl<'a> TaskMutationContext<'a> {
         state: &'a HttpAppState,
         save_dir: Option<Option<&str>>,
     ) -> Result<Self, ApiError> {
-        let service = build_task_service(state);
+        let service = state.task_service();
         service.ensure_not_exiting().map_err(classify_task_error)?;
         if let Some(save_dir) = save_dir {
             validate_authorized_save_dir(state, save_dir)?;
@@ -77,7 +76,7 @@ impl<'a> TaskMutationContext<'a> {
         task_id: u64,
         restart_from_zero: bool,
     ) -> Result<Self, ApiError> {
-        let service = build_task_service(state);
+        let service = state.task_service();
         service.ensure_not_exiting().map_err(classify_task_error)?;
         service
             .ensure_file_cleanup_not_pending(task_id)
