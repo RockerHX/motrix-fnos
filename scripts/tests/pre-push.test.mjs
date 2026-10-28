@@ -10,7 +10,15 @@ const zero = '0'.repeat(40);
 const verify = [['pnpm', 'run', 'verify', '--', '--reuse']];
 
 for (const [title, changes, expected] of [
-  ['中文文档和图片跳过', { 'docs/中文说明.md': '说明', 'public/logo.svg': '<svg/>' }, []],
+  ['中文文档和说明图片跳过', { 'docs/中文说明.md': '说明', 'docs/logo.svg': '<svg/>' }, []],
+  ['网页图片需要核对前端验证', { 'public/logo.svg': '<svg/>' }, verify],
+  ['程序读取的 CHANGELOG 不按普通文档跳过', { 'CHANGELOG.md': '更新' }, verify],
+  ['源码目录内文本不能误跳过', { 'src/example.txt': 'runtime input' }, verify],
+  ['Rust 夹具内文本仍执行 Rust 测试', { 'server/tests/example.txt': 'fixture' }, [['node', 'scripts/verify/run-rust-tests.mjs']]],
+  ['打包图标不能误跳过', { 'packaging/fnos/ICON.PNG': 'image' }, verify],
+  ['Aria2 资产不能误跳过', { 'assets/aria2/aria2-next-linux': 'binary' }, verify],
+  ['维护文档执行已有文档断言', { 'docs/maintenance.md': 'documentation' }, [['node', '--test', 'scripts/tests/logging-docs.test.mjs']]],
+  ['文档断言已包含于脚本测试时不重复执行', { 'docs/api-contract.md': 'documentation', 'scripts/tests/example.test.mjs': 'test' }, [['pnpm', 'run', 'test:scripts']]],
   ['纯文档删除跳过', { 'README.md': null }, []],
   ['前端测试只跑单元测试', { 'src/example.spec.ts': 'test' }, [['pnpm', 'run', 'test:unit']]],
   ['前端共享夹具只跑单元测试', { 'src/test/tasks.ts': 'fixture' }, [['pnpm', 'run', 'test:unit']]],
