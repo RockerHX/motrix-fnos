@@ -33,7 +33,7 @@ export function verificationFingerprint() {
     return Object.fromEntries(verificationGroups.map((group) => {
       const [versions, pattern] = contexts[group];
       return [group, hashFiles([...new Set(grouped[group])].sort(),
-        [common, versions, environment.filter(([key]) => pattern.test(key))])];
+        [common, versions, environment.filter(([key]) => key !== 'RUST_LOG' && pattern.test(key))])];
     }));
   } catch {
     return null;

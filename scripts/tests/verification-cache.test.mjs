@@ -47,6 +47,7 @@ test('摘要覆盖删除、权限、重命名、新文件与工具链，提交�
   assert.notDeepEqual(f.fingerprint({ CACHE_TOOL_VERSION: '2' }), previous);
   assert.equal(f.fingerprint({ RUSTFLAGS: '-C opt-level=1' }).frontend, previous.frontend);
   assert.notEqual(f.fingerprint({ RUSTFLAGS: '-C opt-level=1' }).rust, previous.rust);
+  assert.notEqual(f.fingerprint({ RUSTFLAGS: '-C opt-level=1' }).scripts, previous.scripts);
   assert.equal(f.fingerprint({ VITE_MODE: 'changed' }).rust, previous.rust);
   assert.notEqual(f.fingerprint({ VITE_MODE: 'changed' }).frontend, previous.frontend);
   f.write('.cache/unrelated', 'ignored');
@@ -72,6 +73,19 @@ test('成功验证供后续打包和推送复用，手动 verify 仍强制执行
   f.resetCalls();
   assert.equal(f.verify().status, 0);
   assert.equal(f.calls().length, 11);
+});
+
+test('日志环境变量的添加、变化和移除不影响验证复用', (t) => {
+  const f = fixture(t);
+  const previous = f.fingerprint({ RUST_LOG: undefined });
+  assert.equal(f.verify([], { RUST_LOG: undefined }).status, 0);
+  for (const RUST_LOG of ['debug', 'trace', undefined]) {
+    assert.deepEqual(f.fingerprint({ RUST_LOG }), previous);
+    f.resetCalls();
+    const result = f.verify(['--reuse'], { RUST_LOG });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(f.calls(), light);
+  }
 });
 
 test('文档只执行轻量检查，前后端和打包改动只重跑受影响的验证组', (t) => {
