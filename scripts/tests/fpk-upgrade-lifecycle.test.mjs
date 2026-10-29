@@ -1,11 +1,54 @@
 import assert from 'node:assert/strict';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 const repoRoot = process.cwd();
+const requireFromNaiveUi = createRequire(import.meta.resolve('naive-ui'));
+const { default: Schema } = requireFromNaiveUi('async-validator');
+
+test('FPK 升级确认按 checkbox 数组校验，勾选通过且取消后再次拒绝', async () => {
+  const steps = JSON.parse(readFileSync('packaging/fnos/wizard/upgrade', 'utf8'));
+  const confirmation = steps.flatMap((step) => step.items)
+    .find((item) => item.field === 'wizard_upgrade_acknowledged');
+  const schema = new Schema({ [confirmation.field]: confirmation.rules });
+  await assert.rejects(schema.validate({ [confirmation.field]: [] }));
+  await schema.validate({ [confirmation.field]: ['true'] });
+  await assert.rejects(schema.validate({ [confirmation.field]: [] }));
+  for (const value of [undefined, false, true, 'true']) {
+    await assert.rejects(schema.validate({ [confirmation.field]: value }));
+  }
+  assert.equal(confirmation.type, 'checkbox');
+  assert.equal(Object.hasOwn(confirmation, 'initValue'), false);
+  assert.ok(confirmation.rules.some((rule) => rule.required === true));
+  assert.deepEqual(confirmation.options.map((option) => option.value), ['true']);
+});
+
+test('FPK 升级前拒绝缺失或无效确认，保留原有应用与数据', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'motrix-fpk-upgrade-consent-'));
+  try {
+    const layout = createLayout(root);
+    const dataFile = path.join(layout.data, 'keep.db');
+    writeFileSync(dataFile, 'original-data');
+    for (const value of [undefined, '', 'false', '0', 'yes', 'invalid', '[]', '["false"]', '["true","false"]', '["true","true"]']) {
+      const result = runScript(layout, 'upgrade_init', { wizard_upgrade_acknowledged: value });
+      assert.notEqual(result.status, 0, `unexpected confirmation: ${value}`);
+      assert.match(readFileSync(layout.errorFile, 'utf8'), /请先在升级向导中阅读并同意/);
+      assert.equal(readFileSync(dataFile, 'utf8'), 'original-data');
+      assert.equal(readFileSync(layout.server, 'utf8'), 'placeholder');
+    }
+    for (const value of ['true', '1', JSON.stringify(['true'])]) {
+      const result = runScript(layout, 'upgrade_init', { wizard_upgrade_acknowledged: value });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(readFileSync(dataFile, 'utf8'), 'original-data');
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('FPK 升级无需检查器或迁移标记，重复执行保留旧任务状态和下载文件', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'motrix-fpk-upgrade-'));
@@ -88,7 +131,7 @@ function createLayout(root) {
   };
 }
 
-function runScript(layout, script) {
+function runScript(layout, script, envOverrides = {}) {
   const env = {
     ...process.env,
     TRIM_APPDEST: layout.app,
@@ -99,6 +142,8 @@ function runScript(layout, script) {
     MOTRIX_FNOS_SERVER_BIN: layout.server,
     MOTRIX_FNOS_PROC_ROOT: layout.procRoot,
     MOTRIX_FNOS_STOP_RETRY_SECONDS: '0',
+    wizard_upgrade_acknowledged: JSON.stringify(['true']),
+    ...envOverrides,
   };
   const result = spawnSync('/bin/sh', [path.join(layout.cmd, script)], { env, encoding: 'utf8', timeout: 5000 });
   assert.ifError(result.error);

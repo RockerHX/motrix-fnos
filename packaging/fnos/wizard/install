@@ -4,45 +4,13 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "---------- 【密码设置说明】 ----------"
-      },
-      {
-        "type": "tips",
-        "helpText": "卸载清除数据：本页密码生效（包含：初次安装）"
-      },
-      {
-        "type": "tips",
-        "helpText": "保留数据重装：沿用原密码，本页输入不会修改原密码"
-      },
-      {
-        "type": "tips",
-        "helpText": "正常升级操作：不会显示本次引导"
-      },
-      {
-        "type": "tips",
-        "helpText": "-----------------------------------"
-      },
-      {
-        "type": "tips",
-        "helpText": "两次输入必须一致，密码长度为 8–128 个字符"
-      },
-      {
-        "type": "tips",
-        "helpText": "（由于飞牛系统限制，必须要设置密码才能下一步）"
-      },
-      {
-        "type": "tips",
-        "helpText": "-----------------------------------"
+        "helpText": "<b>首次安装或已清除应用数据</b><br>请设置用于登录 Motrix 的管理密码，长度为 8–128 个字符，两次输入须一致。<br><br><b>保留应用数据后重装</b><br>两项留空，直接点击下一步。安装时会检查已保存的管理密码并沿用，本页输入不会修改原密码；若原数据中尚未设置密码，仍需填写。"
       },
       {
         "type": "password",
         "field": "wizard_management_password",
         "label": "管理密码",
         "rules": [
-          {
-            "required": true,
-            "message": "请输入管理密码"
-          },
           {
             "min": 8,
             "max": 128,
@@ -55,10 +23,6 @@
         "field": "wizard_management_password_confirm",
         "label": "确认管理密码",
         "rules": [
-          {
-            "required": true,
-            "message": "请再次输入管理密码"
-          },
           {
             "min": 8,
             "max": 128,

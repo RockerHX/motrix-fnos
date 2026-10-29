@@ -46,7 +46,7 @@ test('双架构 FPK 预组装脚本保留生命周期和静态产物契约', () 
   assert.match(status, /readiness_request/);
 });
 
-test('安装向导要求管理密码与确认且不设置明文默认值', () => {
+test('安装向导允许保留密码重装时留空，填写时校验长度且不设置明文默认值', () => {
   const steps = JSON.parse(readFileSync('packaging/fnos/wizard/install', 'utf8'));
   const fields = steps.flatMap((step) => step.items).filter((item) => item.field);
   assert.deepEqual(fields.map((item) => item.field), [
@@ -56,7 +56,7 @@ test('安装向导要求管理密码与确认且不设置明文默认值', () =>
   for (const item of fields) {
     assert.equal(item.type, 'password');
     assert.equal(Object.hasOwn(item, 'initValue'), false);
-    assert.ok(item.rules.some((rule) => rule.required === true));
+    assert.ok(item.rules.every((rule) => !rule.required));
     assert.ok(item.rules.some((rule) => rule.min === 8 && rule.max === 128));
   }
   const start = readFileSync('packaging/fnos/cmd/start', 'utf8');
