@@ -3,7 +3,7 @@ import { computed } from "vue";
 
 const props = withDefaults(
   defineProps<{
-    percentage: number;
+    percentage: number | null;
     variant?: "compact" | "card";
     tone?: "default" | "complete" | "empty";
   }>(),
@@ -14,14 +14,14 @@ const props = withDefaults(
 );
 
 const normalizedPercentage = computed(() => {
-  if (!Number.isFinite(props.percentage)) {
-    return 0;
+  if (props.percentage === null || !Number.isFinite(props.percentage)) {
+    return null;
   }
 
   return Math.max(0, Math.min(100, props.percentage));
 });
-const progressPercentage = computed(() => (props.tone === "empty" ? 0 : normalizedPercentage.value));
-const progressScale = computed(() => progressPercentage.value / 100);
+const progressPercentage = computed(() => (props.tone === "empty" ? null : normalizedPercentage.value));
+const progressScale = computed(() => (progressPercentage.value ?? 0) / 100);
 const progressStyle = computed(() => ({
   "--task-progress-scale": String(progressScale.value),
 }));
@@ -35,7 +35,7 @@ const progressStyle = computed(() => ({
     role="progressbar"
     aria-valuemin="0"
     aria-valuemax="100"
-    :aria-valuenow="progressPercentage"
+    :aria-valuenow="progressPercentage ?? undefined"
   >
     <div class="task-progress-bar__fill" aria-hidden="true" />
   </div>

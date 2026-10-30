@@ -7,8 +7,9 @@ describe("TaskProgressBar", () => {
     const cases = [
       { percentage: -20, expected: "0", scale: "0" },
       { percentage: 140, expected: "100", scale: "1" },
-      { percentage: Number.NaN, expected: "0", scale: "0" },
-      { percentage: Number.POSITIVE_INFINITY, expected: "0", scale: "0" },
+      { percentage: Number.NaN, expected: undefined, scale: "0" },
+      { percentage: Number.POSITIVE_INFINITY, expected: undefined, scale: "0" },
+      { percentage: null, expected: undefined, scale: "0" },
     ];
 
     for (const { percentage, expected, scale } of cases) {
@@ -29,13 +30,13 @@ describe("TaskProgressBar", () => {
     expect(wrapper.element.style.getPropertyValue("--task-progress-scale")).toBe("0.5");
   });
 
-  it("forces empty tone to zero and preserves its rail class", () => {
+  it("omits unknown progress values and preserves the empty rail class", () => {
     const wrapper = mount(TaskProgressBar, {
       props: { percentage: 50, tone: "empty" },
     });
 
     expect(wrapper.classes()).toContain("task-progress-bar--empty");
-    expect(wrapper.attributes("aria-valuenow")).toBe("0");
+    expect(wrapper.attributes("aria-valuenow")).toBeUndefined();
     expect(wrapper.element.style.getPropertyValue("--task-progress-scale")).toBe("0");
     expect(wrapper.find(".task-progress-bar__fill").exists()).toBe(true);
   });

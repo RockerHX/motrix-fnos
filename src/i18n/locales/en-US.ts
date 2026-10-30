@@ -185,6 +185,7 @@ export const enUS: Record<TranslationKey, string> = {
   "task.eta.hours": "{value}h",
   "task.eta.minutes": "{value}m",
   "task.eta.seconds": "{value}s",
+  "task.progress.unknown": "Progress unknown",
   "task.table.category": "Category",
   "task.table.actions": "Actions",
   "task.pagination.label": "Task list pagination",

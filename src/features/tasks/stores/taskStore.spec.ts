@@ -594,6 +594,17 @@ describe("taskStore snapshot and runtime exiting", () => {
     expect(store.tasks).toEqual(currentSnapshot);
   });
 
+  it("accepts a real progress correction but rejects an older snapshot", () => {
+    const store = useTaskStore();
+    const task = createTask({ status: "active", totalLength: 100, completedLength: 40 });
+    store.applyTaskSnapshot({ revision: 5, tasks: [task] });
+    store.applyTaskSnapshot({ revision: 4, tasks: [{ ...task, completedLength: 10 }] });
+    expect(store.tasks[0]?.completedLength).toBe(40);
+
+    store.applyTaskSnapshot({ revision: 6, tasks: [{ ...task, completedLength: 30 }] });
+    expect(store.tasks[0]?.completedLength).toBe(30);
+  });
+
   it("clearing sensitive state aborts requests and ignores late responses", async () => {
     const store = useTaskStore();
     const pendingTasks = createDeferred<DownloadTask[]>();

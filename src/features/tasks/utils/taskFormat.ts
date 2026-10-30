@@ -71,13 +71,22 @@ export function canDeleteTaskFiles(task: DownloadTask): boolean {
     || (!task.confirmationRequired && Boolean(task.filePath?.trim())));
 }
 
-export function formatTaskProgress(task: DownloadTask) {
-  if (task.totalLength <= 0) {
-    return "0.00%";
+export function getTaskProgressPercentage(task: DownloadTask) {
+  const status = deriveTaskDisplayStatus(task);
+  if (
+    !Number.isFinite(task.totalLength) || task.totalLength <= 0 ||
+    !Number.isFinite(task.completedLength) || status === "resolving" || status === "confirming"
+  ) {
+    return null;
   }
 
-  const percentage = Math.min(100, (task.completedLength / task.totalLength) * 100);
-  return `${percentage.toFixed(2)}%`;
+  const maximum = task.status === "complete" ? 100 : 99.9;
+  return Math.max(0, Math.min(maximum, (task.completedLength / task.totalLength) * 100));
+}
+
+export function formatTaskProgress(task: DownloadTask) {
+  const percentage = getTaskProgressPercentage(task);
+  return percentage === null ? t("common.notAvailable") : `${percentage.toFixed(1)}%`;
 }
 
 export function deriveTaskDisplayStatus(task: DownloadTask): TaskDisplayStatus {

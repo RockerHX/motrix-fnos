@@ -73,9 +73,24 @@ describe("taskFormat", () => {
   });
 
   it("formats progress with unknown total and caps at 100 percent", () => {
-    expect(formatTaskProgress(createTask({ totalLength: 0, completedLength: 10 }))).toBe("0.00%");
-    expect(formatTaskProgress(createTask({ totalLength: 1000, completedLength: 123 }))).toBe("12.30%");
-    expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: 120 }))).toBe("100.00%");
+    expect(formatTaskProgress(createTask({ totalLength: 0, completedLength: 10 }))).toBe("--");
+    expect(formatTaskProgress(createTask({ totalLength: 1000, completedLength: 123 }))).toBe("12.3%");
+    expect(formatTaskProgress(createTask({ status: "complete", totalLength: 100, completedLength: 120 }))).toBe("100.0%");
+  });
+
+  it("reserves 100 percent for completed tasks without fabricating downloaded bytes", () => {
+    expect(formatTaskProgress(createTask({ totalLength: 100000, completedLength: 99999 }))).toBe("99.9%");
+    expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: 100 }))).toBe("99.9%");
+    expect(formatTaskProgress(createTask({ status: "complete", totalLength: 100, completedLength: 100 }))).toBe("100.0%");
+    expect(formatTaskProgress(createTask({ status: "complete", totalLength: 100, completedLength: 50 }))).toBe("50.0%");
+    expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: -1 }))).toBe("0.0%");
+  });
+
+  it("does not present metadata or file confirmation as content progress", () => {
+    expect(formatTaskProgress(createTask({ url: "magnet:?xt=urn:btih:test", completedLength: 50 }))).toBe("--");
+    expect(formatTaskProgress(createTask({ confirmationRequired: true, completedLength: 50 }))).toBe("--");
+    expect(formatTaskProgress(createTask({ totalLength: Infinity }))).toBe("--");
+    expect(formatTaskProgress(createTask({ completedLength: NaN }))).toBe("--");
   });
 
   it("shows pending and failed file cleanup on Trash tasks", () => {

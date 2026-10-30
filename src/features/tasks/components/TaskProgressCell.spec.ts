@@ -13,7 +13,8 @@ describe("TaskProgressCell", () => {
     });
 
     expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("complete");
-    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(100);
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(50);
+    expect(wrapper.get("small").text()).toBe("50.0%");
   });
 
   it("uses empty tone when task size is unknown", () => {
@@ -24,7 +25,10 @@ describe("TaskProgressCell", () => {
     });
 
     expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("empty");
-    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(0);
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBeNull();
+    expect(wrapper.get("small").text()).toBe("--");
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuenow")).toBeUndefined();
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuetext")).toBe("进度未知");
   });
 
   it("keeps default tone for unfinished tasks", () => {
@@ -49,7 +53,7 @@ describe("TaskProgressCell", () => {
     expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(40);
   });
 
-  it("does not move backwards for an older event from the same task", async () => {
+  it("reflects corrected progress from the current task snapshot", async () => {
     const wrapper = mount(TaskProgressCell, {
       props: { task: createTask({ completedLength: 20 }) },
     });
@@ -57,7 +61,8 @@ describe("TaskProgressCell", () => {
     await wrapper.setProps({ task: createTask({ completedLength: 40 }) });
     await wrapper.setProps({ task: createTask({ completedLength: 30 }) });
 
-    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(40);
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(30);
+    expect(wrapper.get("small").text()).toBe("30.0%");
   });
 
   it("resets progress when the task id changes", async () => {
@@ -105,7 +110,7 @@ describe("TaskProgressCell", () => {
     expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(20);
   });
 
-  it("forces complete tasks to 100 percent", async () => {
+  it("keeps completed task progress consistent with its reported bytes", async () => {
     const wrapper = mount(TaskProgressCell, {
       props: { task: createTask({ completedLength: 20, totalLength: 100 }) },
     });
@@ -115,7 +120,17 @@ describe("TaskProgressCell", () => {
     });
 
     expect(wrapper.findComponent(TaskProgressBar).props("tone")).toBe("complete");
-    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(100);
+    expect(wrapper.findComponent(TaskProgressBar).props("percentage")).toBe(20);
+    expect(wrapper.get("small").text()).toBe("20.0%");
+  });
+
+  it("does not round an unfinished task up to 100 percent", () => {
+    const wrapper = mount(TaskProgressCell, {
+      props: { task: createTask({ totalLength: 100000, completedLength: 99999 }) },
+    });
+
+    expect(wrapper.get("small").text()).toBe("99.9%");
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuenow")).toBe("99.9");
   });
 
   it("does not render a percentage label when showLabel is false", () => {

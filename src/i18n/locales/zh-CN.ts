@@ -183,6 +183,7 @@ export const zhCN = {
   "task.eta.hours": "{value}小时",
   "task.eta.minutes": "{value}分",
   "task.eta.seconds": "{value}秒",
+  "task.progress.unknown": "进度未知",
   "task.table.category": "分类",
   "task.table.actions": "操作",
   "task.pagination.label": "任务列表分页",

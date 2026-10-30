@@ -188,7 +188,7 @@ describe("TaskDetailsDialog", () => {
     });
 
     expect(wrapper.get(".task-detail-title").text()).toBe("file.iso");
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.00%");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.0%");
     expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 8秒");
     expect(wrapper.findAll("[data-test$='-section']").map((section) => section.attributes("data-test"))).toEqual([
       "task-detail-download-section",
