@@ -11,7 +11,7 @@ import {
   deriveTaskDisplayStatus,
   formatTaskEta,
   formatTaskProgress,
-  formatTaskSize,
+  formatTaskSpeed,
   formatTaskStatusLabel,
   getTaskSourceType,
 } from "../utils/taskFormat";
@@ -51,9 +51,7 @@ const sourceType = computed(() => getTaskSourceType(props.task));
 const isBtTask = computed(() => sourceType.value !== "url");
 const sourceLabel = computed(() => t(`task.source.${sourceType.value}` as const));
 const categoryLabel = computed(() => props.task.category || t("common.notAvailable"));
-const formattedSpeed = computed(() =>
-  props.task.downloadSpeed > 0 ? `${formatTaskSize(props.task.downloadSpeed)}/s` : t("common.notAvailable"),
-);
+const formattedSpeed = computed(() => formatTaskSpeed(props.task));
 const titleId = computed(() => `task-detail-title-${props.task.id}`);
 
 async function copyPath(path: string) {

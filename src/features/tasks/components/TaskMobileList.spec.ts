@@ -69,7 +69,7 @@ describe("TaskMobileList", () => {
     expect(wrapper.get('[data-test="task-progress"]').text()).toBe("progress-1-true-compact");
     expect(wrapper.get(".task-card-meta").text()).toContain("1000 B / 2.0 KB");
     expect(wrapper.get(".task-card-meta").text()).toContain("1.0 KB/s");
-    expect(wrapper.get(".task-card-meta").text()).toContain("默认");
+    expect(wrapper.get(".task-card-meta").text()).not.toContain("默认");
     expect(wrapper.get('[data-test="task-actions"]').text()).toContain("actions-1-mobile");
   });
 
@@ -99,7 +99,7 @@ describe("TaskMobileList", () => {
     expect(handleTaskDoubleClick.mock.calls[0][1]).toBeInstanceOf(MouseEvent);
   });
 
-  it("keeps long URLs and categories inside a single task card", () => {
+  it("keeps long URLs inside a single task card and leaves categories in details", () => {
     const url = "https://example.com/releases/2026/09/08/" + "candidate-assets-".repeat(8) + ".tar.zst";
     const category = "共享文件夹 / projects / releases / 2026 / candidate";
     const { wrapper } = mountWithPinia(TaskMobileList, {
@@ -110,7 +110,7 @@ describe("TaskMobileList", () => {
 
     expect(wrapper.get(".task-card-url").attributes("title")).toBe(url);
     expect(wrapper.get(".task-card-url").text()).toBe(url);
-    expect(wrapper.get(".task-card-meta").text()).toContain(category);
+    expect(wrapper.get(".task-card-meta").text()).not.toContain(category);
     expect(wrapper.find(".task-card-actions").exists()).toBe(true);
   });
 

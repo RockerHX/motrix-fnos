@@ -93,7 +93,7 @@ describe("TaskDesktopCard", () => {
     });
 
     expect(wrapper.get(".task-card-title").attributes("title")).toBe(fileName);
-    expect(wrapper.get(".task-card-meta").text()).toContain(category);
+    expect(wrapper.get(".task-card-meta").text()).not.toContain(category);
     expect(wrapper.find(".task-card-actions").exists()).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 .task-mobile-list {
   height: 100%;
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 14px;
   overflow-y: auto;

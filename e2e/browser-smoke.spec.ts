@@ -167,7 +167,86 @@ test.describe("browser smoke", () => {
 
     fixture.eventTasks = [{ ...fixture.eventTasks[0], completedLength: 768 }];
     await expect(progress).toHaveAttribute("aria-valuenow", "75", { timeout: 6_000 });
+
+    fixture.eventTasks = [{ ...fixture.eventTasks[0], completedLength: 512 }];
+    await expect(progress).toHaveAttribute("aria-valuenow", "50", { timeout: 6_000 });
+    await expect(page.locator('[data-test="task-size-metric"]')).toContainText("512 B / 1.0 KB");
+
+    fixture.eventTasks = [{ ...fixture.eventTasks[0], status: "paused" }];
+    await expect(page.locator('[data-test="task-speed-metric"]')).toContainText("--", { timeout: 6_000 });
+    await expect(page.locator('[data-test="task-eta-metric"]')).toContainText("--");
   });
+
+  for (const language of ["zh-CN", "en-US"] as const) {
+    for (const theme of ["dark", "light"] as const) {
+      test(`keeps download metrics readable in ${language} with ${theme} theme`, async ({ page }, testInfo) => {
+        const fixture = await installFixture(page);
+        const gigabyte = 1024 ** 3;
+        const activeTask = {
+          ...task,
+          status: "active",
+          fileName: "中文与English_" + "release_candidate_assets_".repeat(5) + ".iso",
+          category: "电影",
+          totalLength: 100 * gigabyte,
+          completedLength: 25 * gigabyte,
+          downloadSpeed: 2 * 1024 ** 2,
+        };
+        fixture.eventTasks = [
+          activeTask,
+          { ...task, id: 2, gid: "unknown-size", fileName: "unknown-size.iso", status: "active", totalLength: 0, completedLength: 2048, downloadSpeed: 1024 },
+          { ...activeTask, id: 3, gid: "paused", fileName: "paused.iso", status: "paused" },
+          { ...activeTask, id: 4, gid: "complete", fileName: "complete.iso", status: "complete", completedLength: 100 * gigabyte },
+        ];
+        await completeLogin(page);
+        const metrics = page.locator(".task-card-meta");
+        await expect(metrics).toHaveCount(4);
+        await page.evaluate(async ({ language, theme }) => {
+          const themeModule = "/src/app/theme.ts";
+          const i18nModule = "/src/i18n/index.ts";
+          const [{ setAppTheme }, { setLanguage }] = await Promise.all([import(themeModule), import(i18nModule)]);
+          setAppTheme(theme);
+          setLanguage(language);
+        }, { language, theme });
+
+        for (const viewport of [{ width: 390, height: 844 }, { width: 1024, height: 768 }, { width: 1440, height: 900 }]) {
+          await page.setViewportSize(viewport);
+          await expect(metrics.first()).toBeVisible();
+          await expect(metrics.first()).toHaveClass(viewport.width < 768 ? /task-card-meta--grid/ : /task-card-meta--inline/);
+          await expect(metrics.first().locator('[data-test="task-eta-metric"]')).toContainText(
+            language === "zh-CN" ? "约 10小时 40分" : "About 10h 40m",
+          );
+          await expect(metrics.nth(1).locator('[data-test="task-size-metric"]')).toContainText(
+            language === "zh-CN" ? "2.0 KB / 未知" : "2.0 KB / Unknown",
+          );
+          for (const index of [2, 3]) {
+            await expect(metrics.nth(index).locator('[data-test="task-speed-metric"]')).toContainText("--");
+            await expect(metrics.nth(index).locator('[data-test="task-eta-metric"]')).toContainText("--");
+          }
+          await expect(page.locator('[data-test="task-category-metric"]')).toHaveCount(0);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          const measurements = await metrics.first().evaluate((element) => {
+            const values = [...element.querySelectorAll<HTMLElement>(".task-card-metric-value, dd")];
+            const [size, speed, eta] = ["size", "speed", "eta"].map((metric) =>
+              element.querySelector(`[data-test="task-${metric}-metric"]`)!.getBoundingClientRect(),
+            );
+            const card = element.closest(".task-card, .task-desktop-card")!;
+            return {
+              valuesFit: values.every((value) => value.scrollWidth <= value.clientWidth + 1),
+              contentFitsCard: card.scrollHeight <= card.clientHeight + 1,
+              sameMetricRow: Math.abs(speed.top - eta.top) < 1,
+              sizeAbove: size.top < speed.top,
+              noOverlap: speed.right <= eta.left,
+            };
+          });
+          expect(measurements).toEqual({ valuesFit: true, contentFitsCard: true, sameMetricRow: true, sizeAbove: viewport.width < 768, noOverlap: true });
+          await page.screenshot({ path: testInfo.outputPath(`metrics-${viewport.width}.png`), fullPage: true });
+        }
+
+        await page.getByRole("button", { name: language === "zh-CN" ? "详情" : "Details", exact: true }).first().click();
+        await expect(page.getByRole("dialog").locator('[data-test="task-detail-summary"]')).toContainText("电影");
+      });
+    }
+  }
 
   test("renders the task shell at a mobile viewport", async ({ page }) => {
     await installFixture(page);
@@ -334,7 +413,7 @@ async function handleApiRoute(
     if (fixture.forceUnauthorized) {
       await json(route, 401, { code: "jwt_invalid", message: "登录已失效" });
     } else {
-      await json(route, 200, fixture.createdUrls.length ? [{ ...task, url: fixture.createdUrls[0] }] : []);
+      await json(route, 200, fixture.eventTasks.length ? fixture.eventTasks : fixture.createdUrls.length ? [{ ...task, url: fixture.createdUrls[0] }] : []);
     }
     return;
   }

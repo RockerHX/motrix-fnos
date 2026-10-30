@@ -7,6 +7,7 @@ import {
   formatTaskProgress,
   formatTaskSize,
   formatTaskSizePair,
+  formatTaskSpeed,
   formatTaskStatusLabel,
 } from "./taskFormat";
 
@@ -27,6 +28,29 @@ describe("taskFormat", () => {
   it("formats size pairs with unknown total length", () => {
     expect(formatTaskSizePair(createTask({ completedLength: 2048, totalLength: 0 }))).toBe("2.0 KB / 未知");
     expect(formatTaskSizePair(createTask({ completedLength: 2048, totalLength: 4096 }))).toBe("2.0 KB / 4.0 KB");
+    expect(formatTaskSizePair(createTask({ url: "magnet:?xt=urn:btih:test", completedLength: 2048 }))).toBe("--");
+  });
+
+  it("shows speed only for content downloads, including downloads with unknown total", () => {
+    expect(formatTaskSpeed(createTask({ downloadSpeed: 1024, totalLength: 0 }))).toBe("1.0 KB/s");
+    expect(formatTaskSpeed(createTask({ downloadSpeed: 0 }))).toBe("0 B/s");
+    expect(formatTaskSpeed(createTask({ downloadSpeed: NaN }))).toBe("--");
+    expect(formatTaskSpeed(createTask({ downloadSpeed: Infinity }))).toBe("--");
+    for (const status of ["pending", "paused", "complete", "error", "removed"] as const) {
+      const task = createTask({ status, downloadSpeed: 1024 });
+      expect(formatTaskSpeed(task)).toBe("--");
+      expect(formatTaskEta(task)).toBe("--");
+    }
+  });
+
+  it("hides metadata transfer speed and ETA until content downloading starts", () => {
+    for (const task of [
+      createTask({ url: "magnet:?xt=urn:btih:test", downloadSpeed: 10 }),
+      createTask({ confirmationRequired: true, downloadSpeed: 10 }),
+    ]) {
+      expect(formatTaskSpeed(task)).toBe("--");
+      expect(formatTaskEta(task)).toBe("--");
+    }
   });
 
   it("formats eta for unavailable, seconds and minutes cases", () => {
@@ -82,6 +106,8 @@ describe("taskFormat", () => {
     expect(formatTaskProgress(createTask({ totalLength: 100000, completedLength: 99999 }))).toBe("99.9%");
     expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: 100 }))).toBe("99.9%");
     expect(formatTaskProgress(createTask({ status: "complete", totalLength: 100, completedLength: 100 }))).toBe("100.0%");
+    expect(formatTaskProgress(createTask({ status: "removed", totalLength: 100, completedLength: 100 }))).toBe("100.0%");
+    expect(formatTaskProgress(createTask({ status: "removed", totalLength: 100000, completedLength: 99999 }))).toBe("99.9%");
     expect(formatTaskProgress(createTask({ status: "complete", totalLength: 100, completedLength: 50 }))).toBe("50.0%");
     expect(formatTaskProgress(createTask({ totalLength: 100, completedLength: -1 }))).toBe("0.0%");
   });
