@@ -30,11 +30,12 @@
 | `test:unit` | 前端独立 `*.spec.ts`，可能写测试缓存 |
 | `test:scripts` | Node 脚本测试，使用临时目录，不修改真实版本与发布状态 |
 | `verify:pre-commit` | 版本一致性、Rust 格式检查；hook 另查暂存区空白 |
-| `verify` | 一次完整源码测试与编译，包含前端类型检查及生产构建，保留编译缓存 |
+| `verify` | 强制执行一次完整源码测试与编译，包含前端类型检查及生产构建；本地成功后保存可复用记录，保留编译缓存 |
 | `test:e2e` | Chromium 桌面 / 移动冒烟，写报告与失败 trace |
 | `test:aria2` | 真实 sidecar 测试，使用临时下载目录、session |
 | `test:filesystem` | Rust 文件系统故障专项，使用临时目录和 Rust 缓存 |
-| `verify:extended` | 完整 verify 后运行 E2E 与真实 sidecar 测试，不重复文件系统专项 |
+| `test:stability` | 运行完整稳定性专项：30 次正常退出、崩溃恢复、连接资源采样和真实退出超时；使用临时数据和端口 |
+| `verify:extended` | 完整 verify 后运行稳定性专项、E2E 与真实 sidecar 测试，不重复文件系统专项 |
 | `verify:fpk` | 解包检查已有且版本匹配的双架构 FPK，缺产物直接失败 |
 | `audit:deps` | 锁文件生产依赖审计，不自动升级；需 `cargo-audit 0.22.2`，高危 / 严重或工具错误时失败，中低危报告 |
 | `clean:dry-run` / `clean` | 预览 / 删除前端与 FPK 生成物，详见下方清理范围 |
@@ -50,18 +51,34 @@
 | `build:fpk:x64` / `build:fpk:arm64` | 单架构编译、Web 构建、staging、预检及 fnpack；默认清空已有 FPK 输出 |
 | `build:fpk:prepare` | 双架构编译、Web 构建一次、独立 staging 与静态预检，不生成 FPK |
 | `build:fpk:artifacts` | 仅构建双架构产物，清空输出目录；供 Release 使用，不跑源码测试或类型检查 |
-| `build:fpk` | 完整 verify → 复用已验证 Web 产物 → 双架构打包 → verify:fpk |
+| `build:fpk` | 核对或执行完整 verify → 复用已验证 Web 产物 → 双架构打包 → verify:fpk |
 | `build:fpk:release` | 扩展 verify → 复用 Web 产物 → 双架构打包 → verify:fpk |
 
 Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完整验证成功时压缩输出，失败保留详情；非交互长步骤每 30 秒报告进度。
 
+日常 Rust 验证保留两次正常启停、崩溃恢复、任务与原生状态保留、SSE 退出和端口释放检查；完整重启次数、连接压力和 10 秒真实退出超时由 `test:stability` 执行。每周 / 手动 CI 与本地发布前 `build:fpk:release` 通过 `verify:extended` 包含该专项，不删除原有断言。仅修改该专项或其夹具的推送也会执行 `test:stability`。
+
 ### 验证触发与边界
+
+本地推送和 `build:fpk` 使用 `verify --reuse`，按前端、后端、脚本检查三组核对 `.cache/verification.json`。文件用途分类由推送 hook 与缓存共用，先识别运行输入，再判断文档类型；不能仅按扩展名忽略资源。
+
+| 改动 | 重新执行的验证 |
+| --- | --- |
+| README、普通说明文档 | 版本一致性和现有日志文档断言；复用三组业务结果 |
+| 前端代码、测试、样式、网页资源、`CHANGELOG.md` | 前端和脚本检查，后者包含主题、样式及测试分离守卫 |
+| Rust 代码、测试、依赖、工具链 | 后端和相关脚本检查 |
+| 打包图标与配置 | 脚本检查；`common.sh`、`install_callback`、`reset-web-auth` 及 Aria2 资产同时影响后端验证 |
+| 公共依赖、构建 / 验证脚本或未识别文件 | 三组完整验证 |
+
+各组摘要覆盖 Git 跟踪及未忽略的新文件的实际内容、权限、增删、相关依赖安装记录、工具链与环境；`RUSTFLAGS` 等编译参数参与核对，`RUST_LOG` 日志设置不影响复用；生产 `.env` 属于前端输入，Web 产物缺失或改变只使前端记录失效。未提交改动同样参与核对，Git 提交本身不使内容相同的结果失效。重跑前清除对应组记录；验证失败或期间输入变化时不记录成功，无关组记录保留。旧格式或损坏记录首次完整重验。删除 `.cache/verification.json` 可清除全部复用记录。
+
+每次仍核对版本，复用脚本检查时单独运行日志文档断言，避免文档规则漏验或重复运行。`pnpm run verify`、CI 和发布前扩展验证始终完整运行，FPK 每次重新组装并验收。
 
 - 提交 hook：暂存区空白检查后，只有文档 / 媒体资源时跳过版本与 Rust 格式检查，删除资源也同样处理；混有代码或没有暂存文件时执行快速检查。Markdown 允许两个行尾空格换行。
 - 推送 hook：按远端旧提交到本次推送提交的完整差异判断，包含删除和重命名前的路径；多个分支合并判断，不能仅检查最后一个 commit。
-  - 只有文档、图片、字体等静态资源或无文件变化时跳过；只推 tag 或删除远端引用也跳过。
+  - 普通说明文档或无文件变化时跳过业务验证；维护手册和接口文档改动执行已有日志文档断言。网页图片、字体、被程序读取的 Markdown 及打包资源按实际用途验证。只推 tag 或删除远端引用也跳过。
   - 只有测试及其专用夹具时，按类别运行前端、Rust、脚本、浏览器、sidecar 或变更的 Shell 测试，不做完整构建；同一类别只运行一次。
-  - 包含业务源码、依赖、配置、构建脚本或未识别文件时执行一次 `verify`；首次推送新分支或远端旧提交在本地不可读时也执行完整验证。
+  - 包含业务源码、运行资源、依赖、配置、构建脚本或未识别文件时执行一次 `verify --reuse`，只重跑失效组；首次推送新分支或远端旧提交在本地不可读时同样核对全部组，缺少有效记录则完整验证。
   GitHub `Verify` 对面向 `main` / `develop` 的 PR/push 继续执行完整源码门禁。
 - 每周定时或手动 `Verify` 执行扩展验证；定时为北京时间周日 02:17，调度可能延迟。首次本地 E2E 或升级 Playwright 后执行 `pnpm exec playwright install --with-deps chromium`，CI 已配置安装。
 - `Dependency Audit` 独立在每周一北京时间 03:23 或手动执行，不属于 verify 或 Release。
@@ -108,6 +125,8 @@ GitHub `Verify` 只缓存 pnpm store 和 Cargo registry，不缓存 `server/targ
 4. 最终产物为 `packaging/fnos/dist/motrix_<version>_x86.fpk` 和 `motrix_<version>_arm.fpk`。x86_64 / ARM64 设备分别安装匹配包，不能交叉替代验收。
 
 server 位于 `server/target/<target>/release/motrix-fnos-server`；target 为 `x86_64-unknown-linux-gnu` 或 `aarch64-unknown-linux-gnu`。真实 fnpack 输入是 `.stage/<target>/`，不要直接对源码态 `packaging/fnos/` 执行 fnpack。
+
+Release 使用 Thin LTO，并保留单编译单元以控制二进制体积。构建参数改变后的首轮交叉编译会重建对应 Release 缓存，后续仍由 Cargo 复用；日常清理保留 `server/target/`。
 
 构建会清空源码 staging 的 `packaging/fnos/app/data/`，该目录只放占位内容，不能保存测试数据。`.stage/`、`dist/`、临时二进制、图标和 Web 产物不提交；`assets/aria2/aria2-next-*` 是 sidecar 源资产，不能当生成物删除。双架构以独立 stage / 最终包为准，不能根据共享 `app/bin/` 判断。
 
@@ -173,14 +192,14 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 | 场景 | 操作及预期 |
 | --- | --- |
 | 安装 / 启动 / 停止 | 匹配架构安装；管理页可打开、ready 返回 200；停服后 server 和 sidecar 退出，PID 清理。观察应用中心任务日志、`TRIM_TEMP_LOGFILE`、lifecycle / server 日志 |
-| 安装密码 | 新装即能登录、不匹配输入报错；保留数据重装 / 升级沿用密码；SSH 重置、Ctrl+C 取消、终端回显恢复和应用账户数据库写权限正确 |
+| 安装密码 | 提示中粗体与换行正常；新装设密后能登录，留空 / 不匹配输入拒绝安装；保留已设密码的数据后重装可两项留空并直接下一步，安装 / 升级沿用原密码；仅有数据文件但未设密仍须填写；SSH 重置、Ctrl+C 取消、终端回显恢复和应用账户数据库写权限正确 |
 | 平台密码字段 | 仅用测试密码核查向导字段是否进入平台配置、安装记录或日志；目前官方资料不足以证明平台不会保留字段 |
 | 快速重新启用（ARM/x86，待验） | 建 IPv6 连接后停用、立即启用，分别覆盖引擎运行和未运行；不因 TIME_WAIT 报绑定失败，真实进程占用仍须拒绝 |
 | 中文 BT（ARM/x86，待验） | 全新中文种子 / 磁链、多层路径、非 ASCII 保存目录，暂停续传、重启和可选删文件；实际路径与记录一致，任务外层目录唯一，清理后不留残余，子进程 `LANG=C.UTF-8` |
 | 官方授权 API（x86） | 正式 motrix 身份、fnOS 1.2.0401+ 管理员宿主下授权、刷新、建任务、语义路径及完成文件操作；覆盖普通用户拒绝、撤权、空授权、Token/Socket 不可用及独立浏览器降级 |
 | ARM / 飞牛 App WebView | 重复正式身份的授权与文件操作，检查主题、语言、文件选择、SDK、前后台与断网恢复 |
 | 配置变更 | 保存普通设置不回写官方授权快照；查看 `accessible-paths.json` 与日志 |
-| 升级 / 回滚 / 重启 | 同身份按当前代际规则保留数据与凭据，旧身份不自动迁移；按下节完整备份回滚；应用与设备重启不丢恢复状态 |
+| 升级 / 回滚 / 重启 | 升级确认 checkbox 默认未选；未选时表单阻止提交，勾选后清除校验错误并可下一步，再取消勾选时恢复阻止；核对向导字段传入 `upgrade_init`，缺失 / 无效时拒绝替换文件，接受值见 [应用信息契约](api-contract.md#42-应用信息)；同身份按当前代际规则保留数据与凭据，旧身份不自动迁移；按下节完整备份回滚；应用与设备重启不丢恢复状态 |
 | 卸载 | 默认保留应用数据；明确勾选删除时只清应用私有目录，两种情况均不删外部下载文件 |
 | 真实公网链路 | IPv4-only 与原生 IPv6 分别验证 DNS、TLS、Lucky、HTTP、CORS、WebSocket 和管理面隔离 |
 | UI | 按 [UI 验收](design/DESIGN.md#验收)检查主题、语言、触控、长文本与滚动 |
@@ -197,8 +216,9 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 - manifest 只描述单服务端口；`.sc` 多端口格式参考 [conversun/fnos-apps](https://github.com/conversun/fnos-apps) 的 AdGuardHome（3080/tcp、53/tcp、53/udp）和 Forgejo（3005/tcp、2223/tcp）声明实践，正式包防火墙、真实 LAN 对端和卸载清理仍须设备验收。
 - [图标规范](https://developer.fnnas.com/docs/core-concepts/icon/)与本项目的高清交付约定分开理解，见上方身份与图标。
 - [安装向导](https://developer.fnnas.com/docs/core-concepts/wizard/)和应用框架于 2026-10-07 查证：password 隐藏输入，field 映射生命周期环境变量，install_callback 在文件安装后执行；回调仍需重新校验，服务启动前清除密码环境变量，不把它传给 server / Aria2。应用不持久化或记录明文，平台保留行为待验。
+- 2026-10-29 复核：官方向导文档列出 `checkbox`、`switch`、`tips` 及 `rules`，未说明按本机数据动态生成向导或条件隐藏字段的接口；不据此断言平台绝不支持。[fnnas 组织的 NVIDIA GRID 包](https://github.com/fnnas/appstore.driver.gpu.nvidia.grid/blob/796f73b279cc27cc403338d02629777021957c6d/package_kernel_space/wizard/install)和 [SakuraFrp 包](https://github.com/conversun/fnos-apps/blob/main/apps/sakurafrp/fnos/wizard/install)可核对 `tips.helpText` 使用 HTML 粗体、换行与链接的实践；本项目只用粗体和换行，宿主渲染仍须实机验收。保留密码重装采用静态字段可留空、回调检查有效鉴权状态的方式，行为见 [鉴权契约](api-contract.md#41-web-管理鉴权)，不依赖未验证的前置钩子或图片加载。
 - 卸载 switch 保持不设置 `initValue`：既有实测字符串不能可靠表达默认值，布尔值导致 fnpack 校验失败。`config_callback` 保持空操作，不再同步目录授权；config_init 需完成配置流程验证后才可评估删除。
-- 升级框架于 2026-10-22 复核：upgrade_init / upgrade_callback 在升级前后执行，脚本须可重复；真实向导顺序与失败后平台是否自动回退尚未确认。
+- 升级框架于 2026-10-29 复核：[应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)规定 upgrade_init / upgrade_callback 在升级前后执行；[用户向导](https://developer.fnnas.com/docs/core-concepts/wizard/)列出 `checkbox` 并规定字段映射环境变量、脚本重新校验。用户实机反馈原 `switch` 打开后仍报校验错误；本地 `async-validator 4.2.5` 对原规则验证时，布尔 `true` 失败而字符串 `"true"` 通过，可复现类型不匹配。升级确认改用单项 checkbox 和数组必选规则，不再使用字符串 `pattern`；卸载 switch 无此规则。回归覆盖勾选 / 取消的数组值及升级脚本收值，fnpack 结构校验不能替代宿主下一步交互、环境变量编码和失败回退的实机验收。
 
 ### 统一网关实验
 
@@ -214,15 +234,15 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 
 ### 升级前备份与回滚
 
-**2.0.0 不导入、展示、继续或恢复旧代任务，升级后列表重新开始。** 旧任务与旧操作不阻止升级，旧记录、session、恢复状态及下载文件保留，密码、设置、授权和 RPC Token 沿用。需要旧进度时先在旧版完成下载；应用不自动备份或迁移。
+**2.x 不导入、展示、继续或恢复 1.x 任务，首次跨代升级后列表重新开始。** 旧任务与旧操作不阻止升级，旧记录、session、恢复状态及下载文件保留，密码、设置、授权和 RPC Token 沿用。需要旧进度时先在旧版完成下载；应用不自动备份或迁移。
 
 1. 在应用中心停止 Motrix，确认 server 和所属 sidecar 都已退出。
 2. 完整备份 fnOS 实际提供的 `TRIM_PKGVAR`：一致的应用 SQLite、session、原生状态及种子备份；不要备份运行中的 SQLite / session 作为恢复源。外部下载目录另行保护，私有备份不能还原之后改动的外部文件。
 3. 保存对应旧 FPK，记录原任务数量、设置、授权、session 校验值和 Token“是否配置”，不记录 Token 原文。
-4. 安装新包，按开发计划核对任务代际、数据和凭据保留；先 NAS 本机验证 RPC，再调整 Lucky，需要 LAN 时另用真实客户端检查。
+4. 安装新包，在升级向导主动同意兼容性与备份说明后继续，按开发计划核对任务代际、数据和凭据保留；先 NAS 本机验证 RPC，再调整 Lucky，需要 LAN 时另用真实客户端检查。缺少确认字段的自动或命令行升级也会被拒绝，应通过应用中心完成确认；字段契约见 [应用信息](api-contract.md#42-应用信息)。
 5. 回滚先停止新版，配套恢复旧 FPK 与升级前完整私有备份，并按旧版本恢复 Lucky 后端地址。不能让旧版直接读取新版数据库 / 引擎状态，也不能只改代理而继续运行不提供对应路由的新 server。缺备份时不承诺无损回退。
 
-当前 native-v2 的 session 在 `$TRIM_PKGVAR/engine/native-v2/session/aria2.session`，原生状态在 `engine/native-v2/state/`，旧 `aria2/aria2.session` 不导入。FPK 不携带 upgrade-checker 或 server 副本；升级脚本只确认停服，正常启动做 schema 更新，只加载当前代际任务、操作和状态。
+当前 native-v2 的 session 在 `$TRIM_PKGVAR/engine/native-v2/session/aria2.session`，原生状态在 `engine/native-v2/state/`，旧 `aria2/aria2.session` 不导入。FPK 不携带 upgrade-checker 或 server 副本；升级脚本校验用户确认与停服，正常启动做 schema 更新，只加载当前代际任务、操作和状态。
 
 ### 卸载与旧应用身份
 

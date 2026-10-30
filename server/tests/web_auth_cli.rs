@@ -151,6 +151,30 @@ async fn installer_and_local_terminal_reset_use_installed_paths_without_leaking_
     .unwrap();
     let callback = root.join("cmd/install_callback");
     let error_file = root.join("install-error");
+    let empty_install = Command::new(&callback)
+        .env("TRIM_TEMP_LOGFILE", &error_file)
+        .env("wizard_management_password", "")
+        .env("wizard_management_password_confirm", "")
+        .output()
+        .unwrap();
+    assert!(
+        !empty_install.status.success(),
+        "a fresh install must still require a password when the wizard fields are optional"
+    );
+    assert!(fs::read_to_string(&error_file)
+        .unwrap()
+        .contains("请在安装向导填写"));
+    let database = connect_database(root.join("var/motrix-fnos.sqlite"))
+        .await
+        .unwrap();
+    assert!(
+        AuthService::new(database.pool.clone())
+            .state()
+            .await
+            .unwrap()
+            .setup_required
+    );
+    database.pool.close().await;
     let rejected = Command::new(&callback)
         .env("TRIM_TEMP_LOGFILE", &error_file)
         .env("wizard_management_password", "private installer password")
@@ -181,6 +205,16 @@ async fn installer_and_local_terminal_reset_use_installed_paths_without_leaking_
     assert!(
         Command::new(&callback).output().unwrap().status.success(),
         "reinstall preserves the configured password without wizard input"
+    );
+    assert!(
+        Command::new(&callback)
+            .env("wizard_management_password", "")
+            .env("wizard_management_password_confirm", "")
+            .output()
+            .unwrap()
+            .status
+            .success(),
+        "reinstall preserves the configured password with empty wizard fields"
     );
     let database = connect_database(root.join("var/motrix-fnos.sqlite"))
         .await

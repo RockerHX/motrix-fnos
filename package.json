@@ -25,6 +25,7 @@
     "test:e2e": "playwright test",
     "test:aria2": "node --test --test-reporter=./scripts/verify/test-duration-reporter.mjs scripts/extended/aria2-sidecar.test.mjs",
     "test:filesystem": "node scripts/verify/run-filesystem-tests.mjs",
+    "test:stability": "node scripts/verify/run-rust-tests.mjs --stability",
     "verify:extended": "node scripts/verify/verify-extended.mjs",
     "verify:pre-commit": "node scripts/verify/verify.mjs --quick",
     "verify:fpk": "node scripts/verify/verify-fpk-artifacts.mjs",

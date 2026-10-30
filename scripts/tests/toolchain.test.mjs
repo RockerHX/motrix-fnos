@@ -52,7 +52,7 @@ test('提交、推送、远端验证和发版使用独立验证层级', () => {
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
 
   assert.equal(existsSync('.githooks/pre-push'), true);
-  assert.match(prePushHook, /run\(packageManager, \['run', 'verify'\]\)/);
+  assert.match(prePushHook, /run\(packageManager, \['run', 'verify', '--', '--reuse'\]\)/);
 
 
   assert.match(verifyWorkflow, /workflow_dispatch:/);
@@ -94,6 +94,7 @@ test('本地完整打包与 Release 产物构建复用明确的验证层级', ()
   assert.match(packageJson.scripts['test:e2e'], /playwright test/);
   assert.match(packageJson.scripts['test:aria2'], /scripts\/extended\/aria2-sidecar\.test\.mjs/);
   assert.match(packageJson.scripts['test:filesystem'], /run-filesystem-tests\.mjs/);
+  assert.equal(packageJson.scripts['test:stability'], 'node scripts/verify/run-rust-tests.mjs --stability');
   assert.equal(packageJson.scripts['build:fpk:artifacts'], 'node scripts/build/build-fpk-all.mjs');
   assert.equal(packageJson.scripts['verify:fpk'], 'node scripts/verify/verify-fpk-artifacts.mjs');
   assert.match(packageJson.scripts['test:scripts'], /--test-reporter=\.\/scripts\/verify\/test-duration-reporter\.mjs/);

@@ -58,7 +58,9 @@ if (process.argv[1]?.endsWith('run-rust-tests.mjs')) {
 }
 
 async function runRustTests() {
-  const child = spawn('cargo', ['test', '--manifest-path', 'server/Cargo.toml'], {
+  const args = ['test', '--manifest-path', 'server/Cargo.toml'];
+  if (process.argv.includes('--stability')) args.push('--test', 'runtime_stability', '--', '--ignored');
+  const child = spawn('cargo', args, {
     cwd: process.cwd(),
     env: process.env,
     stdio: ['inherit', 'pipe', 'pipe'],

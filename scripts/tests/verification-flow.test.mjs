@@ -25,10 +25,10 @@ const flows = [
   ['快速验证', 'verify/verify.mjs', ['--quick'], quick],
   ['完整验证', 'verify/verify.mjs', [], full],
   ['扩展验证', 'verify/verify-extended.mjs', [],
-    ['verify', 'test:e2e', 'test:aria2'].map((command) => ['pnpm', 'run', command])],
+    ['verify', 'test:stability', 'test:e2e', 'test:aria2'].map((command) => ['pnpm', 'run', command])],
   ...['local', 'release'].map((mode) => [
     `${mode} 打包`, `build/package-${mode}.mjs`, [], [
-      ['pnpm', 'run', mode === 'local' ? 'verify' : 'verify:extended'],
+      ['pnpm', 'run', mode === 'local' ? 'verify' : 'verify:extended', ...(mode === 'local' ? ['--reuse'] : [])],
       ['node', 'scripts/build/build-fpk-all.mjs', '--reuse-web-dist'],
       ['pnpm', 'run', 'verify:fpk'],
     ],
@@ -54,6 +54,8 @@ const flows = [
     ],
   ]),
   ['Rust 完整测试', 'verify/run-rust-tests.mjs', [], [['cargo', 'test', '--manifest-path', 'server/Cargo.toml']]],
+  ['Rust 稳定性专项', 'verify/run-rust-tests.mjs', ['--stability'],
+    [['cargo', 'test', '--manifest-path', 'server/Cargo.toml', '--test', 'runtime_stability', '--', '--ignored']]],
   ['独立文件系统定向入口', 'verify/run-filesystem-tests.mjs', [],
     ['tasks::files', 'runtime::file_cleanup', 'tasks::service::tests::permanent_delete',
       'tasks::service::tests::redownload_', 'tasks::service::tests::restore_'].map((filter) =>

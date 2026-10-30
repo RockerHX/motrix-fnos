@@ -47,7 +47,17 @@ impl Drop for Server {
 }
 
 #[tokio::test]
+async fn native_idle_server_smoke_preserves_state_across_restarts_and_crash() {
+    exercise_stability(2, false).await;
+}
+
+#[tokio::test]
+#[ignore = "完整重启、连接压力和退出超时专项，通过 pnpm run test:stability 执行"]
 async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain_timeout() {
+    exercise_stability(30, true).await;
+}
+
+async fn exercise_stability(clean_restarts: usize, extended: bool) {
     let installation = Installation(std::env::temp_dir().join(format!(
         "motrix-stability-{}-{}", std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
@@ -114,8 +124,9 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
     let base = format!("http://{}", runtime.http_addr);
     let mut worst_stop = Duration::ZERO;
     let server_log = root.join("server.log");
-    // After 30 clean exits, exercise SIGKILL/recovery and a deliberately stalled HTTP body.
-    for round in 0..33 {
+    // 日常复用相同的状态与退出断言，重复重启、连接压力和真实超时等待留给扩展验证。
+    let rounds = clean_restarts + if extended { 3 } else { 2 };
+    for round in 0..rounds {
         let mut server = Server(
             Command::new(env!("CARGO_BIN_EXE_motrix-fnos-server"))
                 .env("MOTRIX_FNOS_APP_DATA_DIR", &runtime.app_data_dir)
@@ -153,7 +164,7 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
         let wal = runtime.database_path.with_extension("sqlite-wal");
         let before_wal = fs::read(&wal).unwrap_or_default();
         #[cfg(any(target_os = "linux", target_os = "macos"))]
-        if round == 0 {
+        if extended && round == 0 {
             resources::check_connection_churn(server.0.id(), &base, runtime.jsonrpc_addr, &token)
                 .await;
         }
@@ -217,7 +228,8 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
             !root.join("aria2-next.started").exists(),
             "a read awakened the engine"
         );
-        let stalled = if round == 32 {
+        let drain_timeout = extended && round == clean_restarts + 2;
+        let stalled = if drain_timeout {
             let mut socket = tokio::net::TcpStream::connect(runtime.jsonrpc_addr)
                 .await
                 .unwrap();
@@ -228,13 +240,13 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
             None
         };
         let started = Instant::now();
-        if round == 30 {
+        if round == clean_restarts {
             server.0.kill().unwrap();
             assert!(!server.wait().await.success());
         } else {
             assert_eq!(unsafe { libc::kill(server.0.id() as i32, libc::SIGINT) }, 0);
             let status = server.wait().await;
-            if round == 32 {
+            if drain_timeout {
                 assert!(
                     !status.success(),
                     "a drain timeout must be reported as failure"
@@ -298,5 +310,5 @@ async fn native_idle_server_preserves_state_across_restarts_crash_and_http_drain
         "ok"
     );
     database.pool.close().await;
-    eprintln!("30 clean restarts + SIGKILL/recovery + 10s HTTP drain deadline passed; worst graceful stop: {worst_stop:?}");
+    eprintln!("{clean_restarts} clean restarts + SIGKILL/recovery passed; extended: {extended}; worst graceful stop: {worst_stop:?}");
 }

@@ -21,7 +21,7 @@ if "${SERVER_BIN}" initialize-web-auth; then
 fi
 
 unset wizard_management_password wizard_management_password_confirm
-message="管理密码配置失败，请检查密码长度及两次输入是否一致后重新安装；原有数据已保留。"
+message="管理密码配置失败：首次安装或原数据中尚未设置密码时，请在安装向导填写两次一致的 8–128 个字符密码后重试；原有数据已保留。"
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
   printf '%s\n' "${message}" > "${TRIM_TEMP_LOGFILE}"
 fi

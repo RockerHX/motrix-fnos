@@ -68,7 +68,7 @@ Rust Runtime Event -> SSE -> runtime event service -> Pinia -> Component
 - 引擎负责 HTTP 恢复记录、BT fast-resume、完整 metadata 和 session；应用不修改或复制运行中的引擎数据库行。BT partfile 等实际数据按下载内容管理。
 - SQLite、私有 `state-dir`、session、种子备份、日志和运行态文件都放 FPK 应用数据目录，不依赖临时目录或用户下载目录。
 - 内置与外部路径只运行已验证的 Aria2 Next 2.8.6，统一使用 NativeV2；旧版、未知或不可用引擎进入受限管理，保留旧状态和用户文件。
-- 2.0.0 不接管旧代任务或半成品；密码、设置、授权和 RPC Token 沿用。兼容边界见 [应用信息契约](api-contract.md#42-应用信息)，升级操作见 [备份与回滚](maintenance.md#备份与回滚)。
+- 2.x 不接管 1.x 任务或半成品；密码、设置、授权和 RPC Token 沿用。升级前须由用户确认兼容性与备份说明，确认不改变数据保留规则。兼容边界见 [应用信息契约](api-contract.md#42-应用信息)，升级操作见 [备份与回滚](maintenance.md#备份与回滚)。
 - 保留已发布 schema 迁移、旧代存储值与历史数据，不再维护旧代引擎的执行算法。
 - 单条、批量 URL、种子和磁链复用校验、选项映射与持久化；批量允许部分成功，不回滚已成功任务。
 - 磁链在私有目录解析完整 metadata，保持原 GID，确认文件后才向授权下载目录写内容；种子与确认后的磁链使用任务专属目录。
