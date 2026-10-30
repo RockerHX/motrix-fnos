@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setLanguage } from "../../../i18n";
 import type { DownloadTask, DownloadTaskStatus } from "../../../types/tasks";
 import {
   formatTaskError,
@@ -10,6 +11,8 @@ import {
 } from "./taskFormat";
 
 describe("taskFormat", () => {
+  afterEach(() => setLanguage("zh-CN"));
+
   it("formats byte sizes with existing unit rules", () => {
     expect(formatTaskSize(-1)).toBe("0 B");
     expect(formatTaskSize(0)).toBe("0 B");
@@ -29,8 +32,38 @@ describe("taskFormat", () => {
   it("formats eta for unavailable, seconds and minutes cases", () => {
     expect(formatTaskEta(createTask({ downloadSpeed: 0, totalLength: 100, completedLength: 0 }))).toBe("--");
     expect(formatTaskEta(createTask({ downloadSpeed: 10, totalLength: 100, completedLength: 100 }))).toBe("--");
-    expect(formatTaskEta(createTask({ downloadSpeed: 10, totalLength: 100, completedLength: 70 }))).toBe("3s");
-    expect(formatTaskEta(createTask({ downloadSpeed: 10, totalLength: 1000, completedLength: 0 }))).toBe("1m 40s");
+    expect(formatTaskEta(createTask({ downloadSpeed: 10, totalLength: 100, completedLength: 70 }))).toBe("约 3秒");
+    expect(formatTaskEta(createTask({ downloadSpeed: 10, totalLength: 1000, completedLength: 0 }))).toBe("约 1分 40秒");
+  });
+
+  it.each([
+    [0.1, "约 1秒"],
+    [59, "约 59秒"],
+    [60, "约 1分"],
+    [61, "约 1分 1秒"],
+    [3599, "约 59分 59秒"],
+    [3600, "约 1小时"],
+    [3661, "约 1小时 1分"],
+    [86399, "约 23小时 59分"],
+    [86400, "约 1天"],
+    [90061, "约 1天 1小时"],
+    [172800, "约 2天"],
+  ])("formats %s seconds using at most two adjacent units", (seconds, expected) => {
+    expect(formatTaskEta(createTask({ downloadSpeed: 1, totalLength: seconds }))).toBe(expected);
+  });
+
+  it.each([
+    [59, "About 59s"],
+    [61, "About 1m 1s"],
+    [3661, "About 1h 1m"],
+    [90061, "About 1d 1h"],
+  ])("localizes %s seconds in English", (seconds, expected) => {
+    setLanguage("en-US");
+    expect(formatTaskEta(createTask({ downloadSpeed: 1, totalLength: seconds }))).toBe(expected);
+  });
+
+  it.each([NaN, Infinity])("does not estimate ETA from invalid speed %s", (downloadSpeed) => {
+    expect(formatTaskEta(createTask({ downloadSpeed }))).toBe("--");
   });
 
   it("formats task errors with code and fallback", () => {

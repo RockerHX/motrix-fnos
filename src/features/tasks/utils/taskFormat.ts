@@ -34,13 +34,22 @@ export function formatTaskEta(task: DownloadTask) {
   }
 
   const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
-  if (seconds < 60) {
-    return `${seconds}s`;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return t("common.notAvailable");
   }
 
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = seconds % 60;
-  return `${minutes}m ${restSeconds}s`;
+  const parts: [number, TranslationKey][] = [
+    [Math.floor(seconds / 86400), "task.eta.days"],
+    [Math.floor(seconds / 3600) % 24, "task.eta.hours"],
+    [Math.floor(seconds / 60) % 60, "task.eta.minutes"],
+    [seconds % 60, "task.eta.seconds"],
+  ];
+  const firstUnit = parts.findIndex(([value]) => value > 0);
+  const duration = parts.slice(firstUnit, firstUnit + 2)
+    .filter(([value]) => value > 0)
+    .map(([value, key]) => t(key, { value }))
+    .join(" ");
+  return t("task.eta.approximate", { duration });
 }
 
 export function formatTaskError(task: DownloadTask) {

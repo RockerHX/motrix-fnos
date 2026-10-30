@@ -189,7 +189,7 @@ describe("TaskDetailsDialog", () => {
 
     expect(wrapper.get(".task-detail-title").text()).toBe("file.iso");
     expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.00%");
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 8秒");
     expect(wrapper.findAll("[data-test$='-section']").map((section) => section.attributes("data-test"))).toEqual([
       "task-detail-download-section",
       "task-detail-file-section",
@@ -311,12 +311,12 @@ describe("TaskDetailsDialog", () => {
     });
 
     expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 8秒");
 
     await wrapper.setProps({ task: createTask({ completedLength: 90, downloadSpeed: 5 }) });
 
     expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("2s");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 2秒");
   });
 
   it("wraps long names, URLs and technical paths without hiding their sections", () => {
