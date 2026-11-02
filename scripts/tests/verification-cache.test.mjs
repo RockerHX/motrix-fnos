@@ -223,7 +223,7 @@ if (call[0] === 'pnpm' && call[2] === 'build') {
   const run = (args, env = {}) => spawnSync(process.execPath, args, {
     cwd: root, encoding: 'utf8', timeout: 20_000,
     env: { ...process.env, CI: '', PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
-      npm_config_user_agent: 'pnpm/11.17.0', CACHE_LOG: log, ...env },
+      npm_config_user_agent: 'pnpm/11.28.9', CACHE_LOG: log, ...env },
   });
   return {
     root, write, git, run, cache: path.join(root, '.cache/verification.json'),
