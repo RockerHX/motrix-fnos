@@ -16,7 +16,7 @@
 
 ## 开发与验证
 
-在仓库根目录执行命令，先 `pnpm install`。Node.js 以 `.node-version`、pnpm 以 `package.json` 的 `packageManager`、Rust 以 `rust-toolchain.toml` 为准；CI 使用 `pnpm install --frozen-lockfile`。命令的唯一清单是 `package.json`，变更行为时同步更新本手册。
+在仓库根目录执行命令，先 `pnpm install`。Node.js 以 `.node-version`、Rust 以 `rust-toolchain.toml` 为准；本地 pnpm 跟随全局安装版本，当前已验证 `12.16.1`，项目不设置 `packageManager`。CI 单独安装 pnpm `12.16.1`，使用 `pnpm install --frozen-lockfile`。命令的唯一清单是 `package.json`，变更行为时同步更新本手册。
 
 ### 命令速查
 
