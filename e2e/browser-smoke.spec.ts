@@ -240,10 +240,27 @@ test.describe("browser smoke", () => {
           });
           expect(measurements).toEqual({ valuesFit: true, contentFitsCard: true, sameMetricRow: true, sizeAbove: viewport.width < 768, noOverlap: true });
           await page.screenshot({ path: testInfo.outputPath(`metrics-${viewport.width}.png`), fullPage: true });
+          await page.getByRole("button", { name: language === "zh-CN" ? "详情" : "Details", exact: true }).first().click();
+          const details = page.getByRole("dialog");
+          await expect(details.locator('[data-test="task-detail-summary"]')).toContainText("电影");
+          await page.waitForTimeout(250);
+          await expect(details.locator(".task-detail-summary-progress")).toContainText("25.0%");
+          const detailMeasurements = await details.evaluate((element) => {
+            const content = element.querySelector<HTMLElement>(".task-detail-card-content")!;
+            const values = [...element.querySelectorAll<HTMLElement>(".task-detail-title, .task-detail-row dd")];
+            return {
+              contentFits: content.scrollWidth <= content.clientWidth + 1,
+              valuesFit: values.every((value) => value.scrollWidth <= value.clientWidth + 1),
+            };
+          });
+          expect(detailMeasurements).toEqual({ contentFits: true, valuesFit: true });
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          const lastDetailRow = details.locator(".task-detail-row").last();
+          await lastDetailRow.scrollIntoViewIfNeeded();
+          await expect(lastDetailRow).toBeInViewport();
+          await page.screenshot({ path: testInfo.outputPath(`task-details-${viewport.width}.png`), fullPage: true });
+          await details.getByRole("button", { name: language === "zh-CN" ? "关闭" : "Close", exact: true }).last().click();
         }
-
-        await page.getByRole("button", { name: language === "zh-CN" ? "详情" : "Details", exact: true }).first().click();
-        await expect(page.getByRole("dialog").locator('[data-test="task-detail-summary"]')).toContainText("电影");
       });
     }
   }

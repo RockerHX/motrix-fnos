@@ -46,6 +46,7 @@
 
 .task-detail-header {
   min-width: 0;
+  padding-right: 40px;
 }
 
 .task-detail-eyebrow {
@@ -66,12 +67,43 @@
 
 .task-detail-summary {
   display: grid;
-  gap: 12px;
+  gap: 16px;
   margin-bottom: 20px;
   padding: 12px;
   border: 1px solid var(--app-color-border-subtle);
   border-radius: var(--app-radius-sm);
   background: var(--app-color-card-overlay-subtle);
+}
+
+.task-detail-summary-progress {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.task-detail-summary-progress-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-detail-summary-progress-heading span {
+  color: var(--app-text-dim);
+  font-size: 12px;
+}
+
+.task-detail-summary-progress-heading strong {
+  color: var(--app-text-strong);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-detail-summary-progress p {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-detail-header-kicker {
@@ -124,7 +156,7 @@
 
 .task-detail-summary-metrics {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 0.6fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -165,12 +197,38 @@
   font-size: 13px;
 }
 
-:deep(.n-descriptions-table-content__content) {
-  word-break: break-all;
+.task-detail-list {
+  margin: 0;
 }
 
-:deep(.n-descriptions-table-header) {
-  word-break: break-word;
+.task-detail-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.28fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--app-color-border-subtle);
+}
+
+.task-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.task-detail-row dt {
+  color: var(--app-text-dim);
+  font-size: 13px;
+}
+
+.task-detail-row dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--app-text-primary);
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-list--technical .task-detail-row dd {
+  color: var(--app-text-secondary);
 }
 
 .task-detail-proxy {
@@ -210,7 +268,12 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .task-detail-summary-metric:first-child {
+  .task-detail-summary-metric:last-child {
     grid-column: 1 / -1;
+  }
+
+  .task-detail-row {
+    grid-template-columns: minmax(76px, 0.34fr) minmax(0, 1fr);
+    gap: 8px;
   }
 }
