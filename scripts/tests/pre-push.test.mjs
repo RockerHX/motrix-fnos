@@ -8,11 +8,24 @@ import test from 'node:test';
 const hook = path.resolve(import.meta.dirname, '../../.githooks/pre-push');
 const zero = '0'.repeat(40);
 const verify = [['pnpm', 'run', 'verify', '--', '--reuse']];
+const changelog = [
+  ['node', '--test', 'scripts/tests/release-notes.test.mjs'],
+  ['pnpm', 'run', 'test:unit', 'src/features/about/services/changelogService.spec.ts'],
+  ['pnpm', 'run', 'build'],
+];
 
 for (const [title, changes, expected] of [
   ['中文文档和说明图片跳过', { 'docs/中文说明.md': '说明', 'docs/logo.svg': '<svg/>' }, []],
   ['网页图片需要核对前端验证', { 'public/logo.svg': '<svg/>' }, verify],
-  ['程序读取的 CHANGELOG 不按普通文档跳过', { 'CHANGELOG.md': '更新' }, verify],
+  ['CHANGELOG 只校验发布说明、解析和前端构建', { 'CHANGELOG.md': '更新' }, changelog],
+  ['CHANGELOG 和普通文档仍走定向验证', { 'CHANGELOG.md': '更新', 'README.md': 'docs' }, changelog],
+  ['CHANGELOG 和维护文档分别执行必要检查', { 'CHANGELOG.md': '更新', 'docs/maintenance.md': 'docs' },
+    [['node', '--test', 'scripts/tests/logging-docs.test.mjs'], ...changelog]],
+  ['CHANGELOG 和前端测试不重复运行解析测试', { 'CHANGELOG.md': '更新', 'src/a.spec.ts': 'test' },
+    [changelog[0], ['pnpm', 'run', 'test:unit'], changelog[2]]],
+  ['CHANGELOG 和脚本测试不重复校验发布说明', { 'CHANGELOG.md': '更新', 'scripts/tests/a.test.mjs': 'test' },
+    [['pnpm', 'run', 'test:scripts'], ...changelog.slice(1)]],
+  ['CHANGELOG 混有源码仍完整验证', { 'CHANGELOG.md': '更新', 'src/app.ts': 'changed' }, verify],
   ['源码目录内文本不能误跳过', { 'src/example.txt': 'runtime input' }, verify],
   ['Rust 夹具内文本仍执行 Rust 测试', { 'server/tests/example.txt': 'fixture' }, [['node', 'scripts/verify/run-rust-tests.mjs']]],
   ['打包图标不能误跳过', { 'packaging/fnos/ICON.PNG': 'image' }, verify],
@@ -80,6 +93,31 @@ test('pre-push：测试类别去重，失败后不继续执行后续测试', (t)
   const result = fixture.push({ env: { PUSH_FAIL_AT: '1' } });
   assert.equal(result.status, 19);
   assert.deepEqual(fixture.calls(), [['pnpm', 'run', 'test:scripts']]);
+});
+
+test('pre-push：CHANGELOG 各步失败立即阻止推送，npm 降级仍只运行定向检查', (t) => {
+  for (let failAt = 1; failAt <= changelog.length; failAt += 1) {
+    const fixture = repository(t);
+    fixture.commit({ 'CHANGELOG.md': '更新' });
+    assert.equal(fixture.push({ env: { PUSH_FAIL_AT: String(failAt) } }).status, 19);
+    assert.deepEqual(fixture.calls(), changelog.slice(0, failAt));
+  }
+  const fixture = repository(t);
+  fixture.commit({ 'CHANGELOG.md': '更新' });
+  assert.equal(fixture.push({ env: { PUSH_NO_PNPM: '1' } }).status, 0);
+  assert.deepEqual(fixture.calls(), [changelog[0],
+    ['npm', 'run', 'test:unit', '--', 'src/features/about/services/changelogService.spec.ts'],
+    ['npm', 'run', 'build']]);
+});
+
+test('pre-push：删除或移走 CHANGELOG 仍执行解析和构建检查', (t) => {
+  for (const renamed of [false, true]) {
+    const fixture = repository(t);
+    const remote = fixture.commit({ 'CHANGELOG.md': '更新' });
+    fixture.commit({ 'CHANGELOG.md': null, ...(renamed ? { 'docs/history.md': '更新' } : {}) });
+    assert.equal(fixture.push({ remote }).status, 0);
+    assert.deepEqual(fixture.calls(), changelog);
+  }
 });
 
 test('pre-push：删除测试文件仍运行所属测试类别', (t) => {

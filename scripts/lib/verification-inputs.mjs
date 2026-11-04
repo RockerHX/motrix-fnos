@@ -1,12 +1,13 @@
 export const verificationGroups = ['scripts', 'rust', 'frontend'];
 
 export function classifyVerificationFile(file) {
+  if (file === 'CHANGELOG.md') return 'changelog';
   if (file.startsWith('scripts/tests/')) return 'scripts-test';
   if (file.startsWith('scripts/extended/')) return 'aria2-test';
   if (file.startsWith('e2e/')) return 'browser-test';
   if (/^scripts\/verify\/test-fnos-[^/]+\.sh$/.test(file)) return 'shell-test';
   if (file.startsWith('src/test/') || /^src\/.*\.spec\.(?:ts|tsx|vue)$/.test(file)) return 'frontend-test';
-  if (file.startsWith('src/') || file.startsWith('public/') || file === 'CHANGELOG.md'
+  if (file.startsWith('src/') || file.startsWith('public/')
     || file === 'index.html' || /^(?:vite|vitest|uno)\.config\.[cm]?[jt]s$/.test(file)
     || /^tsconfig(?:\.[^/]+)?\.json$/.test(file)) return 'frontend';
   if (file === 'server/tests/runtime_stability.rs' || file.startsWith('server/tests/runtime_stability/')) return 'stability-test';
@@ -29,7 +30,7 @@ export function classifyVerificationFile(file) {
 export function verificationGroupsForFile(file) {
   switch (classifyVerificationFile(file)) {
     case 'docs': case 'checked-docs': return [];
-    case 'frontend': case 'frontend-test': return ['scripts', 'frontend'];
+    case 'changelog': case 'frontend': case 'frontend-test': return ['scripts', 'frontend'];
     case 'rust': case 'rust-test': case 'stability-test': case 'packaging-rust': case 'aria2': return ['scripts', 'rust'];
     case 'scripts': case 'scripts-test': case 'shell-test': case 'packaging': case 'aria2-test': case 'browser-test': return ['scripts'];
     default: return verificationGroups;

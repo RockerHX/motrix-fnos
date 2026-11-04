@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const scriptPath = fileURLToPath(new URL('../release/release-notes.mjs', import.meta.url));
+
+test('仓库 CHANGELOG 最新条目满足发布说明格式', () => {
+  const repoRoot = path.resolve(import.meta.dirname, '../..');
+  const changelog = readFileSync(path.join(repoRoot, 'CHANGELOG.md'), 'utf8');
+  const heading = changelog.match(/^##\s+(.+)$/m)?.[1];
+  assert.match(heading ?? '', /^\d+\.\d+\.\d+ - \d{4}-\d{2}-\d{2}$/);
+  const version = heading.split(' ')[0];
+  const output = execFileSync(process.execPath, [scriptPath, version, '--body'], { cwd: repoRoot, encoding: 'utf8' });
+  assert.match(output, /^### (?:新增|改进|修复|文档)\n/);
+});
 
 test('GitHub Release 正文只接受分类完整的目标版本 CHANGELOG', () => {
   const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'motrix-release-notes-'));
