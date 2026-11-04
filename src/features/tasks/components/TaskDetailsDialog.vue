@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { NButton, NCard, NCollapse, NCollapseItem, NDescriptions, NDescriptionsItem, NModal, NSpace, useMessage } from "naive-ui";
+import { NButton, NCard, NCollapse, NCollapseItem, NModal, NSpace, useMessage } from "naive-ui";
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { useI18n } from "../../../i18n";
 import type { DownloadTask } from "../../../types/tasks";
 import type { TaskActionDetails, TaskActionLabels, TaskFileActionView } from "./taskActionViewModel";
+import TaskProgressBar from "./TaskProgressBar.vue";
 import TaskProxyToggle from "./TaskProxyToggle.vue";
 import {
   deriveTaskDisplayStatus,
   formatTaskEta,
   formatTaskProgress,
-  formatTaskSize,
+  formatTaskSizePair,
+  formatTaskSpeed,
   formatTaskStatusLabel,
+  getTaskProgressPercentage,
   getTaskSourceType,
 } from "../utils/taskFormat";
 
@@ -51,9 +54,11 @@ const sourceType = computed(() => getTaskSourceType(props.task));
 const isBtTask = computed(() => sourceType.value !== "url");
 const sourceLabel = computed(() => t(`task.source.${sourceType.value}` as const));
 const categoryLabel = computed(() => props.task.category || t("common.notAvailable"));
-const formattedSpeed = computed(() =>
-  props.task.downloadSpeed > 0 ? `${formatTaskSize(props.task.downloadSpeed)}/s` : t("common.notAvailable"),
-);
+const formattedSpeed = computed(() => formatTaskSpeed(props.task));
+const progressPercentage = computed(() => getTaskProgressPercentage(props.task));
+const progressTone = computed(() => progressPercentage.value === null
+  ? "empty"
+  : props.task.status === "complete" ? "complete" : "default");
 const titleId = computed(() => `task-detail-title-${props.task.id}`);
 
 async function copyPath(path: string) {
@@ -117,11 +122,21 @@ function confirmProxyUpdate() {
       </template>
 
       <section class="task-detail-summary" data-test="task-detail-summary">
-        <div class="task-detail-summary-metrics">
-          <div class="task-detail-summary-metric">
+        <div class="task-detail-summary-progress">
+          <div class="task-detail-summary-progress-heading">
             <span>{{ t("task.detail.progress") }}</span>
             <strong>{{ formatTaskProgress(props.task) }}</strong>
           </div>
+          <TaskProgressBar
+            :percentage="progressPercentage"
+            variant="card"
+            :tone="progressTone"
+            :aria-label="`${t('task.detail.progress')} ${props.task.fileName}`"
+            :aria-valuetext="progressPercentage === null ? t('task.progress.unknown') : formatTaskProgress(props.task)"
+          />
+          <p>{{ formatTaskSizePair(props.task) }}</p>
+        </div>
+        <div class="task-detail-summary-metrics">
           <div class="task-detail-summary-metric">
             <span>{{ t("task.detail.speed") }}</span>
             <strong>{{ formattedSpeed }}</strong>
@@ -139,20 +154,22 @@ function confirmProxyUpdate() {
 
       <section v-if="detailItems.download.length" class="task-detail-section" data-test="task-detail-download-section">
         <h3>{{ t("task.detail.downloadInfo") }}</h3>
-        <NDescriptions :column="1" label-placement="left" bordered>
-          <NDescriptionsItem v-for="item in detailItems.download" :key="item.label" :label="item.label">
-            {{ item.value }}
-          </NDescriptionsItem>
-        </NDescriptions>
+        <dl class="task-detail-list">
+          <div v-for="item in detailItems.download" :key="item.label" class="task-detail-row" data-test="detail-item">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        </dl>
       </section>
 
       <section v-if="detailItems.file.length || props.fileActions" class="task-detail-section" data-test="task-detail-file-section">
         <h3>{{ t("task.detail.fileInfo") }}</h3>
-        <NDescriptions v-if="detailItems.file.length" :column="1" label-placement="left" bordered>
-          <NDescriptionsItem v-for="item in detailItems.file" :key="item.label" :label="item.label">
-            {{ item.value }}
-          </NDescriptionsItem>
-        </NDescriptions>
+        <dl v-if="detailItems.file.length" class="task-detail-list">
+          <div v-for="item in detailItems.file" :key="item.label" class="task-detail-row" data-test="detail-item">
+            <dt>{{ item.label }}</dt>
+            <dd>{{ item.value }}</dd>
+          </div>
+        </dl>
         <NSpace v-if="props.fileActions?.hostSupported" class="task-file-actions" :size="8" wrap>
           <NButton
             v-if="props.fileActions.context?.actions.openFilePath"
@@ -196,14 +213,17 @@ function confirmProxyUpdate() {
       >
         <NCollapse class="task-technical-info" :default-expanded-names="[]">
           <NCollapseItem :title="props.labels.technicalInfo" name="technical-info">
-            <NDescriptions :column="1" label-placement="left" bordered>
-              <NDescriptionsItem v-for="item in props.details.technicalItems" :key="item.label" :label="item.label">
-                <NSpace align="center" justify="space-between" :size="8" wrap>
-                  <span class="task-technical-path">{{ item.value }}</span>
-                  <NButton size="tiny" secondary @click="copyPath(item.value)">{{ props.labels.copyPath }}</NButton>
-                </NSpace>
-              </NDescriptionsItem>
-            </NDescriptions>
+            <dl class="task-detail-list task-detail-list--technical">
+              <div v-for="item in props.details.technicalItems" :key="item.label" class="task-detail-row" data-test="detail-item">
+                <dt>{{ item.label }}</dt>
+                <dd>
+                  <NSpace align="center" justify="space-between" :size="8" wrap>
+                    <span class="task-technical-path">{{ item.value }}</span>
+                    <NButton size="tiny" secondary @click="copyPath(item.value)">{{ props.labels.copyPath }}</NButton>
+                  </NSpace>
+                </dd>
+              </div>
+            </dl>
           </NCollapseItem>
         </NCollapse>
       </section>

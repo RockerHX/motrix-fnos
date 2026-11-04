@@ -296,7 +296,7 @@ describe("TaskActions", () => {
 
     await clickButton(wrapper, "详情");
 
-    const detailItems = wrapper.findAll('[data-test="n-descriptions-item"]');
+    const detailItems = wrapper.findAll('[data-test="detail-item"]');
     expect(detailItems.map((item) => item.text())).toEqual(["任务名称file.iso", "状态下载中"]);
   });
 

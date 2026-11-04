@@ -181,15 +181,18 @@ describe("TaskDetailsDialog", () => {
           ],
           technicalItems: [{ label: "真实路径", value: "/vol1/downloads/file.iso" }],
         },
-        task: createTask({ completedLength: 25, downloadSpeed: 10 }),
+        task: createTask({ status: "active", completedLength: 25, downloadSpeed: 10 }),
         isOperating: false,
         isActionDisabled: false,
       },
     });
 
     expect(wrapper.get(".task-detail-title").text()).toBe("file.iso");
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.00%");
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("25.0%");
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuenow")).toBe("25");
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuetext")).toBe("25.0%");
+    expect(wrapper.get(".task-detail-summary-progress").text()).toContain("25 B / 100 B");
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 8秒");
     expect(wrapper.findAll("[data-test$='-section']").map((section) => section.attributes("data-test"))).toEqual([
       "task-detail-download-section",
       "task-detail-file-section",
@@ -304,19 +307,41 @@ describe("TaskDetailsDialog", () => {
         closeLabel: "关闭",
         labels: defaultLabels,
         details: { title: "任务详情", items: [] },
-        task: createTask({ completedLength: 20, downloadSpeed: 10 }),
+        task: createTask({ status: "active", completedLength: 20, downloadSpeed: 10 }),
         isOperating: false,
         isActionDisabled: false,
       },
     });
 
-    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("8s");
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(3);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 8秒");
 
-    await wrapper.setProps({ task: createTask({ completedLength: 90, downloadSpeed: 5 }) });
+    await wrapper.setProps({ task: createTask({ status: "active", completedLength: 90, downloadSpeed: 5 }) });
 
-    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(4);
-    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("2s");
+    expect(wrapper.findAll(".task-detail-summary-metric")).toHaveLength(3);
+    expect(wrapper.get('[data-test="task-detail-summary"]').text()).toContain("约 2秒");
+
+    await wrapper.setProps({ task: createTask({ status: "paused", category: "电影", downloadSpeed: 5 }) });
+    const metrics = wrapper.findAll(".task-detail-summary-metric strong").map((item) => item.text());
+    expect(metrics).toEqual(["--", "--", "电影"]);
+  });
+
+  it("shows indeterminate progress for tasks without a known total", () => {
+    const wrapper = mount(TaskDetailsDialog, {
+      props: {
+        show: true,
+        closeLabel: "关闭",
+        labels: defaultLabels,
+        details: { title: "任务详情", items: [] },
+        task: createTask({ status: "active", totalLength: 0, completedLength: 10 }),
+        isOperating: false,
+        isActionDisabled: false,
+      },
+    });
+
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuenow")).toBeUndefined();
+    expect(wrapper.get('[role="progressbar"]').attributes("aria-valuetext")).toBe("进度未知");
+    expect(wrapper.get(".task-detail-summary-progress").text()).toContain("10 B / 未知");
   });
 
   it("wraps long names, URLs and technical paths without hiding their sections", () => {

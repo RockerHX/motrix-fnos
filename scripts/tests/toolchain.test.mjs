@@ -11,18 +11,18 @@ test('验证工具链版本和 CI 安装方式固定', () => {
   const auditWorkflow = readFileSync('.github/workflows/dependency-audit.yml', 'utf8');
   const buildScript = readFileSync('scripts/build/build-fpk-all.mjs', 'utf8');
 
-  assert.equal(packageJson.packageManager, 'pnpm@11.17.0');
+  assert.equal(packageJson.packageManager, undefined);
   assert.equal(packageJson.engines?.node, '>=24.0.0');
   assert.match(nodeVersion, /^24\.\d+\.\d+$/);
-  assert.match(rustToolchain, /channel\s*=\s*"1\.97\.1"/);
+  assert.match(rustToolchain, /channel\s*=\s*"1\.99\.1"/);
   for (const workflow of [verifyWorkflow, releaseWorkflow]) {
-    assert.match(workflow, /version:\s+11\.17\.0/);
-    assert.match(workflow, /toolchain:\s+1\.97\.1/);
+    assert.match(workflow, /version:\s+12\.16\.1/);
+    assert.match(workflow, /toolchain:\s+1\.99\.1/);
     assert.match(workflow, /node-version-file:\s+\.node-version/);
     assert.match(workflow, /pnpm install --frozen-lockfile/);
   }
-  assert.match(auditWorkflow, /version:\s+11\.17\.0/);
-  assert.match(auditWorkflow, /toolchain:\s+1\.97\.1/);
+  assert.match(auditWorkflow, /version:\s+12\.16\.1/);
+  assert.match(auditWorkflow, /toolchain:\s+1\.99\.1/);
   assert.match(auditWorkflow, /node-version-file:\s+\.node-version/);
   assert.match(buildScript, /x86_64-unknown-linux-gnu/);
   assert.match(buildScript, /aarch64-unknown-linux-gnu/);

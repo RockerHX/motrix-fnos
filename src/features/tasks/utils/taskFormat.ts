@@ -21,6 +21,9 @@ export function formatTaskSize(size: number) {
 }
 
 export function formatTaskSizePair(task: DownloadTask) {
+  if (deriveTaskDisplayStatus(task) === "resolving") {
+    return t("common.notAvailable");
+  }
   if (task.totalLength <= 0) {
     return `${formatTaskSize(task.completedLength)} / ${t("common.unknown")}`;
   }
@@ -28,19 +31,35 @@ export function formatTaskSizePair(task: DownloadTask) {
   return `${formatTaskSize(task.completedLength)} / ${formatTaskSize(task.totalLength)}`;
 }
 
+export function formatTaskSpeed(task: DownloadTask) {
+  if (deriveTaskDisplayStatus(task) !== "active" || !Number.isFinite(task.downloadSpeed) || task.downloadSpeed < 0) {
+    return t("common.notAvailable");
+  }
+  return `${formatTaskSize(task.downloadSpeed)}/s`;
+}
+
 export function formatTaskEta(task: DownloadTask) {
-  if (task.downloadSpeed <= 0 || task.totalLength <= task.completedLength) {
-    return "--";
+  if (deriveTaskDisplayStatus(task) !== "active" || task.downloadSpeed <= 0 || task.totalLength <= task.completedLength) {
+    return t("common.notAvailable");
   }
 
   const seconds = Math.ceil((task.totalLength - task.completedLength) / task.downloadSpeed);
-  if (seconds < 60) {
-    return `${seconds}s`;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return t("common.notAvailable");
   }
 
-  const minutes = Math.floor(seconds / 60);
-  const restSeconds = seconds % 60;
-  return `${minutes}m ${restSeconds}s`;
+  const parts: [number, TranslationKey][] = [
+    [Math.floor(seconds / 86400), "task.eta.days"],
+    [Math.floor(seconds / 3600) % 24, "task.eta.hours"],
+    [Math.floor(seconds / 60) % 60, "task.eta.minutes"],
+    [seconds % 60, "task.eta.seconds"],
+  ];
+  const firstUnit = parts.findIndex(([value]) => value > 0);
+  const duration = parts.slice(firstUnit, firstUnit + 2)
+    .filter(([value]) => value > 0)
+    .map(([value, key]) => t(key, { value }))
+    .join(" ");
+  return t("task.eta.approximate", { duration });
 }
 
 export function formatTaskError(task: DownloadTask) {
@@ -62,13 +81,23 @@ export function canDeleteTaskFiles(task: DownloadTask): boolean {
     || (!task.confirmationRequired && Boolean(task.filePath?.trim())));
 }
 
-export function formatTaskProgress(task: DownloadTask) {
-  if (task.totalLength <= 0) {
-    return "0.00%";
+export function getTaskProgressPercentage(task: DownloadTask) {
+  const status = deriveTaskDisplayStatus(task);
+  if (
+    !Number.isFinite(task.totalLength) || task.totalLength <= 0 ||
+    !Number.isFinite(task.completedLength) || status === "resolving" || status === "confirming"
+  ) {
+    return null;
   }
 
-  const percentage = Math.min(100, (task.completedLength / task.totalLength) * 100);
-  return `${percentage.toFixed(2)}%`;
+  const maximum = task.status === "complete" || (task.status === "removed" && task.completedLength >= task.totalLength)
+    ? 100 : 99.9;
+  return Math.max(0, Math.min(maximum, (task.completedLength / task.totalLength) * 100));
+}
+
+export function formatTaskProgress(task: DownloadTask) {
+  const percentage = getTaskProgressPercentage(task);
+  return percentage === null ? t("common.notAvailable") : `${percentage.toFixed(1)}%`;
 }
 
 export function deriveTaskDisplayStatus(task: DownloadTask): TaskDisplayStatus {

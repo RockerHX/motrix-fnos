@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
+import { t } from "../../../i18n";
+import { formatTaskProgress, getTaskProgressPercentage } from "../utils/taskFormat";
 import TaskProgressBar from "./TaskProgressBar.vue";
 import type { DownloadTask } from "../../../types/tasks";
 
@@ -15,65 +17,15 @@ const props = withDefaults(
   },
 );
 
-const displayCompletedLength = ref(clampCompletedLength(props.task.completedLength, props.task.totalLength));
-const displayPercentage = computed(() => {
-  if (props.task.totalLength <= 0) {
-    return 0;
-  }
-
-  return clampPercentage((displayCompletedLength.value / props.task.totalLength) * 100);
-});
+const displayPercentage = computed(() => getTaskProgressPercentage(props.task));
+const progressLabel = computed(() => formatTaskProgress(props.task));
 const progressTone = computed(() => {
-  if (props.task.status === "complete") {
-    return "complete";
+  if (displayPercentage.value === null) {
+    return "empty";
   }
 
-  return props.task.totalLength <= 0 ? "empty" : "default";
+  return props.task.status === "complete" ? "complete" : "default";
 });
-watch(
-  () =>
-    [
-      props.task.id,
-      props.task.gid ?? "",
-      props.task.status,
-      props.task.totalLength,
-      props.task.completedLength,
-    ] as const,
-  ([taskId, gid, status, totalLength, completedLength], previousSnapshot) => {
-    const nextCompletedLength = clampCompletedLength(completedLength, totalLength);
-    if (status === "complete" && totalLength > 0) {
-      displayCompletedLength.value = totalLength;
-      return;
-    }
-
-    const shouldReset =
-      !previousSnapshot ||
-      taskId !== previousSnapshot[0] ||
-      gid !== previousSnapshot[1] ||
-      totalLength !== previousSnapshot[3] ||
-      totalLength <= 0;
-
-    if (shouldReset) {
-      displayCompletedLength.value = nextCompletedLength;
-      return;
-    }
-
-    displayCompletedLength.value = Math.max(displayCompletedLength.value, nextCompletedLength);
-  },
-  { immediate: true },
-);
-
-function clampPercentage(value: number) {
-  return Math.max(0, Math.min(100, value));
-}
-
-function clampCompletedLength(value: number, totalLength: number) {
-  if (totalLength <= 0) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(totalLength, value));
-}
 </script>
 
 <template>
@@ -82,8 +34,10 @@ function clampCompletedLength(value: number, totalLength: number) {
       :percentage="displayPercentage"
       :variant="props.variant"
       :tone="progressTone"
+      :aria-label="`${t('task.detail.progress')} ${props.task.fileName}`"
+      :aria-valuetext="displayPercentage === null ? t('task.progress.unknown') : progressLabel"
     />
-    <small v-if="props.showLabel">{{ displayPercentage.toFixed(2) }}%</small>
+    <small v-if="props.showLabel">{{ progressLabel }}</small>
   </div>
 </template>
 

@@ -39,6 +39,7 @@ for (const line of readFileSync(0, 'utf8').trim().split(/\r?\n/).filter(Boolean)
       case 'stability-test': suites.add('rust'); suites.add('stability'); break;
       case 'rust-test': suites.add('rust'); break;
       case 'shell-test': shellTests.add(file); break;
+      case 'changelog': suites.add('changelog'); break;
       case 'checked-docs': suites.add('docs'); break;
       case 'docs': break;
       default: full = true;
@@ -56,12 +57,18 @@ if (full) {
   console.log('包含源码、运行资源或配置，按组核对或执行验证。');
   run(packageManager, ['run', 'verify', '--', '--reuse']);
 } else {
-  console.log('仅测试或维护文档改动，运行对应检查，不执行完整构建。');
+  console.log('仅测试、维护文档或 CHANGELOG 改动，运行对应检查。');
   if (suites.has('scripts')) run(packageManager, ['run', 'test:scripts']);
-  else if (suites.has('docs')) run('node', ['--test', 'scripts/tests/logging-docs.test.mjs']);
+  else {
+    if (suites.has('docs')) run('node', ['--test', 'scripts/tests/logging-docs.test.mjs']);
+    if (suites.has('changelog')) run('node', ['--test', 'scripts/tests/release-notes.test.mjs']);
+  }
   if (suites.has('rust')) run('node', ['scripts/verify/run-rust-tests.mjs']);
   if (suites.has('stability')) run(packageManager, ['run', 'test:stability']);
   if (suites.has('frontend')) run(packageManager, ['run', 'test:unit']);
+  else if (suites.has('changelog')) run(packageManager, ['run', 'test:unit',
+    ...(packageManager === 'npm' ? ['--'] : []), 'src/features/about/services/changelogService.spec.ts']);
+  if (suites.has('changelog')) run(packageManager, ['run', 'build']);
   if (suites.has('browser')) run(packageManager, ['run', 'test:e2e']);
   if (suites.has('aria2')) run(packageManager, ['run', 'test:aria2']);
   for (const file of shellTests) run('sh', [file]);

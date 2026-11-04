@@ -99,7 +99,7 @@ if (call[0] === 'cargo' && call[1] === 'test') console.log('test result: ok. 1 p
       const run = (failAt = '') => spawnSync(process.execPath, [path.join(repoRoot, 'scripts', script), ...args], {
         cwd: root,
         env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
-          npm_config_user_agent: 'pnpm/11.17.0', FLOW_LOG: log, FLOW_FAIL_AT: String(failAt) },
+          npm_config_user_agent: 'pnpm/11.28.9', FLOW_LOG: log, FLOW_FAIL_AT: String(failAt) },
         encoding: 'utf8', timeout: 15_000,
       });
       const calls = () => existsSync(log)

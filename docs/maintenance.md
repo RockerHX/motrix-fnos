@@ -16,7 +16,7 @@
 
 ## 开发与验证
 
-在仓库根目录执行命令，先 `pnpm install`。Node.js 以 `.node-version`、pnpm 以 `package.json` 的 `packageManager`、Rust 以 `rust-toolchain.toml` 为准；CI 使用 `pnpm install --frozen-lockfile`。命令的唯一清单是 `package.json`，变更行为时同步更新本手册。
+在仓库根目录执行命令，先 `pnpm install`。Node.js 以 `.node-version`、Rust 以 `rust-toolchain.toml` 为准；本地 pnpm 跟随全局安装版本，当前已验证 `12.16.1`，项目不设置 `packageManager`。CI 单独安装 pnpm `12.16.1`，使用 `pnpm install --frozen-lockfile`。命令的唯一清单是 `package.json`，变更行为时同步更新本手册。
 
 ### 命令速查
 
@@ -65,7 +65,8 @@ Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完�
 | 改动 | 重新执行的验证 |
 | --- | --- |
 | README、普通说明文档 | 版本一致性和现有日志文档断言；复用三组业务结果 |
-| 前端代码、测试、样式、网页资源、`CHANGELOG.md` | 前端和脚本检查，后者包含主题、样式及测试分离守卫 |
+| 前端代码、测试、样式、网页资源 | 前端和脚本检查，后者包含主题、样式及测试分离守卫 |
+| 仅 `CHANGELOG.md`（可混合普通文档） | 最新条目发布格式校验、日志解析单元测试、前端类型检查与生产构建，不运行整组脚本和前端测试 |
 | Rust 代码、测试、依赖、工具链 | 后端和相关脚本检查 |
 | 打包图标与配置 | 脚本检查；`common.sh`、`install_callback`、`reset-web-auth` 及 Aria2 资产同时影响后端验证 |
 | 公共依赖、构建 / 验证脚本或未识别文件 | 三组完整验证 |
@@ -74,9 +75,11 @@ Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完�
 
 每次仍核对版本，复用脚本检查时单独运行日志文档断言，避免文档规则漏验或重复运行。`pnpm run verify`、CI 和发布前扩展验证始终完整运行，FPK 每次重新组装并验收。
 
+CHANGELOG 定向推送检查不写入完整验证缓存；它仍是前端与脚本组的输入，后续显式完整验证或混有源码的推送继续按实际输入核对缓存。
+
 - 提交 hook：暂存区空白检查后，只有文档 / 媒体资源时跳过版本与 Rust 格式检查，删除资源也同样处理；混有代码或没有暂存文件时执行快速检查。Markdown 允许两个行尾空格换行。
 - 推送 hook：按远端旧提交到本次推送提交的完整差异判断，包含删除和重命名前的路径；多个分支合并判断，不能仅检查最后一个 commit。
-  - 普通说明文档或无文件变化时跳过业务验证；维护手册和接口文档改动执行已有日志文档断言。网页图片、字体、被程序读取的 Markdown 及打包资源按实际用途验证。只推 tag 或删除远端引用也跳过。
+  - 普通说明文档或无文件变化时跳过业务验证；维护手册和接口文档改动执行已有日志文档断言。CHANGELOG 按上表定向检查，与测试混合时合并去重，与源码混合时进入分组验证。网页图片、字体、其他被程序读取的 Markdown 及打包资源按实际用途验证。只推 tag 或删除远端引用也跳过。
   - 只有测试及其专用夹具时，按类别运行前端、Rust、脚本、浏览器、sidecar 或变更的 Shell 测试，不做完整构建；同一类别只运行一次。
   - 包含业务源码、运行资源、依赖、配置、构建脚本或未识别文件时执行一次 `verify --reuse`，只重跑失效组；首次推送新分支或远端旧提交在本地不可读时同样核对全部组，缺少有效记录则完整验证。
   GitHub `Verify` 对面向 `main` / `develop` 的 PR/push 继续执行完整源码门禁。
