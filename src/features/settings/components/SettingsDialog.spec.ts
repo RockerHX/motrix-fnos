@@ -457,6 +457,20 @@ describe("SettingsDialog", () => {
     expect(wrapper.get(".settings-preferences-tabs").attributes("data-tabs-placement")).toBe("top");
   });
 
+  it.each(["下载代理", "Web 管理安全", "RPC 访问"])("only offers closing for the independently saved %s section", async (section) => {
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    const actions = wrapper.get('[data-test="app-dialog-actions"]');
+    expect(actions.findAll("button").map((button) => button.text())).toEqual(["取消", "保存"]);
+
+    await selectMainSection(wrapper, section);
+    expect(actions.findAll("button").map((button) => button.text())).toEqual(["关闭"]);
+    await actions.get("button").trigger("click");
+
+    expect(saveAppConfig).not.toHaveBeenCalled();
+    expect(wrapper.emitted("update:show")).toEqual([[false]]);
+  });
+
   it("previews the selected language immediately and restores it when cancelled", async () => {
     const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
     await flushPromises();

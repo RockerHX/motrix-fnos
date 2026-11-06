@@ -504,7 +504,6 @@ function formatSpeed(value: number) {
 
         <NTabPane name="proxy" :tab="t('settings.sections.proxy')" display-directive="show:lazy">
           <div class="settings-pane-section">
-            <p class="settings-section-description">{{ t("settings.sections.proxyHelp") }}</p>
             <ProxySettings :active="show" />
           </div>
         </NTabPane>
@@ -541,8 +540,10 @@ function formatSpeed(value: number) {
 
     <template #footer>
       <AppDialogActions>
-        <NButton :disabled="isSettingsSaving" @click="closeDialog">{{ t("common.cancel") }}</NButton>
-        <NButton type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
+        <NButton :disabled="isSettingsSaving" @click="closeDialog">
+          {{ t(activeSection === "preferences" ? "common.cancel" : "common.close") }}
+        </NButton>
+        <NButton v-if="activeSection === 'preferences'" type="primary" :loading="settingsStore.isSaving" :disabled="!canSave" @click="saveSettings">
           {{ t("common.save") }}
         </NButton>
       </AppDialogActions>
