@@ -62,3 +62,34 @@ test('安装向导允许保留密码重装时留空，填写时校验长度且�
   const start = readFileSync('packaging/fnos/cmd/start', 'utf8');
   assert.ok(start.indexOf('unset wizard_management_password wizard_management_password_confirm') < start.indexOf('nohup'));
 });
+
+test('安装、升级和卸载向导的所有展示文案均有完整中英字典', () => {
+  const dictionaries = ['en', 'en-US', 'zh-CN'].map((locale) => {
+    const content = readFileSync(`packaging/fnos/i18n/${locale}`, 'utf8');
+    assert.match(content, /^\[wizard\]/);
+    if (locale !== 'zh-CN') assert.doesNotMatch(content, /\p{Script=Han}/u);
+    return Object.fromEntries([...content.matchAll(/^(\w+)=(".*")$/gm)]
+      .map(([, key, value]) => [key, JSON.parse(value)]));
+  });
+  assert.deepEqual(dictionaries[0], dictionaries[1]);
+  assert.deepEqual(Object.keys(dictionaries[0]).sort(), Object.keys(dictionaries[2]).sort());
+  const used = new Set();
+  function check(value) {
+    if (Array.isArray(value)) return value.forEach(check);
+    if (!value || typeof value !== 'object') return;
+    for (const [key, item] of Object.entries(value)) {
+      if (['stepTitle', 'label', 'helpText', 'message'].includes(key)) {
+        const match = /^\$\{wizard\.(\w+)\}$/.exec(item);
+        assert.ok(match, `向导文案未引用字典：${item}`);
+        used.add(match[1]);
+        for (const dictionary of dictionaries) assert.ok(dictionary[match[1]], `向导翻译缺失：${match[1]}`);
+      } else {
+        check(item);
+      }
+    }
+  }
+  for (const name of ['install', 'upgrade', 'uninstall']) {
+    check(JSON.parse(readFileSync(`packaging/fnos/wizard/${name}`, 'utf8')));
+  }
+  assert.deepEqual([...used].sort(), Object.keys(dictionaries[0]).sort());
+});

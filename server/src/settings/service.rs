@@ -11,7 +11,7 @@ use std::path::Path;
 
 const APP_CONFIG_KEY: &str = "download";
 const LAN_JSONRPC_CONFIG_KEY: &str = "jsonrpc_lan";
-const DEFAULT_LANGUAGE: &str = "zh-CN";
+const DEFAULT_LANGUAGE: &str = "auto";
 const ENGLISH_LANGUAGE: &str = "en-US";
 pub const DEFAULT_MAX_CONCURRENT_DOWNLOADS: u32 = 5;
 pub const MAX_CONCURRENT_DOWNLOADS_LIMIT: u32 = 128;
@@ -301,9 +301,9 @@ fn migrate_connection_settings(value: &mut serde_json::Value) -> Result<(), Stri
 }
 
 fn normalize_language(language: &str) -> String {
-    match language.trim() {
-        DEFAULT_LANGUAGE => DEFAULT_LANGUAGE.to_string(),
-        ENGLISH_LANGUAGE => ENGLISH_LANGUAGE.to_string(),
+    let language = language.trim();
+    match language {
+        DEFAULT_LANGUAGE | "zh-CN" | ENGLISH_LANGUAGE => language.to_string(),
         _ => default_language(),
     }
 }

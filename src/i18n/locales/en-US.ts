@@ -18,6 +18,7 @@ export const enUS: Record<TranslationKey, string> = {
   "common.placeholder": "Placeholder",
   "common.troubleshooting": "Troubleshooting",
 
+  "language.auto": "Follow system",
   "language.zhCN": "简体中文",
   "language.enUS": "English",
 

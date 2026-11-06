@@ -68,6 +68,9 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
     'cmd/upgrade_init',
     'cmd/upgrade_callback',
     'wizard/upgrade',
+    'i18n/en',
+    'i18n/en-US',
+    'i18n/zh-CN',
   ]) {
     assertRegularFile(packageRoot, relativePath);
   }
@@ -117,7 +120,14 @@ function validateArtifact({ file, platform, machine }, extractionRoot) {
   }
   assert.equal(existsSync(path.join(packageRoot, 'cmd/upgrade-checker')), false);
   const wizard = JSON.parse(readFileSync(path.join(packageRoot, 'wizard/upgrade'), 'utf8'));
-  assert.match(JSON.stringify(wizard), /不导入或继续 1.x 的任务/);
+  assert.match(JSON.stringify(wizard), /\$\{wizard\.upgrade_compatibility_help\}/);
+  for (const locale of ['en', 'en-US', 'zh-CN']) {
+    assert.equal(
+      readFileSync(path.join(packageRoot, 'i18n', locale), 'utf8'),
+      readFileSync(path.join(repoRoot, 'packaging/fnos/i18n', locale), 'utf8'),
+      `FPK 中的 ${locale} 向导字典必须与源码一致`,
+    );
+  }
 
   const uiConfig = JSON.parse(readFileSync(path.join(appRoot, 'ui/config'), 'utf8'));
   assert.equal(uiConfig['.url']?.['motrix.Application']?.port, '17080');

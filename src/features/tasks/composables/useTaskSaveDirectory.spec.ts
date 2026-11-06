@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fnosHost } from "../../../services/fnos";
 import { getAccessiblePaths, getDisplayAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
 import { getAppConfig } from "../../../services/settings";
+import { setHostLanguage } from "../../../i18n";
 import { createTaskCreateFormState } from "./taskCreateFormModel";
 import { useTaskSaveDirectory } from "./useTaskSaveDirectory";
 
@@ -66,6 +67,17 @@ describe("useTaskSaveDirectory", () => {
     await saveDirectory.refreshAccessiblePaths();
 
     expect(saveDirectory.accessiblePathOptions.value[0]).toEqual({ label: "/downloads", value: "/downloads" });
+  });
+
+  it("requests path labels with the resolved host language in automatic mode", async () => {
+    setHostLanguage("en");
+    mockedGetAppConfig.mockResolvedValueOnce({ ...config("/downloads"), language: "auto" });
+    const saveDirectory = useTaskSaveDirectory(reactive(createTaskCreateFormState()));
+
+    await saveDirectory.refreshAccessiblePaths();
+
+    expect(mockedGetDisplayAccessiblePaths).toHaveBeenCalledWith("en-US");
+    expect(mockedGetDisplayAccessiblePaths).not.toHaveBeenCalledWith("auto");
   });
 
   it("prefers the configured default, then remembered path, then first authorized path", async () => {

@@ -16,6 +16,7 @@ export const zhCN = {
   "common.placeholder": "占位页",
   "common.troubleshooting": "排障入口",
 
+  "language.auto": "跟随系统",
   "language.zhCN": "简体中文",
   "language.enUS": "English",
 

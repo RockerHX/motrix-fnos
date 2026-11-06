@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BOOTSTRAP_FADE_MS, createBootstrapController } from "./bootstrap";
+import { nextTick } from "vue";
+import { setHostLanguage, setLanguage } from "../i18n";
 
 describe("bootstrap controller", () => {
   beforeEach(() => {
@@ -36,5 +38,17 @@ describe("bootstrap controller", () => {
     controller.finish();
     vi.advanceTimersByTime(0);
     expect(document.getElementById("app-bootstrap")?.classList.contains("app-bootstrap--leaving")).toBe(true);
+  });
+
+  it("updates the loading text when the host language arrives", async () => {
+    setHostLanguage("en");
+    setLanguage("auto");
+    const controller = createBootstrapController();
+    controller.startConfirmation();
+    expect(document.getElementById("app-bootstrap-status")?.textContent).toBe("Checking management access…");
+    setHostLanguage("zh-CN");
+    await nextTick();
+    expect(document.getElementById("app-bootstrap-status")?.textContent).toBe("正在确认管理访问权限…");
+    controller.dispose();
   });
 });

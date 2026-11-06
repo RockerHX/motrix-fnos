@@ -310,8 +310,8 @@ import SettingsDialog from "./SettingsDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import { fnosHost } from "../../../services/fnos";
 import { refreshAccessiblePaths, getAccessiblePaths } from "../../../services/storage";
-import { saveAppConfig } from "../../../services/settings";
-import { language, setLanguage } from "../../../i18n";
+import { getAppConfig, saveAppConfig } from "../../../services/settings";
+import { language, languagePreference, setHostLanguage, setLanguage } from "../../../i18n";
 import { useTaskStore } from "../../tasks/stores/taskStore";
 
 describe("SettingsDialog", () => {
@@ -479,6 +479,26 @@ describe("SettingsDialog", () => {
 
     const saveButton = wrapper.get('[data-test="app-dialog-actions"]').findAll("button").find((button) => button.text() === "保存")!;
     expect((saveButton.element as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("restores automatic language tracking when a manual preview is cancelled", async () => {
+    setHostLanguage("zh-CN");
+    vi.mocked(getAppConfig).mockResolvedValueOnce({
+      defaultDownloadDir: "/downloads", maxConcurrentDownloads: 5, downloadLimit: 0, uploadLimit: 0, language: "auto",
+    });
+    const { wrapper } = mountWithPinia(SettingsDialog, { props: { show: true } });
+    await flushPromises();
+    await selectPreferenceSection(wrapper, "界面配置");
+    expect(wrapper.get('[data-pane="interface"] select').text()).toContain("跟随系统");
+
+    await wrapper.get('[data-pane="interface"] select').setValue("en-US");
+    await flushPromises();
+    expect(language.value).toBe("en-US");
+    await wrapper.get('[data-test="app-dialog-actions"] button').trigger("click");
+    expect(languagePreference.value).toBe("auto");
+    setHostLanguage("en");
+    expect(language.value).toBe("en-US");
+    wrapper.unmount();
   });
 
   it("keeps save disabled for a default folder outside the authorized list", async () => {

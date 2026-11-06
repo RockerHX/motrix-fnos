@@ -553,7 +553,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 调优字段保存后会与限速和并发一起通过 `aria2.changeGlobalOption` 应用；Aria2 未运行时不会因设置操作启动，并会在下一次受控启动、session 恢复前应用已保存的规范化配置。旧客户端省略这些新增字段时按上述默认值保存。
 - 旧设置 `split` / `maxConnectionPerServer` 归并到 `httpMaxConnections`，按各自默认值与范围规范化后取较小值；响应只返回新字段。新旧字段混用返回 `400 settings_option_conflict`，提交已废弃的 `minSplitSize` 返回 `400 settings_option_unsupported`。
 - `PUT /api/settings` 保存成功后不会因为 Aria2 未运行或即时应用失败而回滚配置；响应中的可选 `runtimeApply` 为 `applied`（已即时应用）、`deferred`（Aria2 未就绪或生命周期正在切换，将在下次受控启动时生效）或 `failed`（已尝试即时应用但 Aria2 拒绝/调用失败）。旧客户端可以忽略该字段。
-- `language` 为 Web UI 语言偏好，当前支持 `zh-CN` 和 `en-US`；旧配置或非法值会回退为 `zh-CN`。
+- `language` 为 Web UI 语言偏好，支持 `auto`、`zh-CN` 和 `en-US`。新安装、缺失字段或非法值回退为 `auto`；已有明确中英文值保留。继续写入现有 SQLite 下载设置 JSON，无需修改表结构；前端解析出的具体语言才可用于路径展示 API，不能将 `auto` 传给这些 API。自动模式及登录页优先级见 [UI 规范](design/DESIGN.md#布局与主题)。
 - `GET /api/settings` 和 `PUT /api/settings` 不接收、不返回 JSON-RPC Token；旧请求中的 `jsonRpcToken` 字段必须忽略或拒绝，不得回显原文。
 - JSON-RPC Token 通过专用受保护接口更新；保存后立即生效且无需重启 Aria2。
 - `GET /api/settings/jsonrpc-token` 只返回是否已配置和掩码，不返回 Token 原文。

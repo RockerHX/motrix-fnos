@@ -31,6 +31,24 @@ const task = {
 };
 
 test.describe("browser smoke", () => {
+  for (const locale of ["zh-CN", "en-GB", "fr-FR"]) {
+    test(`keeps automatic language before and after login with browser locale ${locale}`, async ({ page }, testInfo) => {
+      await installFixture(page);
+      await page.addInitScript((value) => Object.defineProperty(navigator, "language", { value }), locale);
+      await page.route("**/api/settings", (route) => json(route, 200, {
+        defaultDownloadDir: "/downloads", maxConcurrentDownloads: 5, downloadLimit: 0, uploadLimit: 0, language: "auto",
+      }));
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: locale === "zh-CN" ? "登录 Motrix" : "Sign in to Motrix" })).toBeVisible();
+      await page.locator('[data-test="auth-password"] input').fill(password);
+      await page.locator('[data-test="auth-submit"]').click();
+      await expect(page.locator(".window-shell")).toBeVisible();
+      await expect(page.getByText(locale === "zh-CN" ? "暂无任务" : "No tasks", { exact: true })).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("lang", locale === "zh-CN" ? "zh-CN" : "en-US");
+      await page.screenshot({ path: testInfo.outputPath("automatic-language.png"), fullPage: true });
+    });
+  }
+
   test("shows the login form and keeps diagnostics visible", async ({ page }, testInfo) => {
     await installFixture(page);
     await page.goto("/");

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { language, saveLocalLanguagePreference, setLanguage } from "../i18n";
+import { language, setHostLanguage, setLanguage } from "../i18n";
 import type { FnosHostKind, FnosHostSubscription, FnosPlatformConfig, FnosTheme } from "../services/fnos";
 import { FnosPlatformController } from "./hostPlatform";
 import { appTheme, setAppTheme } from "./theme";
@@ -33,7 +33,7 @@ function host(kind: FnosHostKind, config: FnosPlatformConfig | null = platformCo
 function platformConfig(): FnosPlatformConfig {
   return {
     theme: "light",
-    language: "en-US",
+    language: "en",
     systemVersion: "1.2.0401",
     format: {},
   };
@@ -46,13 +46,14 @@ function subscription(unsubscribe: () => void): FnosHostSubscription {
 describe("FnosPlatformController", () => {
   beforeEach(() => {
     localStorage.clear();
-    setLanguage("zh-CN");
+    setHostLanguage("zh-CN");
+    setLanguage("auto");
     setAppTheme("dark");
   });
 
   it("initializes and listens to desktop theme and language", async () => {
     const hosted = host("hosted");
-    const controller = new FnosPlatformController(hosted.adapter, () => true);
+    const controller = new FnosPlatformController(hosted.adapter);
 
     await controller.initialize();
     expect(appTheme.value).toBe("light");
@@ -72,7 +73,7 @@ describe("FnosPlatformController", () => {
 
   it("initializes mobile theme without subscribing to Web events", async () => {
     const mobile = host("mobile");
-    const controller = new FnosPlatformController(mobile.adapter, () => true);
+    const controller = new FnosPlatformController(mobile.adapter);
 
     await controller.initialize();
 
@@ -83,7 +84,7 @@ describe("FnosPlatformController", () => {
 
   it("leaves standalone browsers on the default dark theme without host calls", async () => {
     const standalone = host("standalone");
-    const controller = new FnosPlatformController(standalone.adapter, () => true);
+    const controller = new FnosPlatformController(standalone.adapter);
 
     await controller.initialize();
 
@@ -92,17 +93,20 @@ describe("FnosPlatformController", () => {
     expect(standalone.adapter.setTitle).not.toHaveBeenCalled();
   });
 
-  it("never overrides explicit local or post-login language choices", async () => {
-    saveLocalLanguagePreference("zh-CN");
-    const localPreference = host("hosted");
-    await new FnosPlatformController(localPreference.adapter, () => true).initialize();
+  it("keeps automatic language after login and preserves explicit choices", async () => {
+    const postLogin = host("hosted");
+    const controller = new FnosPlatformController(postLogin.adapter);
+    await controller.initialize();
+
+    setLanguage("auto");
+    expect(language.value).toBe("en-US");
+    postLogin.emitLanguage("zh-CN");
     expect(language.value).toBe("zh-CN");
 
-    localStorage.clear();
-    const postLogin = host("hosted");
-    const controller = new FnosPlatformController(postLogin.adapter, () => false);
-    await controller.initialize();
-    postLogin.emitLanguage("en-US");
+    setLanguage("en-US");
+    postLogin.emitLanguage("zh");
+    expect(language.value).toBe("en-US");
+    setLanguage("auto");
     expect(language.value).toBe("zh-CN");
     controller.dispose();
   });

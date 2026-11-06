@@ -6,7 +6,7 @@ import {
   refreshAccessiblePaths as refreshAccessiblePathsFromApi,
 } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
-import { language, normalizeLanguage, setLanguage, t, type AppLanguage } from "../../../i18n";
+import { language, normalizeLanguagePreference, saveLocalLanguagePreference, setLanguage, t, type AppLanguage } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppConfig } from "../../../types/settings";
 import type { DisplayPath } from "../../../types/storage";
@@ -25,7 +25,7 @@ export const useSettingsStore = defineStore("settings", () => {
     isLoading.value = true;
     try {
       config.value = await getAppConfig();
-      config.value.language = normalizeLanguage(config.value.language);
+      config.value.language = normalizeLanguagePreference(config.value.language);
       setLanguage(config.value.language);
       return config.value;
     } finally {
@@ -38,10 +38,11 @@ export const useSettingsStore = defineStore("settings", () => {
     try {
       config.value = await saveAppConfig({
         ...payload,
-        language: normalizeLanguage(payload.language),
+        language: normalizeLanguagePreference(payload.language),
       });
-      config.value.language = normalizeLanguage(config.value.language);
+      config.value.language = normalizeLanguagePreference(config.value.language);
       setLanguage(config.value.language);
+      saveLocalLanguagePreference(config.value.language);
       return config.value;
     } finally {
       isSaving.value = false;

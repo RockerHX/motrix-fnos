@@ -16,7 +16,7 @@ import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
-import { supportedLanguages, useI18n } from "../../../i18n";
+import { languagePreference, supportedLanguages, useI18n } from "../../../i18n";
 import { getErrorMessage } from "../../../app/utils/errors";
 import {
   DEFAULT_CONNECT_TIMEOUT,
@@ -69,7 +69,7 @@ const form = reactive({
   maxTries: DEFAULT_MAX_TRIES,
   downloadLimitKb: 0,
   uploadLimitKb: 0,
-  language: "zh-CN" as AppConfig["language"],
+  language: "auto" as AppConfig["language"],
 });
 const hostKind = ref<FnosHostKind | null>(null);
 const isDetectingHost = ref(false);
@@ -95,12 +95,13 @@ const accessiblePathOptions = computed(() =>
     value: path,
   })),
 );
-const languageOptions = computed(() =>
-  supportedLanguages.map((language) => ({
+const languageOptions = computed(() => [
+  { label: t("language.auto"), value: "auto" },
+  ...supportedLanguages.map((language) => ({
     label: language === "zh-CN" ? t("language.zhCN") : t("language.enUS"),
     value: language,
   })),
-);
+]);
 const isDefaultDownloadDirUnauthorized = computed(
   () =>
     settingsStore.accessiblePaths.length > 0 &&
@@ -149,7 +150,7 @@ watch(
       activeSection.value = "preferences";
       activePreferencesSection.value = "authorization";
       activeRpcSection.value = "public";
-      savedLanguage.value = currentLanguage.value;
+      savedLanguage.value = languagePreference.value;
       void loadSettings();
     } else {
       restoreSavedLanguage();
@@ -164,7 +165,7 @@ watch(
     if (props.show && nextLanguage !== previousLanguage) {
       setLanguage(nextLanguage);
       if (settingsStore.accessiblePaths.length > 0) {
-        void settingsStore.loadDisplayAccessiblePaths(nextLanguage);
+        void settingsStore.loadDisplayAccessiblePaths(currentLanguage.value);
       }
     }
   },
@@ -297,7 +298,7 @@ function handleDialogVisibilityChange(nextShow: boolean) {
 }
 
 function restoreSavedLanguage() {
-  if (savedLanguage.value && currentLanguage.value !== savedLanguage.value) {
+  if (savedLanguage.value && languagePreference.value !== savedLanguage.value) {
     setLanguage(savedLanguage.value);
   }
 }

@@ -20,7 +20,7 @@ const appInfo = ref<AppInfo | null>(null);
 const backendPing = ref<BackendPing | null>(null);
 const errorMessage = ref("");
 let businessStarted = false;
-const platformController = createFnosPlatformController(() => !authStore.isReady);
+const platformController = createFnosPlatformController();
 
 async function refreshBackendStatus() {
   errorMessage.value = "";

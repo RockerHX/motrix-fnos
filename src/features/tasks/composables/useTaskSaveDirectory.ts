@@ -46,7 +46,7 @@ export function useTaskSaveDirectory(form: TaskCreateFormState) {
       const pathsRequest = options.queryOfficial ? refreshAccessiblePathsFromApi() : getAccessiblePaths();
       const [response, config] = await Promise.all([pathsRequest, settingsStore.loadConfig()]);
       accessiblePaths.value = response.paths;
-      await loadDisplayPaths(config.language);
+      await loadDisplayPaths(language.value);
       syncSelectedSaveDir(config.defaultDownloadDir);
       return true;
     } catch (error) {

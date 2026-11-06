@@ -73,7 +73,7 @@ for (const [title, script, args, expected] of flows) {
       writeFileSync(path.join(root, 'dist/index.html'), '<html>fixture</html>');
       if (script === 'build/build-fpk.mjs') {
         const fpk = path.join(root, 'packaging/fnos');
-        for (const entry of ['manifest.template', 'ICON.PNG', 'ICON_256.PNG', 'MotrixFNOS.sc', 'config', 'cmd', 'wizard', 'app/ui/config']) {
+        for (const entry of ['manifest.template', 'ICON.PNG', 'ICON_256.PNG', 'MotrixFNOS.sc', 'config', 'cmd', 'wizard', 'i18n', 'app/ui/config']) {
           const target = path.join(fpk, entry);
           mkdirSync(path.dirname(target), { recursive: true });
           cpSync(path.join(repoRoot, 'packaging/fnos', entry), target, { recursive: true });

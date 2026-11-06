@@ -1,4 +1,4 @@
-import { normalizeLanguage, setLanguage, hasLocalLanguagePreference } from "../i18n";
+import { setHostLanguage } from "../i18n";
 import {
   fnosHost,
   type FnosHostAdapter,
@@ -15,10 +15,7 @@ export class FnosPlatformController {
   private subscriptions: FnosHostSubscription[] = [];
   private active = false;
 
-  constructor(
-    private readonly host: HostAdapter = fnosHost,
-    private readonly canUseHostLanguage: () => boolean = () => true,
-  ) {}
+  constructor(private readonly host: HostAdapter = fnosHost) {}
 
   async initialize() {
     this.dispose();
@@ -30,7 +27,7 @@ export class FnosPlatformController {
     if (!this.active) return;
     if (config) {
       setAppTheme(config.theme);
-      this.applyHostLanguage(config.language);
+      setHostLanguage(config.language);
     }
     void this.host.setTitle("Motrix");
 
@@ -40,7 +37,7 @@ export class FnosPlatformController {
         if (this.active) setAppTheme(theme);
       }),
       this.host.subscribeLanguage((language) => {
-        if (this.active) this.applyHostLanguage(language);
+        if (this.active) setHostLanguage(language);
       }),
     ]);
     if (!this.active) {
@@ -55,13 +52,8 @@ export class FnosPlatformController {
     this.active = false;
     for (const subscription of this.subscriptions.splice(0)) subscription.unsubscribe();
   }
-
-  private applyHostLanguage(language: string) {
-    if (!this.canUseHostLanguage() || hasLocalLanguagePreference()) return;
-    setLanguage(normalizeLanguage(language));
-  }
 }
 
-export function createFnosPlatformController(canUseHostLanguage: () => boolean) {
-  return new FnosPlatformController(fnosHost, canUseHostLanguage);
+export function createFnosPlatformController() {
+  return new FnosPlatformController();
 }

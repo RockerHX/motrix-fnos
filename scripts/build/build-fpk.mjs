@@ -180,6 +180,9 @@ function preflightStageDir(dir, platform, servicePort) {
     'wizard/install',
     'wizard/upgrade',
     'wizard/uninstall',
+    'i18n/en',
+    'i18n/en-US',
+    'i18n/zh-CN',
     'MotrixFNOS.sc',
   ];
 
