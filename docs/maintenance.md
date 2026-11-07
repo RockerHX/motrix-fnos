@@ -54,7 +54,7 @@
 | `build:fpk` | 核对或执行完整 verify → 复用已验证 Web 产物 → 双架构打包 → verify:fpk |
 | `build:fpk:release` | 扩展 verify → 复用 Web 产物 → 双架构打包 → verify:fpk |
 
-Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完整验证成功时压缩输出，失败保留详情；非交互长步骤每 30 秒报告进度。
+Rust 后端单独测试：`cargo test --manifest-path server/Cargo.toml`。完整验证成功时压缩输出，失败保留详情；非交互长步骤每 30 秒报告进度。Rust 报告测试运行超过 60 秒时，进度显示对应的仍在运行的测试名；“最近完成”表示已结束的测试。
 
 日常 Rust 验证保留两次正常启停、崩溃恢复、任务与原生状态保留、SSE 退出和端口释放检查；完整重启次数、连接压力和 10 秒真实退出超时由 `test:stability` 执行。每周 / 手动 CI 与本地发布前 `build:fpk:release` 通过 `verify:extended` 包含该专项，不删除原有断言。仅修改该专项或其夹具的推送也会执行 `test:stability`。
 

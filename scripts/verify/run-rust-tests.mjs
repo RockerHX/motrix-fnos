@@ -34,6 +34,8 @@ export function formatRustTestSummary(summary) {
 
 export function rustTestProgressDetail(line) {
   const normalized = String(line).trim();
+  const slowMatch = normalized.match(/^test (.+) has been running for over (\d+) seconds$/);
+  if (slowMatch) return `仍在运行（超过 ${slowMatch[2]} 秒）：${slowMatch[1]}`;
   const countMatch = normalized.match(/^running (\d+) tests?$/);
   if (countMatch && Number(countMatch[1]) > 0) return `正在运行：${countMatch[1]} 项 Rust 测试`;
   const testMatch = normalized.match(/^test (.+) \.\.\. (ok|ignored|FAILED)$/);
