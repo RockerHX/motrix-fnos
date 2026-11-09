@@ -101,8 +101,9 @@
 }
 
 .settings-rpc-tabs :deep(.n-tabs-nav) {
-  flex: 0 0 148px;
-  width: 148px;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 148px;
   margin: 0 16px 0 0;
 }
 
@@ -172,8 +173,9 @@
 }
 
 .settings-preferences-tabs :deep(.n-tabs-nav) {
-  flex: 0 0 132px;
-  width: 132px;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 132px;
   margin: 0 16px 0 0;
 }
 
@@ -403,6 +405,7 @@
   .settings-rpc-tabs :deep(.n-tabs-nav) {
     flex-basis: 124px;
     width: 124px;
+    min-width: 124px;
     margin-right: 12px;
   }
 

@@ -171,6 +171,28 @@ describe("ProxySettings", () => {
 
     expect(mockedUpdate).toHaveBeenCalledWith(undefined, false);
     expect(toggle.attributes("aria-checked")).toBe("false");
+    expect(wrapper.find('[data-test="bt-proxy-runtime-status"]').exists()).toBe(false);
+  });
+
+  it.each([
+    { name: "unconfigured", configured: false, enabled: false, apply: "deferred", expected: null },
+    { name: "disabled", configured: true, enabled: false, apply: "deferred", expected: null },
+    { name: "enabled and deferred", configured: true, enabled: true, apply: "deferred", expected: "将在引擎启动后应用" },
+    { name: "blocked while disabling", configured: true, enabled: false, apply: "blocked", expected: "应用失败，BT 任务保持暂停" },
+  ] as const)("shows the relevant BT runtime status when $name", async ({ configured, enabled, apply, expected }) => {
+    mockedGetStatus.mockResolvedValueOnce({
+      ...configuredStatus(),
+      configured,
+      maskedProxyUrl: configured ? configuredStatus().maskedProxyUrl : null,
+      btUseProxy: enabled,
+      btRuntimeApply: apply,
+    });
+    const { wrapper } = mountSettings();
+    await flushPromises();
+
+    const status = wrapper.find('[data-test="bt-proxy-runtime-status"]');
+    expect(status.exists()).toBe(expected !== null);
+    if (expected) expect(status.text()).toContain(expected);
   });
 });
 

@@ -1,3 +1,6 @@
+import { watchEffect } from "vue";
+import { t } from "../i18n";
+
 export const AUTH_CONFIRMATION_MIN_VISIBLE_MS = 1000;
 export const BOOTSTRAP_FADE_MS = 180;
 
@@ -6,12 +9,16 @@ export function createBootstrapController() {
   let removeTimer: number | null = null;
   let confirmationStartedAt: number | null = null;
   let finishing = false;
+  let stopLanguageWatch: (() => void) | null = null;
 
   function startConfirmation() {
     if (confirmationStartedAt !== null) return;
     confirmationStartedAt = performance.now();
-    const status = document.getElementById("app-bootstrap-status");
-    if (status) status.textContent = "正在确认管理访问权限…";
+    stopLanguageWatch = watchEffect(() => {
+      const status = document.getElementById("app-bootstrap-status");
+      if (status) status.textContent = `${t("auth.loading")}…`;
+      document.getElementById("app-bootstrap")?.setAttribute("aria-label", `Motrix ${t("auth.loading")}`);
+    });
   }
 
   function finish() {
@@ -24,11 +31,15 @@ export function createBootstrapController() {
     const remaining = Math.max(0, AUTH_CONFIRMATION_MIN_VISIBLE_MS - (performance.now() - startedAt));
     dismissTimer = window.setTimeout(() => {
       element.classList.add("app-bootstrap--leaving");
-      removeTimer = window.setTimeout(() => element.remove(), BOOTSTRAP_FADE_MS);
+      removeTimer = window.setTimeout(() => {
+        stopLanguageWatch?.();
+        element.remove();
+      }, BOOTSTRAP_FADE_MS);
     }, remaining);
   }
 
   function dispose() {
+    stopLanguageWatch?.();
     if (dismissTimer !== null) window.clearTimeout(dismissTimer);
     if (removeTimer !== null) window.clearTimeout(removeTimer);
     dismissTimer = null;

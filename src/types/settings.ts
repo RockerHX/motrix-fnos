@@ -1,4 +1,4 @@
-import type { AppLanguage } from "../i18n";
+import type { AppLanguagePreference } from "../i18n";
 
 export const DEFAULT_MAX_CONCURRENT_DOWNLOADS = 5;
 export const MAX_CONCURRENT_DOWNLOADS_LIMIT = 128;
@@ -18,7 +18,7 @@ export interface AppConfig {
   maxTries?: number;
   downloadLimit: number;
   uploadLimit: number;
-  language: AppLanguage;
+  language: AppLanguagePreference;
   runtimeApply?: RuntimeApplyStatus;
 }
 

@@ -1,32 +1,32 @@
 [
   {
-    "stepTitle": "设置管理密码",
+    "stepTitle": "${wizard.install_title}",
     "items": [
       {
         "type": "tips",
-        "helpText": "<b>首次安装或已清除应用数据</b><br>请设置用于登录 Motrix 的管理密码，长度为 8–128 个字符，两次输入须一致。<br><br><b>保留应用数据后重装</b><br>两项留空，直接点击下一步。安装时会检查已保存的管理密码并沿用，本页输入不会修改原密码；若原数据中尚未设置密码，仍需填写。"
+        "helpText": "${wizard.install_help}"
       },
       {
         "type": "password",
         "field": "wizard_management_password",
-        "label": "管理密码",
+        "label": "${wizard.password_label}",
         "rules": [
           {
             "min": 8,
             "max": 128,
-            "message": "管理密码需要 8–128 个字符"
+            "message": "${wizard.password_length}"
           }
         ]
       },
       {
         "type": "password",
         "field": "wizard_management_password_confirm",
-        "label": "确认管理密码",
+        "label": "${wizard.password_confirm_label}",
         "rules": [
           {
             "min": 8,
             "max": 128,
-            "message": "管理密码需要 8–128 个字符"
+            "message": "${wizard.password_length}"
           }
         ]
       }

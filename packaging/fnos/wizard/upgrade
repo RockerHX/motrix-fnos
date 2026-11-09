@@ -1,22 +1,22 @@
 [
   {
-    "stepTitle": "升级须知与确认",
+    "stepTitle": "${wizard.upgrade_title}",
     "items": [
       {
         "type": "tips",
-        "helpText": "<b>1.x 任务与续传状态不兼容</b><br>2.x 使用全新下载引擎，不导入或继续 1.x 的任务，也不兼容其续传进度、session 和引擎状态。升级后 1.x 任务不再显示；需要保留进度的下载，请先在旧版完成，包括回收站中需要恢复的任务。"
+        "helpText": "${wizard.upgrade_compatibility_help}"
       },
       {
         "type": "tips",
-        "helpText": "<b>文件保留，升级前请自行备份</b><br>已下载文件与旧任务状态保留原处，管理密码、设置、目录授权和 RPC Token 沿用。保留旧数据不代表新版可恢复旧任务，应用不会自动备份或迁移旧任务。<br><br>如需回滚，必须恢复配套旧版安装包及升级前完整应用数据备份，不能让 1.x 直接读取新版数据。"
+        "helpText": "${wizard.upgrade_backup_help}"
       },
       {
         "type": "checkbox",
         "field": "wizard_upgrade_acknowledged",
-        "label": "升级确认",
+        "label": "${wizard.upgrade_ack_label}",
         "options": [
           {
-            "label": "我已阅读并同意上述升级兼容性与备份说明",
+            "label": "${wizard.upgrade_ack_option}",
             "value": "true"
           }
         ],
@@ -24,7 +24,7 @@
           {
             "type": "array",
             "required": true,
-            "message": "请先阅读并同意升级说明"
+            "message": "${wizard.upgrade_ack_required}"
           }
         ]
       }

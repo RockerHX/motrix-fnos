@@ -1,4 +1,7 @@
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+import { setLanguage } from "../i18n";
+
+beforeEach(() => setLanguage("zh-CN"));
 
 const resizeObserverStub = class ResizeObserver {
   observe() {}

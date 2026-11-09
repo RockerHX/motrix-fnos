@@ -75,6 +75,7 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
                 .await
                 .expect("default config should load");
             assert_eq!(default_config.default_download_dir, "/app/data");
+            assert_eq!(default_config.language, "auto");
 
             let saved = normalize_app_config(
                 AppConfig {
@@ -132,6 +133,26 @@ fn app_config_uses_defaults_and_round_trips_saved_values() {
             assert_eq!(loaded.download_limit, 1024);
             assert_eq!(loaded.upload_limit, 2048);
             assert_eq!(loaded.language, "en-US");
+            for language in ["auto", "zh-CN", "en-US"] {
+                let mut config = loaded.clone();
+                config.language = language.to_string();
+                save_app_config(
+                    &database.pool,
+                    config,
+                    "/app/data",
+                    &["/tmp/downloads".to_string()],
+                    std::path::Path::new("/app/data"),
+                )
+                .await
+                .expect("language preference should save");
+                assert_eq!(
+                    load_app_config_from_pool(&database.pool, "/app/data")
+                        .await
+                        .expect("language preference should load")
+                        .language,
+                    language
+                );
+            }
             assert_eq!(
                 load_json_rpc_token(&database.pool)
                     .await
@@ -249,7 +270,7 @@ fn app_config_accepts_legacy_saved_values() {
             assert_eq!(loaded.http_max_connections, 3);
             assert_eq!(loaded.connect_timeout, DEFAULT_CONNECT_TIMEOUT);
             assert_eq!(loaded.max_tries, DEFAULT_MAX_TRIES);
-            assert_eq!(loaded.language, "zh-CN");
+            assert_eq!(loaded.language, "auto");
             assert_eq!(
                 load_json_rpc_token(&database.pool)
                     .await
@@ -280,7 +301,7 @@ fn app_config_falls_back_to_default_language_for_invalid_values() {
     )
     .expect("config should normalize");
 
-    assert_eq!(config.language, "zh-CN");
+    assert_eq!(config.language, "auto");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { IconDeviceFloppy, IconTrash } from "@tabler/icons-vue";
-import { NAlert, NButton, NIcon, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
+import { NAlert, NButton, NFormItem, NIcon, NInput, NSpace, NSwitch, NText, useMessage } from "naive-ui";
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { getErrorMessage } from "../../../app/utils/errors";
@@ -125,38 +125,28 @@ onUnmounted(closeTransientState);
       </NText>
     </div>
 
-    <NAlert type="info" :bordered="false">{{ t("settings.proxy.privacyHelp") }}</NAlert>
-
-    <div class="proxy-settings-bt" data-test="bt-proxy-settings">
-      <div>
-        <h4>{{ t("settings.proxy.btTitle") }}</h4>
-        <NText depth="3">{{ t("settings.proxy.btHelp") }}</NText>
-      </div>
-      <NSpace align="center" :size="12">
-        <NText :type="btRuntimeStatusType" data-test="bt-proxy-runtime-status">{{ btRuntimeStatusText }}</NText>
-        <NSwitch
-          :value="store.status?.btUseProxy ?? false"
-          :disabled="!canToggleBtProxy"
-          :loading="store.isSaving"
-          :aria-label="t('settings.proxy.btTitle')"
-          data-test="bt-proxy-switch"
-          @update:value="updateBtUseProxy"
+    <div class="proxy-settings-address">
+      <NFormItem
+        :label="t('settings.proxy.addressLabel')"
+        :label-props="{ for: 'download-proxy-address' }"
+        label-placement="top"
+        :show-feedback="false"
+      >
+        <NInput
+          :value="store.draftProxyUrl"
+          type="password"
+          show-password-on="mousedown"
+          :placeholder="t('settings.proxy.placeholder')"
+          :disabled="taskStore.isDownloadBlocked || store.isLoading || store.isSaving"
+          :input-props="{ id: 'download-proxy-address', 'aria-describedby': 'download-proxy-help', autocomplete: 'off', spellcheck: 'false' }"
+          :maxlength="2048"
+          data-test="download-proxy-input"
+          @update:value="store.setDraftProxyUrl"
+          @keyup.enter="requestSave"
         />
-      </NSpace>
+      </NFormItem>
+      <NText id="download-proxy-help" depth="3" class="proxy-settings-address-help">{{ t("settings.proxy.privacyHelp") }}</NText>
     </div>
-
-    <NInput
-      :value="store.draftProxyUrl"
-      type="password"
-      show-password-on="mousedown"
-      :placeholder="t('settings.proxy.placeholder')"
-      :disabled="taskStore.isDownloadBlocked || store.isLoading || store.isSaving"
-      :input-props="{ autocomplete: 'off', spellcheck: 'false' }"
-      :maxlength="2048"
-      data-test="download-proxy-input"
-      @update:value="store.setDraftProxyUrl"
-      @keyup.enter="requestSave"
-    />
 
     <NSpace justify="space-between" align="center" wrap class="proxy-settings-actions">
       <NButton
@@ -188,6 +178,26 @@ onUnmounted(closeTransientState);
         </li>
       </ul>
     </NAlert>
+
+    <div class="proxy-settings-bt" data-test="bt-proxy-settings">
+      <div class="proxy-settings-bt-heading">
+        <h4>{{ t("settings.proxy.btTitle") }}</h4>
+        <NSwitch
+          :value="store.status?.btUseProxy ?? false"
+          :disabled="!canToggleBtProxy"
+          :loading="store.isSaving"
+          :aria-label="t('settings.proxy.btTitle')"
+          data-test="bt-proxy-switch"
+          @update:value="updateBtUseProxy"
+        />
+      </div>
+      <NText depth="3">{{ t("settings.proxy.btHelp") }}</NText>
+      <NText
+        v-if="store.status?.btRuntimeApply === 'blocked' || (store.status?.configured && store.status.btUseProxy)"
+        :type="btRuntimeStatusType"
+        data-test="bt-proxy-runtime-status"
+      >{{ btRuntimeStatusText }}</NText>
+    </div>
 
     <AppDialog
       :show="showSaveConfirm"

@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { language } from "../../../i18n";
+import { getLocalLanguagePreference, language, languagePreference, saveLocalLanguagePreference, setHostLanguage } from "../../../i18n";
 import { getAccessiblePaths, getDisplayAccessiblePaths, refreshAccessiblePaths } from "../../../services/storage";
 import { getAppConfig, saveAppConfig } from "../../../services/settings";
 import type { AppConfig } from "../../../types/settings";
@@ -23,6 +23,8 @@ describe("settingsStore", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    localStorage.clear();
+    setHostLanguage("en");
     mockedGetDisplayAccessiblePaths.mockResolvedValue({ paths: [] });
   });
 
@@ -35,9 +37,9 @@ describe("settingsStore", () => {
     expect(store.isLoading).toBe(true);
 
     deferred.resolve(config({ language: "unsupported" as AppConfig["language"] }));
-    await expect(promise).resolves.toMatchObject({ language: "zh-CN" });
-    expect(store.config?.language).toBe("zh-CN");
-    expect(language.value).toBe("zh-CN");
+    await expect(promise).resolves.toMatchObject({ language: "auto" });
+    expect(store.config?.language).toBe("auto");
+    expect(language.value).toBe("en-US");
     expect(store.isLoading).toBe(false);
   });
 
@@ -46,11 +48,33 @@ describe("settingsStore", () => {
     mockedSaveAppConfig.mockResolvedValueOnce(config({ language: "invalid" as AppConfig["language"] }));
 
     await expect(store.saveConfig(config({ language: "invalid" as AppConfig["language"] }))).resolves.toMatchObject({
-      language: "zh-CN",
+      language: "auto",
     });
 
-    expect(mockedSaveAppConfig).toHaveBeenCalledWith(config({ language: "zh-CN" }));
+    expect(mockedSaveAppConfig).toHaveBeenCalledWith(config({ language: "auto" }));
     expect(store.isSaving).toBe(false);
+  });
+
+  it("keeps following the host after config loads and persists explicit choices", async () => {
+    const store = useSettingsStore();
+    mockedGetAppConfig.mockResolvedValueOnce(config({ language: "auto" }));
+    await store.loadConfig();
+    expect(language.value).toBe("en-US");
+    setHostLanguage("zh-CN");
+    expect(language.value).toBe("zh-CN");
+
+    mockedSaveAppConfig.mockResolvedValueOnce(config({ language: "en-US" }));
+    await store.saveConfig(config({ language: "en-US" }));
+    expect(getLocalLanguagePreference()).toBe("en-US");
+    setHostLanguage("zh-CN");
+    expect(language.value).toBe("en-US");
+
+    saveLocalLanguagePreference("en-US");
+    mockedSaveAppConfig.mockResolvedValueOnce(config({ language: "auto" }));
+    await store.saveConfig(config({ language: "auto" }));
+    expect(languagePreference.value).toBe("auto");
+    expect(getLocalLanguagePreference()).toBeNull();
+    expect(language.value).toBe("zh-CN");
   });
 
   it("loads accessible paths and clears earlier errors", async () => {

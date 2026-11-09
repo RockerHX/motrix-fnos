@@ -60,7 +60,8 @@ Rust Runtime Event -> SSE -> runtime event service -> Pinia -> Component
 - 不在组件散落后端请求，不在前端拼装复杂 Aria2 RPC，不混用页面临时状态与持久状态。
 - UI 优先使用 Naive UI；主题、样式文件及 UnoCSS 使用规则见 [开发指令](../AGENTS.md#实现与文档)，产品交互和视觉要求见 [UI 规范](design/DESIGN.md)。
 - HTTP 与 SSE 使用同源请求和 `Authorization: Bearer <JWT>`；上游网关 Cookie 只用于网关访问，不作为 Motrix 授权依据。
-- fnOS SDK 只在宿主内由用户操作触发；独立浏览器显示降级提示。授权事实始终来自服务端官方 API 快照，SDK 返回值和语义化路径不能绕过真实路径校验。
+- fnOS SDK 的语言、主题读取与订阅在宿主内启动时执行，目录授权和文件操作由用户触发；独立浏览器使用浏览器语言并显示能力降级提示。授权事实始终来自服务端官方 API 快照，SDK 返回值和语义化路径不能绕过真实路径校验。
+- Web UI 语言偏好保存在现有 SQLite 下载设置中，新安装默认 `auto`，已有明确中英文值保留；自动模式采用宿主用户界面语言，宿主不可用时采用浏览器语言，不支持的语言回退英语。登录页本地选择及设置中的手动选择优先于自动语言；具体交互见 [UI 规范](design/DESIGN.md#布局与主题)。FPK 向导使用包内 i18n 字典，由系统按用户语言解析。
 
 ## 5. 持久化与任务安全
 

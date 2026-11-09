@@ -45,3 +45,10 @@ test('Rust 测试进度明确展示最近完成或失败的测试', () => {
   assert.equal(rustTestProgressDetail('running 0 tests'), null);
   assert.equal(rustCargoProgressDetail('   Doc-tests motrix_fnos_server'), '启动文档测试目标：motrix_fnos_server');
 });
+
+test('Rust 耗时提示显示仍在运行的测试名称', () => {
+  assert.equal(
+    rustTestProgressDetail('test tasks::service::tests::slow_task has been running for over 60 seconds'),
+    '仍在运行（超过 60 秒）：tasks::service::tests::slow_task',
+  );
+});
