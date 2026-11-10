@@ -131,6 +131,80 @@ fn native_restore_allows_released_tasks_only_after_payload_deletion_was_recorded
     assert_eq!(tasks.list().unwrap(), vec![task]);
 }
 
+#[test]
+fn native_restore_preserves_completed_history_when_engine_files_are_missing() {
+    for source_type in [
+        DownloadTaskSourceType::Url,
+        DownloadTaskSourceType::Torrent,
+        DownloadTaskSourceType::Magnet,
+    ] {
+        for removed in [false, true] {
+            let mut task = proxy_task(None);
+            task.source_type = source_type;
+            task.status = if removed {
+                DownloadTaskStatus::Removed
+            } else {
+                DownloadTaskStatus::Complete
+            };
+            task.removed_from_status = removed.then_some(DownloadTaskStatus::Complete);
+            task.completed_length = task.total_length;
+            task.selected_file_indexes = vec![1];
+            task.files = vec![crate::tasks::DownloadTaskFile {
+                index: 1,
+                path: task.file_path.clone().unwrap(),
+                name: task.file_name.clone(),
+                length: task.total_length,
+                completed_length: task.total_length,
+                selected: true,
+            }];
+            for engine_status in ["paused", "complete", "error", "active", "waiting"] {
+                let status: Aria2TaskStatus = serde_json::from_value(json!({
+                    "gid": task.gid,
+                    "status": engine_status,
+                    "dir": task.save_dir,
+                    "totalLength": "0",
+                    "completedLength": "0",
+                    "downloadSpeed": "0",
+                    "files": [],
+                }))
+                .unwrap();
+                let tasks = TaskMemoryState::new(vec![task.clone()]);
+                let result =
+                    super::native::sync_native_session(&tasks, &[status], Path::new("/private"));
+                if matches!(engine_status, "active" | "waiting") {
+                    assert!(result.unwrap_err().contains("task_resume_state_invalid"));
+                } else {
+                    assert_eq!(result.unwrap(), vec![task.clone()]);
+                }
+                assert_eq!(tasks.list().unwrap(), vec![task.clone()]);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn proxy_reconcile_skips_completed_history_even_without_an_available_binding() {
+    let mock = MockAria2Server::spawn("").await;
+    let mut completed = proxy_task(None);
+    completed.status = DownloadTaskStatus::Complete;
+    let mut removed = completed.clone();
+    removed.id = 2;
+    removed.gid = Some("gid-removed".to_string());
+    removed.status = DownloadTaskStatus::Removed;
+    removed.removed_from_status = Some(DownloadTaskStatus::Complete);
+    let tasks = TaskMemoryState::new(vec![completed, removed]);
+    reconcile_session_task_proxies(
+        &tasks,
+        &Aria2RpcClient::new(),
+        &native_config(mock.addr.port()),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(mock.requests().is_empty());
+    mock.abort();
+}
+
 #[tokio::test]
 async fn native_restore_keeps_original_gid_and_recycle_bin_fact() {
     let mock = MockAria2Server::spawn("").await;

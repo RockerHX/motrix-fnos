@@ -500,6 +500,8 @@ async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restor
         "bt-proxy",
         "bt-proxy-rejected",
         "late-exit",
+        "completed-missing",
+        "completed-unloaded",
     ] {
         let unknown_gid = scenario == "unknown";
         let reject_proxy = scenario == "bt-proxy-rejected";
@@ -543,6 +545,8 @@ class Handler(BaseHTTPRequestHandler):
             result = {'bt-proxy': '' if (root / 'reject-proxy').exists() else bt_proxy}
         elif method == 'aria2.tellWaiting' and (root / 'unknown').exists():
             result = [{'gid': 'untracked-gid', 'status': 'paused', 'totalLength': '0', 'completedLength': '0', 'downloadSpeed': '0'}]
+        elif method == 'aria2.tellStopped' and (root / 'completed-session.json').exists():
+            result = json.loads((root / 'completed-session.json').read_text())
         elif method.startswith('aria2.tell'): result = []
         else: result = 'OK'
         response = json.dumps({'jsonrpc': '2.0', 'id': body['id'], 'result': result}).encode()
@@ -581,6 +585,48 @@ server.serve_forever()
         };
         let state = bootstrap_http_app_state(&runtime).await.unwrap();
         let process_guard = NativeStartupProcessGuard(&state);
+        let completed_history = if scenario.starts_with("completed-") {
+            let downloads = root.join("downloads");
+            std::fs::create_dir_all(&downloads).unwrap();
+            let file = downloads.join("completed.bin");
+            std::fs::write(&file, b"data").unwrap();
+            let task: crate::tasks::DownloadTask = serde_json::from_value(json!({
+                "id": 2, "engineGeneration": "native-v2",
+                "url": "https://example.com/completed.bin", "sourceType": "url",
+                "fileName": "completed.bin", "saveDir": downloads, "category": "默认",
+                "gid": "completed-gid", "status": "complete",
+                "totalLength": 4, "completedLength": 4, "downloadSpeed": 0,
+                "filePath": file, "useProxy": true, "confirmationRequired": false,
+                "selectedFileIndexes": [1], "createdAt": 1, "updatedAt": 1,
+                "files": [{"index": 1, "path": file, "name": "completed.bin",
+                    "length": 4, "completedLength": 4, "selected": true}],
+            }))
+            .unwrap();
+            crate::database::tasks::upsert_download_task(&state.core.database.pool, &task)
+                .await
+                .unwrap();
+            state
+                .core
+                .download_tasks
+                .with_tasks_mut(|tasks| tasks.push(task.clone()))
+                .unwrap();
+            std::fs::remove_file(&file).unwrap();
+            if scenario == "completed-missing" {
+                std::fs::write(
+                    root.join("completed-session.json"),
+                    json!([{
+                        "gid": task.gid, "status": "error", "dir": downloads,
+                        "totalLength": "0", "completedLength": "0", "downloadSpeed": "0",
+                        "files": [], "errorCode": "1", "errorMessage": "File not found",
+                    }])
+                    .to_string(),
+                )
+                .unwrap();
+            }
+            Some(task)
+        } else {
+            None
+        };
         if scenario.starts_with("bt-proxy") {
             std::fs::write(
                 root.join("expected-proxy"),
@@ -662,6 +708,29 @@ server.serve_forever()
             assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
         }
         let calls = std::fs::read_to_string(root.join("calls")).unwrap();
+        if let Some(task) = completed_history {
+            assert_eq!(
+                state.core.download_tasks.list().unwrap(),
+                vec![task.clone()]
+            );
+            assert_eq!(
+                crate::database::tasks::list_download_tasks(&state.core.database.pool)
+                    .await
+                    .unwrap(),
+                vec![task.clone()]
+            );
+            assert_eq!(
+                crate::tasks::file_context::task_file_actions(
+                    &task,
+                    &[root.join("downloads").display().to_string()]
+                )
+                .availability,
+                crate::tasks::file_context::TaskFileAvailability::PathMissing
+            );
+            assert!(!root.join("downloads/completed.bin").exists());
+            assert!(!calls.contains("aria2.getOption"));
+            assert!(!calls.contains("aria2.changeOption"));
+        }
         assert!(calls.contains("aria2.forcePauseAll"));
         assert!(calls.contains("aria2.getGlobalOption"));
         if scenario.starts_with("bt-proxy") {

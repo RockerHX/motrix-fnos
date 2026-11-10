@@ -4,7 +4,7 @@ use crate::debug_logs::DebugLogStore;
 use crate::tasks::prepare::validate_url_output_file_name;
 use crate::tasks::{
     change_task_options_with_request_id, get_task_options, Aria2TaskOptionError, Aria2TaskRequest,
-    DownloadTask, DownloadTaskSourceType, TaskMemoryState,
+    DownloadTask, DownloadTaskSourceType, DownloadTaskStatus, TaskMemoryState,
 };
 
 use super::aria2_rpc::build_tell_many_request;
@@ -158,6 +158,10 @@ pub async fn reconcile_session_task_proxies(
     let candidates = crate::tasks::list_tasks(tasks)?
         .into_iter()
         .filter(|task| task.engine_generation == crate::config::aria2::EngineGeneration::NativeV2)
+        .filter(|task| {
+            task.status != DownloadTaskStatus::Complete
+                && task.removed_from_status != Some(DownloadTaskStatus::Complete)
+        })
         .filter(|task| {
             task.gid
                 .as_deref()
