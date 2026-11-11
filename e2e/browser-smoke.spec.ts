@@ -31,6 +31,70 @@ const task = {
 };
 
 test.describe("browser smoke", () => {
+  for (const language of ["zh-CN", "en-US"] as const) {
+    for (const theme of ["dark", "light"] as const) {
+      test(`checks missing completed files before redownload in ${language} ${theme}`, async ({ page }, testInfo) => {
+        const fixture = await installFixture(page);
+        fixture.eventTasks = [{ ...task, status: "complete", completedLength: 1024 }];
+        let availability = "available";
+        let writes = 0;
+        await page.route("**/api/tasks/1/file-context*", (route) => json(route, 200, {
+          saveDir: { path: "/downloads", displayPath: "/downloads" }, filePath: null,
+          actions: { availability, fileManagerPath: null, openFilePath: null, detailPaths: [] },
+        }));
+        await page.route("**/api/tasks/1/redownload", async (route) => {
+          writes += 1;
+          fixture.eventTasks = [{ ...task, status: "active" }];
+          await json(route, 200, fixture.eventTasks[0]);
+        });
+        await completeLogin(page);
+        await page.evaluate(async ({ language, theme }) => {
+          const i18nModule = "/src/i18n/index.ts";
+          const themeModule = "/src/app/theme.ts";
+          const [{ setLanguage }, { setAppTheme }] = await Promise.all([import(i18nModule), import(themeModule)]);
+          setLanguage(language);
+          setAppTheme(theme);
+        }, { language, theme });
+        const chinese = language === "zh-CN";
+        const redownloadLabel = chinese ? "重新下载" : "Redownload";
+        const redownload = page.locator(".task-actions-container").getByRole("button", { name: redownloadLabel, exact: true });
+        const localStatus = page.locator(".task-local-file-status");
+        await expect(localStatus).toContainText(chinese ? "文件已准备就绪" : "Files are ready");
+        availability = "path_missing";
+        await redownload.click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toContainText(chinese ? "从 0 开始" : "starting from zero");
+        await expect(localStatus).toContainText(chinese ? "本地文件不存在" : "Local files are missing");
+        await expect(dialog).toHaveCSS("opacity", "1");
+        await expect(dialog).toHaveCSS("transform", "none");
+        await page.screenshot({ path: testInfo.outputPath("missing-files-redownload.png"), fullPage: true });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await dialog.getByRole("button", { name: "取消", exact: true }).click();
+        await expect(dialog).toHaveCount(0);
+        expect(writes).toBe(0);
+        await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+        await page.screenshot({ path: testInfo.outputPath("missing-files-status.png"), fullPage: true });
+
+        availability = "storage_unavailable";
+        await redownload.click();
+        await expect(dialog).toHaveCount(0);
+        await expect(localStatus).toContainText(chinese ? "存储不可用" : "Storage unavailable");
+        expect(writes).toBe(0);
+
+        availability = "partial_missing";
+        await redownload.click();
+        await expect(dialog).toContainText(chinese ? "清理剩余文件" : "remove the remaining files");
+        await expect(dialog).toHaveCSS("opacity", "1");
+        await expect(dialog).toHaveCSS("transform", "none");
+        await page.screenshot({ path: testInfo.outputPath("partial-files-redownload.png"), fullPage: true });
+        await dialog.getByRole("button", { name: redownloadLabel, exact: true }).click();
+        await expect.poll(() => writes).toBe(1);
+        await expect(dialog).toHaveCount(0);
+        await expect(localStatus).toHaveCount(0);
+      });
+    }
+  }
+
   for (const locale of ["zh-CN", "en-GB", "fr-FR"]) {
     test(`keeps automatic language before and after login with browser locale ${locale}`, async ({ page }, testInfo) => {
       await installFixture(page);
@@ -432,6 +496,13 @@ async function handleApiRoute(
     const urlValue = payload.url ?? "";
     fixture.createdUrls.push(urlValue);
     await json(route, 200, { ...task, url: urlValue, fileName: "file.iso" });
+    return;
+  }
+  if (/^\/api\/tasks\/\d+\/file-context$/.test(path)) {
+    await json(route, 200, {
+      saveDir: { path: "/downloads", displayPath: "/downloads" }, filePath: null,
+      actions: { availability: "available", fileManagerPath: null, openFilePath: null, detailPaths: [] },
+    });
     return;
   }
   if (path === "/api/tasks/batch" && request.method() === "POST") {

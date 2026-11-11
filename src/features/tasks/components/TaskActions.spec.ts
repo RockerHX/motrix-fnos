@@ -136,6 +136,24 @@ import type {
 import type { DownloadTask } from "../../../types/tasks";
 
 describe("TaskActions", () => {
+  it("waits for a fresh file check before opening redownload and makes cancellation read only", async () => {
+    let resolveCheck!: (allowed: boolean) => void;
+    const prepareRedownload = vi.fn(() => new Promise<boolean>((resolve) => { resolveCheck = resolve; }));
+    const { wrapper } = mountTaskActions({
+      task: { status: "complete" }, permissions: { canRedownload: true }, prepareRedownload,
+    });
+    await clickButton(wrapper, "重新下载");
+    expect(wrapper.findComponent({ name: "TaskDownloadConfirmDialog" }).props("show")).toBe(false);
+    resolveCheck(false);
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "TaskDownloadConfirmDialog" }).props("show")).toBe(false);
+    await clickButton(wrapper, "重新下载");
+    resolveCheck(true);
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "TaskDownloadConfirmDialog" }).props("show")).toBe(true);
+    await clickButton(wrapper, "取消");
+    expect(wrapper.emitted("confirmRedownload")).toBeUndefined();
+  });
   it("shows buttons for active, paused, complete and removed states", async () => {
     const { wrapper: activeWrapper } = mountTaskActions({
       permissions: { canPause: true },
@@ -513,6 +531,7 @@ describe("TaskActions", () => {
 });
 
 interface MountTaskActionsOverrides {
+  prepareRedownload?: () => Promise<boolean>;
   mode?: "desktop" | "mobile";
   state?: Partial<TaskActionState>;
   permissions?: Partial<TaskActionPermissions>;
@@ -529,6 +548,7 @@ interface MountTaskActionsOverrides {
 
 function mountTaskActions(overrides: MountTaskActionsOverrides = {}) {
   const props = {
+    prepareRedownload: overrides.prepareRedownload,
     mode: overrides.mode ?? "mobile",
     task: createTask(overrides.task),
     state: {

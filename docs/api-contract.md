@@ -345,9 +345,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 接口只接受 URL 中的任务 ID，不接受客户端路径；任务不存在返回 `404 task_not_found`。
 - `language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
 - `saveDir` 和存在时的 `filePath` 同时返回真实路径与语义化展示路径。路径转换失败或开放 API 不可用时 `displayPath` 回退为对应 `path`，不改变文件操作判定。
-- `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`path_unauthorized` 或 `unsupported_layout`。非 `available` 时所有操作目标均为 `null` 或空数组。
+- `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`partial_missing`、`storage_unavailable`、`path_unauthorized` 或 `unsupported_layout`。除 `available` 和 `partial_missing` 外，所有操作目标均为 `null` 或空数组。授权根目录不可访问时优先返回 `storage_unavailable`，不据此认定内容已删除；权限已撤销返回 `path_unauthorized`。
 - URL 任务必须已完成、文件未删除，目标是存在的普通文件，且 `canonicalize` 后仍位于当前授权根目录；可用时文件路径同时作为文件管理器定位、打开文件和文件详情目标。
 - BT/磁力任务只接受明确持久化的 `ownedTaskDir`。目标必须是存在的非符号链接目录并处于当前授权根内；可用时只提供文件管理器和目录详情目标，不提供打开文件目标。历史任务缺少该字段时返回 `unsupported_layout`。
+- BT/磁力任务只核对记录中已选择文件的存在与安全路径，不扫描目录或校验内容 hash；全部缺失返回 `path_missing`，部分缺失返回 `partial_missing`，后者仍可定位现存任务目录及查看目录详情。该查询不改变历史完成状态、进度、GID 或 `filesDeleted`。
 - 授权快照无法读取时失败关闭并返回 `500 task_file_context_failed`。每次文件操作都必须重新请求本接口；前端缓存的 `DownloadTask.filePath` 或旧上下文不得直接交给宿主 SDK。
 
 `CreateDownloadTaskRequest`：
