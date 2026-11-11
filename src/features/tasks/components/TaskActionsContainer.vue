@@ -34,6 +34,8 @@ const showFileConfirm = ref(false);
 const hostKind = ref<FnosHostKind>("unavailable");
 const fileContext = ref<TaskFileContextResponse | null>(null);
 const isFileContextLoading = ref(false);
+let fileContextRequest = 0;
+let pendingFileContext: Promise<TaskFileContextResponse | null> | null = null;
 const { pauseTask, resumeTask } = useTaskStatusActions({ taskStore, message, t });
 
 const hostSupported = computed(() => hostKind.value === "hosted" || hostKind.value === "mobile");
@@ -49,11 +51,23 @@ onMounted(async () => {
 });
 
 watch(
-  () => props.task.id,
+  () => [props.task.id, props.task.status, props.task.updatedAt, language.value, taskStore.isRefreshing],
   () => {
+    fileContextRequest += 1;
+    pendingFileContext = null;
     fileContext.value = null;
+    isFileContextLoading.value = false;
+    if (props.task.status === "complete" && !taskStore.isRefreshing) void loadFileContext();
   },
+  { immediate: true },
 );
+
+const localFileStatus = computed(() => {
+  if (props.task.status !== "complete") return "";
+  if (isFileContextLoading.value) return t("task.localFiles.checking");
+  const availability = fileContext.value?.actions.availability;
+  return availability ? availabilityMessage(availability) : t("task.localFiles.unknown");
+});
 
 const actionState = computed<TaskActionState>(() => ({
   isOperating: taskStore.isTaskOperating(props.task.id),
@@ -103,6 +117,9 @@ const details = computed<TaskActionDetails>(() => {
     { section: "file", label: t("task.detail.saveDir"), value: semanticSaveDir },
     { section: "file", label: t("task.detail.filePath"), value: semanticFilePath },
   ];
+  if (localFileStatus.value) {
+    items.push({ section: "file", label: t("task.localFiles.title"), value: localFileStatus.value });
+  }
 
   if (props.task.errorMessage) {
     items.push({ section: "download", label: t("task.detail.errorReason"), value: formatTaskError(props.task) });
@@ -120,7 +137,12 @@ const details = computed<TaskActionDetails>(() => {
 });
 const confirmTexts = computed<TaskActionConfirmTexts>(() => ({
   redownloadTitle: t("task.redownload.title"),
-  redownloadConfirmText: t("task.redownload.confirm", { name: props.task.fileName }),
+  redownloadConfirmText: t(
+    fileContext.value?.actions.availability === "partial_missing" ? "task.redownload.partialMissingConfirm"
+      : fileContext.value?.actions.availability === "path_missing" || props.task.filesDeleted ? "task.redownload.missingConfirm"
+      : "task.redownload.confirm",
+    { name: props.task.fileName },
+  ),
   restoreTitle: t("task.restore.title"),
   restoreConfirmText: t(props.task.filesDeleted ? "task.restore.restartConfirm" : "task.restore.confirm", { name: props.task.fileName }),
   deleteTitle: t("task.delete.title"),
@@ -191,20 +213,40 @@ async function restoreTask(useProxy: boolean) {
   }
 }
 
-async function loadFileContext(showError = false) {
-  if (isFileContextLoading.value) return fileContext.value;
+function loadFileContext(): Promise<TaskFileContextResponse | null> {
+  if (pendingFileContext) return pendingFileContext;
+  const request = ++fileContextRequest;
   isFileContextLoading.value = true;
-  try {
-    const context = await getTaskFileContext(props.task.id, language.value);
-    fileContext.value = context;
-    return context;
-  } catch (error) {
-    fileContext.value = null;
-    if (showError) message.error(getErrorMessage(error, t("task.fileOperations.contextFailed")));
-    return null;
-  } finally {
-    isFileContextLoading.value = false;
+  pendingFileContext = getTaskFileContext(props.task.id, language.value)
+    .then((context) => {
+      if (request !== fileContextRequest) return null;
+      fileContext.value = context;
+      return context;
+    })
+    .catch(() => {
+      if (request === fileContextRequest) fileContext.value = null;
+      return null;
+    })
+    .finally(() => {
+      if (request !== fileContextRequest) return;
+      isFileContextLoading.value = false;
+      pendingFileContext = null;
+    });
+  return pendingFileContext;
+}
+
+async function prepareRedownload() {
+  if (!ensureCanOperate()) return false;
+  const context = await loadFileContext();
+  if (!context) {
+    message.error(t("task.fileOperations.contextFailed"));
+    return false;
   }
+  if (!["available", "path_missing", "partial_missing", "files_deleted"].includes(context.actions.availability)) {
+    message.warning(availabilityMessage(context.actions.availability));
+    return false;
+  }
+  return props.task.status === "complete" && ensureCanOperate();
 }
 
 function availabilityMessage(availability: TaskFileAvailability) {
@@ -231,8 +273,12 @@ async function runFileAction(kind: "fileManager" | "file" | "details") {
     return;
   }
 
-  const context = await loadFileContext(true);
-  if (!context || context.actions.availability !== "available") {
+  const context = await loadFileContext();
+  if (!context) {
+    message.error(t("task.fileOperations.contextFailed"));
+    return;
+  }
+  if (!["available", "partial_missing"].includes(context.actions.availability)) {
     if (context) message.warning(availabilityMessage(context.actions.availability));
     return;
   }
@@ -278,32 +324,38 @@ function formatTimestamp(timestamp: number) {
 </script>
 
 <template>
-  <TaskActions
-    :task="props.task"
-    :mode="props.mode"
-    :state="actionState"
-    :permissions="permissions"
-    :labels="labels"
-    :details="details"
-    :confirm-texts="confirmTexts"
-    :file-actions="fileActions"
-    @pause="pauseTask(props.task)"
-    @resume="resumeTask(props.task)"
-    @confirm-files="showFileConfirm = true"
-    @confirm-redownload="confirmRedownloadTask"
-    @confirm-delete="confirmDeleteTask"
-    @restore="restoreTask"
-    @update-proxy="updateTaskProxy"
-    @confirm-permanent-delete="confirmPermanentDeleteTask"
-    @details-opened="loadFileContext"
-    @open-file-manager="openFileManager"
-    @open-file="openFile"
-    @show-file-details="showFileDetails"
-  />
-  <TaskFileConfirmDialog
-    v-model:show="showFileConfirm"
-    :task="props.task"
-    :is-loading="taskStore.isTaskOperating(props.task.id)"
-    @confirm="confirmTaskFiles"
-  />
+  <div class="task-actions-container">
+    <p v-if="localFileStatus" class="task-local-file-status" role="status">{{ localFileStatus }}</p>
+    <TaskActions
+      :task="props.task"
+      :mode="props.mode"
+      :state="actionState"
+      :permissions="permissions"
+      :labels="labels"
+      :details="details"
+      :confirm-texts="confirmTexts"
+      :file-actions="fileActions"
+      :prepare-redownload="prepareRedownload"
+      @pause="pauseTask(props.task)"
+      @resume="resumeTask(props.task)"
+      @confirm-files="showFileConfirm = true"
+      @confirm-redownload="confirmRedownloadTask"
+      @confirm-delete="confirmDeleteTask"
+      @restore="restoreTask"
+      @update-proxy="updateTaskProxy"
+      @confirm-permanent-delete="confirmPermanentDeleteTask"
+      @details-opened="loadFileContext"
+      @open-file-manager="openFileManager"
+      @open-file="openFile"
+      @show-file-details="showFileDetails"
+    />
+    <TaskFileConfirmDialog
+      v-model:show="showFileConfirm"
+      :task="props.task"
+      :is-loading="taskStore.isTaskOperating(props.task.id)"
+      @confirm="confirmTaskFiles"
+    />
+  </div>
 </template>
+
+<style scoped src="./TaskActionsContainer.css"></style>

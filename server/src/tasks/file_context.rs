@@ -9,6 +9,8 @@ pub enum TaskFileAvailability {
     TaskNotComplete,
     FilesDeleted,
     PathMissing,
+    PartialMissing,
+    StorageUnavailable,
     PathUnauthorized,
     UnsupportedLayout,
 }
@@ -78,14 +80,40 @@ fn bt_task_actions(task: &DownloadTask, accessible_roots: &[String]) -> TaskFile
     else {
         return TaskFileActions::unavailable(TaskFileAvailability::UnsupportedLayout);
     };
-    match validate_target(target, accessible_roots, TargetKind::Directory) {
-        Ok(path) => TaskFileActions {
-            availability: TaskFileAvailability::Available,
-            file_manager_path: Some(path.clone()),
-            open_file_path: None,
-            detail_paths: vec![path],
+    let path = match validate_target(target, accessible_roots, TargetKind::Directory) {
+        Ok(path) => path,
+        Err(availability) => return TaskFileActions::unavailable(availability),
+    };
+    let mut present = 0;
+    let mut missing = 0;
+    for file in task.files.iter().filter(|file| file.selected) {
+        let relative = Path::new(&file.path).strip_prefix(target);
+        if !relative.is_ok_and(|path| {
+            !path.as_os_str().is_empty()
+                && path
+                    .components()
+                    .all(|part| matches!(part, std::path::Component::Normal(_)))
+        }) {
+            return TaskFileActions::unavailable(TaskFileAvailability::UnsupportedLayout);
+        }
+        match validate_target(&file.path, std::slice::from_ref(&path), TargetKind::File) {
+            Ok(_) => present += 1,
+            Err(TaskFileAvailability::PathMissing) => missing += 1,
+            Err(availability) => return TaskFileActions::unavailable(availability),
+        }
+    }
+    if missing > 0 && present == 0 {
+        return TaskFileActions::unavailable(TaskFileAvailability::PathMissing);
+    }
+    TaskFileActions {
+        availability: if missing > 0 {
+            TaskFileAvailability::PartialMissing
+        } else {
+            TaskFileAvailability::Available
         },
-        Err(availability) => TaskFileActions::unavailable(availability),
+        file_manager_path: Some(path.clone()),
+        open_file_path: None,
+        detail_paths: vec![path],
     }
 }
 
@@ -114,11 +142,18 @@ fn validate_target(
         return Err(TaskFileAvailability::PathUnauthorized);
     }
 
+    let roots = candidate_roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok().filter(|path| path.is_dir()))
+        .collect::<Vec<_>>();
+    if roots.is_empty() {
+        return Err(TaskFileAvailability::StorageUnavailable);
+    }
     let metadata = std::fs::symlink_metadata(target).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             TaskFileAvailability::PathMissing
         } else {
-            TaskFileAvailability::UnsupportedLayout
+            TaskFileAvailability::StorageUnavailable
         }
     })?;
     if metadata.file_type().is_symlink()
@@ -132,23 +167,10 @@ fn validate_target(
 
     let target = target
         .canonicalize()
-        .map_err(|_| TaskFileAvailability::PathMissing)?;
-    let mut root_missing = false;
-    let authorized = candidate_roots
-        .iter()
-        .any(|root| match root.canonicalize() {
-            Ok(root) => target.starts_with(root),
-            Err(_) => {
-                root_missing = true;
-                false
-            }
-        });
+        .map_err(|_| TaskFileAvailability::StorageUnavailable)?;
+    let authorized = roots.iter().any(|root| target.starts_with(root));
     if !authorized {
-        return Err(if root_missing {
-            TaskFileAvailability::PathMissing
-        } else {
-            TaskFileAvailability::PathUnauthorized
-        });
+        return Err(TaskFileAvailability::PathUnauthorized);
     }
 
     Ok(original_target)

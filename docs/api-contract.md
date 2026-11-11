@@ -300,6 +300,7 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - `GET /api/tasks?status=removed` 只返回已删除任务记录，用于回收站页面。
 - `status` 当前只支持 `removed`；其他值返回 `400 Bad Request`。
 - `POST /api/tasks/:id/restore` 只允许恢复 `removed` 任务；未完成任务恢复为暂停，已完成历史恢复为完成，均不会立即下载或做种。
+- 已完成任务及其回收站历史以 SQLite 记录为准；引擎启动核对身份和停止状态后，不用重载的文件列表或进度覆盖历史，也不恢复其代理选项。外部删除完成文件不阻塞新任务，不自动重建或下载；文件上下文按实际路径返回 `path_missing`。未完成任务仍执行完整恢复校验。
 - 原生任务暂停或删除前无法确认引擎停止写入时返回 `503 Service Unavailable`、`task_pause_unconfirmed`；暂停确认含 RPC 等待共用 10 秒预算，失败时保留原任务、GID 和文件，不标记已暂停、不暂存或删除内容、不自动继续下载，提示停止并重启应用后核对。强制终止引擎不等于原生状态已成功提交，最近进度可能回退。
 - 任何会写入用户下载目标或暂存/删除用户文件的继续、恢复、重新下载、磁链确认、stale GID 重建及 `deleteFiles=true` 操作，均按任务保存目录、专属目录和文件归属重新检查当前授权；授权已撤销时返回 `403 Forbidden`（`save_dir_not_authorized`），不得唤醒后写入、重建目录或暂存/删除用户文件。待确认磁链的 metadata 只写应用私有目录；确认文件并设置实际下载目录时仍须检查用户目录授权。
 - 成功刷新共享目录授权后，服务端会尝试暂停正在运行且目标已撤权的任务；暂停后的同步或持久化失败时保持 Aria2 暂停并留下待对账操作，不发送补偿性 `unpause`。暂停结果无法确认时也不恢复下载。
@@ -344,9 +345,10 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
 - 接口只接受 URL 中的任务 ID，不接受客户端路径；任务不存在返回 `404 task_not_found`。
 - `language` 只接受 `zh-CN` 或 `en-US`；缺失时按 `zh-CN`，非法值返回 `400 display_language_invalid`。
 - `saveDir` 和存在时的 `filePath` 同时返回真实路径与语义化展示路径。路径转换失败或开放 API 不可用时 `displayPath` 回退为对应 `path`，不改变文件操作判定。
-- `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`path_unauthorized` 或 `unsupported_layout`。非 `available` 时所有操作目标均为 `null` 或空数组。
+- `actions.availability` 为 `available`、`task_not_complete`、`files_deleted`、`path_missing`、`partial_missing`、`storage_unavailable`、`path_unauthorized` 或 `unsupported_layout`。除 `available` 和 `partial_missing` 外，所有操作目标均为 `null` 或空数组。授权根目录不可访问时优先返回 `storage_unavailable`，不据此认定内容已删除；权限已撤销返回 `path_unauthorized`。
 - URL 任务必须已完成、文件未删除，目标是存在的普通文件，且 `canonicalize` 后仍位于当前授权根目录；可用时文件路径同时作为文件管理器定位、打开文件和文件详情目标。
 - BT/磁力任务只接受明确持久化的 `ownedTaskDir`。目标必须是存在的非符号链接目录并处于当前授权根内；可用时只提供文件管理器和目录详情目标，不提供打开文件目标。历史任务缺少该字段时返回 `unsupported_layout`。
+- BT/磁力任务只核对记录中已选择文件的存在与安全路径，不扫描目录或校验内容 hash；全部缺失返回 `path_missing`，部分缺失返回 `partial_missing`，后者仍可定位现存任务目录及查看目录详情。该查询不改变历史完成状态、进度、GID 或 `filesDeleted`。
 - 授权快照无法读取时失败关闭并返回 `500 task_file_context_failed`。每次文件操作都必须重新请求本接口；前端缓存的 `DownloadTask.filePath` 或旧上下文不得直接交给宿主 SDK。
 
 `CreateDownloadTaskRequest`：

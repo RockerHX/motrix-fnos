@@ -35,6 +35,18 @@ pub(super) fn sync_native_session(
             );
         };
         let task = &mut snapshot[*index];
+        // 完成历史不再续传，外部删文件后的引擎快照不能覆盖或阻塞历史记录。
+        if task.status == DownloadTaskStatus::Complete
+            || task.removed_from_status == Some(DownloadTaskStatus::Complete)
+        {
+            if !matches!(status.status.as_str(), "paused" | "complete" | "error") {
+                return Err(format!(
+                    "task_resume_state_invalid：任务 {} 的引擎状态尚未停止，已保留文件",
+                    task.id
+                ));
+            }
+            continue;
+        }
         let expected_dir =
             if task.source_type == DownloadTaskSourceType::Magnet && task.file_path.is_none() {
                 app_data_dir

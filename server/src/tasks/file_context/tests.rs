@@ -130,6 +130,62 @@ fn missing_revoked_and_wrong_layout_targets_fail_closed() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn missing_storage_is_not_reported_as_deleted_content() {
+    let root = test_dir("offline");
+    let mut task = task(DownloadTaskSourceType::Url, &root);
+    task.file_path = Some(root.join("file.bin").display().to_string());
+    std::fs::remove_dir(&root).unwrap();
+    assert_eq!(
+        task_file_actions(&task, &[root.display().to_string()]).availability,
+        TaskFileAvailability::StorageUnavailable
+    );
+}
+
+#[test]
+fn completed_bt_content_distinguishes_partial_and_all_missing_selected_files() {
+    let root = test_dir("bt-missing");
+    let owned = root.join("task");
+    std::fs::create_dir(&owned).unwrap();
+    let mut task = task(DownloadTaskSourceType::Torrent, &root);
+    task.owned_task_dir = Some(owned.display().to_string());
+    task.files = ["one.bin", "two.bin", "unselected.bin"]
+        .iter()
+        .enumerate()
+        .map(|(index, name)| DownloadTaskFile {
+            index: index as u32 + 1,
+            path: owned.join(name).display().to_string(),
+            name: name.to_string(),
+            length: 4,
+            completed_length: 4,
+            selected: index < 2,
+        })
+        .collect();
+    let roots = [root.display().to_string()];
+    for file in task.files.iter().filter(|file| file.selected) {
+        std::fs::write(&file.path, b"data").unwrap();
+    }
+    assert_eq!(
+        task_file_actions(&task, &roots).availability,
+        TaskFileAvailability::Available
+    );
+    std::fs::remove_file(&task.files[0].path).unwrap();
+    let partial = task_file_actions(&task, &roots);
+    assert_eq!(partial.availability, TaskFileAvailability::PartialMissing);
+    assert_eq!(partial.file_manager_path, Some(owned.display().to_string()));
+    assert!(partial.open_file_path.is_none());
+    std::fs::remove_file(&task.files[1].path).unwrap();
+    let missing = task_file_actions(&task, &roots);
+    assert_eq!(missing.availability, TaskFileAvailability::PathMissing);
+    assert!(missing.detail_paths.is_empty());
+    task.files[0].path = root.join("outside.bin").display().to_string();
+    assert_eq!(
+        task_file_actions(&task, &roots).availability,
+        TaskFileAvailability::UnsupportedLayout
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn symlinks_and_canonical_directory_escape_are_rejected() {

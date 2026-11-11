@@ -27,6 +27,7 @@ const props = withDefaults(
     details: TaskActionDetails;
     confirmTexts: TaskActionConfirmTexts;
     fileActions?: TaskFileActionView;
+    prepareRedownload?: () => Promise<boolean>;
   }>(),
   {
     fileActions: () => ({ hostSupported: false, loading: false, context: null }),
@@ -91,7 +92,9 @@ function openDeleteConfirm() {
   showDeleteConfirm.value = true;
 }
 
-function openRedownloadConfirm() {
+async function openRedownloadConfirm() {
+  if (props.prepareRedownload && !(await props.prepareRedownload())) return;
+  if (props.state.isActionDisabled || !props.permissions.canRedownload) return;
   redownloadUseProxy.value = isBtTask.value ? false : props.task.useProxy;
   showRedownloadConfirm.value = true;
 }

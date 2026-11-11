@@ -95,6 +95,8 @@ export type TaskFileAvailability =
   | "task_not_complete"
   | "files_deleted"
   | "path_missing"
+  | "partial_missing"
+  | "storage_unavailable"
   | "path_unauthorized"
   | "unsupported_layout";
 
