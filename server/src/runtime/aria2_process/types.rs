@@ -76,7 +76,16 @@ impl ManagedAria2Process {
 
     pub(super) fn native_stop_completed(&mut self) -> Result<bool, String> {
         match self.child.try_wait() {
-            Ok(Some(status)) if status.success() => Ok(true),
+            // 2.8.6 正常停机也返回任务结果；存储、配置、未知错误和信号退出仍失败关闭。
+            Ok(Some(status))
+                if self.stop_requested
+                    && matches!(
+                        status.code(),
+                        Some(0 | 2..=8 | 10..=13 | 19..=27 | 29 | 31..=32)
+                    ) =>
+            {
+                Ok(true)
+            }
             Ok(Some(status)) => Err(format!("Aria2 异常退出（{status}），无法确认原生状态提交")),
             Err(error) => Err(format!("等待 Aria2 正常退出失败：{error}")),
             Ok(None) => Ok(false),

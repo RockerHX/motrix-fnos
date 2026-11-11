@@ -509,12 +509,9 @@ async fn native_startup_checks_empty_sessions_and_never_bypasses_a_failed_restor
         let root = temp_dir(&format!("native-{scenario}"));
         std::fs::create_dir_all(&root).unwrap();
         let binary = root.join("fake-native");
-        let script = r#"#!/usr/bin/env python3
+        let script = r#"
 import json, pathlib, signal, sys, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-if '--version' in sys.argv:
-    print('aria2 version 2.8.6')
-    sys.exit(0)
 root = pathlib.Path(__file__).parent
 (root / 'launch-args.json').write_text(json.dumps(sys.argv[1:]))
 with (root / 'starts').open('a') as file: file.write('started\n')
@@ -565,7 +562,13 @@ def stop(*args):
 signal.signal(signal.SIGINT, stop)
 server.serve_forever()
 "#;
-        std::fs::write(&binary, script).unwrap();
+        std::fs::write(binary.with_extension("py"), script).unwrap();
+        // 版本探测不加载 Python HTTP 服务，避免并发测试负载影响身份探测预算。
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  printf 'aria2 version 2.8.6\\n'\n  exit 0\nfi\nexec python3 \"$0.py\" \"$@\"\n",
+        )
+        .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
         if unknown_gid {
             std::fs::write(root.join("unknown"), b"unknown").unwrap();
@@ -656,7 +659,7 @@ server.serve_forever()
                     crate::runtime::Aria2LifecyclePhase::Faulted
                 );
             } else {
-                let ready = result.unwrap();
+                let ready = result.unwrap_or_else(|error| panic!("{scenario}: {error}"));
                 assert!(ready.state_dir.is_some());
                 assert_eq!(
                     ready.session_path.as_deref(),

@@ -110,6 +110,8 @@ rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate \
 
 Linux 运行库、服务 UID 和代理专属用例只在 Linux 执行；macOS 通过不代表 Linux 通过。Rust 安全专项经过真实管理 handler 和引擎 RPC，但不经过 TCP 管理 listener、浏览器或 SSE。使用临时目录和回环 fixture 不等于完成完整网络泄漏检查。异常 Content-Range 的已知失败及未验项目见 [引擎升级限制](future-development-plan.md#已知限制与延期)，不得将组合命令记为全部通过。
 
+Aria2 Next 2.8.6 的 [`MultiUrlRequestInfo::getResult`](https://github.com/AnInsomniacy/aria2-next/blob/v2.8.6/src/MultiUrlRequestInfo.cc) 在正常停机后返回最后的任务结果，[退出码定义](https://github.com/AnInsomniacy/aria2-next/blob/v2.8.6/src/error_code.h)不等同进程健康状态。应用在空闲确认、任务持久化及 `saveSession` 成功后请求停止，接受任务结果码 `2–8`、`10–13`、`19–27`、`29`、`31–32`；`1`（未知）、`9` / `14–18`（存储）、`28` / `30`（配置或解析）、其他未知码和信号退出仍保留运行态并报错。退出码不能单独证明状态保存成功，停机前的检查和重启时的原身份对账仍须执行。`native_engine_safety` 中的 HTTP 412 用例验证错误任务保留、空闲停止及新任务下载。
+
 ### 清理生成物与缓存
 
 1. 先执行 `pnpm run clean:dry-run`，核对范围。

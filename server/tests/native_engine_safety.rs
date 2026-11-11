@@ -7,8 +7,10 @@ use axum::Router;
 use motrix_fnos_server::api::management_router;
 use motrix_fnos_server::app::{bootstrap_http_app_state, HttpAppState, ServerRuntimeConfig};
 use motrix_fnos_server::runtime::{
-    ensure_aria2_ready, process_status, run_shutdown_cleanup, stop_process,
+    auto_stop_aria2, ensure_aria2_ready, monitor_tasks_once, process_status, run_shutdown_cleanup,
+    stop_aria2, stop_process, Aria2LifecyclePhase,
 };
+use motrix_fnos_server::tasks::DownloadTaskStatus;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -80,10 +82,7 @@ async fn api(
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
-#[tokio::test]
-#[ignore = "requires the SHA-256 pinned native 2.8.6 candidate via MOTRIX_ARIA2_CANDIDATE_DIR"]
-async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_task_after_bounded_shutdown(
-) {
+async fn native_engine() -> (Installation, ServerRuntimeConfig, Engine, String) {
     let (asset, hash) = match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => (
             "macos-arm64",
@@ -157,6 +156,16 @@ async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_ta
         .await
         .unwrap();
     let token = state.auth.service.issue_admin_token(&auth).await.unwrap();
+    (installation, runtime, engine, token)
+}
+
+#[tokio::test]
+#[ignore = "requires the SHA-256 pinned native 2.8.6 candidate via MOTRIX_ARIA2_CANDIDATE_DIR"]
+async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_task_after_bounded_shutdown(
+) {
+    let (installation, runtime, engine, token) = native_engine().await;
+    let root = &installation.0;
+    let state = engine.0.clone();
     let source = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let source_addr = source.local_addr().unwrap();
     let source_server = tokio::spawn(async move {
@@ -254,12 +263,151 @@ async fn malformed_source_api_rejects_pause_and_delete_then_recovers_original_ta
     assert_eq!(tasks[0]["id"], id);
     assert_eq!(tasks[0]["gid"], gid);
     assert_eq!(tasks[0]["status"], "paused");
-    eprintln!("real 2.8.6 {asset}: pause/delete rejected; shutdown {:?}; forced={forced}; original GID and {} file bytes retained", started.elapsed(), bytes.len());
+    eprintln!("real 2.8.6: pause/delete rejected; shutdown {:?}; forced={forced}; original GID and {} file bytes retained", started.elapsed(), bytes.len());
     drop(ready);
     restored.core.shutdown.mark_exiting();
     run_shutdown_cleanup(&restored).await;
     assert!(!process_status(&restored.aria2_process).unwrap().running);
     restored.core.database.pool.close().await;
     drop(restored_engine);
+    source_server.abort();
+}
+
+#[tokio::test]
+#[ignore = "requires the SHA-256 pinned native 2.8.6 candidate via MOTRIX_ARIA2_CANDIDATE_DIR"]
+async fn http_412_task_survives_idle_stop_and_new_download_succeeds() {
+    let (installation, _runtime, engine, token) = native_engine().await;
+    let root = &installation.0;
+    let state = &engine.0;
+    let source = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let source_addr = source.local_addr().unwrap();
+    let source_server = tokio::spawn(async move {
+        axum::serve(
+            source,
+            Router::new()
+                .route(
+                    "/rejected",
+                    get(|| async { StatusCode::PRECONDITION_FAILED }),
+                )
+                .route("/healthy", get(|| async { vec![42u8; 131072] })),
+        )
+        .await
+        .unwrap();
+    });
+
+    for automatic in [true, false] {
+        let existing = root.join(format!("downloads/rejected-{automatic}.bin"));
+        fs::write(&existing, b"existing data must be preserved").unwrap();
+        let (status, failed) = api(state, &token, "POST", "/api/tasks", json!({
+            "url": format!("http://{source_addr}/rejected"), "saveDir": root.join("downloads"),
+            "fileName": existing.file_name().unwrap().to_str().unwrap(), "aria2Options": {"max-tries": "1"}
+        })).await;
+        assert_eq!(status, StatusCode::OK, "{failed}");
+        let id = failed["id"].as_u64().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let failed = loop {
+            monitor_tasks_once(state).await.unwrap();
+            let tasks = state.core.download_tasks.list().unwrap();
+            let task = tasks.into_iter().find(|task| task.id == id).unwrap();
+            if task.status == DownloadTaskStatus::Error {
+                break task;
+            }
+            assert!(Instant::now() < deadline, "HTTP 412 did not fail: {task:?}");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        assert!(
+            failed.error_message.as_deref().unwrap().contains("412"),
+            "{failed:?}"
+        );
+        assert_eq!(failed.error_code.as_deref(), Some("8"));
+        assert_eq!(failed.completed_length, 0);
+        if automatic {
+            auto_stop_aria2(state).await.unwrap();
+        } else {
+            stop_aria2(state).await.unwrap();
+        }
+        assert_eq!(
+            state.aria2_lifecycle.snapshot().unwrap().phase,
+            Aria2LifecyclePhase::Stopped
+        );
+        assert!(!process_status(&state.aria2_process).unwrap().running);
+        assert!(state.aria2_runtime_snapshot().is_none());
+        assert!(!state.core.aria2_runtime_path.exists());
+        assert_eq!(
+            state
+                .core
+                .download_tasks
+                .list()
+                .unwrap()
+                .into_iter()
+                .find(|task| task.id == id)
+                .unwrap(),
+            failed
+        );
+        assert_eq!(
+            motrix_fnos_server::database::tasks::list_download_tasks(&state.core.database.pool)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|task| task.id == id)
+                .unwrap(),
+            failed
+        );
+
+        let name = format!("healthy-{automatic}.bin");
+        let (status, healthy) = api(
+            state,
+            &token,
+            "POST",
+            "/api/tasks",
+            json!({
+                "url": format!("http://{source_addr}/healthy"), "saveDir": root.join("downloads"),
+                "fileName": name, "aria2Options": {"max-tries": "1"}
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{healthy}");
+        assert_ne!(healthy["gid"], failed.gid.as_deref().unwrap());
+        let healthy_id = healthy["id"].as_u64().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            monitor_tasks_once(state).await.unwrap();
+            let tasks = state.core.download_tasks.list().unwrap();
+            let task = tasks.iter().find(|task| task.id == healthy_id).unwrap();
+            if task.status == DownloadTaskStatus::Complete {
+                assert_eq!(task.completed_length, 131072);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "new download did not complete: {task:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(
+            fs::read(root.join("downloads").join(name)).unwrap(),
+            vec![42u8; 131072]
+        );
+        assert_eq!(
+            fs::read(&existing).unwrap(),
+            b"existing data must be preserved"
+        );
+        let restored = state
+            .core
+            .download_tasks
+            .list()
+            .unwrap()
+            .into_iter()
+            .find(|task| task.id == id)
+            .unwrap();
+        assert_eq!(restored.gid, failed.gid);
+        // 引擎重启按现有规则暂停恢复原任务，不能自动重试失败下载。
+        assert_eq!(restored.status, DownloadTaskStatus::Paused);
+        assert_eq!(restored.completed_length, 0);
+    }
+    state.core.shutdown.mark_exiting();
+    run_shutdown_cleanup(state).await;
+    assert!(!process_status(&state.aria2_process).unwrap().running);
+    state.core.database.pool.close().await;
     source_server.abort();
 }
