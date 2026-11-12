@@ -110,6 +110,8 @@ rtk proxy env MOTRIX_ARIA2_CANDIDATE_DIR=/path/to/verified-candidate \
 
 Linux 运行库、服务 UID 和代理专属用例只在 Linux 执行；macOS 通过不代表 Linux 通过。Rust 安全专项经过真实管理 handler 和引擎 RPC，但不经过 TCP 管理 listener、浏览器或 SSE。使用临时目录和回环 fixture 不等于完成完整网络泄漏检查。异常 Content-Range 的已知失败及未验项目见 [引擎升级限制](future-development-plan.md#已知限制与延期)，不得将组合命令记为全部通过。
 
+Aria2 Next 2.8.6 的 [`MultiUrlRequestInfo::getResult`](https://github.com/AnInsomniacy/aria2-next/blob/v2.8.6/src/MultiUrlRequestInfo.cc) 在正常停机后返回最后的任务结果，[退出码定义](https://github.com/AnInsomniacy/aria2-next/blob/v2.8.6/src/error_code.h)不等同进程健康状态。应用在空闲确认、任务持久化及 `saveSession` 成功后请求停止，接受任务结果码 `2–8`、`10–13`、`19–27`、`29`、`31–32`；`1`（未知）、`9` / `14–18`（存储）、`28` / `30`（配置或解析）、其他未知码和信号退出仍保留运行态并报错。退出码不能单独证明状态保存成功，停机前的检查和重启时的原身份对账仍须执行。`native_engine_safety` 中的 HTTP 412 用例验证错误任务保留、空闲停止及新任务下载。
+
 ### 清理生成物与缓存
 
 1. 先执行 `pnpm run clean:dry-run`，核对范围。
@@ -213,6 +215,7 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 
 沿用既有查证结论；修改平台实现前按 [查证规则](../AGENTS.md#fnos-平台查证)重新核实。
 
+- 2026-11-12 授权目录空格兼容：按[官方共享授权 API](https://developer.fnnas.com/api/authorization/shared-access/)查询完整路径列表；[Issue #41](https://github.com/RockerHX/motrix-fnos/issues/41) 在 fnOS 1.2.1010、x86_64 上反馈含空格目录刷新失败，原校验函数与 HTTP handler 回归可复现。修复后的本地回归覆盖接口刷新、快照读写、默认目录、下载目录授权与创建，以及非法输入保留旧快照；路径规则见 [存储目录契约](api-contract.md#49-存储目录)，fnOS 实际授权与下载仍待实机验收。
 - [Manifest](https://developer.fnnas.com/docs/core-concepts/manifest/) 文档列 `platform=x86|arm|all`、最低系统版本和单个 service_port，没有文档化 `arch`。现保留 x86 stage 的 `arch=x86_64`，不可仅凭文档未写就删。
 - [应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和 [fnpack](https://developer.fnnas.com/docs/cli/fnpack/)：本地 fnpack 1.2.1 最小工程验证缺 `cmd/main`、install/upgrade/uninstall 脚本会失败，缺 config_init/config_callback 仍可打包；`Packing failed` 可能退出码为 0，须同时校验日志和产物。升级 fnpack 时重验必需脚本、退出码、`--directory` 输出位置和 arch 字段。
 - [应用入口](https://developer.fnnas.com/docs/core-concepts/app-entry/)及 Lucky 2.27.2 解包提供 Application 身份布局依据；端口入口已有 2026-07-14 ARM 实证。统一网关曾出现 Socket 直连 200、fnOS 入口 `404 9`，因此不直接替换正式拓扑。

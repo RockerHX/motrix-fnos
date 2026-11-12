@@ -49,10 +49,15 @@ def stop(*args):
     if (root / 'checkpoint-delay').exists():
         time.sleep(float((root / 'checkpoint-delay').read_text()))
     (root / 'checkpoint').write_bytes(b'committed')
-    sys.exit(0)
+    result = int((root / 'exit-code').read_text()) if (root / 'exit-code').exists() else 0
+    if result < 0:
+        signal.raise_signal(-result)
+    sys.exit(result)
 signal.signal(signal.SIGINT, signal.SIG_IGN if sys.argv[2] == 'ignore' else stop)
 (root / 'ready').touch()
 while True:
+    if (root / 'exit-without-stop').exists():
+        sys.exit(int((root / 'exit-without-stop').read_text()))
     time.sleep(0.01)
 "#;
     let child = Command::new("python3")
@@ -95,6 +100,61 @@ fn native_stop_waits_for_checkpoint_and_normal_exit_before_reporting_success() {
 }
 
 #[test]
+fn native_stop_accepts_task_results_only_after_requested_shutdown() {
+    for code in [
+        2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 31, 32,
+    ] {
+        let (root, process, _stderr) = native_process(false);
+        std::fs::write(root.join("exit-code"), code.to_string()).unwrap();
+        let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2));
+        assert!(result.is_ok(), "task result {code}: {result:?}");
+        assert_eq!(
+            std::fs::read(root.join("checkpoint")).unwrap(),
+            b"committed"
+        );
+        assert!(process.lock().unwrap().is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn native_stop_rejects_storage_unknown_and_signal_exits() {
+    for code in [1, 9, 14, 15, 16, 17, 18, 28, 30, 33, 255, -libc::SIGTERM] {
+        let (root, process, _stderr) = native_process(false);
+        std::fs::write(root.join("exit-code"), code.to_string()).unwrap();
+        let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2));
+        assert!(result.unwrap_err().contains("异常退出"), "exit {code}");
+        assert!(process.lock().unwrap().is_some());
+        process.lock().unwrap().take();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn native_stop_rejects_task_result_exit_without_requested_shutdown() {
+    let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("exit-without-stop"), "8").unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while process
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .is_running()
+        .unwrap()
+    {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let result = stop_process_with_timeout_inner(&process, None, Duration::from_secs(2));
+    assert!(result.unwrap_err().contains("已退出"));
+    assert!(!root.join("checkpoint").exists());
+    assert!(process.lock().unwrap().is_some());
+    process.lock().unwrap().take();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn native_stop_timeout_keeps_owned_process_and_does_not_claim_checkpoint_success() {
     let (root, process, _stderr) = native_process(true);
     let started = std::time::Instant::now();
@@ -131,8 +191,9 @@ fn native_stop_waits_for_slow_checkpoint_within_the_daily_budget() {
 }
 
 #[tokio::test]
-async fn native_stop_timeout_recovers_after_status_queries_observe_late_exit() {
+async fn native_stop_timeout_recovers_after_status_queries_observe_late_task_result_exit() {
     let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("exit-code"), "8").unwrap();
     std::fs::write(root.join("checkpoint-delay"), "0.3").unwrap();
     let state = ready_native_state(&root, process, 0).await;
     let error =
@@ -268,6 +329,7 @@ fn native_stop_rejects_checkpoint_io_errors_and_preserves_previous_state() {
 async fn native_idle_stop_keeps_confirmation_paused_and_removed_task_identities() {
     use axum::{routing::post, Json, Router};
     let (root, process, _stderr) = native_process(false);
+    std::fs::write(root.join("exit-code"), "8").unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let router = Router::new().route(
@@ -365,6 +427,7 @@ async fn native_shutdown_requires_pause_before_session_and_checkpoint() {
     use std::sync::{atomic::AtomicBool, Arc};
     for fail_pause in [false, true] {
         let (root, process, _stderr) = native_process(false);
+        std::fs::write(root.join("exit-code"), "8").unwrap();
         let calls = Arc::new(Mutex::new(Vec::<String>::new()));
         let paused = Arc::new(AtomicBool::new(false));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
