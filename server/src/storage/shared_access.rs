@@ -70,7 +70,8 @@ fn validate_official_paths(paths: Vec<String>) -> Result<Vec<String>, Accessible
             .split('/')
             .any(|segment| segment == "." || segment == "..");
         if value.is_empty()
-            || value.chars().any(char::is_whitespace)
+            || value.trim() != value
+            || value.chars().any(char::is_control)
             || value.contains(['\0', '\\'])
             || !path.is_absolute()
             || value.trim_matches('/').is_empty()

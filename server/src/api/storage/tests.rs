@@ -217,11 +217,16 @@ async fn display_route_falls_back_to_real_paths_when_fnos_rejects_the_request() 
 }
 
 #[tokio::test]
-async fn refresh_route_persists_official_paths_and_updates_jsonrpc_default() {
+async fn refresh_route_persists_paths_with_spaces_and_updates_jsonrpc_default() {
     let _token = test_api_token();
     let state = test_state("success").await;
     let socket = socket_path("success");
-    let server = serve_gateway_responses(&socket, 1, None).await;
+    let server = serve_gateway_response(
+        &socket,
+        "200 OK",
+        r#"{"code":0,"msg":"","data":{"paths":["/vol1/WDC WD3200BEVT-22ZEST0/downloads","/vol1/downloads","/vol2/我的 下载","/vol1/WDC WD3200BEVT-22ZEST0/downloads"]}}"#,
+    )
+    .await;
     replace_fnos_api_client(
         &state,
         FnosApiClient::with_limits(socket.clone(), Duration::from_secs(1), 4096),
@@ -241,13 +246,23 @@ async fn refresh_route_persists_official_paths_and_updates_jsonrpc_default() {
     let paths = response_json::<AccessiblePathsResponse>(response, StatusCode::OK).await;
     server.await.expect("gateway should finish");
 
-    assert_eq!(paths.paths, vec!["/vol1/downloads"]);
+    assert_eq!(
+        paths.paths,
+        vec![
+            "/vol1/WDC WD3200BEVT-22ZEST0/downloads",
+            "/vol1/downloads",
+            "/vol2/我的 下载",
+        ]
+    );
     assert_eq!(
         crate::storage::load_accessible_paths(&state.runtime.accessible_paths_path)
             .expect("snapshot should load"),
         paths.paths
     );
-    assert_eq!(state.json_rpc_default_download_dir(), "/vol1/downloads");
+    assert_eq!(
+        state.json_rpc_default_download_dir(),
+        "/vol1/WDC WD3200BEVT-22ZEST0/downloads"
+    );
     let _ = std::fs::remove_file(socket);
 }
 

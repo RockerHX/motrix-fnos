@@ -215,6 +215,7 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 
 沿用既有查证结论；修改平台实现前按 [查证规则](../AGENTS.md#fnos-平台查证)重新核实。
 
+- 2026-11-12 授权目录空格兼容：按[官方共享授权 API](https://developer.fnnas.com/api/authorization/shared-access/)查询完整路径列表；[Issue #41](https://github.com/RockerHX/motrix-fnos/issues/41) 在 fnOS 1.2.1010、x86_64 上反馈含空格目录刷新失败，原校验函数与 HTTP handler 回归可复现。修复后的本地回归覆盖接口刷新、快照读写、默认目录、下载目录授权与创建，以及非法输入保留旧快照；路径规则见 [存储目录契约](api-contract.md#49-存储目录)，fnOS 实际授权与下载仍待实机验收。
 - [Manifest](https://developer.fnnas.com/docs/core-concepts/manifest/) 文档列 `platform=x86|arm|all`、最低系统版本和单个 service_port，没有文档化 `arch`。现保留 x86 stage 的 `arch=x86_64`，不可仅凭文档未写就删。
 - [应用框架](https://developer.fnnas.com/docs/core-concepts/framework/)和 [fnpack](https://developer.fnnas.com/docs/cli/fnpack/)：本地 fnpack 1.2.1 最小工程验证缺 `cmd/main`、install/upgrade/uninstall 脚本会失败，缺 config_init/config_callback 仍可打包；`Packing failed` 可能退出码为 0，须同时校验日志和产物。升级 fnpack 时重验必需脚本、退出码、`--directory` 输出位置和 arch 字段。
 - [应用入口](https://developer.fnnas.com/docs/core-concepts/app-entry/)及 Lucky 2.27.2 解包提供 Application 身份布局依据；端口入口已有 2026-07-14 ARM 实证。统一网关曾出现 Socket 直连 200、fnOS 入口 `404 9`，因此不直接替换正式拓扑。
