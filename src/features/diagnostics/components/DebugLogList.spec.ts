@@ -20,7 +20,7 @@ vi.mock("naive-ui", () => ({
 }));
 
 import DebugLogList from "./DebugLogList.vue";
-import { setLanguage } from "../../../i18n";
+import { formatDateTime, setLanguage } from "../../../i18n";
 
 const repeatedLog: DebugLogEntry = {
   id: 1,
@@ -39,11 +39,14 @@ describe("DebugLogList", () => {
       props: { logs: [{ ...repeatedLog, category: "settings" }, { ...repeatedLog, id: 2, category: "constructor" as DebugLogEntry["category"] }], totalCount: 2, active: true },
     });
     expect(wrapper.text()).toContain("设置");
+    expect(wrapper.text()).toContain(formatDateTime(repeatedLog.timestampMs));
     expect(wrapper.text()).toContain("constructor");
     try {
       setLanguage("en-US");
       await nextTick();
       expect(wrapper.text()).toContain("Settings");
+      expect(wrapper.text()).toContain(formatDateTime(repeatedLog.timestampMs));
+      expect(wrapper.text()).toContain(formatDateTime(repeatedLog.lastTimestampMs!));
       expect(wrapper.text()).toContain("constructor");
     } finally {
       setLanguage("zh-CN");

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { NButton } from "naive-ui";
+import { useI18n } from "../../i18n";
 import AppDialog from "./AppDialog.vue";
 import AppDialogActions from "./AppDialogActions.vue";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -66,9 +69,9 @@ function confirm() {
 
     <template #footer>
       <AppDialogActions>
-        <NButton :disabled="props.loading || props.disabled" @click="cancel">取消</NButton>
+        <NButton :disabled="props.loading || props.disabled" @click="cancel">{{ t("common.cancel") }}</NButton>
         <NButton :type="props.confirmType" :loading="props.loading" :disabled="props.disabled" @click="confirm">
-          <slot name="confirm-label">确认</slot>
+          <slot name="confirm-label">{{ t("common.confirm") }}</slot>
         </NButton>
       </AppDialogActions>
     </template>

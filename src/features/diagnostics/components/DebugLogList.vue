@@ -2,7 +2,7 @@
 import { formatDebugLogCategory } from "../utils/debugLogFormat";
 import { NEmpty, NTag } from "naive-ui";
 import { nextTick, ref, watch } from "vue";
-import { useI18n } from "../../../i18n";
+import { formatDateTime, useI18n } from "../../../i18n";
 import type { DebugLogEntry, DebugLogLevel } from "../types";
 
 const props = defineProps<{
@@ -28,10 +28,6 @@ async function scrollToBottom() {
   if (logListRef.value) {
     logListRef.value.scrollTop = logListRef.value.scrollHeight;
   }
-}
-
-function formatTime(timestampMs: number) {
-  return new Date(timestampMs).toLocaleString();
 }
 
 function repeatCount(log: DebugLogEntry) {
@@ -66,9 +62,9 @@ defineExpose({ scrollToBottom });
   <div v-else ref="logListRef" class="log-list">
     <article v-for="log in logs" :key="log.id" class="log-entry" :class="`level-${log.level}`">
       <div class="log-meta">
-        <span>{{ formatTime(log.timestampMs) }}</span>
+        <span>{{ formatDateTime(log.timestampMs) }}</span>
         <span v-if="repeatCount(log) > 1">{{ t("logs.repeated", { count: repeatCount(log) }) }}</span>
-        <span v-if="repeatCount(log) > 1">{{ t("logs.lastSeen", { time: formatTime(lastTimestampMs(log)) }) }}</span>
+        <span v-if="repeatCount(log) > 1">{{ t("logs.lastSeen", { time: formatDateTime(lastTimestampMs(log)) }) }}</span>
         <NTag :type="levelType(log.level)" size="small" round>{{ levelLabel(log.level) }}</NTag>
         <NTag size="small" round>{{ formatDebugLogCategory(log.category) }}</NTag>
         <code>{{ log.module }}</code>

@@ -23,7 +23,7 @@ export function createTaskCreateFormState(): TaskCreateFormState {
     torrentFile: null,
     saveDir: "",
     startMode: "now",
-    category: DEFAULT_TASK_CATEGORY,
+    category: "",
     connections: null,
     downloadLimitKb: 0,
     useProxy: false,

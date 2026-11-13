@@ -28,7 +28,7 @@ vi.mock("naive-ui", async () => {
     NCard: defineComponent({
       name: "NCardStub",
       setup(_, { slots }) {
-        return () => h("div", { "data-test": "n-card" }, [slots.header?.(), slots.default?.(), slots.footer?.()]);
+        return () => h("div", { "data-test": "n-card" }, [slots.header?.(), slots["header-extra"]?.(), slots.default?.(), slots.footer?.()]);
       },
     }),
     NButton: defineComponent({
@@ -66,8 +66,27 @@ vi.mock("naive-ui", async () => {
 
 import AppConfirmDialog from "./AppConfirmDialog.vue";
 import { flushPromises, mountWithPinia } from "../../test/mount";
+import { setLanguage } from "../../i18n";
 
 describe("AppConfirmDialog", () => {
+  it("updates default action and accessible close labels when the language changes", async () => {
+    const { wrapper } = mountWithPinia(AppConfirmDialog, { props: { show: true, title: "Motrix" } });
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.text()).toContain("Cancel");
+      expect(wrapper.text()).toContain("Confirm");
+      expect(wrapper.get('button[aria-label="Close"]').attributes("title")).toBe("Close");
+      setLanguage("zh-CN");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.text()).toContain("取消");
+      expect(wrapper.get('button[aria-label="关闭"]').attributes("title")).toBe("关闭");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
+  });
+
   it("renders title, text, extra slot and confirm label", () => {
     const { wrapper } = mountWithPinia(AppConfirmDialog, {
       props: {

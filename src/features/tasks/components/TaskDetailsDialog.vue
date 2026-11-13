@@ -4,6 +4,7 @@ import { NButton, NCard, NCollapse, NCollapseItem, NModal, NSpace, useMessage } 
 import AppConfirmDialog from "../../../components/ui/AppConfirmDialog.vue";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import { useI18n } from "../../../i18n";
+import { DEFAULT_TASK_CATEGORY } from "../composables/taskCreateFormModel";
 import type { DownloadTask } from "../../../types/tasks";
 import type { TaskActionDetails, TaskActionLabels, TaskFileActionView } from "./taskActionViewModel";
 import TaskProgressBar from "./TaskProgressBar.vue";
@@ -53,7 +54,9 @@ const statusLabel = computed(() => formatTaskStatusLabel(props.task));
 const sourceType = computed(() => getTaskSourceType(props.task));
 const isBtTask = computed(() => sourceType.value !== "url");
 const sourceLabel = computed(() => t(`task.source.${sourceType.value}` as const));
-const categoryLabel = computed(() => props.task.category || t("common.notAvailable"));
+const categoryLabel = computed(() => props.task.category === DEFAULT_TASK_CATEGORY
+  ? t("create.advanced.category.placeholder")
+  : props.task.category || t("common.notAvailable"));
 const formattedSpeed = computed(() => formatTaskSpeed(props.task));
 const progressPercentage = computed(() => getTaskProgressPercentage(props.task));
 const progressTone = computed(() => progressPercentage.value === null

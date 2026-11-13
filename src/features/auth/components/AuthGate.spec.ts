@@ -4,6 +4,7 @@ import { flushPromises, mountWithPinia } from "../../../test/mount";
 import { downloadLoginDiagnostic, getAuthStatus, loginAuth } from "../services/authService";
 import { useAuthStore } from "../stores/authStore";
 import AuthGate from "./AuthGate.vue";
+import { setLanguage } from "../../../i18n";
 
 vi.mock("../services/authService", () => ({
   getAuthStatus: vi.fn(),
@@ -121,5 +122,26 @@ describe("AuthGate", () => {
     await flushPromises();
     expect(wrapper.find('[data-test="auth-diagnostic-error"]').text()).toContain("无法自动复制");
     expect(wrapper.find('[data-test="auth-diagnostic-text"]').element).toHaveProperty("value", expect.stringContaining("访问地址："));
+  });
+
+  it("copies English diagnostic labels without exposing the access token", async () => {
+    const store = useAuthStore();
+    store.phase = "login";
+    store.accessToken = "private-jwt";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const { wrapper } = mountWithPinia(AuthGate, { pinia });
+    try {
+      setLanguage("en-US");
+      await wrapper.find('[data-test="auth-copy-diagnostic"]').trigger("click");
+      const text = writeText.mock.calls[0][0] as string;
+      expect(text).toContain("Access token present: Yes");
+      expect(text).toContain("Origin:");
+      expect(text).not.toMatch(/\p{Script=Han}/u);
+      expect(text).not.toContain("private-jwt");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 });

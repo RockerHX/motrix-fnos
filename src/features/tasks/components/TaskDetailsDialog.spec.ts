@@ -64,8 +64,27 @@ import TaskDetailsDialog from "./TaskDetailsDialog.vue";
 import { defaultLabels } from "./taskActionTestFixtures";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
 import type { DownloadTask } from "../../../types/tasks";
+import { setLanguage } from "../../../i18n";
 
 describe("TaskDetailsDialog", () => {
+  it("translates the default category without changing stored or custom categories", async () => {
+    const task = createTask();
+    const wrapper = mount(TaskDetailsDialog, {
+      props: { show: true, closeLabel: "Close", labels: defaultLabels, details: { title: "Details", items: [] }, task, isOperating: false, isActionDisabled: false },
+    });
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.findAll(".task-detail-summary-metric strong").map((item) => item.text())).toContain("Default");
+      expect(task.category).toBe("默认");
+      await wrapper.setProps({ task: createTask({ category: "电影" }) });
+      expect(wrapper.findAll(".task-detail-summary-metric strong").map((item) => item.text())).toContain("电影");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
+  });
+
   it("does not render content while hidden", () => {
     const wrapper = mount(TaskDetailsDialog, {
       props: {

@@ -56,7 +56,7 @@ describe("JsonRpcGuideDialog", () => {
     expect(wrapper.text()).toContain("JSON-RPC 配置指南");
     await flushPromises();
     expect(wrapper.get('[data-test="json-rpc-proxy-endpoint"]').text()).toBe("http://127.0.0.1:17081/jsonrpc");
-    expect(wrapper.get('[data-test="json-rpc-lan-endpoint"]').text()).toBe("http://<飞牛局域网IP>:17082/jsonrpc");
+    expect(wrapper.get('[data-test="json-rpc-lan-endpoint"]').text()).toBe("http://<NAS-IP>:17082/jsonrpc");
     expect(wrapper.text()).toContain("公网 Token：已配置");
     expect(wrapper.text()).toContain("局域网入口：已启用，Token：已配置");
     await wrapper.findAll("button").find((button) => button.text() === "复制地址")!.trigger("click");

@@ -1,6 +1,19 @@
 import type { TranslationKey } from "./zh-CN";
 
 export const enUS: Record<TranslationKey, string> = {
+  "common.confirm": "Confirm",
+  "common.yes": "Yes",
+  "common.no": "No",
+  "auth.diagnostic.title": "Motrix sign-in troubleshooting details",
+  "auth.diagnostic.protocol": "Protocol: {value}",
+  "auth.diagnostic.origin": "Origin: {value}",
+  "auth.diagnostic.iframe": "Inside iframe: {value}",
+  "auth.diagnostic.storage": "localStorage available: {value}",
+  "auth.diagnostic.token": "Access token present: {value}",
+  "auth.diagnostic.secure": "Secure context: {value}",
+  "auth.diagnostic.userAgent": "User-Agent: {value}",
+  "logs.exportTitle": "Motrix fnOS debug logs",
+  "logs.exportedAt": "Exported: {time}",
   "common.cancel": "Cancel",
   "common.save": "Save",
   "common.close": "Close",

@@ -2,7 +2,7 @@ import { ref } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DebugLogEntry } from "../types";
 import { useDebugLogExport } from "./useDebugLogExport";
-import { setLanguage } from "../../../i18n";
+import { formatDateTime, setLanguage } from "../../../i18n";
 
 const message = vi.hoisted(() => ({ success: vi.fn(), warning: vi.fn() }));
 
@@ -30,6 +30,9 @@ describe("useDebugLogExport", () => {
       setLanguage("en-US");
       expect(exporter.formatAllLogs()).toContain("[Settings]");
       expect(exporter.formatAllLogs()).toContain("[future]");
+      expect(exporter.formatAllLogs()).toContain("Total: 2; Filtered: 2; Warnings: 2; Errors: 0");
+      expect(exporter.formatAllLogs()).toContain(`[${formatDateTime(logs[0].timestampMs)}]`);
+      expect(exporter.formatAllLogs()).toContain(`last=${formatDateTime(logs[0].lastTimestampMs!)}`);
     } finally {
       setLanguage("zh-CN");
     }
@@ -54,7 +57,7 @@ describe("useDebugLogExport", () => {
     await exporter.copyAllLogs();
 
     expect(onManualCopy).toHaveBeenCalledWith(expect.stringContaining("[WARN] [Aria2] [aria2.rpc] x3"));
-    expect(onManualCopy).toHaveBeenCalledWith(expect.stringContaining("Total: 1; Filtered: 1; Warnings: 1; Errors: 0"));
+    expect(onManualCopy).toHaveBeenCalledWith(expect.stringContaining("总数: 1; 筛选后: 1; 警告: 1; 错误: 0"));
     expect(message.warning).toHaveBeenCalledWith(
       "当前页面不是可使用剪贴板的安全顶层环境，常见原因是局域网 HTTP 或 fnOS 内嵌窗口。请手动选择内容并按 Ctrl+C / Command+C，或直接打开 Motrix HTTPS 域名。",
     );

@@ -22,7 +22,7 @@ export function lanJsonRpcEndpoint(hostname: string, allowSharedAddressSpace = f
   if (isRfc1918Hostname(hostname) || (allowSharedAddressSpace && isSharedAddressHostname(hostname))) {
     return { value: `http://${hostname}:17082/jsonrpc`, concrete: true };
   }
-  return { value: "http://<飞牛局域网IP>:17082/jsonrpc", concrete: false };
+  return { value: "http://<NAS-IP>:17082/jsonrpc", concrete: false };
 }
 
 function isSharedAddressHostname(hostname: string) {

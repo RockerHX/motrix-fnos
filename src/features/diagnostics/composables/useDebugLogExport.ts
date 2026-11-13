@@ -2,7 +2,7 @@ import { useMessage } from "naive-ui";
 import { formatDebugLogCategory } from "../utils/debugLogFormat";
 import type { Ref } from "vue";
 import { copyTextToClipboard } from "../../../app/utils/clipboard";
-import { useI18n } from "../../../i18n";
+import { formatDateTime, useI18n } from "../../../i18n";
 import type { DebugLogEntry } from "../types";
 
 interface UseDebugLogExportOptions {
@@ -60,9 +60,9 @@ export function useDebugLogExport({
 
   function formatAllLogs() {
     const header = [
-      "Motrix fnOS debug logs",
-      `Exported: ${new Date().toLocaleString()}`,
-      `Total: ${logs.value.length}; Filtered: ${filteredLogs.value.length}; Warnings: ${warningCount.value}; Errors: ${errorCount.value}`,
+      t("logs.exportTitle"),
+      t("logs.exportedAt", { time: formatDateTime(Date.now()) }),
+      `${t("logs.stats.total")}: ${logs.value.length}; ${t("logs.stats.filtered")}: ${filteredLogs.value.length}; ${t("logs.stats.warnings")}: ${warningCount.value}; ${t("logs.stats.errors")}: ${errorCount.value}`,
       "",
     ].join("\n");
     return `${header}${filteredLogs.value.map(formatLogLine).join("\n")}`;
@@ -70,12 +70,8 @@ export function useDebugLogExport({
 
   function formatLogLine(log: DebugLogEntry) {
     const repeatCount = log.repeatCount ?? 1;
-    const repeats = repeatCount > 1 ? ` x${repeatCount} last=${formatTime(log.lastTimestampMs ?? log.timestampMs)}` : "";
-    return `[${formatTime(log.timestampMs)}] [${log.level.toUpperCase()}] [${formatDebugLogCategory(log.category)}] [${log.module}]${repeats} ${log.message}`;
-  }
-
-  function formatTime(timestampMs: number) {
-    return new Date(timestampMs).toLocaleString();
+    const repeats = repeatCount > 1 ? ` x${repeatCount} last=${formatDateTime(log.lastTimestampMs ?? log.timestampMs)}` : "";
+    return `[${formatDateTime(log.timestampMs)}] [${log.level.toUpperCase()}] [${formatDebugLogCategory(log.category)}] [${log.module}]${repeats} ${log.message}`;
   }
 
   return { copyAllLogs, downloadAllLogs, formatAllLogs };
