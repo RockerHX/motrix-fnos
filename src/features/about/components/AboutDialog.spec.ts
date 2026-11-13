@@ -177,6 +177,20 @@ describe("AboutDialog", () => {
     await selectTab(wrapper, "概览");
     expect(wrapper.find('[data-pane="changelog"]').exists()).toBe(true);
     expect(wrapper.find('[data-pane="changelog"]').attributes("style") ?? "").toContain("display: none");
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      await selectTab(wrapper, "Changelog");
+      expect(wrapper.findAll(".changelog-entry")).toHaveLength(5);
+      expect(wrapper.get(".changelog-list").text()).not.toMatch(/\p{Script=Han}/u);
+      expect(wrapper.get(".changelog-list").text()).not.toContain("Translation pending");
+      setLanguage("zh-CN");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.get(".changelog-list").text()).toMatch(/\p{Script=Han}/u);
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 
   it("emits close and checkUpdate events", async () => {

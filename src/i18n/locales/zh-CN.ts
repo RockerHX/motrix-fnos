@@ -1,4 +1,6 @@
 export const zhCN = {
+  "about.changelog.translationPending": "翻译待补充",
+  "about.changelog.translationPendingBody": "此版本的英文更新记录尚未提供，可通过概览中的发布链接查看原始记录。",
   "server.unknownCode": "操作失败（{code}），请导出诊断查看详情。",
   "server.httpFailed": "请求失败（{status}）",
   "server.accessible_paths_load_failed": "读取授权目录失败，请检查应用目录授权。",

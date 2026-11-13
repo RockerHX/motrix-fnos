@@ -153,6 +153,7 @@ workflow 在同一次运行内准备 CHANGELOG 和版本、更新 Cargo.lock、�
 - 发布白名单为 `CHANGELOG.md`、`package.json`、`server/Cargo.toml`、`server/Cargo.lock`、`packaging/fnos/manifest.template`、`packaging/fnos/app/ui/config`，出现其他改动立即中止。自动版本提交和内部推送使用 `--no-verify`，防止重复 hooks。
 - 上传两个 FPK、各自的 `.fpk.spdx.json` 和 `SHA256SUMS.txt`，并核对构建证明。
 - 已有合法目标 CHANGELOG 时直接复用；否则 Cloudflare Workers AI 分批提取 commit subject/body 与本地文件统计，再归并、编辑、独立复核。模型、权限、配额或正文结构错误时中止，可人工预写合法条目后重试，不静默回退逐 commit 日志。
+- 网页最近五个版本的英文记录维护在 `src/features/about/locales/CHANGELOG.en-US.md`，按版本与根目录 `CHANGELOG.md` 配对；合并功能分支前同步译文并完成验证，正式 Release 不修改该业务资源。当前已预置 2.0.7 的本次国际化变更；发布内容调整时须一起核对。缺少译文的新增版本在英文界面明确提示“翻译待补充”，不会直接显示中文正文。日志单元测试核对当前五个版本的版本号、日期、分节条目数量及英文内容。
 
 Cloudflare 配置：
 

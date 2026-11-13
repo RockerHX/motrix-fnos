@@ -1,6 +1,8 @@
 import type { TranslationKey } from "./zh-CN";
 
 export const enUS: Record<TranslationKey, string> = {
+  "about.changelog.translationPending": "Translation pending",
+  "about.changelog.translationPendingBody": "English notes for this version are not available yet. See the releases link in Overview for the original notes.",
   "server.unknownCode": "Operation failed ({code}). Export diagnostics for details.",
   "server.httpFailed": "Request failed ({status})",
   "server.accessible_paths_load_failed": "Could not load authorized folders. Check the app folder permissions.",

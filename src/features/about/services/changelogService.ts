@@ -1,9 +1,20 @@
+import { computed } from "vue";
 import changelogMarkdown from "../../../../CHANGELOG.md?raw";
+import englishChangelogMarkdown from "../locales/CHANGELOG.en-US.md?raw";
+import { language, t } from "../../../i18n";
 import type { ChangelogEntry, ChangelogSection } from "../types";
 
-export const recentChangelogEntries = parseChangelog(changelogMarkdown).slice(0, 5);
+const chineseEntries = parseChangelog(changelogMarkdown).slice(0, 5);
+const englishEntries = parseChangelog(englishChangelogMarkdown, "Changes");
+export const recentChangelogEntries = computed(() => language.value === "zh-CN" ? chineseEntries : chineseEntries.map((entry) => ({
+  ...entry,
+  sections: englishEntries.find(({ version }) => version === entry.version)?.sections ?? [{
+    title: t("about.changelog.translationPending"),
+    items: [t("about.changelog.translationPendingBody")],
+  }],
+})));
 
-export function parseChangelog(markdown: string): ChangelogEntry[] {
+export function parseChangelog(markdown: string, defaultSectionTitle = "变更"): ChangelogEntry[] {
   const entries: ChangelogEntry[] = [];
   let currentEntry: ChangelogEntry | null = null;
   let currentSection: ChangelogSection | null = null;
@@ -35,7 +46,7 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
     if (line.startsWith("- ") && currentEntry) {
       if (!currentSection) {
         currentSection = {
-          title: "变更",
+          title: defaultSectionTitle,
           items: [],
         };
         currentEntry.sections.push(currentSection);
