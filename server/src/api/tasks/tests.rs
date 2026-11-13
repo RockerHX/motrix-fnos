@@ -721,6 +721,7 @@ async fn create_batch_route_returns_created_and_failed_items() {
     assert_eq!(result.created[0].url, "https://example.com/archive-a.zip");
     assert!(result.created[0].use_proxy);
     assert_eq!(result.failed[0].input, "ftp://example.com/archive-b.zip");
+    assert_eq!(result.failed[0].code, "task_operation_failed");
 
     cleanup_state(&state);
     mock.abort();
@@ -755,6 +756,7 @@ async fn create_batch_route_returns_bad_request_when_all_items_fail() {
     assert!(result.created.is_empty());
     assert_eq!(result.failed.len(), 1);
     assert_eq!(result.failed[0].input, "ftp://example.com/archive.zip");
+    assert_eq!(result.failed[0].code, "task_operation_failed");
 
     cleanup_state(&state);
     mock.abort();
@@ -793,6 +795,10 @@ async fn create_batch_reports_proxy_preflight_failure_per_item_without_starting_
         .failed
         .iter()
         .all(|failure| failure.message.contains("未配置下载代理")));
+    assert!(result
+        .failed
+        .iter()
+        .all(|failure| failure.code == "proxy_not_configured"));
     assert!(state.aria2_runtime_snapshot().is_none());
     assert!(!save_dir.exists());
 }

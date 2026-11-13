@@ -10,6 +10,7 @@ import {
   stopAria2,
 } from "../services/aria2";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
+import { setLanguage } from "../i18n";
 
 vi.mock("../services/aria2", () => ({
   getAria2ConfigStatus: vi.fn(),
@@ -51,6 +52,23 @@ describe("EngineStatusPanel", () => {
     ]);
     expect(wrapper.text()).toContain("Aria2 Next");
     expect(wrapper.text()).toContain("未启动");
+  });
+
+  it("updates process and RPC details with the selected language", async () => {
+    mockGetProcess.mockResolvedValue(createProcessStatus({ running: true, pid: 1234, message: "Aria2 进程已启动" }));
+    mockPingRpc.mockResolvedValue(createRpcStatus({ connected: true, version: "2.8.6", message: "Aria2 RPC 连接正常，版本 2.8.6" }));
+    const { wrapper } = mountWithPinia(EngineStatusPanel);
+    try {
+      await flushPromises();
+      setLanguage("en-US");
+      await nextTick();
+      expect(wrapper.text()).toContain("The Aria2 process is running");
+      expect(wrapper.text()).toContain("Aria2 RPC is connected, version 2.8.6");
+      expect(wrapper.text()).not.toMatch(/\p{Script=Han}/u);
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 
   it("runs start, stop and rpc actions from Naive UI buttons", async () => {

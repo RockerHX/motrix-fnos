@@ -196,6 +196,7 @@ async fn create_batch_tasks(
         );
         failed.push(CreateBatchDownloadTaskFailure {
             input: String::new(),
+            code: "task_url_required".to_string(),
             message: "请输入至少一个 HTTP / HTTPS 下载链接".to_string(),
         });
         return Ok((
@@ -219,6 +220,7 @@ async fn create_batch_tasks(
             urls.into_iter()
                 .map(|input| CreateBatchDownloadTaskFailure {
                     input,
+                    code: classify_task_error(error.clone()).code().to_string(),
                     message: error.clone(),
                 }),
         );
@@ -249,6 +251,7 @@ async fn create_batch_tasks(
             Ok(task) => created.push(task.into()),
             Err(error) => failed.push(CreateBatchDownloadTaskFailure {
                 input: url,
+                code: classify_task_error(error.clone()).code().to_string(),
                 message: error,
             }),
         }

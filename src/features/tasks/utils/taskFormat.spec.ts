@@ -96,6 +96,15 @@ describe("taskFormat", () => {
     expect(formatTaskError(createTask({ errorCode: "5", errorMessage: "" }))).toBe("错误码 5：未知");
   });
 
+  it("translates recovery warnings while preserving stored errors and external file paths", () => {
+    setLanguage("en-US");
+    const task = createTask({ errorCode: null, errorMessage: "task_pause_unconfirmed：暂停超时" });
+    expect(formatTaskError(task)).toContain("Stop and restart the app");
+    expect(task.errorMessage).toBe("task_pause_unconfirmed：暂停超时");
+    expect(formatTaskError(createTask({ errorCode: null, errorMessage: "旧版本恢复状态待核对" }))).toContain("Keep download and recovery files");
+    expect(formatTaskError(createTask({ errorCode: "3", errorMessage: "Permission denied: /共享/电影.mkv" }))).toContain("Permission denied: /共享/电影.mkv");
+  });
+
   it("formats progress with unknown total and caps at 100 percent", () => {
     expect(formatTaskProgress(createTask({ totalLength: 0, completedLength: 10 }))).toBe("--");
     expect(formatTaskProgress(createTask({ totalLength: 1000, completedLength: 123 }))).toBe("12.3%");

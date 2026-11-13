@@ -12,6 +12,7 @@ import {
 } from "../services/aria2";
 import { useI18n, type TranslationKey } from "../i18n";
 import { getErrorMessage } from "../app/utils/errors";
+import { formatServerMessage } from "../i18n/serverMessages";
 import type { Aria2ConfigStatus, Aria2ProcessStatus, Aria2RpcStatus } from "../types/aria2";
 
 type EngineStatusSnapshot = {
@@ -44,14 +45,18 @@ const engineMetrics = computed<AppMetricItem[]>(() => [
   {
     label: t("engine.processStatus"),
     value: processStatus.value?.running ? t("diagnostics.running") : t("diagnostics.stopped"),
-    detail: processStatus.value?.message ?? t("engine.waiting"),
+    detail: processStatus.value
+      ? formatServerMessage(processStatus.value.message, processStatus.value.running ? "engine_running" : processStatus.value.pid ? "engine_exited" : "engine_stopped", { pid: processStatus.value.pid ?? "-" })
+      : t("engine.waiting"),
     note: `${t("engine.pid")}：${processStatus.value?.pid ?? "-"} / ${processStatus.value?.binarySource ?? "-"}`,
     tone: processStatus.value?.running ? "success" : "default",
   },
   {
     label: t("engine.rpcStatus"),
     value: rpcStatus.value?.connected ? t("diagnostics.connected") : t("diagnostics.disconnected"),
-    detail: rpcStatus.value?.message ?? t("engine.rpcUnchecked"),
+    detail: rpcStatus.value
+      ? formatServerMessage(rpcStatus.value.message, rpcStatus.value.connected ? "rpc_connected" : "rpc_disconnected", { version: rpcStatus.value.version ?? "-" })
+      : t("engine.rpcUnchecked"),
     note: `${t("engine.version")}：${rpcStatus.value?.version ?? "-"}`,
     tone: rpcStatus.value?.connected ? "success" : "default",
   },

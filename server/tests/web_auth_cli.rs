@@ -16,7 +16,7 @@ struct Terminal {
 }
 
 impl Terminal {
-    fn start(command: &Path) -> Self {
+    fn start(command: &Path, language: &str) -> Self {
         let (mut master, mut slave) = (0, 0);
         // openpty returns owned descriptors; the child gets a controlling terminal.
         unsafe {
@@ -35,6 +35,7 @@ impl Terminal {
         let slave = unsafe { File::from_raw_fd(slave) };
         let mut command = Command::new(command);
         command
+            .env("TRIM_SYS_LANGUAGE", language)
             .stdin(Stdio::from(slave.try_clone().unwrap()))
             .stdout(Stdio::from(slave.try_clone().unwrap()))
             .stderr(Stdio::from(slave.try_clone().unwrap()));
@@ -231,20 +232,42 @@ async fn installer_and_local_terminal_reset_use_installed_paths_without_leaking_
         !Command::new(&reset).output().unwrap().status.success(),
         "non-terminal reset must fail"
     );
-    for (password, confirmation, success) in [
-        ("hidden new password", "different password", false),
-        ("short", "short", false),
-        ("hidden new password", "hidden new password", true),
+    for (password, confirmation, success, language) in [
+        ("hidden new password", "different password", false, "zh-CN"),
+        ("short", "short", false, "zh-CN"),
+        ("hidden new password", "different password", false, "en-US"),
+        ("short", "short", false, "en-US"),
+        ("hidden new password", "hidden new password", true, "zh-CN"),
     ] {
-        let mut terminal = Terminal::start(&reset);
-        terminal.wait_for("请输入新管理密码");
+        let mut terminal = Terminal::start(&reset, language);
+        terminal.wait_for(if language == "en-US" {
+            "Enter the new management password: "
+        } else {
+            "请输入新管理密码"
+        });
         assert!(!terminal.echo_enabled());
         terminal.send(format!("{password}\n").as_bytes());
-        terminal.wait_for("请再次输入新管理密码");
+        terminal.wait_for(if language == "en-US" {
+            "Enter the new management password again: "
+        } else {
+            "请再次输入新管理密码"
+        });
         terminal.send(format!("{confirmation}\n").as_bytes());
         assert_eq!(terminal.finish(), success, "{}", terminal.output);
         assert!(!terminal.output.contains(password));
         assert!(!terminal.output.contains(confirmation));
+        if language == "en-US" {
+            assert!(!terminal.output.contains("密码"), "{}", terminal.output);
+            assert!(
+                terminal.output.contains(if password == confirmation {
+                    "8–128 characters"
+                } else {
+                    "passwords do not match"
+                }),
+                "{}",
+                terminal.output
+            );
+        }
         let database = connect_database(root.join("var/motrix-fnos.sqlite"))
             .await
             .unwrap();
@@ -271,7 +294,7 @@ async fn installer_and_local_terminal_reset_use_installed_paths_without_leaking_
         database.pool.close().await;
     }
     for cancel in [b'\x03', b'\x04'] {
-        let mut terminal = Terminal::start(&reset);
+        let mut terminal = Terminal::start(&reset, "zh-CN");
         terminal.wait_for("请输入新管理密码");
         assert!(!terminal.echo_enabled());
         terminal.send(&[cancel]);

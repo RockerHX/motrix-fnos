@@ -70,6 +70,7 @@ export interface CreateBatchDownloadTasksRequest {
 
 export interface CreateBatchDownloadTaskFailure {
   input: string;
+  code?: string;
   message: string;
 }
 

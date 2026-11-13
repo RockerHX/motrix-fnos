@@ -23,6 +23,7 @@ import {
 import type { UploadFileInfo, UploadOnChange, UploadOnRemove } from "naive-ui";
 import AppIcon from "../../../components/AppIcon.vue";
 import { useI18n } from "../../../i18n";
+import { formatServerMessage } from "../../../i18n/serverMessages";
 import { useMobileLayout } from "../../../app/composables/useMobileLayout";
 import { useTaskCreateForm } from "../composables/useTaskCreateForm";
 
@@ -268,7 +269,7 @@ const handleTorrentUploadRemove: UploadOnRemove = () => {
             <p class="batch-failure-title">{{ t("create.batch.failedTitle") }}</p>
             <ul class="batch-failure-list">
               <li v-for="item in batchFailedItems" :key="`${item.input}-${item.message}`">
-                {{ item.input }}：{{ item.message }}
+                {{ item.input }}：{{ formatServerMessage(item.message, item.code ?? "task_operation_failed") }}
               </li>
             </ul>
           </NAlert>

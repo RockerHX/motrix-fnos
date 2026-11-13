@@ -60,6 +60,7 @@ import { useDownloadProxyStore } from "../stores/downloadProxyStore";
 import type { DownloadProxyStatus } from "../../../types/settings";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import ProxySettings from "./ProxySettings.vue";
+import { setLanguage } from "../../../i18n";
 
 const mockedDelete = vi.mocked(deleteDownloadProxy);
 const mockedGetStatus = vi.mocked(getDownloadProxyStatus);
@@ -115,6 +116,15 @@ describe("ProxySettings", () => {
     expect(wrapper.get('[data-test="download-proxy-result"]').text()).toContain("已应用 1 个，延后 1 个，失败 1 个");
     expect(wrapper.text()).toContain("#3 · Aria2 正在切换运行状态，请稍后重试");
     expect(messageMocks.success).toHaveBeenCalledWith("下载代理已保存");
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.get(".proxy-settings-failures").text()).toContain("The engine is changing state");
+      expect(store.lastMutation?.failed[0].message).toBe("Aria2 正在切换运行状态，请稍后重试");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 
   it("uses a replacement confirmation and clears the draft when settings close", async () => {

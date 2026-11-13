@@ -122,8 +122,27 @@ vi.mock("../../../components/ui/AppDialog.vue", async () => {
 import AboutDialog from "./AboutDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import type { AppInfo } from "../../../types/app";
+import { setLanguage } from "../../../i18n";
 
 describe("AboutDialog", () => {
+  it("shows update results in the selected language", async () => {
+    const { wrapper } = mountWithPinia(AboutDialog, {
+      props: { show: true, appInfo: createAppInfo(), updateCheck: {
+        currentVersion: "2.0.5", latestVersion: "2.0.5", status: "up_to_date", hasUpdate: false,
+        releaseUrl: null, assets: [], checkedAt: 1, message: "当前已是最新版本。",
+      } },
+    });
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.text()).toContain("You are using the latest version.");
+      expect(wrapper.text()).not.toContain("当前已是最新版本");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
+  });
+
   it("renders the overview by default with fixed dialog content", () => {
     const { wrapper } = mountWithPinia(AboutDialog, {
       props: {

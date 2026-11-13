@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { checkAppUpdate } from "../services/aboutService";
+import { getErrorMessage } from "../../../app/utils/errors";
 import type { AppUpdateCheck } from "../../../types/app";
 
 interface UpdateCheckMessageApi {
@@ -20,8 +21,7 @@ export function useUpdateCheck({ message, fallbackMessage }: UseUpdateCheckOptio
     try {
       updateCheck.value = await checkAppUpdate();
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      message.error(errorMessage || fallbackMessage);
+      message.error(getErrorMessage(error, fallbackMessage));
     } finally {
       isCheckingUpdate.value = false;
     }

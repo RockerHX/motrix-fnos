@@ -10,6 +10,7 @@ import AuthGate from "./features/auth/components/AuthGate.vue";
 import { useAuthStore } from "./features/auth/stores/authStore";
 import { getAuthStatus } from "./features/auth/services/authService";
 import { createFnosPlatformController } from "./app/hostPlatform";
+import { getErrorMessage } from "./app/utils/errors";
 
 const settingsStore = useSettingsStore();
 const authStore = useAuthStore();
@@ -30,7 +31,7 @@ async function refreshBackendStatus() {
     appInfo.value = info;
     backendPing.value = ping;
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : String(error);
+    errorMessage.value = getErrorMessage(error, "");
   }
 }
 

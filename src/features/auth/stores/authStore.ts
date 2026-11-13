@@ -14,6 +14,7 @@ import {
 } from "../services/authService";
 import type { AuthChannelMessage, AuthPhase, AuthStatus, ChangePasswordRequest } from "../types";
 import { t } from "../../../i18n";
+import { getErrorMessage } from "../../../app/utils/errors";
 
 const ACCESS_TOKEN_STORAGE_KEY = "motrix-fnos:web-access-token";
 
@@ -43,7 +44,7 @@ export const useAuthStore = defineStore("auth", () => {
     } catch (error) {
       clearAuthState();
       phase.value = "error";
-      errorMessage.value = error instanceof Error ? error.message : String(error);
+      errorMessage.value = getErrorMessage(error, t("auth.loadFailed"));
       throw error;
     }
   }
