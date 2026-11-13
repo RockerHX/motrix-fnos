@@ -1,12 +1,15 @@
 #!/bin/sh
 set -eu
+
+CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "${CMD_DIR}/common.sh"
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "执行 $(basename "$0")" "Running $(basename "$0")")" >> "${TRIM_TEMP_LOGFILE}"
 fi
 
 log_uninstall() {
   if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "${TRIM_TEMP_LOGFILE}"
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "$1" "$2")" >> "${TRIM_TEMP_LOGFILE}"
   fi
 }
 
@@ -14,24 +17,22 @@ clear_dir_contents() {
   target="$1"
   case "${target}" in
     ""|"/"|"/."|"/.."|"/var"|"/usr"|"/usr/local"|"/vol"*"/@appdata"|"/vol"*"/@appcenter")
-      log_uninstall "拒绝清理高风险目录：${target}"
+      log_uninstall "拒绝清理高风险目录：${target}" "Refusing to clear a protected directory: ${target}"
       return 1
       ;;
   esac
 
   if [ ! -d "${target}" ]; then
-    log_uninstall "卸载清理跳过，不存在：${target}"
+    log_uninstall "卸载清理跳过，不存在：${target}" "Uninstall cleanup skipped; the directory does not exist: ${target}"
     return 0
   fi
 
   find "${target}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  log_uninstall "卸载清理完成：${target}"
+  log_uninstall "卸载清理完成：${target}" "Uninstall cleanup completed: ${target}"
 }
 
-CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-. "${CMD_DIR}/common.sh"
 if ! ensure_uninstall_processes_stopped; then
-  log_uninstall "卸载前进程退出未确认，拒绝继续卸载"
+  log_uninstall "卸载前进程退出未确认，拒绝继续卸载" "Process termination could not be confirmed. Uninstallation has been refused."
   exit 1
 fi
 
@@ -39,14 +40,14 @@ DELETE_APP_DATA=$(printf '%s' "${MOTRIX_FNOS_DELETE_APP_DATA:-}" | tr '[:upper:]
 
 case "${DELETE_APP_DATA}" in
   "1"|"true"|"yes"|"on")
-    log_uninstall "卸载向导已选择删除 Motrix 应用数据"
+    log_uninstall "卸载向导已选择删除 Motrix 应用数据" "Deletion of Motrix application data was selected in the uninstall wizard."
     if ! clear_dir_contents "${PKG_VAR}"; then
-      log_uninstall "卸载清理失败，保留应用数据"
+      log_uninstall "卸载清理失败，保留应用数据" "Uninstall cleanup failed. Application data has been retained."
       exit 1
     fi
     ;;
   *)
-    log_uninstall "卸载默认保留 Motrix 应用数据：${PKG_VAR}"
+    log_uninstall "卸载默认保留 Motrix 应用数据：${PKG_VAR}" "Motrix application data has been retained: ${PKG_VAR}"
     ;;
 esac
 

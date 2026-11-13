@@ -7,17 +7,17 @@ set -eu
 prepare_runtime_dirs
 export_runtime_env
 clear_stale_pid
-require_file "${SERVER_BIN}" "server 二进制"
+require_file "${SERVER_BIN}" "Motrix server"
 
 pid=$(read_pid || true)
 if [ -n "${pid}" ] && is_running_pid "${pid}"; then
   log_msg "拒绝重置 Web 鉴权：motrix-fnos-server 仍在运行"
-  echo "motrix-fnos-server 仍在运行，请先停止应用后重试" >&2
+  ui_message "motrix-fnos-server 仍在运行，请先停止应用后重试" "motrix-fnos-server is still running. Stop the application and try again." >&2
   exit 1
 fi
 
 if [ ! -t 0 ] || [ ! -t 1 ]; then
-  echo "请在 NAS 本机交互终端运行此命令，不支持管道或重定向" >&2
+  ui_message "请在 NAS 本机交互终端运行此命令，不支持管道或重定向" "Run this command in an interactive terminal on the NAS. Pipes and redirection are not supported." >&2
   exit 1
 fi
 
@@ -30,10 +30,10 @@ stty -echo
 
 if "${SERVER_BIN}" reset-web-auth; then
   log_msg "Web 管理鉴权已在本地重置"
-  echo "Web 管理鉴权已重置，请重新启动应用并使用新管理密码登录"
+  ui_message "Web 管理鉴权已重置，请重新启动应用并使用新管理密码登录" "Web management authentication has been reset. Start the application and sign in with the new password."
   exit 0
 fi
 
 log_msg "Web 管理鉴权本地重置失败"
-echo "Web 管理鉴权重置失败，请检查本地服务日志" >&2
+ui_message "Web 管理鉴权重置失败，请检查本地服务日志" "Web management authentication could not be reset. Check the local service log." >&2
 exit 1

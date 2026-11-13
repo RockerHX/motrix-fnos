@@ -5,11 +5,11 @@ set -eu
 
 prepare_runtime_dirs
 export_runtime_env
-require_file "${SERVER_BIN}" "server 二进制"
+require_file "${SERVER_BIN}" "Motrix server"
 clear_stale_pid
 pid=$(read_pid || true)
 if [ -n "${pid}" ] && is_running_pid "${pid}"; then
-  echo "请先停止应用再安装" >&2
+  ui_message "请先停止应用再安装" "Stop the application before installing." >&2
   exit 1
 fi
 
@@ -21,7 +21,7 @@ if "${SERVER_BIN}" initialize-web-auth; then
 fi
 
 unset wizard_management_password wizard_management_password_confirm
-message="管理密码配置失败：首次安装或原数据中尚未设置密码时，请在安装向导填写两次一致的 8–128 个字符密码后重试；原有数据已保留。"
+message=$(ui_message "管理密码配置失败：首次安装或原数据中尚未设置密码时，请在安装向导填写两次一致的 8–128 个字符密码后重试；原有数据已保留。" "Management password setup failed. For a new installation or retained data without a password, enter the same 8–128 character password twice in the installation wizard and try again. Existing data has been retained.")
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
   printf '%s\n' "${message}" > "${TRIM_TEMP_LOGFILE}"
 fi

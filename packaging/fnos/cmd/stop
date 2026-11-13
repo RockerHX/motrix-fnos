@@ -13,24 +13,24 @@ if [ -z "${pid}" ]; then
   remove_pid_record
   if stop_owned_aria2_sidecar; then
     log_msg "motrix-fnos-server 未运行，无需停止"
-    echo "motrix-fnos-server 未运行"
+    ui_message "motrix-fnos-server 未运行" "motrix-fnos-server is not running"
     exit 0
   fi
   log_msg "motrix-fnos-server 未运行，但 Aria2 sidecar 未能安全停止"
-  echo "motrix-fnos-server 未运行，但 Aria2 sidecar 未能安全停止" >&2
+  ui_message "motrix-fnos-server 未运行，但 Aria2 sidecar 未能安全停止" "motrix-fnos-server is not running, but the Aria2 sidecar could not be stopped safely." >&2
   exit 1
 fi
 
 if is_unverifiable_server_instance "${pid}"; then
   log_msg "motrix-fnos-server PID ${pid} 缺少启动时间记录，拒绝发送信号"
-  echo "motrix-fnos-server 停止失败：PID ${pid} 缺少启动时间记录" >&2
+  ui_message "motrix-fnos-server 停止失败：PID ${pid} 缺少启动时间记录" "motrix-fnos-server stop failed. PID ${pid} has no recorded start time." >&2
   exit 1
 fi
 
 if ! is_managed_server_instance "${pid}"; then
   remove_pid_record
   log_msg "检测到陈旧 PID 文件，已清理：${pid}"
-  echo "motrix-fnos-server 未运行（已清理陈旧 PID）"
+  ui_message "motrix-fnos-server 未运行（已清理陈旧 PID）" "motrix-fnos-server is not running; the stale PID record has been removed."
   exit 0
 fi
 
@@ -40,7 +40,7 @@ if ! stop_managed_server_stage "${pid}" "SIGINT" "${STOP_INT_ATTEMPTS}"; then
   if ! stop_managed_server_stage "${pid}" "SIGTERM" "${STOP_TERM_ATTEMPTS}"; then
     if ! stop_managed_server_stage "${pid}" "SIGKILL" "${STOP_KILL_ATTEMPTS}"; then
       log_msg "motrix-fnos-server 在所有停止阶段后仍未退出，PID ${pid}"
-      echo "motrix-fnos-server 停止失败，PID ${pid}" >&2
+      ui_message "motrix-fnos-server 停止失败，PID ${pid}" "motrix-fnos-server could not be stopped, PID ${pid}" >&2
       exit 1
     fi
   fi
@@ -48,11 +48,11 @@ fi
 
 if ! stop_owned_aria2_sidecar; then
   log_msg "motrix-fnos-server 已退出，但 Aria2 sidecar 未能安全停止"
-  echo "motrix-fnos-server 已退出，但 Aria2 sidecar 未能安全停止" >&2
+  ui_message "motrix-fnos-server 已退出，但 Aria2 sidecar 未能安全停止" "motrix-fnos-server has exited, but the Aria2 sidecar could not be stopped safely." >&2
   exit 1
 fi
 
 remove_pid_record
 log_msg "motrix-fnos-server 与所属 Aria2 sidecar 已停止，PID ${pid}"
-echo "motrix-fnos-server 已停止，PID ${pid}"
+ui_message "motrix-fnos-server 已停止，PID ${pid}" "motrix-fnos-server has stopped, PID ${pid}"
 exit 0
