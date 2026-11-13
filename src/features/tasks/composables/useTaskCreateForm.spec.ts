@@ -238,7 +238,7 @@ describe("useTaskCreateForm", () => {
     expect(localStorage.getItem("motrix-fnos:last-save-dir")).toBe("/backup");
     expect(wrapper.vm.form.urls).toBe("");
     expect(wrapper.vm.form.saveDir).toBe("");
-    expect(wrapper.vm.form.category).toBe("默认");
+    expect(wrapper.vm.form.category).toBe("");
     expect(wrapper.vm.form.useProxy).toBe(false);
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onCreated).toHaveBeenCalledTimes(1);

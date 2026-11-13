@@ -5,8 +5,8 @@ set -eu
 prepare_runtime_dirs
 case "${wizard_upgrade_acknowledged:-}" in
   true|1|'["true"]') ;;
-  *) fail_engine_upgrade "升级已取消：请先在升级向导中阅读并同意兼容性与备份说明。" ;;
+  *) fail_engine_upgrade "升级已取消：请先在升级向导中阅读并同意兼容性与备份说明。" "Upgrade cancelled. Read and accept the compatibility and backup information in the upgrade wizard first." ;;
 esac
 if ! ensure_uninstall_processes_stopped; then
-  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。"
+  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。" "Upgrade failed. The service or engine is still running. Stop the application and try again."
 fi

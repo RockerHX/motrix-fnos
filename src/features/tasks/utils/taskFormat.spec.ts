@@ -96,6 +96,30 @@ describe("taskFormat", () => {
     expect(formatTaskError(createTask({ errorCode: "5", errorMessage: "" }))).toBe("错误码 5：未知");
   });
 
+  it("translates recovery warnings while preserving stored errors and external file paths", () => {
+    setLanguage("en-US");
+    const task = createTask({ errorCode: null, errorMessage: "task_pause_unconfirmed：暂停超时" });
+    expect(formatTaskError(task)).toContain("Stop and restart the app");
+    expect(task.errorMessage).toBe("task_pause_unconfirmed：暂停超时");
+    expect(formatTaskError(createTask({ errorCode: null, errorMessage: "旧版本恢复状态待核对" }))).toContain("Keep download and recovery files");
+    expect(formatTaskError(createTask({ errorCode: "3", errorMessage: "Permission denied: /共享/电影.mkv" }))).toContain("Permission denied: /共享/电影.mkv");
+  });
+
+  it("localizes the app-owned write permission hint without changing stored or external engine errors", () => {
+    const original = "Download aborted. 可能原因：Aria2 无法创建或写入目标文件，请检查下载目录权限和同名文件权限。";
+    const task = createTask({ errorCode: "16", errorMessage: original });
+    setLanguage("en-US");
+    const displayed = formatTaskError(task);
+    expect(displayed).toContain("Error code 16: Download aborted.");
+    expect(displayed).toContain("permissions");
+    expect(displayed).not.toMatch(/\p{Script=Han}/u);
+    expect(task.errorMessage).toBe(original);
+    const external = "Download aborted. Permission denied: /共享/电影.mkv";
+    expect(formatTaskError(createTask({ errorCode: "16", errorMessage: external }))).toBe(`Error code 16: ${external}`);
+    setLanguage("zh-CN");
+    expect(formatTaskError(task)).toBe(`错误码 16：${original}`);
+  });
+
   it("formats progress with unknown total and caps at 100 percent", () => {
     expect(formatTaskProgress(createTask({ totalLength: 0, completedLength: 10 }))).toBe("--");
     expect(formatTaskProgress(createTask({ totalLength: 1000, completedLength: 123 }))).toBe("12.3%");

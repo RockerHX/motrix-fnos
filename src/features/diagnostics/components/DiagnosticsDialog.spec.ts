@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setLanguage } from "../../../i18n";
 
 const diagnosticBundleExport = vi.hoisted(() => ({ exportDiagnosticBundle: vi.fn() }));
 
@@ -171,6 +172,15 @@ describe("DiagnosticsDialog", () => {
     expect(wrapper.get('[data-pane="overview"]').isVisible()).toBe(true);
     expect(wrapper.find('[data-pane="connection"]').exists()).toBe(false);
     expect(wrapper.emitted("refreshStatus")).toHaveLength(1);
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.text()).toContain("Rust backend communication is working");
+      expect(wrapper.text()).not.toContain("pong");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 
   it("switches connection and logs panes without repeating status refresh", async () => {

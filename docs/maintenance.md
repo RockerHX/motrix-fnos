@@ -153,6 +153,7 @@ workflow 在同一次运行内准备 CHANGELOG 和版本、更新 Cargo.lock、�
 - 发布白名单为 `CHANGELOG.md`、`package.json`、`server/Cargo.toml`、`server/Cargo.lock`、`packaging/fnos/manifest.template`、`packaging/fnos/app/ui/config`，出现其他改动立即中止。自动版本提交和内部推送使用 `--no-verify`，防止重复 hooks。
 - 上传两个 FPK、各自的 `.fpk.spdx.json` 和 `SHA256SUMS.txt`，并核对构建证明。
 - 已有合法目标 CHANGELOG 时直接复用；否则 Cloudflare Workers AI 分批提取 commit subject/body 与本地文件统计，再归并、编辑、独立复核。模型、权限、配额或正文结构错误时中止，可人工预写合法条目后重试，不静默回退逐 commit 日志。
+- 网页最近五个版本的英文记录维护在 `src/features/about/locales/CHANGELOG.en-US.md`，按版本与根目录 `CHANGELOG.md` 配对；合并功能分支前同步译文并完成验证，正式 Release 不修改该业务资源。当前已预置 2.0.7 的本次国际化变更；发布内容调整时须一起核对。缺少译文的新增版本在英文界面明确提示“翻译待补充”，不会直接显示中文正文。日志单元测试核对当前五个版本的版本号、日期、分节条目数量及英文内容。
 
 Cloudflare 配置：
 
@@ -188,6 +189,7 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 - 该身份的 FN Connect 地址 `https://motrix.<account>.fnos.net/` 已有实机依据。桌面入口默认 `allUsers=false`，`control.accessPerm=editable` 可由管理员放开；不因此获得可信 `X-Trim-*` 身份。
 - 双架构 `os_min_version=1.2.0401`，不承诺支持 `1.2.0302`；正式包声明 `micro_app=true`，精确申请 `trim.file.sharedAccess`、`trim.file.path`。预检拒绝额外 Scope，扫描 Web 产物，禁止 `TRIM_API_TOKEN`、官方 Socket 路径和官方开放 API 的 Authorization Header 拼装代码进入产物。
 - 包根 `ICON.PNG` / `ICON_256.PNG`、入口 `app/ui/images/icon_64.png` / `icon_256.png` 及 Web `icon.png`，项目交付均为 **256×256**，由构建器同步校验；保留 `images/icon_{0}.png` 兼容文件名。
+- 当前发布图标源为 `assets/icons/logo/motrix.svg`，由原有磁盘图形移除中央飞牛标志而来；历史 `logo-fnos-*` 不作为导出源。使用 CairoSVG 按 256×256 光栅化，以 8-bit RGBA PNG 保存并写入 sRGB 标记，同步覆盖 `packaging/fnos/ICON.PNG`、`ICON_256.PNG` 和 `public/icon.png`；入口副本由构建器生成。2026-11-13 已复核[国内版](https://developer.fnnas.com/docs/core-concepts/icon/)及[国际版图标规范](https://developer.fygonas.com/cn/docs/core-concepts/icon/)中的圆角、留白与小尺寸辨识要求，本次保留已有磁盘造型和配色。
 - 官方规范仍为包图标和入口图标各有 64 / 256 两档，并要求正方形、sRGB、PNG/JPG、单文件不超过 1024 KB；全用 256 是本项目 2026-07-17 双架构 FPK 实机显示验证后的交付选择。模糊时先看包内尺寸，再强刷 / 清缓存 / 换浏览器，不只改一个图标。
 
 ### 实机验收
@@ -223,6 +225,7 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 - [图标规范](https://developer.fnnas.com/docs/core-concepts/icon/)与本项目的高清交付约定分开理解，见上方身份与图标。
 - [安装向导](https://developer.fnnas.com/docs/core-concepts/wizard/)和应用框架于 2026-10-07 查证：password 隐藏输入，field 映射生命周期环境变量，install_callback 在文件安装后执行；回调仍需重新校验，服务启动前清除密码环境变量，不把它传给 server / Aria2。应用不持久化或记录明文，平台保留行为待验。
 - 2026-10-29 复核：官方向导文档列出 `checkbox`、`switch`、`tips` 及 `rules`，未说明按本机数据动态生成向导或条件隐藏字段的接口；不据此断言平台绝不支持。[fnnas 组织的 NVIDIA GRID 包](https://github.com/fnnas/appstore.driver.gpu.nvidia.grid/blob/796f73b279cc27cc403338d02629777021957c6d/package_kernel_space/wizard/install)和 [SakuraFrp 包](https://github.com/conversun/fnos-apps/blob/main/apps/sakurafrp/fnos/wizard/install)可核对 `tips.helpText` 使用 HTML 粗体、换行与链接的实践；本项目只用粗体和换行，宿主渲染仍须实机验收。保留密码重装采用静态字段可留空、回调检查有效鉴权状态的方式，行为见 [鉴权契约](api-contract.md#41-web-管理鉴权)，不依赖未验证的前置钩子或图片加载。
+- 2026-11-13 应用包国际化：按 [Fygo 官方国际化](https://developer.fygonas.com/cn/docs/core-concepts/i18n/)将 manifest 的 `desc`、`changelog` 接入 `common` 字典，各 locale 使用相同的 section / key 并保留 `en-US`；产品名 Motrix 不翻译。[官方环境变量](https://developer.fygonas.com/cn/docs/core-concepts/environment-variables/)及[应用框架](https://developer.fygonas.com/cn/docs/core-concepts/framework/)提供 `TRIM_SYS_LANGUAGE` 和 `TRIM_TEMP_LOGFILE` 依据：生命周期脚本和本机密码重置提示在中文 locale 使用中文，其他已提供的 locale 使用英语；缺少变量时保留旧版中文行为。本地回归核验英语失败提示、错误文件、终端隐藏输入和数据保留；实际系统变量与应用中心解析仍待 fnOS / Fygo 实机验收。
 - 2026-11-06 语言适配查证：[官方 Grafana 包](https://github.com/fnnas/appstore.grafana/tree/5a89ea6dac0962f599f34a6bbdf86551b265091a/package/i18n)采用包根目录 INI 字典（`en`、`zh-CN`）和 `${section.key}` 引用；fnpack 1.2.1 最小工程已验证向导引用可打包且字典进入 FPK，本项目同时提供 `en-US` 英语别名。[平台配置](https://developer.fnnas.com/api/platform-config/)要求前端优先读取 SDK `getPlatformConfig().language`（用户界面语言），不以 `systemLanguage` 替代；[页面交互](https://developer.fnnas.com/api/page/ui/)规定 `os/language` 仅支持桌面 Web 宿主。双平台实测反馈与边界见下一项。
 - 2026-11-06 用户已在 x86 国内版 fnOS 和国际版 fygo 测试并确认语言适配通过。国内版默认中文，当前实测版本未提供系统语言切换入口，中英文适配在 fygo 验证；不据此断言所有国内版版本均无语言入口。反馈未单独列举三类向导完整生命周期、英语长文换行及移动 WebView，仍按 [实机验收](#实机验收)清单核对。
 - 卸载 switch 保持不设置 `initValue`：既有实测字符串不能可靠表达默认值，布尔值导致 fnpack 校验失败。`config_callback` 保持空操作，不再同步目录授权；config_init 需完成配置流程验证后才可评估删除。

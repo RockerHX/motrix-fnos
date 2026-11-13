@@ -1,6 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import changelogMarkdown from "../../../../CHANGELOG.md?raw";
-import { parseChangelog } from "./changelogService";
+import { parseChangelog, recentChangelogEntries } from "./changelogService";
+import { setLanguage } from "../../../i18n";
+
+describe("recent release notes", () => {
+  afterEach(() => setLanguage("zh-CN"));
+
+  it("switches every displayed release to English while keeping versions, dates, and complete sections", () => {
+    const chinese = recentChangelogEntries.value;
+    expect(chinese).toEqual(parseChangelog(changelogMarkdown).slice(0, 5));
+    setLanguage("en-US");
+    const english = recentChangelogEntries.value;
+    expect(english).toHaveLength(5);
+    expect(english.map(({ version, date }) => [version, date])).toEqual(chinese.map(({ version, date }) => [version, date]));
+    expect(english.map(({ sections }) => sections.map(({ items }) => items.length))).toEqual(chinese.map(({ sections }) => sections.map(({ items }) => items.length)));
+    expect(JSON.stringify(english)).not.toMatch(/\p{Script=Han}/u);
+    expect(JSON.stringify(english)).not.toContain("Translation pending");
+    setLanguage("zh-CN");
+    expect(recentChangelogEntries.value).toEqual(chinese);
+  });
+});
 
 describe("parseChangelog", () => {
   it("parses multiple versions and sections in source order", () => {
@@ -69,6 +88,10 @@ describe("parseChangelog", () => {
         ],
       },
     ]);
+  });
+
+  it("uses an English heading for unclassified English notes", () => {
+    expect(parseChangelog("## 1.0.0\n\n- Fixed downloads", "Changes")[0].sections[0].title).toBe("Changes");
   });
 
   it("reads legacy entries from the real changelog without duplicating their content", () => {

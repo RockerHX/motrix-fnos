@@ -14,3 +14,7 @@ uninstall_title="Application data on uninstall"
 uninstall_keep_help="By default, uninstalling retains Motrix application data so it can be reused after reinstalling or upgrading."
 uninstall_delete_label="Also delete Motrix application data"
 uninstall_delete_help="Deletes private application data, including task records, settings, JSON-RPC tokens, the Aria2 session and logs. Files in your download folders will not be deleted."
+
+[common]
+desc="Download manager for fnOS and Fygo OS with HTTP, BitTorrent, magnet links and remote task submission, powered by Aria2."
+changelog="Added batch URLs, torrent files, magnet links, file selection and advanced download options."

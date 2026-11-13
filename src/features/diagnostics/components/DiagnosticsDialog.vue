@@ -10,6 +10,7 @@ import Aria2LogModePanel from "./Aria2LogModePanel.vue";
 import DebugLogDialog from "./DebugLogDialog.vue";
 import LogMaintenancePanel from "./LogMaintenancePanel.vue";
 import { useI18n } from "../../../i18n";
+import { formatServerMessage } from "../../../i18n/serverMessages";
 import type { AppInfo, BackendPing } from "../../../types/app";
 import type { Aria2ProcessStatus, Aria2RpcStatus } from "../../../types/aria2";
 import { useLanJsonRpcStore } from "../../settings/stores/lanJsonRpcStore";
@@ -50,7 +51,7 @@ const lanPortInUse = computed(() => lanJsonRpcStore.status?.available === false)
 const overviewMetrics = computed<AppMetricItem[]>(() => [
   { label: t("diagnostics.appVersion"), value: props.appInfo?.version ?? "-" },
   { label: t("diagnostics.backendStatus"), value: props.appInfo?.backendStatus ?? t("diagnostics.backendChecking") },
-  { label: t("diagnostics.communication"), value: props.backendPing?.message ?? t("common.loading") },
+  { label: t("diagnostics.communication"), value: props.backendPing ? formatServerMessage(props.backendPing.message, props.backendPing.ok ? "backend_ok" : "backend_unavailable") : t("common.loading") },
 ]);
 const connectionMetrics = computed<AppMetricItem[]>(() => [
   {

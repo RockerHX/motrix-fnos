@@ -1,20 +1,21 @@
 #!/bin/sh
 set -eu
+
+. "$(dirname -- "$0")/common.sh"
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "执行 $(basename "$0")" "Running $(basename "$0")")" >> "${TRIM_TEMP_LOGFILE}"
 fi
 
-CMD_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 if [ -x "${CMD_DIR}/stop" ]; then
   if ! "${CMD_DIR}/stop" >> "${TRIM_TEMP_LOGFILE:-/dev/null}" 2>&1; then
     if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-      printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "停止 Motrix 失败，拒绝继续卸载" >> "${TRIM_TEMP_LOGFILE}"
+      printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "停止 Motrix 失败，拒绝继续卸载" "Motrix could not be stopped. Uninstallation has been refused.")" >> "${TRIM_TEMP_LOGFILE}"
     fi
     exit 1
   fi
 else
   if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "未找到 stop 脚本，拒绝继续卸载" >> "${TRIM_TEMP_LOGFILE}"
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "未找到 stop 脚本，拒绝继续卸载" "The stop script is missing. Uninstallation has been refused.")" >> "${TRIM_TEMP_LOGFILE}"
   fi
   exit 1
 fi

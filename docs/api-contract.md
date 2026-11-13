@@ -57,7 +57,8 @@
 - 开发态由 Vite proxy 转发 `/api` 与 `/api/events` 到本地 server。
 - JSON 接口使用浏览器原生 `fetch`。
 - SSE 使用 `fetch` 和 `ReadableStream` 解析，以请求头传递 JWT，令牌不得写入 URL。
-- 错误提示优先展示响应体中的 `message`；响应体不符合统一错误结构时按 HTTP 状态码展示通用错误。
+- 错误提示按稳定 `code` 和当前界面语言展示；中文沿用响应 `message`，英文使用前端字典，未知中文错误码显示可追查的通用提示。原始 `message` 保留在错误对象、任务快照与诊断中；外部引擎诊断和用户路径不逐字替换。非标准错误按 HTTP 状态码展示通用错误。
+- 更新检查、后端通信和引擎状态使用响应状态字段生成当前语言的提示，不依赖后端消息的文字判断。新增业务错误码须同步补充中英字典；任务恢复状态的稳定消息前缀也由同一字典解释。
 - 下载保存目录只允许从后端返回的 fnOS 已授权目录中选择；Web UI 不提供任意本地路径选择器。
 
 ## 3. 错误响应
@@ -462,11 +463,14 @@ JWT 鉴权失败响应包含稳定的 `code` 和同值的 `reason`，用于排�
   "failed": [
     {
       "input": "ftp://example.com/file.zip",
+      "code": "task_operation_failed",
       "message": "当前仅支持 HTTP / HTTPS 下载链接"
     }
   ]
 }
 ```
+
+批量失败项的 `code` 自 2.0.7 起提供，与单条任务错误分类一致，供客户端国际化；旧客户端可忽略该新增字段。
 
 `POST /api/tasks/torrent` 使用 `multipart/form-data`：
 

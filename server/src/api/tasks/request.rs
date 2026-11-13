@@ -46,6 +46,7 @@ pub(super) struct CreateBatchDownloadTasksResponse {
 #[serde(rename_all = "camelCase")]
 pub(super) struct CreateBatchDownloadTaskFailure {
     pub(super) input: String,
+    pub(super) code: String,
     pub(super) message: String,
 }
 

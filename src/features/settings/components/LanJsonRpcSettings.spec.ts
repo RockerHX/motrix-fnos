@@ -271,7 +271,7 @@ describe("LanJsonRpcSettings", () => {
     await flushPromises();
 
     expect(wrapper.get('[data-test="lan-json-rpc-endpoint"]').text()).toBe(
-      "http://<飞牛局域网IP>:17082/jsonrpc",
+      "http://<NAS-IP>:17082/jsonrpc",
     );
     expect(wrapper.find('[data-test="copy-lan-json-rpc-endpoint"]').exists()).toBe(false);
   });

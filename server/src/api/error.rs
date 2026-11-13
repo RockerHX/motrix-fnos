@@ -87,6 +87,10 @@ impl ApiError {
     pub fn status(&self) -> StatusCode {
         self.status
     }
+
+    pub(super) fn code(&self) -> &str {
+        &self.code
+    }
 }
 
 impl IntoResponse for ApiError {

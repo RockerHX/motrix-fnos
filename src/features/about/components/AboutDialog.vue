@@ -4,6 +4,7 @@ import { NButton, NDescriptions, NDescriptionsItem, NTabPane, NTabs, NTag } from
 import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppSectionCard from "../../../components/ui/AppSectionCard.vue";
 import { useI18n } from "../../../i18n";
+import { formatServerMessage } from "../../../i18n/serverMessages";
 import { recentChangelogEntries } from "../services/changelogService";
 import type { AppInfo, AppUpdateCheck, ReleaseAssetInfo, UpdateCheckStatus } from "../../../types/app";
 
@@ -151,7 +152,7 @@ function targetArchLabel(arch: string | undefined) {
 
           <div class="update-result">
             <NTag :type="updateStatusType" round>{{ statusLabel(props.updateCheck?.status) }}</NTag>
-            <p>{{ props.updateCheck?.message ?? t("about.update.notChecked") }}</p>
+            <p>{{ props.updateCheck ? formatServerMessage(props.updateCheck.message, `update_${props.updateCheck.status}`) : t("about.update.notChecked") }}</p>
           </div>
 
           <div v-if="props.updateCheck?.latestVersion" class="version-line">

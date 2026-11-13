@@ -17,6 +17,7 @@ import {
   updateDownloadTaskProxy,
 } from "../services/taskService";
 import { t } from "../../../i18n";
+import { formatServerMessage } from "../../../i18n/serverMessages";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { formatTaskError } from "../utils/taskFormat";
 import type { RuntimeExitingPayload, TasksSnapshotPayload } from "../../../services/runtimeEvents";
@@ -300,7 +301,7 @@ export const useTaskStore = defineStore("tasks", () => {
 
   function ensureRuntimeActive() {
     if (isDownloadBlocked.value) {
-      throw new Error(compatibility.value?.message || t("task.upgradeRequired"));
+      throw new Error(formatServerMessage(compatibility.value?.message ?? "", "engine_upgrade_required") || t("task.upgradeRequired"));
     }
     if (isRuntimeExiting.value) {
       throw new Error(t("task.runtimeExiting"));

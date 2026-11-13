@@ -558,11 +558,19 @@ reconcile_startup_orphans() {
   reconcile_startup_aria2_orphan
 }
 
+ui_message() {
+  case "${TRIM_SYS_LANGUAGE:-zh-CN}" in
+    [zZ][hH]*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$2" ;;
+  esac
+}
+
 fail_engine_upgrade() {
-  log_msg "$1" || true
-  printf '%s\n' "$1" >&2
+  message=$(ui_message "$1" "$2")
+  log_msg "${message}" || true
+  printf '%s\n' "${message}" >&2
   if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-    printf '%s\n' "$1" > "${TRIM_TEMP_LOGFILE}" || true
+    printf '%s\n' "${message}" > "${TRIM_TEMP_LOGFILE}" || true
   fi
   exit 1
 }
@@ -571,14 +579,14 @@ require_file() {
   path="$1"
   name="$2"
   if [ ! -f "${path}" ]; then
-    echo "${name} 不存在：${path}" >&2
+    ui_message "${name} 不存在：${path}" "${name} is missing: ${path}" >&2
     exit 1
   fi
   if [ ! -x "${path}" ]; then
     chmod +x "${path}" 2>/dev/null || true
   fi
   if [ ! -x "${path}" ]; then
-    echo "${name} 不可执行：${path}" >&2
+    ui_message "${name} 不可执行：${path}" "${name} is not executable: ${path}" >&2
     exit 1
   fi
 }

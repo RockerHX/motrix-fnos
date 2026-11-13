@@ -26,7 +26,7 @@ describe("lanJsonRpcEndpoint", () => {
   it("uses a non-copyable placeholder for domains and disallowed addresses", () => {
     for (const hostname of ["motrix.example.com", "127.0.0.1", "169.254.1.1", "172.32.0.1", "::1"]) {
       expect(lanJsonRpcEndpoint(hostname)).toEqual({
-        value: "http://<飞牛局域网IP>:17082/jsonrpc",
+        value: "http://<NAS-IP>:17082/jsonrpc",
         concrete: false,
       });
     }

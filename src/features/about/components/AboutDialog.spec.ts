@@ -122,8 +122,27 @@ vi.mock("../../../components/ui/AppDialog.vue", async () => {
 import AboutDialog from "./AboutDialog.vue";
 import { flushPromises, mountWithPinia } from "../../../test/mount";
 import type { AppInfo } from "../../../types/app";
+import { setLanguage } from "../../../i18n";
 
 describe("AboutDialog", () => {
+  it("shows update results in the selected language", async () => {
+    const { wrapper } = mountWithPinia(AboutDialog, {
+      props: { show: true, appInfo: createAppInfo(), updateCheck: {
+        currentVersion: "2.0.5", latestVersion: "2.0.5", status: "up_to_date", hasUpdate: false,
+        releaseUrl: null, assets: [], checkedAt: 1, message: "当前已是最新版本。",
+      } },
+    });
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.text()).toContain("You are using the latest version.");
+      expect(wrapper.text()).not.toContain("当前已是最新版本");
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
+  });
+
   it("renders the overview by default with fixed dialog content", () => {
     const { wrapper } = mountWithPinia(AboutDialog, {
       props: {
@@ -158,6 +177,20 @@ describe("AboutDialog", () => {
     await selectTab(wrapper, "概览");
     expect(wrapper.find('[data-pane="changelog"]').exists()).toBe(true);
     expect(wrapper.find('[data-pane="changelog"]').attributes("style") ?? "").toContain("display: none");
+    try {
+      setLanguage("en-US");
+      await wrapper.vm.$nextTick();
+      await selectTab(wrapper, "Changelog");
+      expect(wrapper.findAll(".changelog-entry")).toHaveLength(5);
+      expect(wrapper.get(".changelog-list").text()).not.toMatch(/\p{Script=Han}/u);
+      expect(wrapper.get(".changelog-list").text()).not.toContain("Translation pending");
+      setLanguage("zh-CN");
+      await wrapper.vm.$nextTick();
+      expect(wrapper.get(".changelog-list").text()).toMatch(/\p{Script=Han}/u);
+    } finally {
+      setLanguage("zh-CN");
+      wrapper.unmount();
+    }
   });
 
   it("emits close and checkUpdate events", async () => {

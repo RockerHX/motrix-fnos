@@ -11,7 +11,7 @@ describe("taskCreateFormModel", () => {
     const form = createTaskCreateFormState();
     expect(form).toMatchObject({
       startMode: "now",
-      category: "默认",
+      category: "",
       connections: null,
       downloadLimitKb: 0,
       useProxy: false,

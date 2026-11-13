@@ -6,7 +6,7 @@ set -eu
 prepare_runtime_dirs
 
 if [ -n "${TRIM_TEMP_LOGFILE:-}" ]; then
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "执行 $(basename "$0")" >> "${TRIM_TEMP_LOGFILE}"
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "正式包不再从应用设置同步旧授权目录快照" >> "${TRIM_TEMP_LOGFILE}"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "执行 $(basename "$0")" "Running $(basename "$0")")" >> "${TRIM_TEMP_LOGFILE}"
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(ui_message "正式包不再从应用设置同步旧授权目录快照" "Application settings no longer synchronize the legacy folder authorization snapshot.")" >> "${TRIM_TEMP_LOGFILE}"
 fi
 exit 0

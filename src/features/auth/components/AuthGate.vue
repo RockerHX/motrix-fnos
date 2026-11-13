@@ -65,14 +65,14 @@ function loginDiagnosticInfo() {
   const location = window.location;
   const origin = location.origin || `${location.protocol}//${location.host}`;
   return [
-    "Motrix 登录排障信息",
-    `访问协议：${location.protocol.replace(":", "") || "未知"}`,
-    `访问地址：${origin}`,
-    `是否 iframe：${window.self !== window.top ? "是" : "否"}`,
-    `localStorage 是否可用：${authStore.localStorageAvailable ? "是" : "否"}`,
-    `登录令牌是否存在：${authStore.hasAccessToken ? "是" : "否"}`,
-    `是否安全上下文：${window.isSecureContext ? "是" : "否"}`,
-    `User-Agent：${navigator.userAgent || "未知"}`,
+    t("auth.diagnostic.title"),
+    t("auth.diagnostic.protocol", { value: location.protocol.replace(":", "") || t("common.unknown") }),
+    t("auth.diagnostic.origin", { value: origin }),
+    t("auth.diagnostic.iframe", { value: t(window.self !== window.top ? "common.yes" : "common.no") }),
+    t("auth.diagnostic.storage", { value: t(authStore.localStorageAvailable ? "common.yes" : "common.no") }),
+    t("auth.diagnostic.token", { value: t(authStore.hasAccessToken ? "common.yes" : "common.no") }),
+    t("auth.diagnostic.secure", { value: t(window.isSecureContext ? "common.yes" : "common.no") }),
+    t("auth.diagnostic.userAgent", { value: navigator.userAgent || t("common.unknown") }),
   ].join("\n");
 }
 
@@ -203,7 +203,7 @@ async function focusPassword() {
           :value="diagnosticText"
           readonly
           data-test="auth-diagnostic-text"
-          aria-label="Login troubleshooting details"
+          :aria-label="t('auth.diagnostic.title')"
         />
       </section>
 

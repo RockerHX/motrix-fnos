@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, useSlots, type CSSProperties } from "vue";
 import { NButton, NCard, NModal } from "naive-ui";
+import { useI18n } from "../../i18n";
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -84,8 +87,8 @@ function closeDialog() {
             quaternary
             circle
             :disabled="props.closeDisabled"
-            aria-label="关闭"
-            title="关闭"
+            :aria-label="t('common.close')"
+            :title="t('common.close')"
             @click="closeDialog"
           >
             ×

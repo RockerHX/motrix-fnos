@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export interface ApiErrorResponse {
   code: string;
   message: string;
@@ -10,7 +12,7 @@ export class ApiError extends Error {
   reason?: string;
 
   constructor(status: number, payload: ApiErrorResponse) {
-    super(payload.message || `请求失败（${status}）`);
+    super(payload.message || t("server.httpFailed", { status }));
     this.name = "ApiError";
     this.code = payload.code;
     this.status = status;
@@ -73,7 +75,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
       ? payload
       : {
           code: "http_error",
-          message: typeof payload === "string" && payload ? payload : `请求失败（${response.status}）`,
+          message: typeof payload === "string" && payload ? payload : t("server.httpFailed", { status: response.status }),
         };
     const error = new ApiError(response.status, errorPayload);
     if (

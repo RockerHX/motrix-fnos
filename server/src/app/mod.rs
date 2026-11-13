@@ -689,55 +689,96 @@ async fn database_cleanup_history(before: &str, apply: bool) -> Result<(), Strin
     Ok(())
 }
 
+fn cli_message(chinese: &'static str, english: &'static str) -> &'static str {
+    match env::var("TRIM_SYS_LANGUAGE") {
+        Ok(language) if !language.to_ascii_lowercase().starts_with("zh") => english,
+        _ => chinese,
+    }
+}
+
 async fn reset_web_auth() -> Result<(), String> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Err("请在 NAS 本机交互终端执行 cmd/reset-web-auth，不支持管道或重定向".to_string());
+        return Err(cli_message("请在 NAS 本机交互终端执行 cmd/reset-web-auth，不支持管道或重定向", "Run cmd/reset-web-auth in a local interactive terminal on the NAS; pipes and redirection are not supported").to_string());
     }
     // 隐藏输入与信号后的终端恢复由 FPK 包装命令负责。
     let status = std::process::Command::new("stty")
         .arg("-a")
         .stdin(std::process::Stdio::inherit())
         .output()
-        .map_err(|_| "无法检查终端，请使用 cmd/reset-web-auth".to_string())?;
+        .map_err(|_| {
+            cli_message(
+                "无法检查终端，请使用 cmd/reset-web-auth",
+                "Could not inspect the terminal; use cmd/reset-web-auth",
+            )
+            .to_string()
+        })?;
     let settings = String::from_utf8_lossy(&status.stdout);
     if !status.status.success()
         || !settings
             .split_whitespace()
             .any(|value| value.trim_end_matches(';') == "-echo")
     {
-        return Err("请使用 cmd/reset-web-auth 进行隐藏输入，勿直接执行 server 命令".to_string());
+        return Err(cli_message("请使用 cmd/reset-web-auth 进行隐藏输入，勿直接执行 server 命令", "Use cmd/reset-web-auth for hidden input instead of invoking the server command directly").to_string());
     }
     let runtime = ServerRuntimeConfig::from_env()?;
     reset_web_auth_with_runtime(&runtime, || {
-        let password = read_terminal_password("请输入新管理密码：")?;
-        let confirmation = read_terminal_password("请再次输入新管理密码：")?;
+        let password = read_terminal_password(cli_message(
+            "请输入新管理密码：",
+            "Enter the new management password: ",
+        ))?;
+        let confirmation = read_terminal_password(cli_message(
+            "请再次输入新管理密码：",
+            "Enter the new management password again: ",
+        ))?;
         if password != confirmation {
-            return Err("两次输入的管理密码不一致，未修改密码".to_string());
+            return Err(cli_message(
+                "两次输入的管理密码不一致，未修改密码",
+                "The management passwords do not match; the password was not changed",
+            )
+            .to_string());
         }
         Ok(password)
     })
     .await?;
-    println!("管理密码已重置，旧登录凭据已失效");
+    println!(
+        "{}",
+        cli_message(
+            "管理密码已重置，旧登录凭据已失效",
+            "The management password was reset; previous access tokens are now invalid"
+        )
+    );
     Ok(())
 }
 
 fn read_terminal_password(prompt: &str) -> Result<String, String> {
     print!("{prompt}");
-    std::io::stdout()
-        .flush()
-        .map_err(|_| "无法显示密码提示".to_string())?;
+    std::io::stdout().flush().map_err(|_| {
+        cli_message("无法显示密码提示", "Could not display the password prompt").to_string()
+    })?;
     let mut bytes = Vec::new();
     let count = std::io::stdin()
         .lock()
         .take(514)
         .read_until(b'\n', &mut bytes)
-        .map_err(|_| "读取密码失败，未修改密码".to_string())?;
+        .map_err(|_| {
+            cli_message(
+                "读取密码失败，未修改密码",
+                "Could not read the password; the password was not changed",
+            )
+            .to_string()
+        })?;
     println!();
     if count == 0 || bytes.last() != Some(&b'\n') {
-        return Err("密码输入已取消或超过长度限制，未修改密码".to_string());
+        return Err(cli_message("密码输入已取消或超过长度限制，未修改密码", "Password input was cancelled or exceeded the length limit; the password was not changed").to_string());
     }
     bytes.pop();
-    String::from_utf8(bytes).map_err(|_| "密码必须是有效 UTF-8 文本".to_string())
+    String::from_utf8(bytes).map_err(|_| {
+        cli_message(
+            "密码必须是有效 UTF-8 文本",
+            "The password must be valid UTF-8 text",
+        )
+        .to_string()
+    })
 }
 
 async fn reset_web_auth_with_runtime(
@@ -751,7 +792,13 @@ async fn reset_web_auth_with_runtime(
         .reset(&password)
         .await
         .map(|_| ())
-        .map_err(|error| format!("重置 Web 鉴权失败：{error:?}"));
+        .map_err(|error| match error {
+            crate::auth::AuthError::InvalidPassword(_) => cli_message(
+                "密码必须为 8–128 个字符，且不能超过 512 字节；未修改密码",
+                "The password must contain 8–128 characters and use no more than 512 bytes; the password was not changed",
+            ).to_string(),
+            error => format!("{}: {error:?}", cli_message("重置 Web 鉴权失败", "Failed to reset web authentication")),
+        });
     database.pool.close().await;
     result
 }

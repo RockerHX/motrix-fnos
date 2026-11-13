@@ -4,5 +4,5 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 prepare_runtime_dirs
 if ! ensure_uninstall_processes_stopped; then
-  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。"
+  fail_engine_upgrade "升级失败：服务或引擎仍在运行，请先停止应用后重试。" "Upgrade failed. The service or engine is still running. Stop the application and try again."
 fi

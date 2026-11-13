@@ -6,6 +6,7 @@ import AppDialog from "../../../components/ui/AppDialog.vue";
 import AppDialogActions from "../../../components/ui/AppDialogActions.vue";
 import { getErrorMessage } from "../../../app/utils/errors";
 import { useI18n } from "../../../i18n";
+import { formatServerMessage } from "../../../i18n/serverMessages";
 import { useDownloadProxyStore } from "../stores/downloadProxyStore";
 import { useTaskStore } from "../../tasks/stores/taskStore";
 
@@ -174,7 +175,7 @@ onUnmounted(closeTransientState);
       <p>{{ mutationSummary }}</p>
       <ul v-if="store.lastMutation.failed.length > 0" class="proxy-settings-failures">
         <li v-for="failure in store.lastMutation.failed" :key="failure.taskId">
-          #{{ failure.taskId }} · {{ failure.message }}
+          #{{ failure.taskId }} · {{ formatServerMessage(failure.message, failure.code) }}
         </li>
       </ul>
     </NAlert>
