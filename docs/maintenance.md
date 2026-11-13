@@ -189,6 +189,7 @@ prepare 拒绝无关脏工作区，目标必须是更高正式版本；复用现
 - 该身份的 FN Connect 地址 `https://motrix.<account>.fnos.net/` 已有实机依据。桌面入口默认 `allUsers=false`，`control.accessPerm=editable` 可由管理员放开；不因此获得可信 `X-Trim-*` 身份。
 - 双架构 `os_min_version=1.2.0401`，不承诺支持 `1.2.0302`；正式包声明 `micro_app=true`，精确申请 `trim.file.sharedAccess`、`trim.file.path`。预检拒绝额外 Scope，扫描 Web 产物，禁止 `TRIM_API_TOKEN`、官方 Socket 路径和官方开放 API 的 Authorization Header 拼装代码进入产物。
 - 包根 `ICON.PNG` / `ICON_256.PNG`、入口 `app/ui/images/icon_64.png` / `icon_256.png` 及 Web `icon.png`，项目交付均为 **256×256**，由构建器同步校验；保留 `images/icon_{0}.png` 兼容文件名。
+- 当前发布图标源为 `assets/icons/logo/motrix.svg`，由原有磁盘图形移除中央飞牛标志而来；历史 `logo-fnos-*` 不作为导出源。使用 CairoSVG 按 256×256 光栅化，以 8-bit RGBA PNG 保存并写入 sRGB 标记，同步覆盖 `packaging/fnos/ICON.PNG`、`ICON_256.PNG` 和 `public/icon.png`；入口副本由构建器生成。2026-11-13 已复核[国内版](https://developer.fnnas.com/docs/core-concepts/icon/)及[国际版图标规范](https://developer.fygonas.com/cn/docs/core-concepts/icon/)中的圆角、留白与小尺寸辨识要求，本次保留已有磁盘造型和配色。
 - 官方规范仍为包图标和入口图标各有 64 / 256 两档，并要求正方形、sRGB、PNG/JPG、单文件不超过 1024 KB；全用 256 是本项目 2026-07-17 双架构 FPK 实机显示验证后的交付选择。模糊时先看包内尺寸，再强刷 / 清缓存 / 换浏览器，不只改一个图标。
 
 ### 实机验收

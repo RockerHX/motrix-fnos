@@ -8,6 +8,7 @@
 - Completed language support for shared dialogs, default category labels, RPC address placeholders, sign-in diagnostics, and log timestamps.
 - Localized API errors, task recovery warnings, proxy failures, update checks, and engine status messages while preserving original diagnostic data.
 - Added English in-app release notes that follow the selected interface language.
+- Removed fnOS branding from the app icon while keeping the Motrix disk design.
 
 ## 2.0.6 - 2026-11-12
 
