@@ -66,6 +66,10 @@ export function formatTaskEta(task: DownloadTask) {
 export function formatTaskError(task: DownloadTask) {
   const code = task.errorCode ? t("task.errorCode", { code: task.errorCode }) : "";
   const message = task.errorMessage || t("common.unknown");
+  // Match only the persisted app annotation; other engine messages may contain user paths.
+  if (task.errorCode === "16" && message === "Download aborted. 可能原因：Aria2 无法创建或写入目标文件，请检查下载目录权限和同名文件权限。") {
+    return `${code}Download aborted. ${t("task.error.writePermissionHint")}`;
+  }
   // Older recovery errors have no stable prefix; keep the raw field and show a review warning.
   const fallbackCode = !task.errorCode && /\p{Script=Han}/u.test(message) ? "task_manual_review" : undefined;
   return `${code}${formatServerMessage(message, fallbackCode)}`;
